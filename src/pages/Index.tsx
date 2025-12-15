@@ -1,12 +1,149 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useEffect } from 'react';
+import { Header } from '@/components/energy/Header';
+import { PowerGauge } from '@/components/energy/PowerGauge';
+import { EnergyStats } from '@/components/energy/EnergyStats';
+import { EnergyChart } from '@/components/energy/EnergyChart';
+import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
+import { SettingsPanel } from '@/components/energy/SettingsPanel';
+import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
+import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
+import { useSmartfoxData } from '@/hooks/useSmartfoxData';
+import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Activity, Database, Clock } from 'lucide-react';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
 
 const Index = () => {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis'>('dashboard');
+  const { settings, saveSettings, isLoading: settingsLoading } = useSmartfoxSettings();
+  const { 
+    currentReading, 
+    readings, 
+    isConnected, 
+    isPolling, 
+    lastError, 
+    testConnection,
+    pollOnce 
+  } = useSmartfoxData(settings);
+  const { 
+    analysis, 
+    isAnalyzing, 
+    analyzeDailyPattern, 
+    analyzeWeeklyComparison,
+    loadDailyPatterns 
+  } = usePatternAnalysis();
+
+  useEffect(() => {
+    loadDailyPatterns();
+  }, [loadDailyPatterns]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
-      </div>
+    <div className="min-h-screen bg-background grid-pattern">
+      <Header activeTab={activeTab} onTabChange={setActiveTab} />
+
+      <main className="container mx-auto px-4 py-6 space-y-6">
+        {activeTab === 'dashboard' && (
+          <>
+            <ConnectionStatus
+              isConnected={isConnected}
+              isPolling={isPolling}
+              lastUpdate={currentReading?.timestamp}
+              error={lastError}
+              onRefresh={pollOnce}
+            />
+
+            <div className="grid lg:grid-cols-3 gap-6">
+              <Card className="lg:col-span-1 flex flex-col items-center justify-center py-8">
+                <CardHeader className="pb-4 text-center">
+                  <CardTitle className="text-lg">Aktuelle Leistung</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <PowerGauge power={currentReading?.power_io ?? 0} />
+                </CardContent>
+              </Card>
+
+              <div className="lg:col-span-2 space-y-6">
+                <EnergyStats
+                  energyIn={currentReading?.energy_in ?? 0}
+                  energyOut={currentReading?.energy_out ?? 0}
+                />
+                
+                <EnergyChart readings={readings} />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-3 gap-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Database className="w-4 h-4 text-primary" />
+                    Gespeicherte Messungen
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold font-mono">{readings.length}</div>
+                  <p className="text-xs text-muted-foreground">in der Datenbank</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-primary" />
+                    Polling-Intervall
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold font-mono">{settings.polling_interval}s</div>
+                  <p className="text-xs text-muted-foreground">Abfrageintervall</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-primary" />
+                    Erste Messung
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-lg font-bold font-mono">
+                    {readings.length > 0 
+                      ? format(new Date(readings[readings.length - 1].timestamp), 'dd.MM. HH:mm', { locale: de })
+                      : '-'
+                    }
+                  </div>
+                  <p className="text-xs text-muted-foreground">ältester Datenpunkt</p>
+                </CardContent>
+              </Card>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'settings' && (
+          <SettingsPanel
+            settings={settings}
+            onSave={saveSettings}
+            onTest={testConnection}
+            isLoading={settingsLoading}
+          />
+        )}
+
+        {activeTab === 'analysis' && (
+          <div className="space-y-6">
+            <AnalysisPanel
+              readings={readings}
+              analysis={analysis}
+              isAnalyzing={isAnalyzing}
+              onAnalyzeDaily={analyzeDailyPattern}
+              onAnalyzeWeekly={analyzeWeeklyComparison}
+            />
+
+            <EnergyChart readings={readings} title="Daten für Analyse" />
+          </div>
+        )}
+      </main>
     </div>
   );
 };
