@@ -94,28 +94,118 @@ export type Database = {
       }
       energy_readings: {
         Row: {
+          battery_soc: number | null
+          consumption: number | null
           created_at: string
           energy_in: number
           energy_out: number
           id: string
           power_io: number
+          pv_power: number | null
           timestamp: string
         }
         Insert: {
+          battery_soc?: number | null
+          consumption?: number | null
           created_at?: string
           energy_in: number
           energy_out: number
           id?: string
           power_io: number
+          pv_power?: number | null
           timestamp?: string
         }
         Update: {
+          battery_soc?: number | null
+          consumption?: number | null
           created_at?: string
           energy_in?: number
           energy_out?: number
           id?: string
           power_io?: number
+          pv_power?: number | null
           timestamp?: string
+        }
+        Relationships: []
+      }
+      heating_recommendations: {
+        Row: {
+          created_at: string
+          date: string
+          end_time: string
+          expected_pv_surplus: number | null
+          id: string
+          period_number: number
+          priority: string | null
+          reason: string | null
+          recommended_temp: number
+          start_time: string
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          end_time: string
+          expected_pv_surplus?: number | null
+          id?: string
+          period_number: number
+          priority?: string | null
+          reason?: string | null
+          recommended_temp: number
+          start_time: string
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          end_time?: string
+          expected_pv_surplus?: number | null
+          id?: string
+          period_number?: number
+          priority?: string | null
+          reason?: string | null
+          recommended_temp?: number
+          start_time?: string
+        }
+        Relationships: []
+      }
+      heating_settings: {
+        Row: {
+          battery_capacity_kwh: number
+          comfort_temp: number
+          created_at: string
+          eco_temp: number
+          id: string
+          min_battery_soc: number
+          night_temp: number
+          preheat_hours: number
+          pv_capacity_kwp: number
+          target_battery_soc: number
+          updated_at: string
+        }
+        Insert: {
+          battery_capacity_kwh?: number
+          comfort_temp?: number
+          created_at?: string
+          eco_temp?: number
+          id?: string
+          min_battery_soc?: number
+          night_temp?: number
+          preheat_hours?: number
+          pv_capacity_kwp?: number
+          target_battery_soc?: number
+          updated_at?: string
+        }
+        Update: {
+          battery_capacity_kwh?: number
+          comfort_temp?: number
+          created_at?: string
+          eco_temp?: number
+          id?: string
+          min_battery_soc?: number
+          night_temp?: number
+          preheat_hours?: number
+          pv_capacity_kwp?: number
+          target_battery_soc?: number
+          updated_at?: string
         }
         Relationships: []
       }

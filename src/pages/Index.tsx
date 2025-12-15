@@ -6,6 +6,7 @@ import { EnergyChart } from '@/components/energy/EnergyChart';
 import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
+import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
 import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
@@ -15,7 +16,7 @@ import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis' | 'heating'>('dashboard');
   const { settings, saveSettings, isLoading: settingsLoading } = useSmartfoxSettings();
   const { 
     currentReading, 
@@ -142,6 +143,13 @@ const Index = () => {
 
             <EnergyChart readings={readings} title="Daten für Analyse" />
           </div>
+        )}
+
+        {activeTab === 'heating' && (
+          <HeatingDashboard 
+            readings={readings}
+            currentReading={currentReading}
+          />
         )}
       </main>
     </div>
