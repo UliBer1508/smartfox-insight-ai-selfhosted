@@ -1,10 +1,10 @@
-import { Zap, Settings, BarChart3, Moon, Sun } from 'lucide-react';
+import { Zap, Settings, BarChart3, Moon, Sun, Thermometer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'settings' | 'analysis';
-  onTabChange: (tab: 'dashboard' | 'settings' | 'analysis') => void;
+  activeTab: 'dashboard' | 'settings' | 'analysis' | 'heating';
+  onTabChange: (tab: 'dashboard' | 'settings' | 'analysis' | 'heating') => void;
 }
 
 export function Header({ activeTab, onTabChange }: HeaderProps) {
@@ -28,30 +28,38 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
             </div>
           </div>
 
-          <nav className="flex items-center gap-2">
+          <nav className="flex items-center gap-1 md:gap-2 flex-wrap">
             <Button
               variant={activeTab === 'dashboard' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => onTabChange('dashboard')}
             >
-              <BarChart3 className="w-4 h-4 mr-2" />
-              Dashboard
+              <BarChart3 className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Dashboard</span>
+            </Button>
+            <Button
+              variant={activeTab === 'heating' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => onTabChange('heating')}
+            >
+              <Thermometer className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Heizung</span>
             </Button>
             <Button
               variant={activeTab === 'analysis' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => onTabChange('analysis')}
             >
-              <Zap className="w-4 h-4 mr-2" />
-              Analyse
+              <Zap className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Analyse</span>
             </Button>
             <Button
               variant={activeTab === 'settings' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => onTabChange('settings')}
             >
-              <Settings className="w-4 h-4 mr-2" />
-              Einstellungen
+              <Settings className="w-4 h-4 md:mr-2" />
+              <span className="hidden md:inline">Einstellungen</span>
             </Button>
 
             <div className="w-px h-6 bg-border mx-2" />
