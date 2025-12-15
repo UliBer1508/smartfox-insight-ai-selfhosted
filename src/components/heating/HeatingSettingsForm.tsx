@@ -3,14 +3,26 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save } from 'lucide-react';
+import { Settings, Save, MapPin } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
   onSave: (settings: Partial<HeatingSettings>) => void;
   isLoading: boolean;
 }
+
+const AZIMUTH_OPTIONS = [
+  { value: '0', label: 'Süd (0°)' },
+  { value: '45', label: 'Südwest (45°)' },
+  { value: '-45', label: 'Südost (-45°)' },
+  { value: '90', label: 'West (90°)' },
+  { value: '-90', label: 'Ost (-90°)' },
+  { value: '135', label: 'Nordwest (135°)' },
+  { value: '-135', label: 'Nordost (-135°)' },
+  { value: '180', label: 'Nord (180°)' },
+];
 
 export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSettingsFormProps) {
   const [formData, setFormData] = useState(settings);
@@ -32,7 +44,7 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
           Anlagen-Konfiguration
         </CardTitle>
         <CardDescription>
-          Einstellungen für PV-Anlage, Batterie und Temperaturen
+          Einstellungen für PV-Anlage, Batterie, Temperaturen und Standort
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -123,6 +135,66 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                 onChange={(e) => handleChange('night_temp', parseFloat(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">Nachtabsenkung</p>
+            </div>
+          </div>
+
+          {/* Location Settings for PV Forecast */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <MapPin className="w-4 h-4" />
+              Standort für PV-Prognose
+            </h3>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="latitude">Breitengrad</Label>
+                <Input
+                  id="latitude"
+                  type="number"
+                  step="0.00001"
+                  value={formData.latitude || 47.24983}
+                  onChange={(e) => handleChange('latitude', parseFloat(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="longitude">Längengrad</Label>
+                <Input
+                  id="longitude"
+                  type="number"
+                  step="0.00001"
+                  value={formData.longitude || 12.25415}
+                  onChange={(e) => handleChange('longitude', parseFloat(e.target.value))}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="azimuth">Ausrichtung</Label>
+                <Select
+                  value={String(formData.roof_azimuth || 0)}
+                  onValueChange={(value) => handleChange('roof_azimuth', parseInt(value))}
+                >
+                  <SelectTrigger id="azimuth">
+                    <SelectValue placeholder="Wählen..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AZIMUTH_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="declination">Neigung (°)</Label>
+                <Input
+                  id="declination"
+                  type="number"
+                  min="0"
+                  max="90"
+                  value={formData.roof_declination || 35}
+                  onChange={(e) => handleChange('roof_declination', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">0° = flach, 90° = senkrecht</p>
+              </div>
             </div>
           </div>
 

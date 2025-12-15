@@ -5,9 +5,11 @@ import { EnergyReading } from '@/types/energy';
 import { HeatingSettings, HeatingAnalysisResult } from '@/types/heating';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
+import { usePvForecast } from '@/hooks/usePvForecast';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { HeatingSettingsForm } from './HeatingSettingsForm';
 import { BatteryStatus } from './BatteryStatus';
+import { PvForecastCard } from './PvForecastCard';
 import { Thermometer, Loader2, Zap, Sun, Battery } from 'lucide-react';
 
 interface HeatingDashboardProps {
@@ -24,10 +26,19 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     loadRecommendations,
     analyzeHeating 
   } = useHeatingAnalysis();
+  const {
+    forecasts,
+    todayForecast,
+    tomorrowForecast,
+    isFetching,
+    loadForecasts,
+    fetchForecast,
+  } = usePvForecast();
 
   useEffect(() => {
     loadRecommendations();
-  }, [loadRecommendations]);
+    loadForecasts();
+  }, [loadRecommendations, loadForecasts]);
 
   const handleAnalyze = () => {
     analyzeHeating(readings, settings);
@@ -39,7 +50,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
   return (
     <div className="space-y-6">
       {/* Current Status Cards */}
-      <div className="grid md:grid-cols-3 gap-4">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
         <BatteryStatus 
           soc={latestSoc} 
           capacity={settings.battery_capacity_kwh} 
@@ -76,6 +87,16 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
             <p className="text-xs text-muted-foreground">aktuelle Empfehlung</p>
           </CardContent>
         </Card>
+
+        {/* PV Forecast Card */}
+        <PvForecastCard
+          todayForecast={todayForecast}
+          tomorrowForecast={tomorrowForecast}
+          weekForecasts={forecasts}
+          onRefresh={fetchForecast}
+          isRefreshing={isFetching}
+          pvCapacity={settings.pv_capacity_kwp}
+        />
       </div>
 
       {/* Analysis Section */}

@@ -174,10 +174,14 @@ export type Database = {
           created_at: string
           eco_temp: number
           id: string
+          latitude: number | null
+          longitude: number | null
           min_battery_soc: number
           night_temp: number
           preheat_hours: number
           pv_capacity_kwp: number
+          roof_azimuth: number | null
+          roof_declination: number | null
           target_battery_soc: number
           updated_at: string
         }
@@ -187,10 +191,14 @@ export type Database = {
           created_at?: string
           eco_temp?: number
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           min_battery_soc?: number
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
+          roof_azimuth?: number | null
+          roof_declination?: number | null
           target_battery_soc?: number
           updated_at?: string
         }
@@ -200,10 +208,14 @@ export type Database = {
           created_at?: string
           eco_temp?: number
           id?: string
+          latitude?: number | null
+          longitude?: number | null
           min_battery_soc?: number
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
+          roof_azimuth?: number | null
+          roof_declination?: number | null
           target_battery_soc?: number
           updated_at?: string
         }
@@ -242,6 +254,39 @@ export type Database = {
           reading_count?: number
           total_energy_in?: number
           total_energy_out?: number
+        }
+        Relationships: []
+      }
+      pv_forecasts: {
+        Row: {
+          created_at: string
+          date: string
+          expected_kwh: number
+          fetched_at: string
+          hourly_watts: Json | null
+          id: string
+          sunrise: string | null
+          sunset: string | null
+        }
+        Insert: {
+          created_at?: string
+          date: string
+          expected_kwh?: number
+          fetched_at?: string
+          hourly_watts?: Json | null
+          id?: string
+          sunrise?: string | null
+          sunset?: string | null
+        }
+        Update: {
+          created_at?: string
+          date?: string
+          expected_kwh?: number
+          fetched_at?: string
+          hourly_watts?: Json | null
+          id?: string
+          sunrise?: string | null
+          sunset?: string | null
         }
         Relationships: []
       }

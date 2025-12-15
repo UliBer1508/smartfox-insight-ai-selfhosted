@@ -21,8 +21,23 @@ export interface HeatingSettings {
   eco_temp: number;
   night_temp: number;
   preheat_hours: number;
+  latitude?: number;
+  longitude?: number;
+  roof_azimuth?: number;
+  roof_declination?: number;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface PvForecast {
+  id?: string;
+  date: string;
+  expected_kwh: number;
+  hourly_watts: Record<string, number>;
+  sunrise?: string;
+  sunset?: string;
+  fetched_at?: string;
+  created_at?: string;
 }
 
 export interface TGP508Period {
