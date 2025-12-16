@@ -8,6 +8,8 @@ const DEFAULT_SETTINGS: SmartfoxSettings = {
   polling_interval: 60,
   api_path: '/power',
   is_active: false,
+  fronius_ip: '',
+  fronius_is_active: false,
 };
 
 export function useSmartfoxSettings() {
