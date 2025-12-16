@@ -16,6 +16,8 @@ export interface SmartfoxSettings {
   polling_interval: number;
   api_path: string;
   is_active: boolean;
+  fronius_ip?: string;
+  fronius_is_active?: boolean;
   created_at?: string;
   updated_at?: string;
 }

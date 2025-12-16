@@ -294,6 +294,8 @@ export type Database = {
         Row: {
           api_path: string | null
           created_at: string
+          fronius_ip: string | null
+          fronius_is_active: boolean | null
           id: string
           is_active: boolean | null
           polling_interval: number
@@ -303,6 +305,8 @@ export type Database = {
         Insert: {
           api_path?: string | null
           created_at?: string
+          fronius_ip?: string | null
+          fronius_is_active?: boolean | null
           id?: string
           is_active?: boolean | null
           polling_interval?: number
@@ -312,6 +316,8 @@ export type Database = {
         Update: {
           api_path?: string | null
           created_at?: string
+          fronius_ip?: string | null
+          fronius_is_active?: boolean | null
           id?: string
           is_active?: boolean | null
           polling_interval?: number
