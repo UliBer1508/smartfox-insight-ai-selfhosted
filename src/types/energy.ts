@@ -60,4 +60,25 @@ export interface SmartfoxApiResponse {
   power: number;
   energyIn: number;
   energyOut: number;
+  pvPower?: number;
+  pvEnergy?: number;
+  consumption?: number;
+  powerSmartfox?: number;
+  energySmartfox?: number;
+  relayStatus?: boolean[];
+}
+
+// Raw response from Smartfox /all endpoint
+export interface SmartfoxAllResponse {
+  energy_in?: number;
+  energy_out?: number;
+  energy_sf?: number;
+  power_in?: number;
+  power_out?: number;
+  power_sf?: number;
+  PvPower?: number[];
+  PvEnergy?: number[];
+  outputs?: boolean[];
+  voltages?: number[];
+  currents?: number[];
 }
