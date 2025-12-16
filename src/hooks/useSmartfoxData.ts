@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { EnergyReading, SmartfoxSettings, SmartfoxApiResponse } from '@/types/energy';
+import { EnergyReading, SmartfoxSettings, SmartfoxApiResponse, SmartfoxAllResponse } from '@/types/energy';
 import { toast } from 'sonner';
 
 export function useSmartfoxData(settings: SmartfoxSettings) {
@@ -13,7 +13,9 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
 
   const fetchFromSmartfox = useCallback(async (): Promise<SmartfoxApiResponse | null> => {
     try {
-      const url = `http://${settings.smartfox_ip}${settings.api_path}`;
+      // Use /all endpoint for extended data
+      const basePath = settings.api_path === '/power' ? '/all' : settings.api_path;
+      const url = `http://${settings.smartfox_ip}${basePath}`;
       console.log('Fetching from Smartfox:', url);
       
       const response = await fetch(url, {
@@ -25,15 +27,37 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
         throw new Error(`HTTP ${response.status}`);
       }
       
-      const data = await response.json();
+      const data: SmartfoxAllResponse = await response.json();
       setIsConnected(true);
       setLastError(null);
       
-      // Smartfox API response mapping
+      console.log('Smartfox /all response:', data);
+      
+      // Calculate total power: positive = import, negative = export
+      const powerIn = data.power_in ?? 0;
+      const powerOut = data.power_out ?? 0;
+      const powerTotal = powerIn - powerOut;
+      
+      // Sum PV power from all inverters (if array)
+      const pvPowerTotal = Array.isArray(data.PvPower) 
+        ? data.PvPower.reduce((sum, p) => sum + (p ?? 0), 0) 
+        : 0;
+      
+      // Sum PV energy from all inverters (if array)
+      const pvEnergyTotal = Array.isArray(data.PvEnergy) 
+        ? data.PvEnergy.reduce((sum, e) => sum + (e ?? 0), 0) 
+        : 0;
+      
       return {
-        power: data.power_io ?? data.power ?? data.Power ?? 0,
-        energyIn: data.energy_in ?? data.energyIn ?? data.EnergyIn ?? 0,
-        energyOut: data.energy_out ?? data.energyOut ?? data.EnergyOut ?? 0,
+        power: powerTotal,
+        energyIn: data.energy_in ?? 0,
+        energyOut: data.energy_out ?? 0,
+        pvPower: pvPowerTotal,
+        pvEnergy: pvEnergyTotal,
+        powerSmartfox: data.power_sf ?? 0,
+        energySmartfox: data.energy_sf ?? 0,
+        consumption: powerTotal + pvPowerTotal, // Verbrauch = Netzbezug + PV-Eigenverbrauch
+        relayStatus: data.outputs ?? [],
       };
     } catch (error) {
       console.error('Smartfox fetch error:', error);
@@ -49,6 +73,8 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
       power_io: data.power,
       energy_in: data.energyIn,
       energy_out: data.energyOut,
+      pv_power: data.pvPower ?? null,
+      consumption: data.consumption ?? null,
     };
 
     try {
