@@ -1,6 +1,7 @@
-import { Zap, Settings, BarChart3, Moon, Sun, Thermometer } from 'lucide-react';
+import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
+import { usePWAInstall } from '@/hooks/usePWAInstall';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'settings' | 'analysis' | 'heating';
@@ -9,10 +10,15 @@ interface HeaderProps {
 
 export function Header({ activeTab, onTabChange }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
+  const { isInstallable, isInstalled, promptInstall } = usePWAInstall();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
+
+  const handleInstall = async () => {
+    await promptInstall();
+  };
 
   return (
     <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
@@ -63,6 +69,18 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
             </Button>
 
             <div className="w-px h-6 bg-border mx-2" />
+
+            {isInstallable && !isInstalled && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleInstall}
+                className="gap-1.5"
+              >
+                <Download className="w-4 h-4" />
+                <span className="hidden md:inline">Installieren</span>
+              </Button>
+            )}
             
             <Button
               variant="ghost"

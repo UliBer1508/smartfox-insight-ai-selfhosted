@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#ffffff">
+  <title>Offline - Smartfox Energy</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    
+    .container {
+      text-align: center;
+      max-width: 400px;
+    }
+    
+    .logo {
+      width: 80px;
+      height: 80px;
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      box-shadow: 0 10px 40px rgba(34, 197, 94, 0.3);
+    }
+    
+    .logo span {
+      color: white;
+      font-size: 28px;
+      font-weight: bold;
+    }
+    
+    h1 {
+      font-size: 24px;
+      color: #1e293b;
+      margin-bottom: 12px;
+    }
+    
+    p {
+      color: #64748b;
+      font-size: 16px;
+      line-height: 1.6;
+      margin-bottom: 32px;
+    }
+    
+    .offline-icon {
+      width: 120px;
+      height: 120px;
+      margin: 0 auto 24px;
+      opacity: 0.6;
+    }
+    
+    .offline-icon svg {
+      width: 100%;
+      height: 100%;
+    }
+    
+    button {
+      background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+      color: white;
+      border: none;
+      padding: 14px 32px;
+      font-size: 16px;
+      font-weight: 600;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(34, 197, 94, 0.3);
+    }
+    
+    button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 24px rgba(34, 197, 94, 0.4);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    .status {
+      margin-top: 24px;
+      padding: 12px 20px;
+      background: #fef3c7;
+      border-radius: 8px;
+      color: #92400e;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="offline-icon">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="#94a3b8" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M8.288 15.038a5.25 5.25 0 017.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 011.06 0z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M2 2l20 20" stroke="#ef4444" stroke-width="2" />
+      </svg>
+    </div>
+    
+    <div class="logo">
+      <span>SF</span>
+    </div>
+    
+    <h1>Du bist offline</h1>
+    <p>Keine Internetverbindung verfügbar. Bitte überprüfe deine Verbindung und versuche es erneut.</p>
+    
+    <button onclick="window.location.reload()">
+      Erneut versuchen
+    </button>
+    
+    <div class="status">
+      📡 Warte auf Verbindung...
+    </div>
+  </div>
+  
+  <script>
+    // Auto-reload when back online
+    window.addEventListener('online', () => {
+      window.location.reload();
+    });
+    
+    // Update status text
+    if (navigator.onLine) {
+      document.querySelector('.status').textContent = '✅ Verbindung wiederhergestellt!';
+      setTimeout(() => window.location.reload(), 1000);
+    }
+  </script>
+</body>
+</html>
