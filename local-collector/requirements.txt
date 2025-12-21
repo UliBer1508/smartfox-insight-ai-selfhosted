@@ -1,0 +1,7 @@
+# Smartfox & Fronius Datensammler - Abhängigkeiten
+
+# HTTP-Anfragen an Smartfox und Fronius
+requests>=2.28.0
+
+# Supabase Python Client für Datenbank-Zugriff
+supabase>=2.0.0
