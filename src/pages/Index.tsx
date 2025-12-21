@@ -7,9 +7,11 @@ import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
 import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
+import { BatteryStatus } from '@/components/heating/BatteryStatus';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
 import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
+import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Activity, Database, Clock } from 'lucide-react';
 import { format } from 'date-fns';
@@ -18,6 +20,7 @@ import { de } from 'date-fns/locale';
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis' | 'heating'>('dashboard');
   const { settings, saveSettings, isLoading: settingsLoading } = useSmartfoxSettings();
+  const { settings: heatingSettings } = useHeatingSettings();
   const { 
     currentReading, 
     readings, 
@@ -55,14 +58,21 @@ const Index = () => {
             />
 
             <div className="grid lg:grid-cols-3 gap-6">
-              <Card className="lg:col-span-1 flex flex-col items-center justify-center py-8">
-                <CardHeader className="pb-4 text-center">
-                  <CardTitle className="text-lg">Aktuelle Leistung</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <PowerGauge power={currentReading?.power_io ?? 0} />
-                </CardContent>
-              </Card>
+              <div className="lg:col-span-1 space-y-4">
+                <Card className="flex flex-col items-center justify-center py-8">
+                  <CardHeader className="pb-4 text-center">
+                    <CardTitle className="text-lg">Aktuelle Leistung</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <PowerGauge power={currentReading?.power_io ?? 0} />
+                  </CardContent>
+                </Card>
+
+                <BatteryStatus 
+                  soc={currentReading?.battery_soc ?? null}
+                  capacity={heatingSettings.battery_capacity_kwh}
+                />
+              </div>
 
               <div className="lg:col-span-2 space-y-6">
                 <EnergyStats
