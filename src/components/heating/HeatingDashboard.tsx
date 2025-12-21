@@ -1,16 +1,22 @@
-import { useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnergyReading } from '@/types/energy';
 import { HeatingSettings, HeatingAnalysisResult } from '@/types/heating';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
 import { usePvForecast } from '@/hooks/usePvForecast';
+import { useRooms } from '@/hooks/useRooms';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { HeatingSettingsForm } from './HeatingSettingsForm';
 import { BatteryStatus } from './BatteryStatus';
 import { PvForecastCard } from './PvForecastCard';
-import { Thermometer, Loader2, Zap, Sun, Battery } from 'lucide-react';
+import { RoomManager } from './RoomManager';
+import { RoomRecommendations } from './RoomRecommendations';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from 'sonner';
 
 interface HeatingDashboardProps {
   readings: EnergyReading[];
@@ -24,7 +30,8 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     analysisResult, 
     recommendations,
     loadRecommendations,
-    analyzeHeating 
+    analyzeHeating,
+    setAnalysisResult
   } = useHeatingAnalysis();
   const {
     forecasts,
@@ -34,6 +41,18 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     loadForecasts,
     fetchForecast,
   } = usePvForecast();
+  const {
+    rooms,
+    isLoading: roomsLoading,
+    saveRoom,
+    deleteRoom,
+    saveRecommendations: saveRoomRecommendations,
+    getCurrentRecommendation,
+    loadRecommendations: loadRoomRecommendations
+  } = useRooms();
+
+  const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
+  const [roomStrategy, setRoomStrategy] = useState<string>('');
 
   useEffect(() => {
     loadRecommendations();
@@ -42,6 +61,75 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
 
   const handleAnalyze = () => {
     analyzeHeating(readings, settings);
+  };
+
+  const handleAnalyzeRooms = async () => {
+    if (rooms.length === 0) {
+      toast.error('Bitte lege zuerst Räume an');
+      return;
+    }
+    
+    if (readings.length < 5) {
+      toast.error('Nicht genügend Energiedaten für Analyse');
+      return;
+    }
+
+    setIsAnalyzingRooms(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-patterns', {
+        body: { 
+          readings: readings.slice(-100),
+          heatingSettings: settings,
+          rooms: rooms,
+          type: 'room_heating_optimization'
+        }
+      });
+
+      if (error) throw error;
+
+      if (data.roomHeatingPlan) {
+        const plan = data.roomHeatingPlan;
+        setRoomStrategy(plan.strategy || '');
+        
+        // Map room names to room IDs and save recommendations
+        const today = new Date().toISOString().split('T')[0];
+        const newRecommendations = plan.rooms.flatMap((roomPlan: any) => {
+          const room = rooms.find(r => r.name === roomPlan.room_name);
+          if (!room?.id) return [];
+          
+          // Create current period recommendation
+          const now = new Date();
+          const currentHour = now.getHours();
+          const currentPeriod = roomPlan.periods?.find((p: any) => {
+            const startHour = parseInt(p.start_time.split(':')[0]);
+            const endHour = parseInt(p.end_time.split(':')[0]);
+            return currentHour >= startHour && currentHour < endHour;
+          }) || roomPlan.periods?.[0];
+          
+          return {
+            room_id: room.id,
+            date: today,
+            period_number: 1,
+            start_time: currentPeriod?.start_time || '06:00',
+            end_time: currentPeriod?.end_time || '22:00',
+            recommended_temp: roomPlan.recommended_temp,
+            reason: roomPlan.reason,
+            priority: roomPlan.priority
+          };
+        });
+
+        await saveRoomRecommendations(newRecommendations);
+        await loadRoomRecommendations();
+        toast.success('Raumspezifische Empfehlungen erstellt');
+      } else if (data.error) {
+        throw new Error(data.error);
+      }
+    } catch (error) {
+      console.error('Room analysis error:', error);
+      toast.error('Fehler bei der Raumanalyse');
+    } finally {
+      setIsAnalyzingRooms(false);
+    }
   };
 
   const latestSoc = currentReading?.battery_soc ?? null;
@@ -99,79 +187,145 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
         />
       </div>
 
-      {/* Analysis Section */}
+      {/* Room Recommendations - show if rooms exist */}
+      {rooms.length > 0 && (
+        <RoomRecommendations 
+          rooms={rooms}
+          getCurrentRecommendation={getCurrentRecommendation}
+          strategy={roomStrategy}
+        />
+      )}
+
+      {/* Analysis Section with Tabs */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Zap className="w-5 h-5 text-primary" />
-            Heizungs-Optimierung für TGP508
+            Heizungs-Optimierung
           </CardTitle>
           <CardDescription>
-            KI-basierte Thermostat-Empfehlungen für deine 6 Zeitperioden
+            KI-basierte Thermostat-Empfehlungen
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Button 
-            onClick={handleAnalyze}
-            disabled={isAnalyzing || readings.length < 5}
-            className="w-full md:w-auto"
-          >
-            {isAnalyzing ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Analysiere...
-              </>
-            ) : (
-              <>
+          <Tabs defaultValue={rooms.length > 0 ? "rooms" : "global"} className="w-full">
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="global">
                 <Thermometer className="w-4 h-4 mr-2" />
-                Heizplan generieren
-              </>
-            )}
-          </Button>
+                TGP508 Global
+              </TabsTrigger>
+              <TabsTrigger value="rooms">
+                <Home className="w-4 h-4 mr-2" />
+                Raumweise
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Thermostat Periods */}
-          {analysisResult?.periods && analysisResult.periods.length > 0 && (
-            <div className="space-y-4">
-              <h3 className="font-semibold text-lg">📅 Empfohlener Heizplan für deinen TGP508:</h3>
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {analysisResult.periods.map((period) => (
-                  <HeatingPeriodCard key={period.period} period={period} />
-                ))}
+            <TabsContent value="global" className="space-y-4 mt-4">
+              <Button 
+                onClick={handleAnalyze}
+                disabled={isAnalyzing || readings.length < 5}
+                className="w-full md:w-auto"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Analysiere...
+                  </>
+                ) : (
+                  <>
+                    <Thermometer className="w-4 h-4 mr-2" />
+                    Heizplan generieren
+                  </>
+                )}
+              </Button>
+
+              {/* Thermostat Periods */}
+              {analysisResult?.periods && analysisResult.periods.length > 0 && (
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-lg">📅 Empfohlener Heizplan für deinen TGP508:</h3>
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {analysisResult.periods.map((period) => (
+                      <HeatingPeriodCard key={period.period} period={period} />
+                    ))}
+                  </div>
+                  
+                  {/* Summary */}
+                  <div className="p-4 rounded-lg border bg-muted/50 space-y-2">
+                    <p className="flex items-center gap-2 text-sm">
+                      <Sun className="w-4 h-4 text-energy-export" />
+                      <strong>Erwarteter PV-Überschuss:</strong> ~{analysisResult.expectedPvSurplus.toFixed(1)} kWh
+                    </p>
+                    <p className="flex items-center gap-2 text-sm">
+                      <Battery className="w-4 h-4 text-primary" />
+                      <strong>Batterie-Strategie:</strong> {analysisResult.batteryStrategy}
+                    </p>
+                    {analysisResult.recommendations.map((rec, i) => (
+                      <p key={i} className="text-sm text-muted-foreground">💡 {rec}</p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Text Analysis Fallback */}
+              {analysisResult?.summary && (!analysisResult.periods || analysisResult.periods.length === 0) && (
+                <div className="p-4 rounded-lg border bg-card whitespace-pre-wrap text-sm">
+                  {analysisResult.summary}
+                </div>
+              )}
+
+              {!analysisResult && !isAnalyzing && (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Thermometer className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Klicke auf &quot;Heizplan generieren&quot; für optimierte Thermostat-Zeiten.</p>
+                  <p className="text-xs mt-2">Basierend auf deinen PV- und Batterie-Daten.</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="rooms" className="space-y-4 mt-4">
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Button 
+                  onClick={handleAnalyzeRooms}
+                  disabled={isAnalyzingRooms || readings.length < 5 || rooms.length === 0}
+                  className="w-full sm:w-auto"
+                >
+                  {isAnalyzingRooms ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Analysiere Räume...
+                    </>
+                  ) : (
+                    <>
+                      <Home className="w-4 h-4 mr-2" />
+                      Raumempfehlungen erstellen
+                    </>
+                  )}
+                </Button>
               </div>
-              
-              {/* Summary */}
-              <div className="p-4 rounded-lg border bg-muted/50 space-y-2">
-                <p className="flex items-center gap-2 text-sm">
-                  <Sun className="w-4 h-4 text-energy-export" />
-                  <strong>Erwarteter PV-Überschuss:</strong> ~{analysisResult.expectedPvSurplus.toFixed(1)} kWh
-                </p>
-                <p className="flex items-center gap-2 text-sm">
-                  <Battery className="w-4 h-4 text-primary" />
-                  <strong>Batterie-Strategie:</strong> {analysisResult.batteryStrategy}
-                </p>
-                {analysisResult.recommendations.map((rec, i) => (
-                  <p key={i} className="text-sm text-muted-foreground">💡 {rec}</p>
-                ))}
-              </div>
-            </div>
-          )}
 
-          {/* Text Analysis Fallback */}
-          {analysisResult?.summary && (!analysisResult.periods || analysisResult.periods.length === 0) && (
-            <div className="p-4 rounded-lg border bg-card whitespace-pre-wrap text-sm">
-              {analysisResult.summary}
-            </div>
-          )}
-
-          {!analysisResult && !isAnalyzing && (
-            <div className="text-center py-8 text-muted-foreground">
-              <Thermometer className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>Klicke auf &quot;Heizplan generieren&quot; für optimierte Thermostat-Zeiten.</p>
-              <p className="text-xs mt-2">Basierend auf deinen PV- und Batterie-Daten.</p>
-            </div>
-          )}
+              {rooms.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Home className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p>Lege zuerst Räume an, um raumspezifische Empfehlungen zu erhalten.</p>
+                  <p className="text-xs mt-2">Gehe zu den Einstellungen unten.</p>
+                </div>
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  {rooms.length} Räume konfiguriert. Klicke auf &quot;Raumempfehlungen erstellen&quot; für individuelle Temperaturempfehlungen.
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
         </CardContent>
       </Card>
+
+      {/* Room Manager */}
+      <RoomManager 
+        rooms={rooms}
+        onSave={saveRoom}
+        onDelete={deleteRoom}
+        isLoading={roomsLoading}
+      />
 
       {/* Settings */}
       <HeatingSettingsForm 

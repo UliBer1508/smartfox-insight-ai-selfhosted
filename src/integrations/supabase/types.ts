@@ -290,6 +290,101 @@ export type Database = {
         }
         Relationships: []
       }
+      room_recommendations: {
+        Row: {
+          created_at: string | null
+          date: string
+          end_time: string
+          id: string
+          period_number: number | null
+          priority: string | null
+          reason: string | null
+          recommended_temp: number
+          room_id: string
+          start_time: string
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          end_time: string
+          id?: string
+          period_number?: number | null
+          priority?: string | null
+          reason?: string | null
+          recommended_temp: number
+          room_id: string
+          start_time: string
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          end_time?: string
+          id?: string
+          period_number?: number | null
+          priority?: string | null
+          reason?: string | null
+          recommended_temp?: number
+          room_id?: string
+          start_time?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_recommendations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rooms: {
+        Row: {
+          comfort_temp: number | null
+          created_at: string | null
+          eco_temp: number | null
+          floor_area_m2: number | null
+          has_solar_gain: boolean | null
+          heating_power_w: number | null
+          id: string
+          name: string
+          night_temp: number | null
+          orientation: string | null
+          priority: number | null
+          thermostat_type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          comfort_temp?: number | null
+          created_at?: string | null
+          eco_temp?: number | null
+          floor_area_m2?: number | null
+          has_solar_gain?: boolean | null
+          heating_power_w?: number | null
+          id?: string
+          name: string
+          night_temp?: number | null
+          orientation?: string | null
+          priority?: number | null
+          thermostat_type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          comfort_temp?: number | null
+          created_at?: string | null
+          eco_temp?: number | null
+          floor_area_m2?: number | null
+          has_solar_gain?: boolean | null
+          heating_power_w?: number | null
+          id?: string
+          name?: string
+          night_temp?: number | null
+          orientation?: string | null
+          priority?: number | null
+          thermostat_type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       smartfox_settings: {
         Row: {
           api_path: string | null

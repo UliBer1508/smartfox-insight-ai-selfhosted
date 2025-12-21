@@ -1,0 +1,132 @@
+import { useState, useEffect, useCallback } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { Room, RoomRecommendation } from '@/types/room';
+import { toast } from 'sonner';
+
+export function useRooms() {
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [recommendations, setRecommendations] = useState<RoomRecommendation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const loadRooms = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('rooms')
+        .select('*')
+        .order('priority', { ascending: true });
+
+      if (error) throw error;
+      setRooms(data as Room[]);
+    } catch (error) {
+      console.error('Error loading rooms:', error);
+      toast.error('Fehler beim Laden der Räume');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  const loadRecommendations = useCallback(async () => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      const { data, error } = await supabase
+        .from('room_recommendations')
+        .select('*')
+        .eq('date', today)
+        .order('start_time', { ascending: true });
+
+      if (error) throw error;
+      setRecommendations(data as RoomRecommendation[]);
+    } catch (error) {
+      console.error('Error loading room recommendations:', error);
+    }
+  }, []);
+
+  const saveRoom = useCallback(async (room: Partial<Room>) => {
+    try {
+      if (room.id) {
+        const { error } = await supabase
+          .from('rooms')
+          .update({ ...room, updated_at: new Date().toISOString() })
+          .eq('id', room.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('rooms')
+          .insert([room as any]);
+        if (error) throw error;
+      }
+      await loadRooms();
+      toast.success('Raum gespeichert');
+    } catch (error) {
+      console.error('Error saving room:', error);
+      toast.error('Fehler beim Speichern');
+    }
+  }, [loadRooms]);
+
+  const deleteRoom = useCallback(async (roomId: string) => {
+    try {
+      const { error } = await supabase
+        .from('rooms')
+        .delete()
+        .eq('id', roomId);
+      if (error) throw error;
+      await loadRooms();
+      toast.success('Raum gelöscht');
+    } catch (error) {
+      console.error('Error deleting room:', error);
+      toast.error('Fehler beim Löschen');
+    }
+  }, [loadRooms]);
+
+  const saveRecommendations = useCallback(async (newRecommendations: RoomRecommendation[]) => {
+    const today = new Date().toISOString().split('T')[0];
+    try {
+      // Delete existing recommendations for today
+      await supabase
+        .from('room_recommendations')
+        .delete()
+        .eq('date', today);
+
+      // Insert new recommendations
+      if (newRecommendations.length > 0) {
+        const { error } = await supabase
+          .from('room_recommendations')
+          .insert(newRecommendations);
+        if (error) throw error;
+      }
+      
+      await loadRecommendations();
+    } catch (error) {
+      console.error('Error saving room recommendations:', error);
+      toast.error('Fehler beim Speichern der Empfehlungen');
+    }
+  }, [loadRecommendations]);
+
+  const getCurrentRecommendation = useCallback((roomId: string): RoomRecommendation | undefined => {
+    const now = new Date();
+    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    
+    return recommendations.find(rec => 
+      rec.room_id === roomId && 
+      rec.start_time <= currentTime && 
+      rec.end_time > currentTime
+    );
+  }, [recommendations]);
+
+  useEffect(() => {
+    loadRooms();
+    loadRecommendations();
+  }, [loadRooms, loadRecommendations]);
+
+  return {
+    rooms,
+    recommendations,
+    isLoading,
+    loadRooms,
+    loadRecommendations,
+    saveRoom,
+    deleteRoom,
+    saveRecommendations,
+    getCurrentRecommendation
+  };
+}
