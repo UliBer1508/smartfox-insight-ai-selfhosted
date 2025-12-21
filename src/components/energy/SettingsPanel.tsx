@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,11 @@ interface SettingsPanelProps {
 export function SettingsPanel({ settings, onSave, onTest, isLoading }: SettingsPanelProps) {
   const [localSettings, setLocalSettings] = useState(settings);
   const [isTesting, setIsTesting] = useState(false);
+
+  // Sync localSettings when settings prop changes (async load from DB)
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
   const [isSaving, setIsSaving] = useState(false);
   const [isTestingFronius, setIsTestingFronius] = useState(false);
 
