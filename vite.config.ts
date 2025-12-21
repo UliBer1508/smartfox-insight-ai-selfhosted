@@ -9,6 +9,20 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      '/api/smartfox': {
+        target: 'http://192.168.188.45',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/smartfox/, ''),
+        secure: false,
+      },
+      '/api/fronius': {
+        target: 'http://192.168.188.45',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/fronius/, ''),
+        secure: false,
+      },
+    },
   },
   plugins: [
     react(),

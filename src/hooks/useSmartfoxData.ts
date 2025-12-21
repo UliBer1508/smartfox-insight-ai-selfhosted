@@ -35,13 +35,11 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
     }
 
     try {
-      const url = `http://${settings.fronius_ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
-      console.log('Fetching from Fronius:', url);
+      // Use Vite proxy to avoid CORS issues
+      const url = `/api/fronius/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
+      console.log('Fetching from Fronius via proxy:', url);
       
-      const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-      });
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error(`Fronius HTTP ${response.status}`);
@@ -64,19 +62,16 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
       console.error('Fronius fetch error:', error);
       return null;
     }
-  }, [settings.fronius_ip, settings.fronius_is_active]);
+  }, [settings.fronius_is_active]);
 
   const fetchFromSmartfox = useCallback(async (): Promise<SmartfoxApiResponse | null> => {
     try {
-      // Use /all endpoint for extended data
+      // Use /all endpoint for extended data via Vite proxy
       const basePath = settings.api_path === '/power' ? '/all' : settings.api_path;
-      const url = `http://${settings.smartfox_ip}${basePath}`;
-      console.log('Fetching from Smartfox:', url);
+      const url = `/api/smartfox${basePath}`;
+      console.log('Fetching from Smartfox via proxy:', url);
       
-      const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-      });
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
@@ -120,7 +115,7 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
       setLastError(error instanceof Error ? error.message : 'Verbindungsfehler');
       return null;
     }
-  }, [settings.smartfox_ip, settings.api_path]);
+  }, [settings.api_path]);
 
   const saveReading = useCallback(async (data: SmartfoxApiResponse, batterySoc: number | null) => {
     const reading: EnergyReading = {
