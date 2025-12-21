@@ -3,6 +3,24 @@ import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading, SmartfoxSettings, SmartfoxApiResponse, SmartfoxAllResponse } from '@/types/energy';
 import { toast } from 'sonner';
 
+interface FroniusResponse {
+  Body?: {
+    Data?: {
+      Site?: {
+        P_PV?: number;
+        P_Akku?: number;
+        P_Grid?: number;
+        P_Load?: number;
+      };
+      Inverters?: {
+        [key: string]: {
+          SOC?: number;
+        };
+      };
+    };
+  };
+}
+
 export function useSmartfoxData(settings: SmartfoxSettings) {
   const [currentReading, setCurrentReading] = useState<EnergyReading | null>(null);
   const [readings, setReadings] = useState<EnergyReading[]>([]);
@@ -10,6 +28,43 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
   const [isPolling, setIsPolling] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const fetchFromFronius = useCallback(async (): Promise<number | null> => {
+    if (!settings.fronius_ip || !settings.fronius_is_active) {
+      return null;
+    }
+
+    try {
+      const url = `http://${settings.fronius_ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
+      console.log('Fetching from Fronius:', url);
+      
+      const response = await fetch(url, {
+        method: 'GET',
+        mode: 'cors',
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Fronius HTTP ${response.status}`);
+      }
+      
+      const data: FroniusResponse = await response.json();
+      console.log('Fronius response:', data);
+      
+      // Get battery SOC from first inverter
+      const inverters = data?.Body?.Data?.Inverters;
+      if (inverters) {
+        const firstInverter = Object.values(inverters)[0];
+        if (firstInverter?.SOC !== undefined) {
+          return firstInverter.SOC;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Fronius fetch error:', error);
+      return null;
+    }
+  }, [settings.fronius_ip, settings.fronius_is_active]);
 
   const fetchFromSmartfox = useCallback(async (): Promise<SmartfoxApiResponse | null> => {
     try {
@@ -56,7 +111,7 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
         pvEnergy: pvEnergyTotal,
         powerSmartfox: data.power_sf ?? 0,
         energySmartfox: data.energy_sf ?? 0,
-        consumption: powerTotal + pvPowerTotal, // Verbrauch = Netzbezug + PV-Eigenverbrauch
+        consumption: powerTotal + pvPowerTotal,
         relayStatus: data.outputs ?? [],
       };
     } catch (error) {
@@ -67,7 +122,7 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
     }
   }, [settings.smartfox_ip, settings.api_path]);
 
-  const saveReading = useCallback(async (data: SmartfoxApiResponse) => {
+  const saveReading = useCallback(async (data: SmartfoxApiResponse, batterySoc: number | null) => {
     const reading: EnergyReading = {
       timestamp: new Date().toISOString(),
       power_io: data.power,
@@ -75,6 +130,7 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
       energy_out: data.energyOut,
       pv_power: data.pvPower ?? null,
       consumption: data.consumption ?? null,
+      battery_soc: batterySoc ?? undefined,
     };
 
     try {
@@ -97,11 +153,16 @@ export function useSmartfoxData(settings: SmartfoxSettings) {
   }, []);
 
   const pollOnce = useCallback(async () => {
-    const data = await fetchFromSmartfox();
-    if (data) {
-      await saveReading(data);
+    // Fetch Smartfox and Fronius in parallel
+    const [smartfoxData, batterySoc] = await Promise.all([
+      fetchFromSmartfox(),
+      fetchFromFronius(),
+    ]);
+    
+    if (smartfoxData) {
+      await saveReading(smartfoxData, batterySoc);
     }
-  }, [fetchFromSmartfox, saveReading]);
+  }, [fetchFromSmartfox, fetchFromFronius, saveReading]);
 
   const startPolling = useCallback(() => {
     if (!settings.is_active || intervalRef.current) return;
