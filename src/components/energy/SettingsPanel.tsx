@@ -39,20 +39,13 @@ export function SettingsPanel({ settings, onSave, onTest, isLoading }: SettingsP
   };
 
   const handleTestFronius = async () => {
-    if (!localSettings.fronius_ip) {
-      toast.error('Bitte Fronius IP-Adresse eingeben');
-      return;
-    }
-    
     setIsTestingFronius(true);
     try {
-      const url = `http://${localSettings.fronius_ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
-      console.log('Testing Fronius connection:', url);
+      // Use proxy to avoid CORS issues
+      const url = `/api/fronius/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
+      console.log('Testing Fronius connection via proxy:', url);
       
-      const response = await fetch(url, {
-        method: 'GET',
-        mode: 'cors',
-      });
+      const response = await fetch(url);
       
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);

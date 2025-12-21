@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => ({
         secure: false,
       },
       '/api/fronius': {
-        target: 'http://192.168.188.45',
+        target: 'http://192.168.188.64',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/fronius/, ''),
         secure: false,
