@@ -8,7 +8,6 @@ import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Home, Plus, Pencil, Trash2, Sun, Compass, RefreshCw, Thermometer } from 'lucide-react';
 import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
-import { useTuyaControl, TuyaDevice } from '@/hooks/useTuyaControl';
 import { Badge } from '@/components/ui/badge';
 
 interface RoomManagerProps {
@@ -37,13 +36,6 @@ const defaultRoom: Partial<Room> = {
 export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerProps) {
   const [editingRoom, setEditingRoom] = useState<Partial<Room> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const { devices, isLoading: devicesLoading, fetchDevices } = useTuyaControl();
-
-  useEffect(() => {
-    if (isDialogOpen && devices.length === 0) {
-      fetchDevices();
-    }
-  }, [isDialogOpen, devices.length, fetchDevices]);
   const handleSave = () => {
     if (editingRoom && editingRoom.name) {
       onSave(editingRoom);
@@ -178,43 +170,19 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                   </div>
 
                   <div className="col-span-2">
-                    <div className="flex items-center justify-between mb-2">
-                      <Label htmlFor="tuya_device">Tuya-Gerät</Label>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={fetchDevices}
-                        disabled={devicesLoading}
-                      >
-                        <RefreshCw className={`h-3 w-3 mr-1 ${devicesLoading ? 'animate-spin' : ''}`} />
-                        Aktualisieren
-                      </Button>
-                    </div>
-                    <Select
-                      value={editingRoom.tuya_device_id || 'none'}
-                      onValueChange={v => setEditingRoom({ 
+                    <Label htmlFor="tuya_device">Tuya Device ID</Label>
+                    <Input
+                      id="tuya_device"
+                      value={editingRoom.tuya_device_id || ''}
+                      onChange={e => setEditingRoom({ 
                         ...editingRoom, 
-                        tuya_device_id: v === 'none' ? null : v 
+                        tuya_device_id: e.target.value || null 
                       })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Tuya-Gerät wählen..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="none">Kein Gerät</SelectItem>
-                        {devices.map((device) => (
-                          <SelectItem key={device.id} value={device.id}>
-                            {device.name} {device.online ? '🟢' : '🔴'}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {devices.length === 0 && !devicesLoading && (
-                      <p className="text-xs text-muted-foreground mt-1">
-                        Keine Geräte gefunden. Klicke auf "Aktualisieren".
-                      </p>
-                    )}
+                      placeholder="z.B. bf2f469ec7aa367dbeeni9"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Device ID aus der Tuya IoT Platform
+                    </p>
                   </div>
 
                   <div className="col-span-2 flex items-center justify-between">
