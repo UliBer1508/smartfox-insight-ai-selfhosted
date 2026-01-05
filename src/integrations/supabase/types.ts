@@ -353,7 +353,9 @@ export type Database = {
           night_temp: number | null
           orientation: string | null
           priority: number | null
+          pv_auto_active: boolean | null
           pv_auto_enabled: boolean | null
+          pv_auto_last_change: string | null
           target_temp: number | null
           thermostat_ip: string | null
           thermostat_type: string | null
@@ -375,7 +377,9 @@ export type Database = {
           night_temp?: number | null
           orientation?: string | null
           priority?: number | null
+          pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
+          pv_auto_last_change?: string | null
           target_temp?: number | null
           thermostat_ip?: string | null
           thermostat_type?: string | null
@@ -397,7 +401,9 @@ export type Database = {
           night_temp?: number | null
           orientation?: string | null
           priority?: number | null
+          pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
+          pv_auto_last_change?: string | null
           target_temp?: number | null
           thermostat_ip?: string | null
           thermostat_type?: string | null

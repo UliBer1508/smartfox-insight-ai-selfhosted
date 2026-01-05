@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.tuya-control]
 verify_jwt = false
+
+[functions.pv-automation]
+verify_jwt = false
