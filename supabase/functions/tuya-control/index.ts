@@ -156,9 +156,9 @@ async function tuyaRequest(
   return data.result;
 }
 
-// Get all devices from Tuya Cloud
+// Get all devices from Tuya Cloud - Smart Home API
 async function getDevices(accessId: string, accessSecret: string): Promise<unknown[]> {
-  // Get token first - this also gives us the uid
+  // Get token first
   await getAccessToken(accessId, accessSecret);
   
   if (!cachedToken?.uid) {
@@ -169,13 +169,55 @@ async function getDevices(accessId: string, accessSecret: string): Promise<unkno
   const uid = cachedToken.uid;
   console.log('Using UID from token:', uid);
   
+  const allDevices: unknown[] = [];
+  
+  // Step 1: Get all homes/families for the user
   try {
-    const devices = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/users/${uid}/devices`);
-    return (devices as unknown[]) || [];
+    console.log('Fetching homes for user...');
+    const homesResult = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/users/${uid}/homes`) as unknown[];
+    console.log('Homes response:', JSON.stringify(homesResult));
+    
+    if (Array.isArray(homesResult) && homesResult.length > 0) {
+      // Step 2: Get devices for each home
+      for (const home of homesResult) {
+        const homeData = home as { home_id?: string | number };
+        const homeId = homeData.home_id;
+        
+        if (homeId) {
+          try {
+            console.log(`Fetching devices for home ${homeId}...`);
+            const devices = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/homes/${homeId}/devices`) as unknown[];
+            
+            if (Array.isArray(devices)) {
+              console.log(`Found ${devices.length} devices in home ${homeId}`);
+              allDevices.push(...devices);
+            }
+          } catch (error) {
+            console.log(`Error fetching devices for home ${homeId}:`, String(error));
+          }
+        }
+      }
+    }
   } catch (error) {
-    console.error('Error fetching devices:', error);
-    return [];
+    console.log('Error fetching homes:', String(error));
   }
+
+  // Fallback: Try device list by user directly if no homes found
+  if (allDevices.length === 0) {
+    try {
+      console.log('Trying direct device query...');
+      const result = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/users/${uid}/devices`) as unknown[];
+      if (Array.isArray(result)) {
+        console.log(`Found ${result.length} devices via user devices endpoint`);
+        return result;
+      }
+    } catch (error) {
+      console.log('Direct device query failed:', String(error));
+    }
+  }
+
+  console.log(`Total devices found: ${allDevices.length}`);
+  return allDevices;
 }
 
 // Get device status
