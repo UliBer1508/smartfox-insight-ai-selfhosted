@@ -183,7 +183,8 @@ async function setDeviceTemperature(
 function parseThermostatStatus(status: unknown[]): { currentTemp: number; targetTemp: number; isHeating: boolean } {
   let currentTemp = 0;
   let targetTemp = 0;
-  let isHeating = false;
+  let switchOn = false;
+  let workStateHeating = false;
 
   if (Array.isArray(status)) {
     for (const item of status) {
@@ -196,19 +197,20 @@ function parseThermostatStatus(status: unknown[]): { currentTemp: number; target
           targetTemp = Number(s.value) / 10;
           break;
         case 'switch':
-          isHeating = s.value === true;
-          break;
-        case 'mode':
-          if (s.value === 'heat') {
-            isHeating = true;
-          }
+          switchOn = s.value === true;
           break;
         case 'work_state':
-          isHeating = s.value === 'heating';
+          workStateHeating = s.value === 'heating';
           break;
       }
     }
   }
+
+  // Heizstatus logisch bestimmen:
+  // - Thermostat muss eingeschaltet sein (switch = true)
+  // - UND aktuelle Temperatur muss unter Zieltemperatur liegen
+  // - ODER work_state explizit "heating" meldet
+  const isHeating = switchOn && (workStateHeating || currentTemp < targetTemp);
 
   return { currentTemp, targetTemp, isHeating };
 }
