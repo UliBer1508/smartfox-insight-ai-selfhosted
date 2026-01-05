@@ -34,12 +34,19 @@ Lokaler Datensammler für Smartfox und Fronius Geräte.
    ```bash
    npm install
    ```
-4. Konfiguration erstellen:
+4. **Konfiguration erstellen (empfohlen):**
+   ```bash
+   create-config.bat
+   ```
+   Die Batch-Datei fragt nach deinen IP-Adressen und erstellt die config.json automatisch.
+
+   **Alternativ manuell:**
    ```bash
    copy config.example.json config.json
    ```
-5. `config.json` bearbeiten und IP-Adressen anpassen
-6. Starten:
+   Dann `config.json` bearbeiten und IP-Adressen anpassen.
+
+5. Starten:
    ```bash
    npm start
    ```
