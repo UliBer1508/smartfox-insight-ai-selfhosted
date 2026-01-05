@@ -1,163 +1,68 @@
-import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { SmartfoxSettings } from '@/types/energy';
-import { Settings, Wifi, Save, TestTube, Sun, Battery } from 'lucide-react';
-import { toast } from 'sonner';
+import { Server, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface SettingsPanelProps {
-  settings: SmartfoxSettings;
-  onSave: (settings: Partial<SmartfoxSettings>) => Promise<boolean>;
-  onTest: () => Promise<boolean>;
-  isLoading?: boolean;
+  isConnected: boolean;
+  lastUpdate?: string;
 }
 
-export function SettingsPanel({ settings, onSave, onTest, isLoading }: SettingsPanelProps) {
-  const [localSettings, setLocalSettings] = useState(settings);
-  const [isTesting, setIsTesting] = useState(false);
-
-  // Sync localSettings when settings prop changes (async load from DB)
-  useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isTestingFronius, setIsTestingFronius] = useState(false);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    await onSave(localSettings);
-    setIsSaving(false);
-  };
-
-  const handleTest = async () => {
-    setIsTesting(true);
-    await onTest();
-    setIsTesting(false);
-  };
-
-  const handleTestFronius = async () => {
-    setIsTestingFronius(true);
-    try {
-      // Use proxy to avoid CORS issues
-      const url = `/api/fronius/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
-      console.log('Testing Fronius connection via proxy:', url);
-      
-      const response = await fetch(url);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      console.log('Fronius response:', data);
-      
-      const soc = data?.Body?.Data?.Inverters?.['1']?.SOC;
-      const pAkku = data?.Body?.Data?.Site?.P_Akku;
-      const pPV = data?.Body?.Data?.Site?.P_PV;
-      
-      toast.success(
-        `Fronius verbunden! Battery SOC: ${soc?.toFixed(0) ?? 'N/A'}%, Power: ${pAkku?.toFixed(0) ?? 'N/A'}W, PV: ${pPV?.toFixed(0) ?? 'N/A'}W`
-      );
-    } catch (error) {
-      console.error('Fronius connection error:', error);
-      toast.error(`Fronius nicht erreichbar: ${error instanceof Error ? error.message : 'Verbindungsfehler'}`);
-    } finally {
-      setIsTestingFronius(false);
-    }
+export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
+  const getTimeSinceUpdate = () => {
+    if (!lastUpdate) return null;
+    const diff = Date.now() - new Date(lastUpdate).getTime();
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    
+    if (minutes < 1) return `vor ${seconds} Sekunden`;
+    if (minutes < 60) return `vor ${minutes} Minuten`;
+    return `vor mehr als einer Stunde`;
   };
 
   return (
-    <>
+    <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Settings className="w-5 h-5" />
-            Smartfox Verbindung
+            <Server className="w-5 h-5" />
+            Collector-Status
           </CardTitle>
           <CardDescription>
-            Konfiguriere die Verbindung zu deinem Smartfox Energy Manager im lokalen Netzwerk.
+            Die Daten werden von einem lokalen Collector gesammelt und in die Datenbank geschrieben.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="smartfox-ip">IP-Adresse</Label>
-              <div className="relative">
-                <Wifi className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="smartfox-ip"
-                  value={localSettings.smartfox_ip}
-                  onChange={(e) => setLocalSettings({ ...localSettings, smartfox_ip: e.target.value })}
-                  placeholder="192.168.1.100"
-                  className="pl-10 font-mono"
-                />
-              </div>
-            </div>
+        <CardContent className="space-y-4">
+          <Alert variant={isConnected ? "default" : "destructive"}>
+            {isConnected ? (
+              <CheckCircle className="h-4 w-4" />
+            ) : (
+              <AlertCircle className="h-4 w-4" />
+            )}
+            <AlertTitle>
+              {isConnected ? 'Collector aktiv' : 'Keine aktuellen Daten'}
+            </AlertTitle>
+            <AlertDescription>
+              {isConnected 
+                ? `Daten werden empfangen (${getTimeSinceUpdate()})`
+                : 'Der Collector sendet keine Daten. Überprüfen Sie den lokalen Collector.'
+              }
+            </AlertDescription>
+          </Alert>
 
-            <div className="space-y-2">
-              <Label htmlFor="api-path">API Pfad</Label>
-              <Input
-                id="api-path"
-                value={localSettings.api_path}
-                onChange={(e) => setLocalSettings({ ...localSettings, api_path: e.target.value })}
-                placeholder="/power"
-                className="font-mono"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="polling-interval">Abfrageintervall (Sekunden)</Label>
-              <Input
-                id="polling-interval"
-                type="number"
-                min={10}
-                max={300}
-                value={localSettings.polling_interval}
-                onChange={(e) => setLocalSettings({ ...localSettings, polling_interval: parseInt(e.target.value) || 60 })}
-                className="font-mono"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Datenerfassung</Label>
-              <div className="flex items-center gap-3 pt-2">
-                <Switch
-                  checked={localSettings.is_active}
-                  onCheckedChange={(checked) => setLocalSettings({ ...localSettings, is_active: checked })}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {localSettings.is_active ? 'Aktiv' : 'Inaktiv'}
-                </span>
-              </div>
-            </div>
+          <div className="p-4 rounded-lg bg-muted/50 border border-dashed space-y-3">
+            <p className="text-sm font-medium">So funktioniert es:</p>
+            <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
+              <li>Der <strong>Node.js Collector</strong> läuft auf einem lokalen PC im selben Netzwerk wie Smartfox/Fronius</li>
+              <li>Er liest Daten von den Geräten und speichert sie in der Cloud-Datenbank</li>
+              <li>Diese PWA zeigt die Daten in Echtzeit an (Realtime-Updates)</li>
+            </ol>
           </div>
 
-          <div className="flex gap-3">
-            <Button 
-              variant="outline" 
-              onClick={handleTest}
-              disabled={isTesting || isLoading}
-            >
-              <TestTube className="w-4 h-4 mr-2" />
-              {isTesting ? 'Teste...' : 'Verbindung testen'}
-            </Button>
-            
-            <Button 
-              onClick={handleSave}
-              disabled={isSaving || isLoading}
-            >
-              <Save className="w-4 h-4 mr-2" />
-              {isSaving ? 'Speichert...' : 'Speichern'}
-            </Button>
-          </div>
-
-          <div className="p-4 rounded-lg bg-muted/50 border border-dashed">
-            <p className="text-sm text-muted-foreground">
-              <strong>Hinweis:</strong> Die Smartfox API ist nur im lokalen Netzwerk erreichbar. 
-              Diese App muss auf einem Gerät im selben Netzwerk wie der Smartfox laufen.
+          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
+            <p className="text-sm">
+              <strong>Collector-Dokumentation:</strong> Die Einrichtung des lokalen Collectors finden Sie im 
+              <code className="mx-1 px-1 py-0.5 rounded bg-muted font-mono text-xs">local-collector/</code> 
+              Ordner des Projekts.
             </p>
           </div>
         </CardContent>
@@ -165,61 +70,38 @@ export function SettingsPanel({ settings, onSave, onTest, isLoading }: SettingsP
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sun className="w-5 h-5" />
-            Fronius Wechselrichter
-          </CardTitle>
-          <CardDescription>
-            Verbindung zum Fronius Wechselrichter für Battery SOC und detaillierte PV-Daten.
-          </CardDescription>
+          <CardTitle>Architektur</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="fronius-ip">IP-Adresse</Label>
-              <div className="relative">
-                <Battery className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  id="fronius-ip"
-                  value={localSettings.fronius_ip || ''}
-                  onChange={(e) => setLocalSettings({ ...localSettings, fronius_ip: e.target.value })}
-                  placeholder="192.168.1.101"
-                  className="pl-10 font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Fronius Datenerfassung</Label>
-              <div className="flex items-center gap-3 pt-2">
-                <Switch
-                  checked={localSettings.fronius_is_active || false}
-                  onCheckedChange={(checked) => setLocalSettings({ ...localSettings, fronius_is_active: checked })}
-                />
-                <span className="text-sm text-muted-foreground">
-                  {localSettings.fronius_is_active ? 'Aktiv' : 'Inaktiv'}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <Button 
-            variant="outline" 
-            onClick={handleTestFronius}
-            disabled={isTestingFronius || isLoading || !localSettings.fronius_ip}
-          >
-            <TestTube className="w-4 h-4 mr-2" />
-            {isTestingFronius ? 'Teste...' : 'Fronius testen'}
-          </Button>
-
-          <div className="p-4 rounded-lg bg-muted/50 border border-dashed">
-            <p className="text-sm text-muted-foreground">
-              <strong>Vorteile:</strong> Fronius liefert direkten Zugriff auf Battery SOC, Lade/Entlade-Leistung, 
-              Autarkie-Rate und Eigenverbrauchsquote – wichtig für die Heizungsoptimierung.
-            </p>
+        <CardContent>
+          <div className="text-sm font-mono bg-muted p-4 rounded-lg overflow-x-auto">
+            <pre className="text-muted-foreground">{`
+┌─────────────────┐     ┌─────────────────┐
+│  Smartfox       │     │  Fronius        │
+│  (Energiedaten) │     │  (Battery SOC)  │
+└────────┬────────┘     └────────┬────────┘
+         │                       │
+         └───────────┬───────────┘
+                     ▼
+         ┌─────────────────────┐
+         │   Node.js Collector │
+         │   (läuft lokal)     │
+         └──────────┬──────────┘
+                    │ (HTTPS)
+                    ▼
+         ┌─────────────────────┐
+         │   Cloud Datenbank   │
+         │   (Supabase)        │
+         └──────────┬──────────┘
+                    │ (Realtime)
+                    ▼
+         ┌─────────────────────┐
+         │   Diese PWA         │
+         │   (überall nutzbar) │
+         └─────────────────────┘
+            `}</pre>
           </div>
         </CardContent>
       </Card>
-    </>
+    </div>
   );
 }
