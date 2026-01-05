@@ -13,6 +13,7 @@ import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
 import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
+import { useEnergyCalculation } from '@/hooks/useEnergyCalculation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Activity, Database, Clock } from 'lucide-react';
 import { format } from 'date-fns';
@@ -36,6 +37,8 @@ const Index = () => {
     analyzeWeeklyComparison,
     loadDailyPatterns 
   } = usePatternAnalysis();
+
+  const { energyIn, energyOut } = useEnergyCalculation(readings);
 
   useEffect(() => {
     loadDailyPatterns();
@@ -79,8 +82,8 @@ const Index = () => {
 
               <div className="lg:col-span-2 space-y-6">
                 <EnergyStats
-                  energyIn={currentReading?.energy_in ?? 0}
-                  energyOut={currentReading?.energy_out ?? 0}
+                  energyIn={energyIn}
+                  energyOut={energyOut}
                 />
                 
                 <EnergyChart readings={readings} />
