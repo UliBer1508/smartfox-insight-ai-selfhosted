@@ -341,46 +341,67 @@ export type Database = {
         Row: {
           comfort_temp: number | null
           created_at: string | null
+          current_temp: number | null
           eco_temp: number | null
           floor_area_m2: number | null
           has_solar_gain: boolean | null
           heating_power_w: number | null
           id: string
+          is_heating: boolean | null
+          last_thermostat_sync: string | null
           name: string
           night_temp: number | null
           orientation: string | null
           priority: number | null
+          pv_auto_enabled: boolean | null
+          target_temp: number | null
+          thermostat_ip: string | null
           thermostat_type: string | null
+          tuya_device_id: string | null
           updated_at: string | null
         }
         Insert: {
           comfort_temp?: number | null
           created_at?: string | null
+          current_temp?: number | null
           eco_temp?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
           heating_power_w?: number | null
           id?: string
+          is_heating?: boolean | null
+          last_thermostat_sync?: string | null
           name: string
           night_temp?: number | null
           orientation?: string | null
           priority?: number | null
+          pv_auto_enabled?: boolean | null
+          target_temp?: number | null
+          thermostat_ip?: string | null
           thermostat_type?: string | null
+          tuya_device_id?: string | null
           updated_at?: string | null
         }
         Update: {
           comfort_temp?: number | null
           created_at?: string | null
+          current_temp?: number | null
           eco_temp?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
           heating_power_w?: number | null
           id?: string
+          is_heating?: boolean | null
+          last_thermostat_sync?: string | null
           name?: string
           night_temp?: number | null
           orientation?: string | null
           priority?: number | null
+          pv_auto_enabled?: boolean | null
+          target_temp?: number | null
+          thermostat_ip?: string | null
           thermostat_type?: string | null
+          tuya_device_id?: string | null
           updated_at?: string | null
         }
         Relationships: []

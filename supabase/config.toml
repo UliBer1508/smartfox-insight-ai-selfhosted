@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.fetch-pv-forecast]
 verify_jwt = false
+
+[functions.tuya-control]
+verify_jwt = false

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -8,13 +8,15 @@ import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
 import { usePvForecast } from '@/hooks/usePvForecast';
 import { useRooms } from '@/hooks/useRooms';
+import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { HeatingSettingsForm } from './HeatingSettingsForm';
 import { BatteryStatus } from './BatteryStatus';
 import { PvForecastCard } from './PvForecastCard';
 import { RoomManager } from './RoomManager';
 import { RoomRecommendations } from './RoomRecommendations';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home } from 'lucide-react';
+import { ThermostatCard } from './ThermostatCard';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -48,8 +50,15 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     deleteRoom,
     saveRecommendations: saveRoomRecommendations,
     getCurrentRecommendation,
-    loadRecommendations: loadRoomRecommendations
+    loadRecommendations: loadRoomRecommendations,
+    loadRooms
   } = useRooms();
+
+  const {
+    isSyncing,
+    setTemperature,
+    syncAllStatus,
+  } = useTuyaControl();
 
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
@@ -58,6 +67,28 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     loadRecommendations();
     loadForecasts();
   }, [loadRecommendations, loadForecasts]);
+
+  const handleSyncThermostats = useCallback(async () => {
+    await syncAllStatus();
+    await loadRooms();
+  }, [syncAllStatus, loadRooms]);
+
+  const handleSetTemperature = useCallback(async (roomId: string, deviceId: string, temp: number): Promise<boolean> => {
+    const success = await setTemperature(deviceId, temp, roomId);
+    if (success) {
+      await loadRooms();
+    }
+    return success;
+  }, [setTemperature, loadRooms]);
+
+  const handleTogglePvAuto = useCallback(async (roomId: string, enabled: boolean) => {
+    await saveRoom({ id: roomId, pv_auto_enabled: enabled });
+  }, [saveRoom]);
+
+  const handleRefreshRoom = useCallback(async (roomId: string) => {
+    await syncAllStatus();
+    await loadRooms();
+  }, [syncAllStatus, loadRooms]);
 
   const handleAnalyze = () => {
     analyzeHeating(readings, settings);
@@ -186,6 +217,46 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
           pvCapacity={settings.pv_capacity_kwp}
         />
       </div>
+
+      {/* Thermostat Control - show if any rooms have tuya devices */}
+      {rooms.some(r => r.tuya_device_id) && (
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Thermometer className="w-5 h-5 text-primary" />
+                Thermostat-Steuerung
+              </CardTitle>
+              <CardDescription>
+                Live-Temperaturen und manuelle Steuerung
+              </CardDescription>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncThermostats}
+              disabled={isSyncing}
+            >
+              <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+              Sync
+            </Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {rooms.filter(r => r.tuya_device_id).map(room => (
+                <ThermostatCard
+                  key={room.id}
+                  room={room}
+                  onSetTemperature={handleSetTemperature}
+                  onTogglePvAuto={handleTogglePvAuto}
+                  onRefresh={handleRefreshRoom}
+                  isLoading={isSyncing}
+                />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Room Recommendations - show if rooms exist */}
       {rooms.length > 0 && (
