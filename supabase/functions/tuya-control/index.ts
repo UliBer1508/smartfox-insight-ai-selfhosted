@@ -17,26 +17,47 @@ interface TuyaToken {
 let cachedToken: TuyaToken | null = null;
 let tokenExpiry = 0;
 
-// Create HMAC-SHA256 signature for Tuya API
-async function createSign(
-  accessId: string,
-  accessSecret: string,
-  timestamp: string,
-  signStr: string
-): Promise<string> {
+// Helper to convert ArrayBuffer to hex string (uppercase)
+function bufferToHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// Create HMAC-SHA256 signature (returns uppercase hex)
+async function hmacSha256(secret: string, message: string): Promise<string> {
   const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
+  const keyData = encoder.encode(secret);
+  const messageData = encoder.encode(message);
+  
+  const cryptoKey = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(accessSecret),
+    keyData,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(signStr));
-  return Array.from(new Uint8Array(signature))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('')
-    .toUpperCase();
+  
+  const signature = await crypto.subtle.sign('HMAC', cryptoKey, messageData);
+  return bufferToHex(signature).toUpperCase();
+}
+
+// Calculate SHA256 hash of content (returns lowercase hex)
+async function sha256Hash(content: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(content);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return bufferToHex(hash);
+}
+
+// Build stringToSign for Tuya API
+// stringToSign = HTTPMethod + "\n" + Content-SHA256 + "\n" + Headers + "\n" + URL
+async function buildStringToSign(method: string, path: string, body: string = ''): Promise<string> {
+  const contentHash = await sha256Hash(body);
+  // No custom signature headers, so this is empty
+  const headers = '';
+  
+  return `${method}\n${contentHash}\n${headers}\n${path}`;
 }
 
 // Get Tuya access token
@@ -44,14 +65,26 @@ async function getAccessToken(accessId: string, accessSecret: string): Promise<s
   const now = Date.now();
   
   if (cachedToken && tokenExpiry > now + 60000) {
+    console.log('Using cached token');
     return cachedToken.access_token;
   }
 
   const timestamp = now.toString();
-  const signStr = accessId + timestamp;
-  const sign = await createSign(accessId, accessSecret, timestamp, signStr);
+  const nonce = ''; // Optional, can be empty
+  const path = '/v1.0/token?grant_type=1';
+  
+  // For token request: str = client_id + t + nonce + stringToSign
+  // sign = HMAC-SHA256(str, secret).toUpperCase()
+  const stringToSign = await buildStringToSign('GET', path, '');
+  const str = accessId + timestamp + nonce + stringToSign;
+  const sign = await hmacSha256(accessSecret, str);
 
-  const response = await fetch(`${TUYA_API_BASE}/v1.0/token?grant_type=1`, {
+  console.log('Token request - path:', path);
+  console.log('Token request - stringToSign:', JSON.stringify(stringToSign));
+  console.log('Token request - str:', JSON.stringify(str));
+  console.log('Token request - sign:', sign);
+
+  const response = await fetch(`${TUYA_API_BASE}${path}`, {
     method: 'GET',
     headers: {
       'client_id': accessId,
@@ -65,7 +98,7 @@ async function getAccessToken(accessId: string, accessSecret: string): Promise<s
   console.log('Token response:', JSON.stringify(data));
 
   if (!data.success) {
-    throw new Error(`Failed to get token: ${data.msg}`);
+    throw new Error(`Failed to get token: ${data.msg} (code: ${data.code})`);
   }
 
   cachedToken = data.result;
@@ -83,18 +116,17 @@ async function tuyaRequest(
 ): Promise<unknown> {
   const token = await getAccessToken(accessId, accessSecret);
   const timestamp = Date.now().toString();
+  const nonce = '';
   
-  // Build string to sign: client_id + access_token + t + stringToSign
-  const stringToSign = method.toUpperCase() + '\n' +
-    crypto.subtle.digest('SHA-256', new TextEncoder().encode('')).then(h => 
-      Array.from(new Uint8Array(h)).map(b => b.toString(16).padStart(2, '0')).join('')
-    ) + '\n' +
-    '\n' +
-    path;
+  const bodyStr = body ? JSON.stringify(body) : '';
+  
+  // For general API: str = client_id + access_token + t + nonce + stringToSign
+  const stringToSign = await buildStringToSign(method, path, bodyStr);
+  const str = accessId + token + timestamp + nonce + stringToSign;
+  const sign = await hmacSha256(accessSecret, str);
 
-  // Simplified signing for GET requests
-  const signStr = accessId + token + timestamp;
-  const sign = await createSign(accessId, accessSecret, timestamp, signStr);
+  console.log(`API request - ${method} ${path}`);
+  console.log('API request - stringToSign:', JSON.stringify(stringToSign));
 
   const headers: Record<string, string> = {
     'client_id': accessId,
@@ -108,12 +140,10 @@ async function tuyaRequest(
     headers['Content-Type'] = 'application/json';
   }
 
-  console.log(`Tuya API Request: ${method} ${path}`);
-
   const response = await fetch(`${TUYA_API_BASE}${path}`, {
     method,
     headers,
-    body: body ? JSON.stringify(body) : undefined,
+    body: bodyStr || undefined,
   });
 
   const data = await response.json();
@@ -128,40 +158,24 @@ async function tuyaRequest(
 
 // Get all devices from Tuya Cloud
 async function getDevices(accessId: string, accessSecret: string): Promise<unknown[]> {
-  // First get the user ID from token
-  const token = await getAccessToken(accessId, accessSecret);
+  // Get token first - this also gives us the uid
+  await getAccessToken(accessId, accessSecret);
   
-  // Get devices using the user's home
-  try {
-    // Try to get devices directly via user
-    const timestamp = Date.now().toString();
-    const signStr = accessId + token + timestamp;
-    const sign = await createSign(accessId, accessSecret, timestamp, signStr);
-
-    // Get user info first
-    const userResponse = await fetch(`${TUYA_API_BASE}/v1.0/token/${token}`, {
-      method: 'GET',
-      headers: {
-        'client_id': accessId,
-        'access_token': token,
-        'sign': sign,
-        'sign_method': 'HMAC-SHA256',
-        't': timestamp,
-      },
-    });
-    const userData = await userResponse.json();
-    console.log('User data:', JSON.stringify(userData));
-
-    if (userData.success && userData.result?.uid) {
-      const uid = userData.result.uid;
-      const devices = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/users/${uid}/devices`);
-      return devices as unknown[];
-    }
-  } catch (error) {
-    console.error('Error getting devices via user:', error);
+  if (!cachedToken?.uid) {
+    console.log('No UID found in token');
+    return [];
   }
 
-  return [];
+  const uid = cachedToken.uid;
+  console.log('Using UID from token:', uid);
+  
+  try {
+    const devices = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/users/${uid}/devices`);
+    return (devices as unknown[]) || [];
+  } catch (error) {
+    console.error('Error fetching devices:', error);
+    return [];
+  }
 }
 
 // Get device status
@@ -176,7 +190,7 @@ async function setDeviceTemperature(
   deviceId: string,
   temperature: number
 ): Promise<unknown> {
-  // Temperature is usually in 0.1°C units for Tuya thermostats
+  // Temperature is usually in 0.1°C units for Tuya thermostats (e.g., 200 = 20.0°C)
   const tempValue = Math.round(temperature * 10);
   
   return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
@@ -203,8 +217,10 @@ function parseThermostatStatus(status: unknown[]): { currentTemp: number; target
           targetTemp = Number(s.value) / 10;
           break;
         case 'switch':
+          isHeating = s.value === true;
+          break;
         case 'mode':
-          if (s.value === 'heat' || s.value === true) {
+          if (s.value === 'heat') {
             isHeating = true;
           }
           break;
@@ -224,15 +240,19 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const accessId = Deno.env.get('TUYA_ACCESS_ID');
-    const accessSecret = Deno.env.get('TUYA_ACCESS_SECRET');
+    const accessId = Deno.env.get('TUYA_ACCESS_ID')?.trim();
+    const accessSecret = Deno.env.get('TUYA_ACCESS_SECRET')?.trim();
 
     if (!accessId || !accessSecret) {
       throw new Error('Tuya credentials not configured');
     }
 
+    console.log('Using accessId:', accessId, 'length:', accessId.length);
+
     const url = new URL(req.url);
     const path = url.pathname.replace('/tuya-control', '');
+
+    console.log(`Request: ${req.method} ${path}`);
 
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
