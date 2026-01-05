@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -6,8 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Home, Plus, Pencil, Trash2, Sun, Compass } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, Sun, Compass, RefreshCw, Thermometer } from 'lucide-react';
 import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
+import { useTuyaControl, TuyaDevice } from '@/hooks/useTuyaControl';
+import { Badge } from '@/components/ui/badge';
 
 interface RoomManagerProps {
   rooms: Room[];
@@ -27,12 +29,21 @@ const defaultRoom: Partial<Room> = {
   night_temp: 17,
   priority: 2,
   heating_power_w: null,
+  tuya_device_id: null,
+  thermostat_ip: null,
+  pv_auto_enabled: false,
 };
 
 export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerProps) {
   const [editingRoom, setEditingRoom] = useState<Partial<Room> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const { devices, isLoading: devicesLoading, fetchDevices } = useTuyaControl();
 
+  useEffect(() => {
+    if (isDialogOpen && devices.length === 0) {
+      fetchDevices();
+    }
+  }, [isDialogOpen, devices.length, fetchDevices]);
   const handleSave = () => {
     if (editingRoom && editingRoom.name) {
       onSave(editingRoom);
@@ -156,6 +167,68 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                     />
                   </div>
 
+                  <div className="col-span-2">
+                    <Label htmlFor="thermostat_ip">Thermostat IP-Adresse</Label>
+                    <Input
+                      id="thermostat_ip"
+                      value={editingRoom.thermostat_ip || ''}
+                      onChange={e => setEditingRoom({ ...editingRoom, thermostat_ip: e.target.value || null })}
+                      placeholder="z.B. 192.168.188.168"
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <div className="flex items-center justify-between mb-2">
+                      <Label htmlFor="tuya_device">Tuya-Gerät</Label>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={fetchDevices}
+                        disabled={devicesLoading}
+                      >
+                        <RefreshCw className={`h-3 w-3 mr-1 ${devicesLoading ? 'animate-spin' : ''}`} />
+                        Aktualisieren
+                      </Button>
+                    </div>
+                    <Select
+                      value={editingRoom.tuya_device_id || 'none'}
+                      onValueChange={v => setEditingRoom({ 
+                        ...editingRoom, 
+                        tuya_device_id: v === 'none' ? null : v 
+                      })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Tuya-Gerät wählen..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Kein Gerät</SelectItem>
+                        {devices.map((device) => (
+                          <SelectItem key={device.id} value={device.id}>
+                            {device.name} {device.online ? '🟢' : '🔴'}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {devices.length === 0 && !devicesLoading && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Keine Geräte gefunden. Klicke auf "Aktualisieren".
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="col-span-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sun className="h-4 w-4 text-yellow-500" />
+                      <Label htmlFor="pv_auto">PV-Überschuss Automatik</Label>
+                    </div>
+                    <Switch
+                      id="pv_auto"
+                      checked={editingRoom.pv_auto_enabled || false}
+                      onCheckedChange={v => setEditingRoom({ ...editingRoom, pv_auto_enabled: v })}
+                    />
+                  </div>
+
                   <div className="col-span-2 flex items-center justify-between">
                     <Label htmlFor="solar">Direkter Sonneneinstrahlung</Label>
                     <Switch
@@ -242,7 +315,21 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                     {room.has_solar_gain && <Sun className="h-4 w-4 text-amber-400" />}
                   </div>
                   <div>
-                    <p className="font-medium">{room.name}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{room.name}</p>
+                      {room.tuya_device_id && (
+                        <Badge variant="outline" className="text-xs gap-1">
+                          <Thermometer className="h-3 w-3" />
+                          {room.current_temp ? `${room.current_temp}°C` : 'Tuya'}
+                        </Badge>
+                      )}
+                      {room.pv_auto_enabled && (
+                        <Badge variant="secondary" className="text-xs gap-1">
+                          <Sun className="h-3 w-3" />
+                          PV-Auto
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {room.floor_area_m2 ? `${room.floor_area_m2}m² · ` : ''}
                       {room.comfort_temp}°C / {room.eco_temp}°C / {room.night_temp}°C

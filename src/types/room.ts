@@ -10,6 +10,14 @@ export interface Room {
   night_temp: number;
   priority: number;
   heating_power_w?: number | null;
+  // Tuya thermostat fields
+  tuya_device_id?: string | null;
+  thermostat_ip?: string | null;
+  current_temp?: number | null;
+  target_temp?: number | null;
+  is_heating?: boolean | null;
+  pv_auto_enabled?: boolean | null;
+  last_thermostat_sync?: string | null;
   created_at?: string;
   updated_at?: string;
 }

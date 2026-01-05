@@ -16,7 +16,8 @@ export function useRooms() {
         .order('priority', { ascending: true });
 
       if (error) throw error;
-      setRooms(data as Room[]);
+      // Cast the data properly to Room type including new Tuya fields
+      setRooms(data as unknown as Room[]);
     } catch (error) {
       console.error('Error loading rooms:', error);
       toast.error('Fehler beim Laden der Räume');

@@ -1,0 +1,8 @@
+-- Add Tuya thermostat fields to rooms table
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS tuya_device_id TEXT;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS thermostat_ip TEXT;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS current_temp NUMERIC;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS target_temp NUMERIC;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS is_heating BOOLEAN DEFAULT false;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS pv_auto_enabled BOOLEAN DEFAULT false;
+ALTER TABLE rooms ADD COLUMN IF NOT EXISTS last_thermostat_sync TIMESTAMPTZ;
