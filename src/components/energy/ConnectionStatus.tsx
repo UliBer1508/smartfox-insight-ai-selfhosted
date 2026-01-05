@@ -1,12 +1,11 @@
 import { cn } from '@/lib/utils';
-import { Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { Wifi, WifiOff, RefreshCw, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 
 interface ConnectionStatusProps {
   isConnected: boolean;
-  isPolling: boolean;
   lastUpdate?: string;
   error?: string | null;
   onRefresh: () => void;
@@ -14,7 +13,6 @@ interface ConnectionStatusProps {
 
 export function ConnectionStatus({ 
   isConnected, 
-  isPolling, 
   lastUpdate, 
   error,
   onRefresh 
@@ -32,19 +30,17 @@ export function ConnectionStatus({
         ) : (
           <WifiOff className="w-4 h-4" />
         )}
-        {isConnected ? 'Verbunden' : 'Getrennt'}
+        {isConnected ? 'Verbunden' : 'Keine aktuellen Daten'}
       </div>
 
-      {isPolling && (
-        <div className="flex items-center gap-2 text-sm text-primary">
-          <RefreshCw className="w-4 h-4 animate-spin-slow" />
-          Erfassung aktiv
-        </div>
-      )}
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Server className="w-4 h-4" />
+        Collector-Modus
+      </div>
 
       {lastUpdate && (
         <div className="text-sm text-muted-foreground">
-          Letzte Aktualisierung: {format(new Date(lastUpdate), 'HH:mm:ss', { locale: de })}
+          Letzte Daten: {format(new Date(lastUpdate), 'HH:mm:ss', { locale: de })}
         </div>
       )}
 
@@ -59,6 +55,7 @@ export function ConnectionStatus({
         size="sm" 
         onClick={onRefresh}
         className="ml-auto"
+        title="Daten neu laden"
       >
         <RefreshCw className="w-4 h-4" />
       </Button>

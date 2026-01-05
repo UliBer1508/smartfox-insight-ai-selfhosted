@@ -20,17 +20,15 @@ import { de } from 'date-fns/locale';
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis' | 'heating'>('dashboard');
-  const { settings, saveSettings, isLoading: settingsLoading } = useSmartfoxSettings();
+  const { settings } = useSmartfoxSettings();
   const { settings: heatingSettings } = useHeatingSettings();
   const { 
     currentReading, 
     readings, 
     isConnected, 
-    isPolling, 
     lastError, 
-    testConnection,
-    pollOnce 
-  } = useSmartfoxData(settings);
+    refresh 
+  } = useSmartfoxData();
   const { 
     analysis, 
     isAnalyzing, 
@@ -52,10 +50,9 @@ const Index = () => {
           <>
             <ConnectionStatus
               isConnected={isConnected}
-              isPolling={isPolling}
               lastUpdate={currentReading?.timestamp}
               error={lastError}
-              onRefresh={pollOnce}
+              onRefresh={refresh}
             />
 
             <div className="grid lg:grid-cols-3 gap-6">
@@ -113,7 +110,7 @@ const Index = () => {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold font-mono">{settings.polling_interval}s</div>
-                  <p className="text-xs text-muted-foreground">Abfrageintervall</p>
+                  <p className="text-xs text-muted-foreground">Collector-Intervall</p>
                 </CardContent>
               </Card>
 
@@ -140,10 +137,8 @@ const Index = () => {
 
         {activeTab === 'settings' && (
           <SettingsPanel
-            settings={settings}
-            onSave={saveSettings}
-            onTest={testConnection}
-            isLoading={settingsLoading}
+            isConnected={isConnected}
+            lastUpdate={currentReading?.timestamp}
           />
         )}
 
