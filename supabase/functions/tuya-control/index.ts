@@ -156,47 +156,6 @@ async function tuyaRequest(
   return data.result;
 }
 
-// Get all devices from Tuya Cloud - Smart Home Basic Services
-async function getDevices(accessId: string, accessSecret: string): Promise<unknown[]> {
-  // Get token first - this gives us the uid
-  await getAccessToken(accessId, accessSecret);
-  
-  if (!cachedToken?.uid) {
-    console.log('No UID found in token');
-    return [];
-  }
-
-  const uid = cachedToken.uid;
-  console.log('Using UID from token:', uid);
-  
-  // Use the Smart Home Basic Service endpoint: /v1.0/users/{uid}/devices
-  try {
-    console.log(`Fetching devices for user ${uid}...`);
-    const result = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/users/${uid}/devices`);
-    
-    if (Array.isArray(result)) {
-      console.log(`Found ${result.length} devices`);
-      return result;
-    }
-    
-    // Handle wrapped response format
-    const wrapped = result as { devices?: unknown[]; list?: unknown[] };
-    if (wrapped.devices && Array.isArray(wrapped.devices)) {
-      console.log(`Found ${wrapped.devices.length} devices (wrapped)`);
-      return wrapped.devices;
-    }
-    if (wrapped.list && Array.isArray(wrapped.list)) {
-      console.log(`Found ${wrapped.list.length} devices (list)`);
-      return wrapped.list;
-    }
-    
-    console.log('Unexpected response format:', JSON.stringify(result));
-    return [];
-  } catch (error) {
-    console.error('Error fetching devices:', String(error));
-    return [];
-  }
-}
 
 // Get device status
 async function getDeviceStatus(accessId: string, accessSecret: string, deviceId: string): Promise<unknown> {
@@ -279,12 +238,14 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // GET /devices - List all Tuya devices
+    // GET /devices - Not available with Basic Services, return empty
     if (req.method === 'GET' && path === '/devices') {
-      console.log('Fetching Tuya devices...');
-      const devices = await getDevices(accessId, accessSecret);
-      
-      return new Response(JSON.stringify({ success: true, devices }), {
+      console.log('Device list not available with Basic Services - use manual device ID entry');
+      return new Response(JSON.stringify({ 
+        success: true, 
+        devices: [],
+        message: 'Device list API not available. Please enter Device IDs manually from Tuya IoT Platform.'
+      }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
