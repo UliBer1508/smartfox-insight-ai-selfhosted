@@ -82,7 +82,7 @@ async function fetchFroniusData() {
   if (!config.fronius.enabled) return null;
   
   try {
-    const url = `http://${config.fronius.ip}/solar_api/v1/GetPowerFlowRealtimeData.fcg`;
+    const url = `http://${config.fronius.ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
     console.log(`📡 Fetching Fronius: ${url}`);
     const data = await httpGet(url);
     
@@ -102,7 +102,7 @@ async function fetchFroniusData() {
       battery_soc: batterySoc,
       pv_power: site.P_PV || 0,
       grid_power: site.P_Grid || 0, // positive = import, negative = export
-      load_power: site.P_Load || 0,
+      load_power: Math.abs(site.P_Load || 0),
       battery_power: site.P_Akku || 0
     };
   } catch (error) {
