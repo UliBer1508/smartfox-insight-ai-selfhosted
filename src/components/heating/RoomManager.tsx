@@ -266,6 +266,9 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
         </Dialog>
       </CardHeader>
       <CardContent>
+        <div className="text-sm text-muted-foreground mb-2 p-2 bg-muted rounded">
+          🔍 Debug: {rooms.length} Räume geladen
+        </div>
         {rooms.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-4">
             Noch keine Räume angelegt. Füge Räume hinzu, um raumspezifische Empfehlungen zu erhalten.

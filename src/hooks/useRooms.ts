@@ -9,17 +9,21 @@ export function useRooms() {
   const [isLoading, setIsLoading] = useState(true);
 
   const loadRooms = useCallback(async () => {
+    console.log('🔄 Loading rooms...');
     try {
       const { data, error } = await supabase
         .from('rooms')
         .select('*')
         .order('priority', { ascending: true });
 
+      console.log('📊 Rooms response:', { data, error, count: data?.length });
+
       if (error) throw error;
       // Cast the data properly to Room type including new Tuya fields
       setRooms(data as unknown as Room[]);
+      console.log('✅ Rooms set:', data?.length);
     } catch (error) {
-      console.error('Error loading rooms:', error);
+      console.error('❌ Error loading rooms:', error);
       toast.error('Fehler beim Laden der Räume');
     } finally {
       setIsLoading(false);
