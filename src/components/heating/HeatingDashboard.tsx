@@ -10,6 +10,7 @@ import { usePvForecast } from '@/hooks/usePvForecast';
 import { useRooms } from '@/hooks/useRooms';
 import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
+import { useAutomation } from '@/hooks/useAutomation';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
 import { PvForecastCard } from './PvForecastCard';
@@ -17,7 +18,7 @@ import { RoomRecommendations } from './RoomRecommendations';
 import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock } from 'lucide-react';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Bot } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -66,6 +67,12 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     loadLogs: loadHeatingLogs,
     getRoomStats,
   } = useRoomHeatingLogs();
+
+  const {
+    toggleAutomation,
+    applyRecommendations,
+    isApplying,
+  } = useAutomation();
 
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
@@ -128,6 +135,13 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
   const handleTogglePvAuto = useCallback(async (roomId: string, enabled: boolean) => {
     await saveRoom({ id: roomId, pv_auto_enabled: enabled });
   }, [saveRoom]);
+
+  const handleToggleAutomation = useCallback(async (roomId: string, enabled: boolean) => {
+    const success = await toggleAutomation(roomId, enabled);
+    if (success) {
+      await loadRooms();
+    }
+  }, [toggleAutomation, loadRooms]);
 
   const handleRefreshRoom = useCallback(async (roomId: string) => {
     await syncAllStatus();
@@ -307,6 +321,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
                   room={room}
                   onSetTemperature={handleSetTemperature}
                   onTogglePvAuto={handleTogglePvAuto}
+                  onToggleAutomation={handleToggleAutomation}
                   onRefresh={handleRefreshRoom}
                   isLoading={isSyncing}
                   heatingStats={room.id ? getRoomStats(room.id) : undefined}
@@ -428,6 +443,24 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
                     <>
                       <Home className="w-4 h-4 mr-2" />
                       Raumempfehlungen erstellen
+                    </>
+                  )}
+                </Button>
+                <Button 
+                  onClick={applyRecommendations}
+                  disabled={isApplying || rooms.length === 0}
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                >
+                  {isApplying ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Wende an...
+                    </>
+                  ) : (
+                    <>
+                      <Bot className="w-4 h-4 mr-2" />
+                      Empfehlungen anwenden
                     </>
                   )}
                 </Button>

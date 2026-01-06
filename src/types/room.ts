@@ -25,6 +25,9 @@ export interface Room {
   // PV-Automatik Status
   pv_auto_active?: boolean | null;
   pv_auto_last_change?: string | null;
+  // Automatik-Steuerung
+  automation_enabled?: boolean | null;
+  last_auto_change?: string | null;
   created_at?: string;
   updated_at?: string;
 }

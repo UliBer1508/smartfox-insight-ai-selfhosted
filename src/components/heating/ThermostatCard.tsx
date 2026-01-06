@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Flame, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap } from 'lucide-react';
+import { Flame, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 
@@ -18,6 +18,7 @@ interface ThermostatCardProps {
   room: Room;
   onSetTemperature: (roomId: string, deviceId: string, temp: number) => Promise<boolean>;
   onTogglePvAuto: (roomId: string, enabled: boolean) => void;
+  onToggleAutomation?: (roomId: string, enabled: boolean) => void;
   onRefresh: (roomId: string) => void;
   isLoading?: boolean;
   heatingStats?: HeatingStats;
@@ -27,6 +28,7 @@ export function ThermostatCard({
   room,
   onSetTemperature,
   onTogglePvAuto,
+  onToggleAutomation,
   onRefresh,
   isLoading = false,
   heatingStats,
@@ -190,16 +192,33 @@ export function ThermostatCard({
               </Button>
             </div>
 
-            {/* PV Auto Toggle */}
-            <div className="flex items-center justify-between pt-2 border-t">
-              <div className="flex items-center gap-2">
-                <Sun className="h-4 w-4 text-yellow-500" />
-                <span className="text-sm">PV-Automatik</span>
+            {/* Automation Toggles */}
+            <div className="flex flex-col gap-2 pt-2 border-t">
+              {/* Automatik Toggle */}
+              {onToggleAutomation && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bot className="h-4 w-4 text-blue-500" />
+                    <span className="text-sm">Auto-Empfehlung</span>
+                  </div>
+                  <Switch
+                    checked={room.automation_enabled ?? false}
+                    onCheckedChange={(checked) => room.id && onToggleAutomation(room.id, checked)}
+                  />
+                </div>
+              )}
+              
+              {/* PV Auto Toggle */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Sun className="h-4 w-4 text-yellow-500" />
+                  <span className="text-sm">PV-Automatik</span>
+                </div>
+                <Switch
+                  checked={room.pv_auto_enabled ?? false}
+                  onCheckedChange={(checked) => room.id && onTogglePvAuto(room.id, checked)}
+                />
               </div>
-              <Switch
-                checked={room.pv_auto_enabled ?? false}
-                onCheckedChange={(checked) => room.id && onTogglePvAuto(room.id, checked)}
-              />
             </div>
 
             {/* Heating Stats */}
