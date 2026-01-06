@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -17,9 +17,10 @@ import { RoomRecommendations } from './RoomRecommendations';
 import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw } from 'lucide-react';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { format } from 'date-fns';
 
 interface HeatingDashboardProps {
   readings: EnergyReading[];
@@ -68,6 +69,10 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
 
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
   useEffect(() => {
     loadRecommendations();
@@ -75,10 +80,41 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     loadHeatingLogs();
   }, [loadRecommendations, loadForecasts, loadHeatingLogs]);
 
+  // Auto-sync thermostats every 5 minutes
+  useEffect(() => {
+    const doSync = async () => {
+      // Only sync if page is visible
+      if (document.visibilityState !== 'visible') {
+        console.log('[Auto-Sync] Skipped - page not visible');
+        return;
+      }
+      
+      console.log('[Auto-Sync] Syncing thermostats...');
+      await syncAllStatus();
+      await loadRooms();
+      await loadHeatingLogs();
+      setLastSyncTime(new Date());
+    };
+
+    // Initial sync
+    doSync();
+
+    // Set up periodic sync
+    syncIntervalRef.current = setInterval(doSync, SYNC_INTERVAL_MS);
+
+    // Cleanup on unmount
+    return () => {
+      if (syncIntervalRef.current) {
+        clearInterval(syncIntervalRef.current);
+      }
+    };
+  }, [syncAllStatus, loadRooms, loadHeatingLogs]);
+
   const handleSyncThermostats = useCallback(async () => {
     await syncAllStatus();
     await loadRooms();
     await loadHeatingLogs();
+    setLastSyncTime(new Date());
   }, [syncAllStatus, loadRooms, loadHeatingLogs]);
 
   const handleSetTemperature = useCallback(async (roomId: string, deviceId: string, temp: number): Promise<boolean> => {
@@ -245,15 +281,23 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
                 Live-Temperaturen und manuelle Steuerung
               </CardDescription>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncThermostats}
-              disabled={isSyncing}
-            >
-              <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
-              Sync
-            </Button>
+            <div className="flex items-center gap-3">
+              {lastSyncTime && (
+                <span className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  {format(lastSyncTime, 'HH:mm')}
+                </span>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSyncThermostats}
+                disabled={isSyncing}
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                Sync
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-0">
