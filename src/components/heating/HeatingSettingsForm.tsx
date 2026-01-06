@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +27,11 @@ const AZIMUTH_OPTIONS = [
 
 export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSettingsFormProps) {
   const [formData, setFormData] = useState(settings);
+
+  // Update formData when settings change (e.g., after loading from database)
+  useEffect(() => {
+    setFormData(settings);
+  }, [settings]);
 
   const handleChange = (field: keyof HeatingSettings, value: number | boolean | string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
