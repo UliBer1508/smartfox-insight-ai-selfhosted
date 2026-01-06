@@ -72,6 +72,7 @@ const Index = () => {
                 <BatteryStatus 
                   soc={currentReading?.battery_soc ?? null}
                   capacity={heatingSettings.battery_capacity_kwh}
+                  batteryPower={currentReading?.battery_power ?? null}
                 />
 
                 <PowerStats 

@@ -5,6 +5,7 @@ export interface EnergyReading {
   energy_in: number;
   energy_out: number;
   battery_soc?: number;
+  battery_power?: number;
   pv_power?: number;
   consumption?: number;
   created_at?: string;
