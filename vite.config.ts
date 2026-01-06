@@ -27,8 +27,8 @@ export default defineConfig(({ mode }) => ({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'robots.txt', 'offline.html'],
+      registerType: 'prompt',
+      includeAssets: ['favicon.ico', 'robots.txt', 'offline.html', 'apple-touch-icon.png'],
       manifest: {
         name: 'Smartfox Energy Pipeline',
         short_name: 'Smartfox',
@@ -41,15 +41,39 @@ export default defineConfig(({ mode }) => ({
         start_url: '/',
         categories: ['utilities', 'productivity'],
         icons: [
+          { src: '/pwa-144x144.png', sizes: '144x144', type: 'image/png' },
           { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: '/pwa-384x384.png', sizes: '384x384', type: 'image/png' },
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
-          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+          { src: '/maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+        ],
+        screenshots: [
+          {
+            src: '/screenshot-desktop.png',
+            sizes: '1280x720',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Smartfox Energy Dashboard'
+          },
+          {
+            src: '/screenshot-mobile.png',
+            sizes: '750x1334',
+            type: 'image/png',
+            form_factor: 'narrow',
+            label: 'Smartfox Energy Mobile'
+          }
         ],
         shortcuts: [
           {
             name: 'Dashboard',
             short_name: 'Dashboard',
             url: '/',
+            icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }]
+          },
+          {
+            name: 'Heizung',
+            short_name: 'Heizung',
+            url: '/?tab=heating',
             icons: [{ src: '/pwa-192x192.png', sizes: '192x192' }]
           }
         ]
