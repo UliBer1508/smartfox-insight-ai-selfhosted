@@ -111,6 +111,11 @@
     @apply border-border;
   }
 
+  html, body, #root {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
