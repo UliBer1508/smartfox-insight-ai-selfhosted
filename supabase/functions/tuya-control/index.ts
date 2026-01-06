@@ -399,6 +399,27 @@ Deno.serve(async (req) => {
                 })
                 .eq('id', room.id);
             }
+          } else if (parsed.isHeating) {
+            // Room is heating but status didn't change - check if we have an open heating_start
+            const { data: lastLog } = await supabase
+              .from('room_heating_logs')
+              .select('*')
+              .eq('room_id', room.id)
+              .order('timestamp', { ascending: false })
+              .limit(1)
+              .single();
+
+            // If no logs exist or the last log is a stop, create a new start
+            if (!lastLog || lastLog.event_type === 'heating_stop') {
+              console.log(`[${room.name}] Creating missing heating_start entry`);
+              await supabase.from('room_heating_logs').insert({
+                room_id: room.id,
+                event_type: 'heating_start',
+                current_temp: parsed.currentTemp,
+                target_temp: parsed.targetTemp,
+                timestamp: now,
+              });
+            }
           }
 
           await supabase
