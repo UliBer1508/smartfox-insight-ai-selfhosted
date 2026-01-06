@@ -30,9 +30,9 @@ export default defineConfig(({ mode }) => ({
       registerType: 'prompt',
       includeAssets: ['favicon.ico', 'robots.txt', 'offline.html', 'apple-touch-icon.png'],
       manifest: {
-        name: 'Smartfox Energy Pipeline',
-        short_name: 'Smartfox',
-        description: 'KI-gestützte Energieanalyse für deinen Smartfox Energy Manager',
+        name: 'Fronius Smart AI',
+        short_name: 'Fronius AI',
+        description: 'KI-gestütztes Energie-Management mit Fronius-Integration',
         theme_color: '#ffffff',
         background_color: '#ffffff',
         display: 'standalone',
@@ -53,14 +53,14 @@ export default defineConfig(({ mode }) => ({
             sizes: '1280x720',
             type: 'image/png',
             form_factor: 'wide',
-            label: 'Smartfox Energy Dashboard'
+            label: 'Fronius Smart AI Dashboard'
           },
           {
             src: '/screenshot-mobile.png',
             sizes: '750x1334',
             type: 'image/png',
             form_factor: 'narrow',
-            label: 'Smartfox Energy Mobile'
+            label: 'Fronius Smart AI Mobile'
           }
         ],
         shortcuts: [
