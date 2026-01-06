@@ -3,6 +3,7 @@ import { Header } from '@/components/energy/Header';
 import { PowerGauge } from '@/components/energy/PowerGauge';
 import { EnergyStats } from '@/components/energy/EnergyStats';
 import { EnergyChart } from '@/components/energy/EnergyChart';
+import { EnergyFlowDiagram } from '@/components/energy/EnergyFlowDiagram';
 import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
@@ -60,14 +61,13 @@ const Index = () => {
 
             <div className="grid lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1 space-y-4">
-                <Card className="flex flex-col items-center justify-center py-8">
-                  <CardHeader className="pb-4 text-center">
-                    <CardTitle className="text-lg">Aktuelle Leistung</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <PowerGauge power={currentReading?.power_io ?? 0} />
-                  </CardContent>
-                </Card>
+                <EnergyFlowDiagram
+                  pvPower={currentReading?.pv_power ?? null}
+                  consumption={currentReading?.consumption ?? null}
+                  batteryPower={currentReading?.battery_power ?? null}
+                  gridPower={currentReading?.power_io ?? 0}
+                  batterySoc={currentReading?.battery_soc ?? null}
+                />
 
                 <BatteryStatus 
                   soc={currentReading?.battery_soc ?? null}
