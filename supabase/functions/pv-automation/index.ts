@@ -5,10 +5,10 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Schwellwerte für PV-Automatik
-const PV_SURPLUS_THRESHOLD_ON = 500;   // Watt - Heizen aktivieren
-const PV_SURPLUS_THRESHOLD_OFF = 200;  // Watt - Heizen deaktivieren (Hysterese)
-const MIN_SWITCH_INTERVAL_MS = 5 * 60 * 1000; // 5 Minuten zwischen Umschaltungen
+// Default-Schwellwerte (werden aus DB überschrieben)
+const DEFAULT_PV_SURPLUS_THRESHOLD_ON = 500;   // Watt - Heizen aktivieren
+const DEFAULT_PV_SURPLUS_THRESHOLD_OFF = 200;  // Watt - Heizen deaktivieren (Hysterese)
+const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 5;     // Minuten zwischen Umschaltungen
 
 interface EnergyReading {
   power_io: number;
@@ -31,6 +31,9 @@ interface Room {
 
 interface HeatingSettings {
   min_battery_soc: number;
+  pv_surplus_threshold_on: number | null;
+  pv_surplus_threshold_off: number | null;
+  min_switch_interval_min: number | null;
 }
 
 // Tuya API Helper Functions (reused from tuya-control)
@@ -175,9 +178,12 @@ Deno.serve(async (req) => {
 
       const { data: settings } = await supabase
         .from('heating_settings')
-        .select('min_battery_soc')
+        .select('min_battery_soc, pv_surplus_threshold_on, pv_surplus_threshold_off, min_switch_interval_min')
         .limit(1)
         .single();
+
+      const thresholdOn = settings?.pv_surplus_threshold_on || DEFAULT_PV_SURPLUS_THRESHOLD_ON;
+      const thresholdOff = settings?.pv_surplus_threshold_off || DEFAULT_PV_SURPLUS_THRESHOLD_OFF;
 
       const surplus = latestReading?.power_io || 0;
       const batterySoc = latestReading?.battery_soc || 0;
@@ -190,10 +196,10 @@ Deno.serve(async (req) => {
           batterySoc: batterySoc,
           minBatterySoc: minBatterySoc,
           batteryOk: batterySoc >= minBatterySoc,
-          surplusOk: surplus >= PV_SURPLUS_THRESHOLD_ON,
+          surplusOk: surplus >= thresholdOn,
           thresholds: {
-            on: PV_SURPLUS_THRESHOLD_ON,
-            off: PV_SURPLUS_THRESHOLD_OFF
+            on: thresholdOn,
+            off: thresholdOff
           },
           rooms: rooms || [],
           lastReading: latestReading?.timestamp
@@ -234,12 +240,15 @@ Deno.serve(async (req) => {
       // 2. Heating Settings abrufen
       const { data: settingsData } = await supabase
         .from('heating_settings')
-        .select('min_battery_soc')
+        .select('min_battery_soc, pv_surplus_threshold_on, pv_surplus_threshold_off, min_switch_interval_min')
         .limit(1)
         .single();
 
       const settings = settingsData as HeatingSettings | null;
       const minBatterySoc = settings?.min_battery_soc || 20;
+      const thresholdOn = settings?.pv_surplus_threshold_on || DEFAULT_PV_SURPLUS_THRESHOLD_ON;
+      const thresholdOff = settings?.pv_surplus_threshold_off || DEFAULT_PV_SURPLUS_THRESHOLD_OFF;
+      const minSwitchIntervalMs = (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN) * 60 * 1000;
 
       // 3. Batterie-Check: Nur heizen wenn Batterie ausreichend geladen
       if (batterySoc < minBatterySoc) {
@@ -310,7 +319,7 @@ Deno.serve(async (req) => {
           const lastChange = room.pv_auto_last_change ? new Date(room.pv_auto_last_change) : null;
           
           // Mindestzeit seit letzter Umschaltung prüfen
-          if (lastChange && (now.getTime() - lastChange.getTime()) < MIN_SWITCH_INTERVAL_MS) {
+          if (lastChange && (now.getTime() - lastChange.getTime()) < minSwitchIntervalMs) {
             roomResult.action = 'skipped_cooldown';
             results.push(roomResult);
             console.log(`[PV-Automation] ${room.name}: Skipping, cooldown active`);
@@ -320,11 +329,11 @@ Deno.serve(async (req) => {
           let shouldActivate = false;
           let shouldDeactivate = false;
 
-          // Hysterese-Logik
-          if (!isCurrentlyActive && surplus >= PV_SURPLUS_THRESHOLD_ON) {
+          // Hysterese-Logik mit konfigurierbaren Schwellwerten
+          if (!isCurrentlyActive && surplus >= thresholdOn) {
             // Aktivieren bei genug Überschuss
             shouldActivate = true;
-          } else if (isCurrentlyActive && surplus < PV_SURPLUS_THRESHOLD_OFF) {
+          } else if (isCurrentlyActive && surplus < thresholdOff) {
             // Deaktivieren wenn Überschuss unter Schwelle fällt
             shouldDeactivate = true;
           }
@@ -406,8 +415,8 @@ Deno.serve(async (req) => {
         batterySoc,
         minBatterySoc,
         thresholds: {
-          on: PV_SURPLUS_THRESHOLD_ON,
-          off: PV_SURPLUS_THRESHOLD_OFF
+          on: thresholdOn,
+          off: thresholdOff
         },
         results
       }), {

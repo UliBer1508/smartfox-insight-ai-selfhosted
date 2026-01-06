@@ -170,16 +170,24 @@ export type Database = {
       heating_settings: {
         Row: {
           battery_capacity_kwh: number
+          car_charging_enabled: boolean | null
+          car_min_charge_power_w: number | null
           comfort_temp: number
+          consumer_priority: string | null
           created_at: string
           eco_temp: number
+          estrich_storage_enabled: boolean | null
+          floor_heating_response_hours: number | null
           id: string
           latitude: number | null
           longitude: number | null
           min_battery_soc: number
+          min_switch_interval_min: number | null
           night_temp: number
           preheat_hours: number
           pv_capacity_kwp: number
+          pv_surplus_threshold_off: number | null
+          pv_surplus_threshold_on: number | null
           roof_azimuth: number | null
           roof_declination: number | null
           target_battery_soc: number
@@ -187,16 +195,24 @@ export type Database = {
         }
         Insert: {
           battery_capacity_kwh?: number
+          car_charging_enabled?: boolean | null
+          car_min_charge_power_w?: number | null
           comfort_temp?: number
+          consumer_priority?: string | null
           created_at?: string
           eco_temp?: number
+          estrich_storage_enabled?: boolean | null
+          floor_heating_response_hours?: number | null
           id?: string
           latitude?: number | null
           longitude?: number | null
           min_battery_soc?: number
+          min_switch_interval_min?: number | null
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
+          pv_surplus_threshold_off?: number | null
+          pv_surplus_threshold_on?: number | null
           roof_azimuth?: number | null
           roof_declination?: number | null
           target_battery_soc?: number
@@ -204,16 +220,24 @@ export type Database = {
         }
         Update: {
           battery_capacity_kwh?: number
+          car_charging_enabled?: boolean | null
+          car_min_charge_power_w?: number | null
           comfort_temp?: number
+          consumer_priority?: string | null
           created_at?: string
           eco_temp?: number
+          estrich_storage_enabled?: boolean | null
+          floor_heating_response_hours?: number | null
           id?: string
           latitude?: number | null
           longitude?: number | null
           min_battery_soc?: number
+          min_switch_interval_min?: number | null
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
+          pv_surplus_threshold_off?: number | null
+          pv_surplus_threshold_on?: number | null
           roof_azimuth?: number | null
           roof_declination?: number | null
           target_battery_soc?: number
@@ -290,6 +314,53 @@ export type Database = {
         }
         Relationships: []
       }
+      room_heating_logs: {
+        Row: {
+          created_at: string | null
+          current_temp: number | null
+          duration_minutes: number | null
+          energy_estimate_wh: number | null
+          event_type: string
+          id: string
+          pv_surplus_w: number | null
+          room_id: string
+          target_temp: number | null
+          timestamp: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          current_temp?: number | null
+          duration_minutes?: number | null
+          energy_estimate_wh?: number | null
+          event_type: string
+          id?: string
+          pv_surplus_w?: number | null
+          room_id: string
+          target_temp?: number | null
+          timestamp?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          current_temp?: number | null
+          duration_minutes?: number | null
+          energy_estimate_wh?: number | null
+          event_type?: string
+          id?: string
+          pv_surplus_w?: number | null
+          room_id?: string
+          target_temp?: number | null
+          timestamp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_heating_logs_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       room_recommendations: {
         Row: {
           created_at: string | null
@@ -339,15 +410,18 @@ export type Database = {
       }
       rooms: {
         Row: {
+          avg_heating_cycles_per_day: number | null
           comfort_temp: number | null
           created_at: string | null
           current_temp: number | null
           eco_temp: number | null
+          estimated_kwh_per_degree: number | null
           floor_area_m2: number | null
           has_solar_gain: boolean | null
           heating_power_w: number | null
           id: string
           is_heating: boolean | null
+          last_heating_duration_min: number | null
           last_thermostat_sync: string | null
           name: string
           night_temp: number | null
@@ -363,15 +437,18 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          avg_heating_cycles_per_day?: number | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
           eco_temp?: number | null
+          estimated_kwh_per_degree?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
           heating_power_w?: number | null
           id?: string
           is_heating?: boolean | null
+          last_heating_duration_min?: number | null
           last_thermostat_sync?: string | null
           name: string
           night_temp?: number | null
@@ -387,15 +464,18 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          avg_heating_cycles_per_day?: number | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
           eco_temp?: number | null
+          estimated_kwh_per_degree?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
           heating_power_w?: number | null
           id?: string
           is_heating?: boolean | null
+          last_heating_duration_min?: number | null
           last_thermostat_sync?: string | null
           name?: string
           night_temp?: number | null

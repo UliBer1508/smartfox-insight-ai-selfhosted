@@ -4,8 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save, MapPin } from 'lucide-react';
+import { Settings, Save, MapPin, Zap, Thermometer, Car } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
@@ -27,7 +28,7 @@ const AZIMUTH_OPTIONS = [
 export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSettingsFormProps) {
   const [formData, setFormData] = useState(settings);
 
-  const handleChange = (field: keyof HeatingSettings, value: number) => {
+  const handleChange = (field: keyof HeatingSettings, value: number | boolean | string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
@@ -135,6 +136,127 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                 onChange={(e) => handleChange('night_temp', parseFloat(e.target.value))}
               />
               <p className="text-xs text-muted-foreground">Nachtabsenkung</p>
+            </div>
+          </div>
+
+          {/* PV-Automatik Schwellwerte */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Zap className="w-4 h-4" />
+              PV-Automatik Schwellwerte
+            </h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="threshold_on">Heizen ab (W)</Label>
+                <Input
+                  id="threshold_on"
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={formData.pv_surplus_threshold_on || 500}
+                  onChange={(e) => handleChange('pv_surplus_threshold_on', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">PV-Überschuss für Aktivierung</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="threshold_off">Stoppen unter (W)</Label>
+                <Input
+                  id="threshold_off"
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={formData.pv_surplus_threshold_off || 200}
+                  onChange={(e) => handleChange('pv_surplus_threshold_off', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Hysterese-Schwelle</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="switch_interval">Schaltintervall (Min)</Label>
+                <Input
+                  id="switch_interval"
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={formData.min_switch_interval_min || 5}
+                  onChange={(e) => handleChange('min_switch_interval_min', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Mindestzeit zwischen Schaltvorgängen</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Fußbodenheizung-Parameter */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Thermometer className="w-4 h-4" />
+              Fußbodenheizung-Eigenschaften
+            </h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="response_hours">Reaktionszeit (Stunden)</Label>
+                <Input
+                  id="response_hours"
+                  type="number"
+                  min="0.5"
+                  max="8"
+                  step="0.5"
+                  value={formData.floor_heating_response_hours || 2}
+                  onChange={(e) => handleChange('floor_heating_response_hours', parseFloat(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Wie lange braucht die Heizung zum Aufheizen</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="estrich">Estrich als Wärmespeicher</Label>
+                <div className="flex items-center space-x-2 pt-2">
+                  <Switch
+                    id="estrich"
+                    checked={formData.estrich_storage_enabled ?? true}
+                    onCheckedChange={(checked) => handleChange('estrich_storage_enabled', checked)}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {formData.estrich_storage_enabled ? 'Aktiv - PV-Überschuss in Estrich speichern' : 'Deaktiviert'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Verbraucher-Priorität */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Car className="w-4 h-4" />
+              Verbraucher-Priorität
+            </h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="priority">Reihenfolge bei PV-Überschuss</Label>
+                <Select
+                  value={formData.consumer_priority || 'battery,heating,car'}
+                  onValueChange={(value) => handleChange('consumer_priority', value)}
+                >
+                  <SelectTrigger id="priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="battery,heating,car">Batterie → Heizung → E-Auto</SelectItem>
+                    <SelectItem value="battery,car,heating">Batterie → E-Auto → Heizung</SelectItem>
+                    <SelectItem value="heating,battery,car">Heizung → Batterie → E-Auto</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">Smartfox steuert E-Auto-Ladung automatisch</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="car_power">Min. Ladeleistung E-Auto (W)</Label>
+                <Input
+                  id="car_power"
+                  type="number"
+                  min="1380"
+                  step="690"
+                  value={formData.car_min_charge_power_w || 1380}
+                  onChange={(e) => handleChange('car_min_charge_power_w', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">6A × 230V = 1380W (Mindestladestrom)</p>
+              </div>
             </div>
           </div>
 
