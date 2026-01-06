@@ -256,7 +256,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {rooms.filter(r => r.tuya_device_id).map(room => (
                 <ThermostatCard
                   key={room.id}
