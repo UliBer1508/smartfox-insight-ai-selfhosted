@@ -12,6 +12,24 @@ const defaultSettings: HeatingSettings = {
   eco_temp: 19,
   night_temp: 18,
   preheat_hours: 2,
+  // PV-Automatik Schwellwerte
+  pv_surplus_threshold_on: 500,
+  pv_surplus_threshold_off: 200,
+  min_switch_interval_min: 5,
+  // Fußbodenheizung
+  floor_heating_response_hours: 2,
+  estrich_storage_enabled: true,
+  // E-Auto
+  car_charging_enabled: false,
+  car_min_charge_power_w: 1380,
+  // Warmwasser
+  hotwater_enabled: true,
+  hotwater_power_w: 2800,
+  hotwater_schedule_start: '10:00',
+  hotwater_schedule_end: '16:00',
+  hotwater_min_surplus_w: 1000,
+  // Priorität
+  consumer_priority: 'battery,hotwater,heating,car',
 };
 
 export function useHeatingSettings() {
