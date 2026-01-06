@@ -7,8 +7,25 @@ export function useSmartfoxData() {
   const [readings, setReadings] = useState<EnergyReading[]>([]);
   const [isConnected, setIsConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
+  const [pollingInterval, setPollingInterval] = useState<number>(60);
 
-  // Check if data is fresh (less than 2 minutes old)
+  // Load polling interval from database
+  useEffect(() => {
+    const loadPollingInterval = async () => {
+      const { data } = await supabase
+        .from('data_retention_settings')
+        .select('polling_interval_seconds')
+        .limit(1)
+        .single();
+      
+      if (data?.polling_interval_seconds) {
+        setPollingInterval(data.polling_interval_seconds);
+      }
+    };
+    loadPollingInterval();
+  }, []);
+
+  // Check if data is fresh (3x polling interval)
   const checkConnectionStatus = useCallback((reading: EnergyReading | null) => {
     if (!reading?.timestamp) {
       setIsConnected(false);
@@ -17,10 +34,10 @@ export function useSmartfoxData() {
     
     const readingTime = new Date(reading.timestamp).getTime();
     const now = Date.now();
-    const twoMinutes = 2 * 60 * 1000;
+    const timeout = pollingInterval * 3 * 1000;
     
-    setIsConnected(now - readingTime < twoMinutes);
-  }, []);
+    setIsConnected(now - readingTime < timeout);
+  }, [pollingInterval]);
 
   // Load recent readings on mount
   const loadReadings = useCallback(async () => {

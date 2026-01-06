@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 import { Wifi, WifiOff, RefreshCw, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
 
 interface ConnectionStatusProps {
@@ -40,7 +40,7 @@ export function ConnectionStatus({
 
       {lastUpdate && (
         <div className="text-sm text-muted-foreground">
-          Letzte Daten: {format(new Date(lastUpdate), 'HH:mm:ss', { locale: de })}
+          {format(new Date(lastUpdate), 'HH:mm:ss', { locale: de })} ({formatDistanceToNow(new Date(lastUpdate), { addSuffix: true, locale: de })})
         </div>
       )}
 
