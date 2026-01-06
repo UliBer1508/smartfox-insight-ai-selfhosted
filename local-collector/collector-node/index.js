@@ -158,15 +158,34 @@ async function poll() {
   }
 }
 
+// Fetch polling interval from database
+async function getPollingInterval() {
+  try {
+    const { data, error } = await supabase
+      .from('data_retention_settings')
+      .select('polling_interval_seconds')
+      .limit(1)
+      .single();
+    
+    if (error || !data) {
+      console.log('⚠️ Polling-Intervall aus config.json verwenden');
+      return config.polling_interval_seconds;
+    }
+    
+    return data.polling_interval_seconds;
+  } catch (error) {
+    return config.polling_interval_seconds;
+  }
+}
+
 // Startup
 async function main() {
   console.log('╔════════════════════════════════════════════════╗');
-  console.log('║   Smartfox/Fronius Collector v1.0              ║');
+  console.log('║   Smartfox/Fronius Collector v1.1              ║');
   console.log('╚════════════════════════════════════════════════╝');
   console.log('');
   console.log(`📍 Smartfox: ${config.smartfox.enabled ? config.smartfox.ip : 'deaktiviert'}`);
   console.log(`📍 Fronius:  ${config.fronius.enabled ? config.fronius.ip : 'deaktiviert'}`);
-  console.log(`⏱️  Intervall: ${config.polling_interval_seconds} Sekunden`);
   console.log('');
   console.log('Drücke Strg+C zum Beenden');
   console.log('─'.repeat(50));
@@ -182,11 +201,23 @@ async function main() {
     process.exit(1);
   }
   
+  // Get polling interval from database or config
+  const pollingInterval = await getPollingInterval();
+  console.log(`⏱️  Intervall: ${pollingInterval} Sekunden (aus Datenbank oder config.json)`);
+  
   // Initial poll
   await poll();
   
   // Start polling loop
-  setInterval(poll, config.polling_interval_seconds * 1000);
+  setInterval(poll, pollingInterval * 1000);
+  
+  // Check for interval changes every 5 minutes
+  setInterval(async () => {
+    const newInterval = await getPollingInterval();
+    if (newInterval !== pollingInterval) {
+      console.log(`\n⚠️ Polling-Intervall geändert auf ${newInterval}s. Bitte Collector neu starten.`);
+    }
+  }, 5 * 60 * 1000);
 }
 
 main().catch(console.error);

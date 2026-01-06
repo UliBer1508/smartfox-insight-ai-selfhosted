@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Server, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
+import { Server, CheckCircle, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { DataRetentionSettings } from './DataRetentionSettings';
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -21,6 +22,8 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
 
   return (
     <div className="space-y-6">
+      {/* Data Retention Settings */}
+      <DataRetentionSettings />
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
