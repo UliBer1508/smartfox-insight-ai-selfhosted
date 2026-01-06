@@ -47,61 +47,65 @@ export function PvForecastCard({
 
   return (
     <Card>
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-1 sm:pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Sun className="w-4 h-4 text-yellow-500" />
-            PV-Prognose
+          <CardTitle className="text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2">
+            <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-yellow-500" />
+            <span className="hidden sm:inline">PV-Prognose</span>
+            <span className="sm:hidden">PV</span>
           </CardTitle>
           <Button 
             variant="ghost" 
             size="sm" 
+            className="h-7 w-7 sm:h-8 sm:w-8 p-0"
             onClick={onRefresh}
             disabled={isRefreshing}
           >
             {isRefreshing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
             ) : (
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             )}
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-2 sm:space-y-4 pt-0">
         {/* Today's Forecast */}
         {todayForecast ? (
-          <div className="space-y-2">
+          <div className="space-y-1 sm:space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">Heute</span>
-              {getWeatherIcon(todayForecast.expected_kwh)}
+              <span className="text-xs sm:text-sm font-medium">Heute</span>
+              <div className="scale-75 sm:scale-100 origin-right">
+                {getWeatherIcon(todayForecast.expected_kwh)}
+              </div>
             </div>
-            <div className="text-3xl font-bold font-mono text-energy-export">
+            <div className="text-2xl sm:text-3xl font-bold font-mono text-energy-export">
               {todayForecast.expected_kwh.toFixed(1)} kWh
             </div>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[10px] sm:text-xs text-muted-foreground">
               {getWeatherText(todayForecast.expected_kwh)}
             </p>
             
             {/* Sunrise/Sunset */}
-            <div className="flex gap-4 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <Sunrise className="w-3 h-3" />
+            <div className="flex gap-3 sm:gap-4 text-[10px] sm:text-xs text-muted-foreground">
+              <span className="flex items-center gap-0.5 sm:gap-1">
+                <Sunrise className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                 {formatTime(todayForecast.sunrise)}
               </span>
-              <span className="flex items-center gap-1">
-                <Sunset className="w-3 h-3" />
+              <span className="flex items-center gap-0.5 sm:gap-1">
+                <Sunset className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
                 {formatTime(todayForecast.sunset)}
               </span>
             </div>
           </div>
         ) : (
-          <div className="text-center py-4 text-muted-foreground">
-            <Sun className="w-8 h-8 mx-auto mb-2 opacity-50" />
-            <p className="text-sm">Keine Prognose verfügbar</p>
+          <div className="text-center py-3 sm:py-4 text-muted-foreground">
+            <Sun className="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-1.5 sm:mb-2 opacity-50" />
+            <p className="text-xs sm:text-sm">Keine Prognose verfügbar</p>
             <Button 
               variant="outline" 
               size="sm" 
-              className="mt-2"
+              className="mt-1.5 sm:mt-2 text-xs h-7 sm:h-8"
               onClick={onRefresh}
               disabled={isRefreshing}
             >
@@ -112,12 +116,14 @@ export function PvForecastCard({
 
         {/* Tomorrow Preview */}
         {tomorrowForecast && (
-          <div className="pt-2 border-t">
-            <div className="flex items-center justify-between text-sm">
+          <div className="pt-1.5 sm:pt-2 border-t">
+            <div className="flex items-center justify-between text-xs sm:text-sm">
               <span className="text-muted-foreground">Morgen</span>
-              <div className="flex items-center gap-2">
-                {getWeatherIcon(tomorrowForecast.expected_kwh)}
-                <span className="font-mono font-medium">
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <div className="scale-75 sm:scale-100 origin-right">
+                  {getWeatherIcon(tomorrowForecast.expected_kwh)}
+                </div>
+                <span className="font-mono font-medium text-xs sm:text-sm">
                   {tomorrowForecast.expected_kwh.toFixed(1)} kWh
                 </span>
               </div>
@@ -127,23 +133,23 @@ export function PvForecastCard({
 
         {/* Week Overview */}
         {weekForecasts.length > 2 && (
-          <div className="pt-2 border-t">
-            <p className="text-xs text-muted-foreground mb-2">7-Tage Vorschau</p>
-            <div className="flex gap-1">
+          <div className="pt-1.5 sm:pt-2 border-t">
+            <p className="text-[10px] sm:text-xs text-muted-foreground mb-1.5 sm:mb-2">7-Tage Vorschau</p>
+            <div className="flex gap-0.5 sm:gap-1">
               {weekForecasts.slice(0, 7).map((forecast) => {
                 const maxKwh = Math.max(...weekForecasts.map(f => f.expected_kwh), 1);
                 const heightPercent = (forecast.expected_kwh / maxKwh) * 100;
                 const date = parseISO(forecast.date);
                 
                 return (
-                  <div key={forecast.date} className="flex-1 flex flex-col items-center gap-1">
-                    <div className="w-full h-12 bg-muted rounded-sm relative overflow-hidden">
+                  <div key={forecast.date} className="flex-1 flex flex-col items-center gap-0.5 sm:gap-1">
+                    <div className="w-full h-8 sm:h-12 bg-muted rounded-sm relative overflow-hidden">
                       <div 
                         className="absolute bottom-0 w-full bg-energy-export/70 rounded-sm transition-all"
                         style={{ height: `${heightPercent}%` }}
                       />
                     </div>
-                    <span className="text-[10px] text-muted-foreground">
+                    <span className="text-[8px] sm:text-[10px] text-muted-foreground">
                       {format(date, 'EEE', { locale: de }).substring(0, 2)}
                     </span>
                   </div>
@@ -155,8 +161,9 @@ export function PvForecastCard({
 
         {/* Last Update */}
         {todayForecast?.fetched_at && (
-          <p className="text-[10px] text-muted-foreground text-right">
-            Aktualisiert: {format(new Date(todayForecast.fetched_at), 'dd.MM. HH:mm', { locale: de })}
+          <p className="text-[8px] sm:text-[10px] text-muted-foreground text-right">
+            <span className="hidden sm:inline">Aktualisiert: </span>
+            {format(new Date(todayForecast.fetched_at), 'dd.MM. HH:mm', { locale: de })}
           </p>
         )}
       </CardContent>
