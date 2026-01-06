@@ -1,5 +1,5 @@
-import { Sun, Home, Battery, Zap } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React from 'react';
+import { Sun, Home, Zap, Battery } from 'lucide-react';
 
 interface EnergyFlowDiagramProps {
   pvPower: number | null;
@@ -9,81 +9,193 @@ interface EnergyFlowDiagramProps {
   batterySoc: number | null;
 }
 
-const formatPower = (power: number) => {
-  const abs = Math.abs(power);
-  if (abs >= 1000) {
-    return `${(abs / 1000).toFixed(1)} kW`;
+const formatPower = (power: number | null): string => {
+  if (power === null) return '-- kW';
+  const absVal = Math.abs(power);
+  if (absVal >= 1000) {
+    return `${(absVal / 1000).toFixed(2)} kW`;
   }
-  return `${Math.round(abs)} W`;
+  return `${Math.round(absVal)} W`;
 };
 
-interface FlowLineProps {
+// Circular gauge component with scale marks
+const CircularGauge = ({ 
+  value, 
+  maxValue, 
+  color, 
+  label,
+  icon: Icon,
+  cx, 
+  cy, 
+  radius = 50 
+}: { 
+  value: number;
+  maxValue: number;
+  color: string;
+  label: string;
+  icon: React.ElementType;
+  cx: number;
+  cy: number;
+  radius?: number;
+}) => {
+  const percentage = Math.min(Math.abs(value) / maxValue, 1);
+  const startAngle = 135;
+  const endAngle = 405;
+  const arcLength = 270;
+  
+  const polarToCartesian = (angle: number, r: number) => {
+    const rad = (angle - 90) * Math.PI / 180;
+    return {
+      x: cx + r * Math.cos(rad),
+      y: cy + r * Math.sin(rad)
+    };
+  };
+
+  const createArc = (startA: number, endA: number, r: number) => {
+    const start = polarToCartesian(startA, r);
+    const end = polarToCartesian(endA, r);
+    const largeArc = endA - startA > 180 ? 1 : 0;
+    return `M ${start.x} ${start.y} A ${r} ${r} 0 ${largeArc} 1 ${end.x} ${end.y}`;
+  };
+
+  const marks = [];
+  const numMarks = 24;
+  for (let i = 0; i <= numMarks; i++) {
+    const angle = startAngle + (arcLength / numMarks) * i;
+    const innerR = radius - 8;
+    const outerR = radius - 3;
+    const inner = polarToCartesian(angle, innerR);
+    const outer = polarToCartesian(angle, outerR);
+    marks.push(
+      <line
+        key={i}
+        x1={inner.x}
+        y1={inner.y}
+        x2={outer.x}
+        y2={outer.y}
+        stroke="hsl(var(--muted-foreground))"
+        strokeWidth="1"
+        opacity="0.4"
+      />
+    );
+  }
+
+  const filledEndAngle = startAngle + arcLength * percentage;
+
+  return (
+    <g>
+      <circle
+        cx={cx}
+        cy={cy}
+        r={radius}
+        fill="hsl(var(--card))"
+        stroke="hsl(var(--border))"
+        strokeWidth="2"
+      />
+      
+      {marks}
+      
+      <path
+        d={createArc(startAngle, endAngle, radius - 12)}
+        fill="none"
+        stroke="hsl(var(--muted))"
+        strokeWidth="6"
+        strokeLinecap="round"
+      />
+      
+      {percentage > 0 && (
+        <path
+          d={createArc(startAngle, filledEndAngle, radius - 12)}
+          fill="none"
+          stroke={color}
+          strokeWidth="6"
+          strokeLinecap="round"
+        />
+      )}
+      
+      <g transform={`translate(${cx - 12}, ${cy - 8})`}>
+        <Icon size={24} color={color} />
+      </g>
+      
+      <text
+        x={cx}
+        y={cy + radius - 20}
+        textAnchor="middle"
+        fill="hsl(var(--foreground))"
+        fontSize="11"
+        fontWeight="600"
+      >
+        {label}
+      </text>
+    </g>
+  );
+};
+
+const FlowDots = ({ 
+  pathId, 
+  isActive, 
+  power,
+  color,
+  reverse = false
+}: { 
+  pathId: string;
   isActive: boolean;
   power: number;
   color: string;
-  pathId: string;
   reverse?: boolean;
-}
-
-const FlowLine = ({ isActive, power, color, pathId, reverse = false }: FlowLineProps) => {
+}) => {
   if (!isActive || power === 0) return null;
   
-  const speed = Math.max(1, Math.min(4, power / 1000));
-  const duration = 3 / speed;
+  const duration = Math.max(1.5, 4 - Math.abs(power) / 3000);
   
   return (
-    <g>
-      {/* Animated dots along the path */}
-      {[0, 1, 2].map((i) => (
-        <circle key={i} r="4" fill={color} opacity="0.9">
+    <>
+      {[0, 0.33, 0.66].map((offset, i) => (
+        <circle key={i} r="4" fill={color}>
           <animateMotion
             dur={`${duration}s`}
             repeatCount="indefinite"
-            begin={`${i * (duration / 3)}s`}
+            begin={`${offset * duration}s`}
             keyPoints={reverse ? "1;0" : "0;1"}
             keyTimes="0;1"
+            calcMode="linear"
           >
             <mpath href={`#${pathId}`} />
           </animateMotion>
         </circle>
       ))}
-    </g>
+    </>
   );
 };
 
-interface NodeProps {
-  x: number;
-  y: number;
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-  color: string;
-  subLabel?: string;
-}
-
-const Node = ({ x, y, icon, label, value, color, subLabel }: NodeProps) => (
-  <g transform={`translate(${x}, ${y})`}>
-    {/* Background circle */}
-    <circle r="36" fill="hsl(var(--card))" stroke={color} strokeWidth="3" />
-    {/* Icon container */}
-    <foreignObject x="-16" y="-24" width="32" height="32">
-      <div className="flex items-center justify-center h-full" style={{ color }}>
-        {icon}
-      </div>
-    </foreignObject>
-    {/* Label */}
-    <text y="20" textAnchor="middle" className="fill-foreground text-xs font-medium">
-      {label}
+const InverterNode = ({ cx, cy }: { cx: number; cy: number }) => (
+  <g>
+    <circle
+      cx={cx}
+      cy={cy}
+      r={35}
+      fill="hsl(var(--card))"
+      stroke="hsl(var(--border))"
+      strokeWidth="2"
+    />
+    <circle
+      cx={cx}
+      cy={cy}
+      r={28}
+      fill="none"
+      stroke="hsl(var(--border))"
+      strokeWidth="1"
+    />
+    <text
+      x={cx}
+      y={cy + 4}
+      textAnchor="middle"
+      fill="hsl(var(--muted-foreground))"
+      fontSize="10"
+      fontWeight="500"
+    >
+      Inverter
     </text>
-    {/* Value below node */}
-    <text y="58" textAnchor="middle" className="fill-foreground text-sm font-bold">
-      {value}
-    </text>
-    {subLabel && (
-      <text y="74" textAnchor="middle" className="fill-muted-foreground text-xs">
-        {subLabel}
-      </text>
-    )}
   </g>
 );
 
@@ -92,163 +204,177 @@ export function EnergyFlowDiagram({
   consumption,
   batteryPower,
   gridPower,
-  batterySoc,
+  batterySoc
 }: EnergyFlowDiagramProps) {
-  // Determine flow states
-  const pvToHouse = (pvPower ?? 0) > 0;
-  const batteryCharging = (batteryPower ?? 0) > 50; // positive = charging
-  const batteryDischarging = (batteryPower ?? 0) < -50; // negative = discharging
+  const pv = { x: 80, y: 70 };
+  const consumer = { x: 280, y: 70 };
+  const inverter = { x: 180, y: 160 };
+  const grid = { x: 80, y: 250 };
+  const battery = { x: 280, y: 250 };
+  
+  const colors = {
+    pv: '#F5A623',
+    consumer: '#4A90D9',
+    grid: '#888888',
+    battery: '#7CB342'
+  };
+  
+  const pvActive = (pvPower ?? 0) > 50;
+  const consumptionActive = (consumption ?? 0) > 50;
+  const batteryCharging = (batteryPower ?? 0) > 50;
+  const batteryDischarging = (batteryPower ?? 0) < -50;
   const gridImport = gridPower > 50;
   const gridExport = gridPower < -50;
-
-  // Node positions
-  const centerX = 160;
-  const centerY = 120;
-  const pvPos = { x: centerX, y: 50 };
-  const housePos = { x: centerX, y: centerY };
-  const batteryPos = { x: 60, y: 200 };
-  const gridPos = { x: 260, y: 200 };
-
-  // Colors
-  const colors = {
-    pv: 'hsl(45, 93%, 47%)', // amber/yellow
-    battery: batteryCharging ? 'hsl(142, 76%, 36%)' : 'hsl(25, 95%, 53%)', // green or orange
-    gridImport: 'hsl(0, 84%, 60%)', // red
-    gridExport: 'hsl(142, 76%, 36%)', // green
-    house: 'hsl(217, 91%, 60%)', // blue
-  };
 
   return (
     <div className="w-full bg-card rounded-xl p-4 border border-border">
       <h3 className="text-sm font-medium text-muted-foreground mb-2">Energiefluss</h3>
-      <svg viewBox="0 0 320 260" className="w-full max-w-sm mx-auto">
-        <defs>
-          {/* Flow paths */}
+      <div className="w-full flex justify-center">
+        <svg viewBox="0 0 360 320" className="w-full max-w-md">
+          <defs>
+            <path
+              id="path-pv"
+              d={`M ${pv.x} ${pv.y + 50} Q ${pv.x + 40} ${inverter.y - 20} ${inverter.x - 35} ${inverter.y}`}
+              fill="none"
+            />
+            <path
+              id="path-consumer"
+              d={`M ${inverter.x + 35} ${inverter.y} Q ${consumer.x - 40} ${inverter.y - 20} ${consumer.x} ${consumer.y + 50}`}
+              fill="none"
+            />
+            <path
+              id="path-grid"
+              d={`M ${grid.x} ${grid.y - 50} Q ${grid.x + 40} ${inverter.y + 20} ${inverter.x - 35} ${inverter.y}`}
+              fill="none"
+            />
+            <path
+              id="path-battery"
+              d={`M ${battery.x} ${battery.y - 50} Q ${battery.x - 40} ${inverter.y + 20} ${inverter.x + 35} ${inverter.y}`}
+              fill="none"
+            />
+          </defs>
+          
           <path
-            id="path-pv-house"
-            d={`M ${pvPos.x} ${pvPos.y + 40} L ${housePos.x} ${housePos.y - 40}`}
+            d={`M ${pv.x} ${pv.y + 50} Q ${pv.x + 40} ${inverter.y - 20} ${inverter.x - 35} ${inverter.y}`}
             fill="none"
+            stroke="hsl(var(--border))"
+            strokeWidth="2"
+            strokeDasharray={pvActive ? "none" : "4,4"}
           />
           <path
-            id="path-house-battery"
-            d={`M ${housePos.x - 30} ${housePos.y + 30} Q ${(housePos.x + batteryPos.x) / 2} ${(housePos.y + batteryPos.y) / 2 + 20} ${batteryPos.x + 30} ${batteryPos.y - 30}`}
+            d={`M ${inverter.x + 35} ${inverter.y} Q ${consumer.x - 40} ${inverter.y - 20} ${consumer.x} ${consumer.y + 50}`}
             fill="none"
+            stroke="hsl(var(--border))"
+            strokeWidth="2"
+            strokeDasharray={consumptionActive ? "none" : "4,4"}
           />
           <path
-            id="path-battery-house"
-            d={`M ${batteryPos.x + 30} ${batteryPos.y - 30} Q ${(housePos.x + batteryPos.x) / 2} ${(housePos.y + batteryPos.y) / 2 + 20} ${housePos.x - 30} ${housePos.y + 30}`}
+            d={`M ${grid.x} ${grid.y - 50} Q ${grid.x + 40} ${inverter.y + 20} ${inverter.x - 35} ${inverter.y}`}
             fill="none"
+            stroke="hsl(var(--border))"
+            strokeWidth="2"
+            strokeDasharray={gridImport || gridExport ? "none" : "4,4"}
           />
           <path
-            id="path-grid-house"
-            d={`M ${gridPos.x - 30} ${gridPos.y - 30} Q ${(housePos.x + gridPos.x) / 2} ${(housePos.y + gridPos.y) / 2 + 20} ${housePos.x + 30} ${housePos.y + 30}`}
+            d={`M ${battery.x} ${battery.y - 50} Q ${battery.x - 40} ${inverter.y + 20} ${inverter.x + 35} ${inverter.y}`}
             fill="none"
+            stroke="hsl(var(--border))"
+            strokeWidth="2"
+            strokeDasharray={batteryCharging || batteryDischarging ? "none" : "4,4"}
           />
-          <path
-            id="path-house-grid"
-            d={`M ${housePos.x + 30} ${housePos.y + 30} Q ${(housePos.x + gridPos.x) / 2} ${(housePos.y + gridPos.y) / 2 + 20} ${gridPos.x - 30} ${gridPos.y - 30}`}
-            fill="none"
+          
+          <FlowDots
+            pathId="path-pv"
+            isActive={pvActive}
+            power={pvPower ?? 0}
+            color={colors.pv}
           />
-        </defs>
-
-        {/* Static connection lines */}
-        <use href="#path-pv-house" stroke="hsl(var(--border))" strokeWidth="2" strokeDasharray={pvToHouse ? "0" : "4"} opacity={pvToHouse ? 1 : 0.3} />
-        <use href="#path-house-battery" stroke="hsl(var(--border))" strokeWidth="2" strokeDasharray={batteryCharging ? "0" : "4"} opacity={batteryCharging ? 1 : 0.3} />
-        <use href="#path-battery-house" stroke="hsl(var(--border))" strokeWidth="2" strokeDasharray={batteryDischarging ? "0" : "4"} opacity={batteryDischarging ? 1 : 0.3} />
-        <use href="#path-grid-house" stroke="hsl(var(--border))" strokeWidth="2" strokeDasharray={gridImport ? "0" : "4"} opacity={gridImport ? 1 : 0.3} />
-        <use href="#path-house-grid" stroke="hsl(var(--border))" strokeWidth="2" strokeDasharray={gridExport ? "0" : "4"} opacity={gridExport ? 1 : 0.3} />
-
-        {/* Animated flows */}
-        <FlowLine
-          isActive={pvToHouse}
-          power={pvPower ?? 0}
-          color={colors.pv}
-          pathId="path-pv-house"
-        />
-        <FlowLine
-          isActive={batteryCharging}
-          power={batteryPower ?? 0}
-          color={colors.battery}
-          pathId="path-house-battery"
-        />
-        <FlowLine
-          isActive={batteryDischarging}
-          power={Math.abs(batteryPower ?? 0)}
-          color={colors.battery}
-          pathId="path-battery-house"
-        />
-        <FlowLine
-          isActive={gridImport}
-          power={gridPower}
-          color={colors.gridImport}
-          pathId="path-grid-house"
-        />
-        <FlowLine
-          isActive={gridExport}
-          power={Math.abs(gridPower)}
-          color={colors.gridExport}
-          pathId="path-house-grid"
-        />
-
-        {/* Flow labels */}
-        {pvToHouse && (
-          <text x={pvPos.x + 25} y={(pvPos.y + housePos.y) / 2} className="fill-amber-500 text-xs font-medium">
-            {formatPower(pvPower ?? 0)}
+          <FlowDots
+            pathId="path-consumer"
+            isActive={consumptionActive}
+            power={consumption ?? 0}
+            color={colors.consumer}
+          />
+          <FlowDots
+            pathId="path-grid"
+            isActive={gridImport}
+            power={gridPower}
+            color={colors.grid}
+          />
+          <FlowDots
+            pathId="path-grid"
+            isActive={gridExport}
+            power={gridPower}
+            color={colors.battery}
+            reverse
+          />
+          <FlowDots
+            pathId="path-battery"
+            isActive={batteryDischarging}
+            power={batteryPower ?? 0}
+            color={colors.battery}
+          />
+          <FlowDots
+            pathId="path-battery"
+            isActive={batteryCharging}
+            power={batteryPower ?? 0}
+            color={colors.battery}
+            reverse
+          />
+          
+          <InverterNode cx={inverter.x} cy={inverter.y} />
+          
+          <CircularGauge
+            cx={pv.x}
+            cy={pv.y}
+            value={pvPower ?? 0}
+            maxValue={10000}
+            color={colors.pv}
+            label={formatPower(pvPower)}
+            icon={Sun}
+          />
+          <CircularGauge
+            cx={consumer.x}
+            cy={consumer.y}
+            value={consumption ?? 0}
+            maxValue={10000}
+            color={colors.consumer}
+            label={formatPower(consumption)}
+            icon={Home}
+          />
+          <CircularGauge
+            cx={grid.x}
+            cy={grid.y}
+            value={Math.abs(gridPower)}
+            maxValue={10000}
+            color={colors.grid}
+            label={formatPower(gridPower)}
+            icon={Zap}
+          />
+          <CircularGauge
+            cx={battery.x}
+            cy={battery.y}
+            value={batterySoc ?? 0}
+            maxValue={100}
+            color={colors.battery}
+            label={`${batterySoc ?? 0}%`}
+            icon={Battery}
+          />
+          
+          <text x={pv.x} y={pv.y - 55} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
+            PV
           </text>
-        )}
-        {batteryCharging && (
-          <text x={batteryPos.x + 50} y={(housePos.y + batteryPos.y) / 2 + 15} className="fill-green-500 text-xs font-medium">
-            {formatPower(batteryPower ?? 0)}
+          <text x={consumer.x} y={consumer.y - 55} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
+            Verbraucher
           </text>
-        )}
-        {batteryDischarging && (
-          <text x={batteryPos.x + 50} y={(housePos.y + batteryPos.y) / 2 + 15} className="fill-orange-500 text-xs font-medium">
-            {formatPower(batteryPower ?? 0)}
+          <text x={grid.x} y={grid.y + 70} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
+            Netz
           </text>
-        )}
-        {gridImport && (
-          <text x={gridPos.x - 55} y={(housePos.y + gridPos.y) / 2 + 15} className="fill-red-500 text-xs font-medium">
-            {formatPower(gridPower)}
+          <text x={battery.x} y={battery.y + 70} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
+            Batterie
           </text>
-        )}
-        {gridExport && (
-          <text x={gridPos.x - 55} y={(housePos.y + gridPos.y) / 2 + 15} className="fill-green-500 text-xs font-medium">
-            {formatPower(gridPower)}
-          </text>
-        )}
-
-        {/* Nodes */}
-        <Node
-          {...pvPos}
-          icon={<Sun size={24} />}
-          label="PV"
-          value={pvPower != null ? formatPower(pvPower) : '--'}
-          color={colors.pv}
-        />
-        <Node
-          {...housePos}
-          icon={<Home size={24} />}
-          label="Verbrauch"
-          value={consumption != null ? formatPower(consumption) : '--'}
-          color={colors.house}
-        />
-        <Node
-          {...batteryPos}
-          icon={<Battery size={24} />}
-          label="Batterie"
-          value={batterySoc != null ? `${Math.round(batterySoc)}%` : '--'}
-          subLabel={batteryCharging ? 'Lädt' : batteryDischarging ? 'Entlädt' : 'Standby'}
-          color={colors.battery}
-        />
-        <Node
-          {...gridPos}
-          icon={<Zap size={24} />}
-          label="Netz"
-          value={formatPower(gridPower)}
-          subLabel={gridImport ? 'Bezug' : gridExport ? 'Einspeisung' : 'Neutral'}
-          color={gridImport ? colors.gridImport : gridExport ? colors.gridExport : 'hsl(var(--muted-foreground))'}
-        />
-      </svg>
+        </svg>
+      </div>
     </div>
   );
 }
