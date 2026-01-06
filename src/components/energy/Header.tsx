@@ -1,7 +1,10 @@
-import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download } from 'lucide-react';
+import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { toast } from '@/hooks/use-toast';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'settings' | 'analysis' | 'heating';
@@ -11,14 +14,34 @@ interface HeaderProps {
 export function Header({ activeTab, onTabChange }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
   const { isInstallable, isInstalled, promptInstall } = usePWAInstall();
+  const { isOnline, getOfflineMinutes } = useOnlineStatus();
+  const { showUpdatePrompt, updateApp, dismissUpdate } = useServiceWorkerUpdate();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
 
+  useEffect(() => {
+    if (showUpdatePrompt) {
+      toast({
+        title: "Update verfügbar",
+        description: "Eine neue Version ist verfügbar. Jetzt aktualisieren?",
+        action: (
+          <Button size="sm" onClick={updateApp} className="gap-1">
+            <RefreshCw className="w-3 h-3" />
+            Aktualisieren
+          </Button>
+        ),
+        duration: 0,
+      });
+    }
+  }, [showUpdatePrompt, updateApp]);
+
   const handleInstall = async () => {
     await promptInstall();
   };
+
+  const offlineMinutes = getOfflineMinutes();
 
   return (
     <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
@@ -32,6 +55,12 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
               <h1 className="text-xl font-bold tracking-tight">Smartfox Energy</h1>
               <p className="text-xs text-muted-foreground">Pipeline & KI-Analyse</p>
             </div>
+            {!isOnline && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">
+                <WifiOff className="w-3 h-3" />
+                <span>Offline{offlineMinutes ? ` (${offlineMinutes}m)` : ''}</span>
+              </div>
+            )}
           </div>
 
           <nav className="flex items-center gap-1 md:gap-2 flex-wrap">
