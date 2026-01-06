@@ -111,30 +111,30 @@ export function ThermostatCard({
         ) : (
           <>
             {/* Temperature Display */}
-            <div className="flex items-center justify-center gap-4">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Aktuell</p>
-                <p className="text-3xl font-bold">
+            <div className="flex items-center justify-center gap-2 sm:gap-4">
+              <div className="text-center min-w-0 flex-1">
+                <p className="text-xl sm:text-3xl font-bold truncate">
                   {typeof currentTemp === 'number' ? `${currentTemp.toFixed(1)}°C` : currentTemp}
                 </p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Aktuell</p>
               </div>
-              <div className="text-2xl text-muted-foreground">→</div>
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground">Ziel</p>
-                <p className="text-3xl font-bold text-primary">{localTemp}°C</p>
+              <div className="text-xl sm:text-2xl text-muted-foreground flex-shrink-0">→</div>
+              <div className="text-center min-w-0 flex-1">
+                <p className="text-xl sm:text-3xl font-bold text-primary truncate">{localTemp}°C</p>
+                <p className="text-xs sm:text-sm text-muted-foreground">Ziel</p>
               </div>
             </div>
 
             {/* Temperature Slider */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
               <Button
                 variant="outline"
                 size="icon"
-                className="h-10 w-10 shrink-0"
+                className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
                 onClick={() => adjustTemp(-0.5)}
                 disabled={isSetting || localTemp <= 5}
               >
-                <Minus className="h-4 w-4" />
+                <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
               
               <Slider
@@ -145,26 +145,26 @@ export function ThermostatCard({
                 onValueChange={handleTempChange}
                 onValueCommit={handleTempCommit}
                 disabled={isSetting}
-                className="flex-1"
+                className="flex-1 min-w-0"
               />
               
               <Button
                 variant="outline"
                 size="icon"
-                className="h-10 w-10 shrink-0"
+                className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
                 onClick={() => adjustTemp(0.5)}
                 disabled={isSetting || localTemp >= 30}
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
               </Button>
             </div>
 
             {/* Preset Buttons */}
-            <div className="flex gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <Button
                 variant={localTemp === room.comfort_temp ? 'default' : 'outline'}
                 size="sm"
-                className="flex-1"
+                className="text-xs sm:text-sm"
                 onClick={() => setPresetTemp(room.comfort_temp)}
                 disabled={isSetting}
               >
@@ -173,7 +173,7 @@ export function ThermostatCard({
               <Button
                 variant={localTemp === room.eco_temp ? 'default' : 'outline'}
                 size="sm"
-                className="flex-1"
+                className="text-xs sm:text-sm"
                 onClick={() => setPresetTemp(room.eco_temp)}
                 disabled={isSetting}
               >
@@ -182,7 +182,7 @@ export function ThermostatCard({
               <Button
                 variant={localTemp === room.night_temp ? 'default' : 'outline'}
                 size="sm"
-                className="flex-1"
+                className="col-span-2 sm:col-span-1 text-xs sm:text-sm"
                 onClick={() => setPresetTemp(room.night_temp)}
                 disabled={isSetting}
               >
@@ -204,23 +204,27 @@ export function ThermostatCard({
 
             {/* Heating Stats */}
             {heatingStats && heatingStats.todayCycles > 0 && (
-              <div className="flex items-center justify-around pt-2 border-t text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
+              <div className="grid grid-cols-3 gap-1 pt-2 border-t text-xs text-muted-foreground text-center">
+                <div className="flex flex-col items-center gap-0.5">
                   <Flame className="h-3 w-3 text-orange-500" />
-                  {heatingStats.todayCycles} Zyklen
-                </span>
-                <span className="flex items-center gap-1">
+                  <span className="font-medium">{heatingStats.todayCycles}</span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
                   <Clock className="h-3 w-3 text-blue-500" />
-                  {heatingStats.todayDurationMin < 60 
-                    ? `${heatingStats.todayDurationMin} Min` 
-                    : `${Math.floor(heatingStats.todayDurationMin / 60)}h ${heatingStats.todayDurationMin % 60}m`}
-                </span>
-                <span className="flex items-center gap-1">
+                  <span className="font-medium">
+                    {heatingStats.todayDurationMin < 60 
+                      ? `${heatingStats.todayDurationMin}m` 
+                      : `${Math.floor(heatingStats.todayDurationMin / 60)}h${heatingStats.todayDurationMin % 60}m`}
+                  </span>
+                </div>
+                <div className="flex flex-col items-center gap-0.5">
                   <Zap className="h-3 w-3 text-yellow-500" />
-                  {heatingStats.todayEnergyWh < 1000 
-                    ? `${heatingStats.todayEnergyWh} Wh` 
-                    : `${(heatingStats.todayEnergyWh / 1000).toFixed(2)} kWh`}
-                </span>
+                  <span className="font-medium">
+                    {heatingStats.todayEnergyWh < 1000 
+                      ? `${heatingStats.todayEnergyWh}Wh` 
+                      : `${(heatingStats.todayEnergyWh / 1000).toFixed(1)}kWh`}
+                  </span>
+                </div>
               </div>
             )}
 
