@@ -52,8 +52,8 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
               <Zap className="w-6 h-6 text-primary" />
             </div>
             <div>
-              <h1 className="text-xl font-bold tracking-tight">Smartfox Energy</h1>
-              <p className="text-xs text-muted-foreground">Pipeline & KI-Analyse</p>
+              <h1 className="text-xl font-bold tracking-tight">Fronius Smart AI</h1>
+              <p className="text-xs text-muted-foreground">Energie-Management & KI-Analyse</p>
             </div>
             {!isOnline && (
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-destructive/10 text-destructive text-xs">
