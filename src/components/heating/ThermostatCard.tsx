@@ -4,9 +4,15 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Flame, Minus, Plus, RefreshCw, Thermometer, Sun } from 'lucide-react';
+import { Flame, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
+
+interface HeatingStats {
+  todayCycles: number;
+  todayDurationMin: number;
+  todayEnergyWh: number;
+}
 
 interface ThermostatCardProps {
   room: Room;
@@ -14,6 +20,7 @@ interface ThermostatCardProps {
   onTogglePvAuto: (roomId: string, enabled: boolean) => void;
   onRefresh: (roomId: string) => void;
   isLoading?: boolean;
+  heatingStats?: HeatingStats;
 }
 
 export function ThermostatCard({
@@ -22,6 +29,7 @@ export function ThermostatCard({
   onTogglePvAuto,
   onRefresh,
   isLoading = false,
+  heatingStats,
 }: ThermostatCardProps) {
   const [localTemp, setLocalTemp] = useState(room.target_temp ?? room.comfort_temp);
   const [isSetting, setIsSetting] = useState(false);
@@ -193,6 +201,28 @@ export function ThermostatCard({
                 onCheckedChange={(checked) => room.id && onTogglePvAuto(room.id, checked)}
               />
             </div>
+
+            {/* Heating Stats */}
+            {heatingStats && heatingStats.todayCycles > 0 && (
+              <div className="flex items-center justify-around pt-2 border-t text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Flame className="h-3 w-3 text-orange-500" />
+                  {heatingStats.todayCycles} Zyklen
+                </span>
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3 text-blue-500" />
+                  {heatingStats.todayDurationMin < 60 
+                    ? `${heatingStats.todayDurationMin} Min` 
+                    : `${Math.floor(heatingStats.todayDurationMin / 60)}h ${heatingStats.todayDurationMin % 60}m`}
+                </span>
+                <span className="flex items-center gap-1">
+                  <Zap className="h-3 w-3 text-yellow-500" />
+                  {heatingStats.todayEnergyWh < 1000 
+                    ? `${heatingStats.todayEnergyWh} Wh` 
+                    : `${(heatingStats.todayEnergyWh / 1000).toFixed(2)} kWh`}
+                </span>
+              </div>
+            )}
 
             {/* Last Sync */}
             {room.last_thermostat_sync && (

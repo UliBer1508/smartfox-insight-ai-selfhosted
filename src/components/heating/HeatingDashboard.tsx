@@ -9,6 +9,7 @@ import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
 import { usePvForecast } from '@/hooks/usePvForecast';
 import { useRooms } from '@/hooks/useRooms';
 import { useTuyaControl } from '@/hooks/useTuyaControl';
+import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { HeatingSettingsForm } from './HeatingSettingsForm';
 import { BatteryStatus } from './BatteryStatus';
@@ -16,6 +17,7 @@ import { PvForecastCard } from './PvForecastCard';
 import { RoomManager } from './RoomManager';
 import { RoomRecommendations } from './RoomRecommendations';
 import { ThermostatCard } from './ThermostatCard';
+import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -60,18 +62,26 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     syncAllStatus,
   } = useTuyaControl();
 
+  const {
+    stats: heatingStats,
+    loadLogs: loadHeatingLogs,
+    getRoomStats,
+  } = useRoomHeatingLogs();
+
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
 
   useEffect(() => {
     loadRecommendations();
     loadForecasts();
-  }, [loadRecommendations, loadForecasts]);
+    loadHeatingLogs();
+  }, [loadRecommendations, loadForecasts, loadHeatingLogs]);
 
   const handleSyncThermostats = useCallback(async () => {
     await syncAllStatus();
     await loadRooms();
-  }, [syncAllStatus, loadRooms]);
+    await loadHeatingLogs();
+  }, [syncAllStatus, loadRooms, loadHeatingLogs]);
 
   const handleSetTemperature = useCallback(async (roomId: string, deviceId: string, temp: number): Promise<boolean> => {
     const success = await setTemperature(deviceId, temp, roomId);
@@ -216,6 +226,9 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
           isRefreshing={isFetching}
           pvCapacity={settings.pv_capacity_kwp}
         />
+
+        {/* Heating Overview Card */}
+        <HeatingOverviewCard rooms={rooms} stats={heatingStats} />
       </div>
 
       {/* Thermostat Control - show if any rooms have tuya devices */}
@@ -251,6 +264,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
                   onTogglePvAuto={handleTogglePvAuto}
                   onRefresh={handleRefreshRoom}
                   isLoading={isSyncing}
+                  heatingStats={room.id ? getRoomStats(room.id) : undefined}
                 />
               ))}
             </div>
