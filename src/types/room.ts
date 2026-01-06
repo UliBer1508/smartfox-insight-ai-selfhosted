@@ -18,6 +18,13 @@ export interface Room {
   is_heating?: boolean | null;
   pv_auto_enabled?: boolean | null;
   last_thermostat_sync?: string | null;
+  // Verbrauchsanalyse
+  estimated_kwh_per_degree?: number | null;
+  last_heating_duration_min?: number | null;
+  avg_heating_cycles_per_day?: number | null;
+  // PV-Automatik Status
+  pv_auto_active?: boolean | null;
+  pv_auto_last_change?: string | null;
   created_at?: string;
   updated_at?: string;
 }

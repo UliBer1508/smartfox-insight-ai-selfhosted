@@ -151,6 +151,20 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                   </div>
 
                   <div>
+                    <Label htmlFor="heating_power">Heizleistung (W)</Label>
+                    <Input
+                      id="heating_power"
+                      type="number"
+                      value={editingRoom.heating_power_w || ''}
+                      onChange={e => setEditingRoom({ 
+                        ...editingRoom, 
+                        heating_power_w: e.target.value ? parseInt(e.target.value) : null 
+                      })}
+                      placeholder="z.B. 800"
+                    />
+                  </div>
+
+                  <div>
                     <Label htmlFor="thermostat">Thermostat-Typ</Label>
                     <Input
                       id="thermostat"
@@ -303,6 +317,7 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {room.floor_area_m2 ? `${room.floor_area_m2}m² · ` : ''}
+                      {room.heating_power_w ? `${room.heating_power_w}W · ` : ''}
                       {room.comfort_temp}°C / {room.eco_temp}°C / {room.night_temp}°C
                     </p>
                   </div>

@@ -25,8 +25,33 @@ export interface HeatingSettings {
   longitude?: number;
   roof_azimuth?: number;
   roof_declination?: number;
+  // PV-Automatik Schwellwerte
+  pv_surplus_threshold_on?: number;
+  pv_surplus_threshold_off?: number;
+  min_switch_interval_min?: number;
+  // Verbraucher-Priorität
+  consumer_priority?: string;
+  // Fußbodenheizung-Parameter
+  floor_heating_response_hours?: number;
+  estrich_storage_enabled?: boolean;
+  // E-Auto Integration
+  car_charging_enabled?: boolean;
+  car_min_charge_power_w?: number;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface RoomHeatingLog {
+  id?: string;
+  room_id: string;
+  timestamp?: string;
+  event_type: 'heating_start' | 'heating_stop' | 'temp_change';
+  current_temp?: number;
+  target_temp?: number;
+  duration_minutes?: number;
+  energy_estimate_wh?: number;
+  pv_surplus_w?: number;
+  created_at?: string;
 }
 
 export interface PvForecast {
