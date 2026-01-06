@@ -46,7 +46,7 @@ export function PvForecastCard({
   };
 
   return (
-    <Card>
+    <Card className="overflow-hidden w-full max-w-full">
       <CardHeader className="pb-1 sm:pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2">
