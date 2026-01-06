@@ -98,12 +98,15 @@ async function fetchFroniusData() {
       }
     }
     
+    // Debug-Logging
+    console.log(`📋 Fronius Raw: P_Akku=${site.P_Akku}, SOC=${batterySoc}`);
+    
     return {
       battery_soc: batterySoc,
       pv_power: site.P_PV || 0,
       grid_power: site.P_Grid || 0, // positive = import, negative = export
       load_power: Math.abs(site.P_Load || 0),
-      battery_power: site.P_Akku || 0
+      battery_power: site.P_Akku !== undefined ? site.P_Akku : null
     };
   } catch (error) {
     console.error('❌ Fronius Fehler:', error.message);
