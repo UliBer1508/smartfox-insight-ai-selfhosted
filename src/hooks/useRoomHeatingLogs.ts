@@ -32,6 +32,7 @@ export function useRoomHeatingLogs(roomId?: string) {
     try {
       const today = new Date().toISOString().split('T')[0];
       
+      // Build query
       let query = supabase
         .from('room_heating_logs')
         .select('*')
@@ -42,16 +43,26 @@ export function useRoomHeatingLogs(roomId?: string) {
         query = query.eq('room_id', targetRoomId);
       }
       
-      const { data, error } = await query;
+      // Load logs and room power data in parallel
+      const [logsResult, roomsResult] = await Promise.all([
+        query,
+        supabase.from('rooms').select('id, heating_power_w')
+      ]);
       
-      if (error) throw error;
+      if (logsResult.error) throw logsResult.error;
       
-      setLogs(data || []);
+      const data = logsResult.data || [];
+      setLogs(data);
+      
+      // Create map for room heating power
+      const roomPowerMap = new Map<string, number>(
+        (roomsResult.data || []).map(r => [r.id, r.heating_power_w || 0])
+      );
       
       // Calculate stats per room
       const roomStats: Record<string, RoomHeatingStats> = {};
       
-      for (const log of data || []) {
+      for (const log of data) {
         if (!roomStats[log.room_id]) {
           roomStats[log.room_id] = {
             todayCycles: 0,
@@ -77,9 +88,9 @@ export function useRoomHeatingLogs(roomId?: string) {
       }
 
       // Calculate running cycles (starts without matching stops)
-      const uniqueRoomIds = [...new Set((data || []).map(l => l.room_id))];
+      const uniqueRoomIds = [...new Set(data.map(l => l.room_id))];
       for (const rid of uniqueRoomIds) {
-        const roomLogs = (data || []).filter(l => l.room_id === rid);
+        const roomLogs = data.filter(l => l.room_id === rid);
         const starts = roomLogs.filter(l => l.event_type === 'heating_start');
         const stops = roomLogs.filter(l => l.event_type === 'heating_stop');
         
@@ -87,6 +98,7 @@ export function useRoomHeatingLogs(roomId?: string) {
         if (starts.length > stops.length && starts[0]?.timestamp) {
           const startTime = new Date(starts[0].timestamp).getTime();
           const runningMin = Math.round((Date.now() - startTime) / 60000);
+          const heatingPowerW = roomPowerMap.get(rid) || 0;
           
           // Ensure room stats exist
           if (!roomStats[rid]) {
@@ -98,8 +110,10 @@ export function useRoomHeatingLogs(roomId?: string) {
           }
           roomStats[rid].todayDurationMin += runningMin;
           
-          // Estimate energy for running cycle (heating_power_w * minutes / 60)
-          // This will be updated properly when the cycle ends
+          // Estimate energy for running cycle: heating_power_w * (minutes / 60)
+          if (heatingPowerW > 0) {
+            roomStats[rid].todayEnergyWh += Math.round((runningMin / 60) * heatingPowerW);
+          }
         }
       }
       
