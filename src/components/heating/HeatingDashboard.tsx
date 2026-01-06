@@ -177,7 +177,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
   return (
     <div className="space-y-6">
       {/* Current Status Cards */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 w-full overflow-hidden">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 w-full min-w-0">
         <BatteryStatus 
           soc={latestSoc} 
           capacity={settings.battery_capacity_kwh} 
@@ -256,7 +256,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full">
+            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-0">
               {rooms.filter(r => r.tuya_device_id).map(room => (
                 <ThermostatCard
                   key={room.id}

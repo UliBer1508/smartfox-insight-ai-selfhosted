@@ -48,7 +48,7 @@ const Index = () => {
     <div className="min-h-screen bg-background grid-pattern overflow-x-hidden">
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <main className="container mx-auto px-4 py-6 space-y-6 max-w-full overflow-hidden">
+      <main className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6 overflow-hidden box-border">
         {activeTab === 'dashboard' && (
           <>
             <ConnectionStatus
