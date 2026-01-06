@@ -9,6 +9,7 @@ import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
 import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
 import { BatteryStatus } from '@/components/heating/BatteryStatus';
+import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { PowerStats } from '@/components/energy/PowerStats';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
@@ -75,7 +76,9 @@ const Index = () => {
                   batteryPower={currentReading?.battery_power ?? null}
                 />
 
-                <PowerStats 
+                <BatteryHistoryChart />
+
+                <PowerStats
                   pvPower={currentReading?.pv_power ?? null}
                   consumption={currentReading?.consumption ?? null}
                 />
