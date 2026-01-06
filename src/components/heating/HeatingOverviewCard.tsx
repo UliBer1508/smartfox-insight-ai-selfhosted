@@ -46,7 +46,7 @@ export function HeatingOverviewCard({ rooms, stats }: HeatingOverviewCardProps) 
   const activeRooms = rooms.filter(r => r.is_heating);
 
   return (
-    <Card>
+    <Card className="overflow-hidden w-full max-w-full">
       <CardHeader className="pb-1 sm:pb-2">
         <CardTitle className="text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2">
           <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-500" />

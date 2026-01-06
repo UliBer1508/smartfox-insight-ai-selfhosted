@@ -177,13 +177,13 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
   return (
     <div className="space-y-6">
       {/* Current Status Cards */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 w-full overflow-hidden">
         <BatteryStatus 
           soc={latestSoc} 
           capacity={settings.battery_capacity_kwh} 
         />
         
-        <Card>
+          <Card className="overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Sun className="w-4 h-4 text-energy-export" />
@@ -200,7 +200,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
           </CardContent>
         </Card>
 
-        <Card>
+          <Card className="overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Thermometer className="w-4 h-4 text-primary" />
@@ -256,7 +256,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
             </Button>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full overflow-hidden">
               {rooms.filter(r => r.tuya_device_id).map(room => (
                 <ThermostatCard
                   key={room.id}
