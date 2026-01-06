@@ -37,6 +37,12 @@ export interface HeatingSettings {
   // E-Auto Integration
   car_charging_enabled?: boolean;
   car_min_charge_power_w?: number;
+  // Warmwasser-Bereitung (Smartfox-gesteuert)
+  hotwater_enabled?: boolean;
+  hotwater_power_w?: number;
+  hotwater_schedule_start?: string;
+  hotwater_schedule_end?: string;
+  hotwater_min_surplus_w?: number;
   created_at?: string;
   updated_at?: string;
 }

@@ -54,6 +54,22 @@ serve(async (req) => {
         `Priorität: ${r.priority}, Komfort: ${r.comfort_temp}°C, Eco: ${r.eco_temp}°C, Nacht: ${r.night_temp}°C`
       ).join('\n');
 
+      // Hotwater configuration
+      const hotwaterEnabled = heatingSettings?.hotwater_enabled !== false;
+      const hotwaterPower = heatingSettings?.hotwater_power_w || 2800;
+      const hotwaterStart = heatingSettings?.hotwater_schedule_start || '10:00';
+      const hotwaterEnd = heatingSettings?.hotwater_schedule_end || '16:00';
+      const hotwaterMinSurplus = heatingSettings?.hotwater_min_surplus_w || 1000;
+
+      const hotwaterInfo = hotwaterEnabled ? `
+**Warmwasser-Bereitung (Smartfox-gesteuert):**
+- Heizstab-Leistung: ${hotwaterPower}W
+- Schaltzeit: ${hotwaterStart} - ${hotwaterEnd} Uhr
+- Aktivierung ab: ${hotwaterMinSurplus}W PV-Überschuss
+- WICHTIG: Während der Warmwasser-Schaltzeit wird bis zu ${hotwaterPower}W PV-Überschuss für Warmwasser verbraucht!
+- Die effektive verfügbare Leistung für Heizung ist entsprechend reduziert.
+` : '';
+
       prompt = `Du bist ein Experte für Energiemanagement und Fußbodenheizung mit PV und Batterie.
 
 Erstelle RAUMSPEZIFISCHE Heizempfehlungen für jeden Raum basierend auf:
@@ -72,7 +88,7 @@ Erstelle RAUMSPEZIFISCHE Heizempfehlungen für jeden Raum basierend auf:
 
 **Stündliche Durchschnittsleistung (W, negativ = Einspeisung):**
 ${hourlyAvg.map(h => `${h.hour}:00 Uhr: ${h.avgPower.toFixed(0)}W`).join('\n')}
-
+${hotwaterInfo}
 **Räume im Haushalt:**
 ${roomsList}
 
@@ -83,6 +99,7 @@ ${roomsList}
 4. **Bei niedrigem SOC (<${heatingSettings?.min_battery_soc || 20}%)**: Nur Priorität 1 Räume heizen
 5. **Estrich als Wärmespeicher**: Räume bei PV-Überschuss über Komfort-Temp aufheizen (max +2°C)
 6. **Nachtabsenkung**: Alle Räume auf Nacht-Temp ab 22:00
+${hotwaterEnabled ? `7. **Warmwasser berücksichtigen**: Zwischen ${hotwaterStart} und ${hotwaterEnd} steht weniger PV für Heizung zur Verfügung (bis zu ${hotwaterPower}W werden für Warmwasser genutzt)` : ''}
 
 **Aktuelle Uhrzeit:** ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
 
@@ -155,6 +172,21 @@ Erstelle für JEDEN Raum eine aktuelle Empfehlung mit Zieltemperatur und Begrün
         avgPower: values.reduce((a, b) => a + b, 0) / values.length
       })).sort((a, b) => a.hour - b.hour);
 
+      // Hotwater configuration for global heating plan
+      const hotwaterEnabled = heatingSettings?.hotwater_enabled !== false;
+      const hotwaterPower = heatingSettings?.hotwater_power_w || 2800;
+      const hotwaterStart = heatingSettings?.hotwater_schedule_start || '10:00';
+      const hotwaterEnd = heatingSettings?.hotwater_schedule_end || '16:00';
+      const hotwaterMinSurplus = heatingSettings?.hotwater_min_surplus_w || 1000;
+
+      const hotwaterInfo = hotwaterEnabled ? `
+**Warmwasser-Bereitung (Smartfox-gesteuert):**
+- Heizstab-Leistung: ${hotwaterPower}W
+- Schaltzeit: ${hotwaterStart} - ${hotwaterEnd} Uhr
+- Aktivierung ab: ${hotwaterMinSurplus}W PV-Überschuss
+- WICHTIG: Während der Warmwasser-Schaltzeit (${hotwaterStart}-${hotwaterEnd}) wird PV-Überschuss primär für Warmwasser genutzt!
+` : '';
+
       prompt = `Du bist ein Experte für Energiemanagement und Fußbodenheizung mit PV und Batterie.
 
 Analysiere diese Daten und erstelle einen optimalen Heizplan für einen TGP508 WiFi-Thermostat (6 Zeitperioden):
@@ -175,12 +207,13 @@ Analysiere diese Daten und erstelle einen optimalen Heizplan für einen TGP508 W
 
 **Stündliche Durchschnittsleistung (W, negativ = Einspeisung):**
 ${hourlyAvg.map(h => `${h.hour}:00 Uhr: ${h.avgPower.toFixed(0)}W`).join('\n')}
-
+${hotwaterInfo}
 **Optimierungsziele:**
 1. Estrich als Wärmespeicher nutzen (Vorheizen bei PV-Überschuss)
 2. Batterie für Abend/Nacht priorisieren (erst laden, dann heizen)
 3. Heizung bei niedrigem SOC reduzieren
 4. Nachtabsenkung nutzen (Wärme im Estrich hält)
+${hotwaterEnabled ? `5. Warmwasser berücksichtigen: Zwischen ${hotwaterStart}-${hotwaterEnd} ist weniger PV für Heizung verfügbar` : ''}
 
 Erstelle einen optimalen 6-Perioden-Plan für den TGP508.`;
 
