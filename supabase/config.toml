@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.aggregate-energy-data]
 verify_jwt = false
+
+[functions.apply-recommendations]
+verify_jwt = false
