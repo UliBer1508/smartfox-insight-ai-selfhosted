@@ -75,6 +75,21 @@ export function useRoomHeatingLogs(roomId?: string) {
           }
         }
       }
+
+      // Calculate running cycles (starts without matching stops)
+      const roomIds = [...new Set((data || []).map(l => l.room_id))];
+      for (const roomId of roomIds) {
+        const roomLogs = (data || []).filter(l => l.room_id === roomId);
+        const starts = roomLogs.filter(l => l.event_type === 'heating_start');
+        const stops = roomLogs.filter(l => l.event_type === 'heating_stop');
+        
+        // If more starts than stops, the last cycle is still running
+        if (starts.length > stops.length && starts[0]?.timestamp) {
+          const startTime = new Date(starts[0].timestamp).getTime();
+          const runningMin = Math.round((Date.now() - startTime) / 60000);
+          roomStats[roomId].todayDurationMin += runningMin;
+        }
+      }
       
       setStats(roomStats);
     } catch (error) {
