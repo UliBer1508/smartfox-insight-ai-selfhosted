@@ -47,45 +47,47 @@ export function HeatingOverviewCard({ rooms, stats }: HeatingOverviewCardProps) 
 
   return (
     <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          <Flame className="w-4 h-4 text-orange-500" />
-          Heizverbrauch heute
+      <CardHeader className="pb-1 sm:pb-2">
+        <CardTitle className="text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2">
+          <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-500" />
+          <span className="hidden sm:inline">Heizverbrauch heute</span>
+          <span className="sm:hidden">Heizung</span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="grid grid-cols-3 gap-2 text-center">
+      <CardContent className="space-y-2 sm:space-y-3 pt-0">
+        <div className="grid grid-cols-3 gap-1 sm:gap-2 text-center">
           <div>
-            <div className="text-xl font-bold text-orange-500">{totals.cycles}</div>
-            <p className="text-xs text-muted-foreground">Zyklen</p>
+            <div className="text-lg sm:text-xl font-bold text-orange-500">{totals.cycles}</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">Zyklen</p>
           </div>
           <div>
-            <div className="text-xl font-bold text-blue-500">{formatDuration(totals.duration)}</div>
-            <p className="text-xs text-muted-foreground">Heizdauer</p>
+            <div className="text-lg sm:text-xl font-bold text-blue-500">{formatDuration(totals.duration)}</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">Dauer</p>
           </div>
           <div>
-            <div className="text-xl font-bold text-yellow-500">{formatEnergy(totals.energy)}</div>
-            <p className="text-xs text-muted-foreground">Verbrauch</p>
+            <div className="text-lg sm:text-xl font-bold text-yellow-500">{formatEnergy(totals.energy)}</div>
+            <p className="text-[10px] sm:text-xs text-muted-foreground">kWh</p>
           </div>
         </div>
 
         {activeRooms.length > 0 && (
-          <div className="pt-2 border-t">
-            <p className="text-xs text-muted-foreground flex items-center gap-1">
-              <Home className="h-3 w-3" />
-              Heizen jetzt: {activeRooms.map(r => r.name).join(', ')}
+          <div className="pt-1.5 sm:pt-2 border-t">
+            <p className="text-[10px] sm:text-xs text-muted-foreground flex items-center gap-1">
+              <Home className="h-2.5 w-2.5 sm:h-3 sm:w-3" />
+              <span className="hidden sm:inline">Heizen jetzt:</span>
+              <span className="truncate">{activeRooms.map(r => r.name).join(', ')}</span>
             </p>
           </div>
         )}
 
         {roomsWithStats.length > 0 && (
-          <div className="pt-2 border-t">
-            <p className="text-xs text-muted-foreground mb-1">Top Verbraucher:</p>
-            <div className="space-y-1">
+          <div className="pt-1.5 sm:pt-2 border-t">
+            <p className="text-[10px] sm:text-xs text-muted-foreground mb-0.5 sm:mb-1">Top Verbraucher:</p>
+            <div className="space-y-0.5 sm:space-y-1">
               {roomsWithStats.slice(0, 3).map(({ room, energy }) => (
-                <div key={room.id} className="flex justify-between text-xs">
-                  <span>{room.name}</span>
-                  <span className="font-mono">{formatEnergy(energy)}</span>
+                <div key={room.id} className="flex justify-between text-[10px] sm:text-xs">
+                  <span className="truncate mr-2">{room.name}</span>
+                  <span className="font-mono shrink-0">{formatEnergy(energy)}</span>
                 </div>
               ))}
             </div>
@@ -93,7 +95,7 @@ export function HeatingOverviewCard({ rooms, stats }: HeatingOverviewCardProps) 
         )}
 
         {totals.cycles === 0 && (
-          <div className="text-center text-sm text-muted-foreground py-2">
+          <div className="text-center text-xs sm:text-sm text-muted-foreground py-1.5 sm:py-2">
             Heute noch keine Heizaktivität
           </div>
         )}
