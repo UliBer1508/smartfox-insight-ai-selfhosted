@@ -10,13 +10,13 @@ let config;
 try {
   const configPath = path.join(process.cwd(), 'config.json');
   if (!fs.existsSync(configPath)) {
-    console.error('❌ config.json nicht gefunden!');
-    console.error('   Bitte kopiere config.example.json zu config.json und passe die IP-Adressen an.');
+    console.error('config.json nicht gefunden!');
+    console.error('   Bitte kopiere config.example.json zu config.json und passe die Werte an.');
     process.exit(1);
   }
   config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
 } catch (error) {
-  console.error('❌ Fehler beim Laden der Konfiguration:', error.message);
+  console.error('Fehler beim Laden der Konfiguration:', error.message);
   process.exit(1);
 }
 
@@ -45,45 +45,11 @@ function httpGet(url, timeout = 5000) {
   });
 }
 
-// Fetch data from Smartfox
-async function fetchSmartfoxData() {
-  if (!config.smartfox.enabled) return null;
-  
-  try {
-    const url = `http://${config.smartfox.ip}/all`;
-    console.log(`📡 Fetching Smartfox: ${url}`);
-    const data = await httpGet(url);
-    
-    // Calculate power_io (positive = import, negative = export)
-    const powerIn = data.power_in || 0;
-    const powerOut = data.power_out || 0;
-    const powerIo = powerIn - powerOut;
-    
-    // Calculate PV power from array
-    const pvPower = Array.isArray(data.PvPower) 
-      ? data.PvPower.reduce((sum, p) => sum + (p || 0), 0) 
-      : 0;
-    
-    return {
-      power_io: powerIo,
-      energy_in: data.energy_in || 0,
-      energy_out: data.energy_out || 0,
-      pv_power: pvPower,
-      consumption: pvPower + powerIo // consumption = PV + grid import (or - grid export)
-    };
-  } catch (error) {
-    console.error('❌ Smartfox Fehler:', error.message);
-    return null;
-  }
-}
-
 // Fetch data from Fronius
 async function fetchFroniusData() {
-  if (!config.fronius.enabled) return null;
-  
   try {
     const url = `http://${config.fronius.ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
-    console.log(`📡 Fetching Fronius: ${url}`);
+    console.log(`Fetching Fronius: ${url}`);
     const data = await httpGet(url);
     
     const site = data?.Body?.Data?.Site || {};
@@ -98,34 +64,35 @@ async function fetchFroniusData() {
       }
     }
     
-    // Debug-Logging
-    console.log(`📋 Fronius Raw: P_Akku=${site.P_Akku}, SOC=${batterySoc}`);
-    
     return {
       battery_soc: batterySoc,
       pv_power: site.P_PV || 0,
-      grid_power: site.P_Grid || 0, // positive = import, negative = export
+      grid_power: site.P_Grid || 0,
       load_power: Math.abs(site.P_Load || 0),
       battery_power: site.P_Akku !== undefined ? site.P_Akku : null
     };
   } catch (error) {
-    console.error('❌ Fronius Fehler:', error.message);
+    console.error('Fronius Fehler:', error.message);
     return null;
   }
 }
 
 // Save reading to database
-async function saveReading(smartfoxData, froniusData) {
-  // Combine data from both sources
+async function saveReading(froniusData) {
+  if (!froniusData) {
+    console.log('Keine Fronius-Daten zum Speichern');
+    return false;
+  }
+
   const reading = {
     timestamp: new Date().toISOString(),
-    power_io: smartfoxData?.power_io ?? froniusData?.grid_power ?? 0,
-    energy_in: smartfoxData?.energy_in ?? 0,
-    energy_out: smartfoxData?.energy_out ?? 0,
-    battery_soc: froniusData?.battery_soc ?? null,
-    pv_power: smartfoxData?.pv_power ?? froniusData?.pv_power ?? null,
-    consumption: smartfoxData?.consumption ?? froniusData?.load_power ?? null,
-    battery_power: froniusData?.battery_power ?? null
+    power_io: froniusData.grid_power,
+    energy_in: 0,
+    energy_out: 0,
+    battery_soc: froniusData.battery_soc,
+    pv_power: froniusData.pv_power,
+    consumption: froniusData.load_power,
+    battery_power: froniusData.battery_power
   };
   
   try {
@@ -134,31 +101,28 @@ async function saveReading(smartfoxData, froniusData) {
       .insert(reading);
     
     if (error) {
-      console.error('❌ Datenbank Fehler:', error.message);
+      console.error('Datenbank Fehler:', error.message);
       return false;
     }
     
-    console.log(`✅ Daten gespeichert: Power=${reading.power_io}W, PV=${reading.pv_power}W, Battery=${reading.battery_soc}%, BattPower=${reading.battery_power}W`);
+    console.log(`Gespeichert: Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%, BattPower=${reading.battery_power}W`);
     return true;
   } catch (error) {
-    console.error('❌ Speichern fehlgeschlagen:', error.message);
+    console.error('Speichern fehlgeschlagen:', error.message);
     return false;
   }
 }
 
 // Main polling loop
 async function poll() {
-  console.log(`\n⏰ ${new Date().toLocaleTimeString()} - Daten abrufen...`);
+  console.log(`\n${new Date().toLocaleTimeString()} - Fronius-Daten abrufen...`);
   
-  const [smartfoxData, froniusData] = await Promise.all([
-    fetchSmartfoxData(),
-    fetchFroniusData()
-  ]);
+  const froniusData = await fetchFroniusData();
   
-  if (smartfoxData || froniusData) {
-    await saveReading(smartfoxData, froniusData);
+  if (froniusData) {
+    await saveReading(froniusData);
   } else {
-    console.log('⚠️ Keine Daten von Smartfox oder Fronius erhalten');
+    console.log('Keine Daten von Fronius erhalten');
   }
 }
 
@@ -172,7 +136,7 @@ async function getPollingInterval() {
       .single();
     
     if (error || !data) {
-      console.log('⚠️ Polling-Intervall aus config.json verwenden');
+      console.log('Polling-Intervall aus config.json verwenden');
       return config.polling_interval_seconds;
     }
     
@@ -184,30 +148,29 @@ async function getPollingInterval() {
 
 // Startup
 async function main() {
-  console.log('╔════════════════════════════════════════════════╗');
-  console.log('║   Smartfox/Fronius Collector v1.1              ║');
-  console.log('╚════════════════════════════════════════════════╝');
+  console.log('========================================');
+  console.log('   Fronius Collector v2.0              ');
+  console.log('========================================');
   console.log('');
-  console.log(`📍 Smartfox: ${config.smartfox.enabled ? config.smartfox.ip : 'deaktiviert'}`);
-  console.log(`📍 Fronius:  ${config.fronius.enabled ? config.fronius.ip : 'deaktiviert'}`);
+  console.log(`Fronius: ${config.fronius.ip}`);
   console.log('');
-  console.log('Drücke Strg+C zum Beenden');
-  console.log('─'.repeat(50));
+  console.log('Druecke Strg+C zum Beenden');
+  console.log('----------------------------------------');
   
   // Test database connection
   try {
     const { error } = await supabase.from('energy_readings').select('id').limit(1);
     if (error) throw error;
-    console.log('✅ Datenbank-Verbindung erfolgreich');
+    console.log('Datenbank-Verbindung erfolgreich');
   } catch (error) {
-    console.error('❌ Datenbank-Verbindung fehlgeschlagen:', error.message);
-    console.error('   Bitte überprüfe die Supabase-Konfiguration in config.json');
+    console.error('Datenbank-Verbindung fehlgeschlagen:', error.message);
+    console.error('   Bitte ueberpruefe die Supabase-Konfiguration in config.json');
     process.exit(1);
   }
   
   // Get polling interval from database or config
   const pollingInterval = await getPollingInterval();
-  console.log(`⏱️  Intervall: ${pollingInterval} Sekunden (aus Datenbank oder config.json)`);
+  console.log(`Intervall: ${pollingInterval} Sekunden`);
   
   // Initial poll
   await poll();
@@ -219,7 +182,7 @@ async function main() {
   setInterval(async () => {
     const newInterval = await getPollingInterval();
     if (newInterval !== pollingInterval) {
-      console.log(`\n⚠️ Polling-Intervall geändert auf ${newInterval}s. Bitte Collector neu starten.`);
+      console.log(`\nPolling-Intervall geaendert auf ${newInterval}s. Bitte Collector neu starten.`);
     }
   }, 5 * 60 * 1000);
 }
