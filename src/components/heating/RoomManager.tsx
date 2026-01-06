@@ -279,62 +279,63 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
           </DialogContent>
         </Dialog>
       </CardHeader>
-      <CardContent>
-        <div className="text-sm text-muted-foreground mb-2 p-2 bg-muted rounded">
-          🔍 Debug: {rooms.length} Räume geladen
-        </div>
+      <CardContent className="space-y-2">
         {rooms.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-4">
             Noch keine Räume angelegt. Füge Räume hinzu, um raumspezifische Empfehlungen zu erhalten.
           </p>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1.5 sm:space-y-2">
             {rooms.map(room => (
               <div
                 key={room.id}
-                className="flex items-center justify-between p-3 bg-muted/50 rounded-lg"
+                className="flex items-center justify-between p-2 sm:p-3 bg-muted/50 rounded-lg gap-2"
               >
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1">
+                <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+                  <div className="hidden sm:flex items-center gap-1 shrink-0">
                     {getOrientationIcon(room.orientation)}
                     {room.has_solar_gain && <Sun className="h-4 w-4 text-amber-400" />}
                   </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium">{room.name}</p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                      <span className="font-medium text-sm sm:text-base truncate">{room.name}</span>
                       {room.tuya_device_id && (
-                        <Badge variant="outline" className="text-xs gap-1">
-                          <Thermometer className="h-3 w-3" />
+                        <Badge variant="outline" className="text-xs px-1.5 py-0 sm:px-2 sm:py-0.5 gap-0.5 shrink-0">
+                          <Thermometer className="h-3 w-3 hidden sm:inline" />
                           {room.current_temp ? `${room.current_temp}°C` : 'Tuya'}
                         </Badge>
                       )}
                       {room.pv_auto_enabled && (
-                        <Badge variant="secondary" className="text-xs gap-1">
-                          <Sun className="h-3 w-3" />
-                          PV-Auto
+                        <Badge variant="secondary" className="text-xs px-1.5 py-0 sm:px-2 sm:py-0.5 gap-0.5 shrink-0">
+                          <Sun className="h-3 w-3 hidden sm:inline" />
+                          <span className="sm:hidden">PV</span>
+                          <span className="hidden sm:inline">PV-Auto</span>
                         </Badge>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {room.floor_area_m2 ? `${room.floor_area_m2}m² · ` : ''}
-                      {room.heating_power_w ? `${room.heating_power_w}W · ` : ''}
-                      {room.comfort_temp}°C / {room.eco_temp}°C / {room.night_temp}°C
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      <span className="hidden sm:inline">
+                        {room.floor_area_m2 ? `${room.floor_area_m2}m² · ` : ''}
+                        {room.heating_power_w ? `${room.heating_power_w}W · ` : ''}
+                      </span>
+                      {room.comfort_temp}/{room.eco_temp}/{room.night_temp}°C
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground px-2 py-1 bg-background rounded">
+                <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+                  <span className="text-xs text-muted-foreground px-1.5 py-0.5 bg-background rounded">
                     P{room.priority}
                   </span>
-                  <Button variant="ghost" size="icon" onClick={() => handleEdit(room)}>
-                    <Pencil className="h-4 w-4" />
+                  <Button variant="ghost" size="icon" className="h-7 w-7 sm:h-8 sm:w-8" onClick={() => handleEdit(room)}>
+                    <Pencil className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                   </Button>
                   <Button 
                     variant="ghost" 
-                    size="icon" 
+                    size="icon"
+                    className="h-7 w-7 sm:h-8 sm:w-8"
                     onClick={() => room.id && onDelete(room.id)}
                   >
-                    <Trash2 className="h-4 w-4 text-destructive" />
+                    <Trash2 className="h-3.5 w-3.5 sm:h-4 sm:w-4 text-destructive" />
                   </Button>
                 </div>
               </div>
