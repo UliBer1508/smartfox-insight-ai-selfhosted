@@ -80,12 +80,12 @@ def fetch_smartfox(ip: str) -> dict | None:
         return None
 
 
-def fetch_fronius_battery(ip: str) -> float | None:
+def fetch_fronius_data(ip: str) -> dict | None:
     """
-    Holt den Batterie-Ladezustand vom Fronius Wechselrichter.
+    Holt Batterie-Daten vom Fronius Wechselrichter.
     
     Returns:
-        Battery SOC (0-100) oder None bei Fehler
+        dict mit battery_soc und battery_power oder None bei Fehler
     """
     try:
         url = f"http://{ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi"
@@ -95,18 +95,26 @@ def fetch_fronius_battery(ip: str) -> float | None:
         
         # Fronius PowerFlow API Struktur
         site_data = data.get("Body", {}).get("Data", {}).get("Site", {})
-        battery_soc = site_data.get("SOC")  # State of Charge in %
-        
-        if battery_soc is not None:
-            return float(battery_soc)
-        
-        # Alternative: Aus Inverters Daten
         inverters = data.get("Body", {}).get("Data", {}).get("Inverters", {})
-        for inv_id, inv_data in inverters.items():
-            if "SOC" in inv_data:
-                return float(inv_data["SOC"])
         
-        return None
+        # Battery SOC
+        battery_soc = site_data.get("SOC")
+        if battery_soc is None:
+            for inv_id, inv_data in inverters.items():
+                if "SOC" in inv_data:
+                    battery_soc = float(inv_data["SOC"])
+                    break
+        
+        # Battery Power (P_Akku): positiv = laden, negativ = entladen
+        battery_power = site_data.get("P_Akku")
+        
+        # Debug-Logging
+        print(f"📋 Fronius Raw: P_Akku={battery_power}, SOC={battery_soc}")
+        
+        return {
+            "battery_soc": float(battery_soc) if battery_soc is not None else None,
+            "battery_power": float(battery_power) if battery_power is not None else None
+        }
         
     except requests.exceptions.Timeout:
         print(f"⚠️  Fronius Timeout ({ip})")
@@ -119,7 +127,7 @@ def fetch_fronius_battery(ip: str) -> float | None:
         return None
 
 
-def save_reading(supabase: Client, smartfox_data: dict, battery_soc: float | None) -> bool:
+def save_reading(supabase: Client, smartfox_data: dict, fronius_data: dict | None) -> bool:
     """
     Speichert einen Messwert in der Datenbank.
     
@@ -134,7 +142,8 @@ def save_reading(supabase: Client, smartfox_data: dict, battery_soc: float | Non
             "energy_out": smartfox_data["energy_out"],
             "pv_power": smartfox_data["pv_power"],
             "consumption": smartfox_data["consumption"],
-            "battery_soc": battery_soc,
+            "battery_soc": fronius_data["battery_soc"] if fronius_data else None,
+            "battery_power": fronius_data["battery_power"] if fronius_data else None,
         }
         
         supabase.table("energy_readings").insert(reading).execute()
@@ -186,9 +195,11 @@ def main():
     else:
         print("⚠️  Smartfox nicht erreichbar - wird weiter versucht...")
     
-    battery_soc = fetch_fronius_battery(fronius_ip)
-    if battery_soc is not None:
-        print(f"✅ Fronius OK - Batterie: {battery_soc:.1f}%")
+    fronius_data = fetch_fronius_data(fronius_ip)
+    if fronius_data:
+        soc_str = f"{fronius_data['battery_soc']:.1f}%" if fronius_data['battery_soc'] else "N/A"
+        power_str = f"{fronius_data['battery_power']:.0f}W" if fronius_data['battery_power'] else "N/A"
+        print(f"✅ Fronius OK - Batterie: {soc_str}, Power: {power_str}")
     else:
         print("⚠️  Fronius nicht erreichbar - wird weiter versucht...")
     
@@ -206,19 +217,20 @@ def main():
             
             # Daten abrufen
             smartfox_data = fetch_smartfox(smartfox_ip)
-            battery_soc = fetch_fronius_battery(fronius_ip)
+            fronius_data = fetch_fronius_data(fronius_ip)
             
             if smartfox_data:
                 # Daten speichern
-                if save_reading(supabase, smartfox_data, battery_soc):
+                if save_reading(supabase, smartfox_data, fronius_data):
                     success_count += 1
-                    battery_str = f"{battery_soc:.0f}%" if battery_soc else "N/A"
+                    battery_str = f"{fronius_data['battery_soc']:.0f}%" if fronius_data and fronius_data['battery_soc'] else "N/A"
+                    power_str = f"{fronius_data['battery_power']:+.0f}W" if fronius_data and fronius_data['battery_power'] else "N/A"
                     print(
                         f"[{timestamp}] ✅ "
                         f"PV: {smartfox_data['pv_power']:>5.0f}W | "
                         f"Netz: {smartfox_data['power_io']:>+6.0f}W | "
                         f"Verbr: {smartfox_data['consumption']:>5.0f}W | "
-                        f"Batt: {battery_str:>4}"
+                        f"Batt: {battery_str:>4} ({power_str})"
                     )
                 else:
                     error_count += 1
