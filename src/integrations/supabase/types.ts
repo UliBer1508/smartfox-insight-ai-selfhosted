@@ -211,6 +211,11 @@ export type Database = {
           eco_temp: number
           estrich_storage_enabled: boolean | null
           floor_heating_response_hours: number | null
+          hotwater_enabled: boolean | null
+          hotwater_min_surplus_w: number | null
+          hotwater_power_w: number | null
+          hotwater_schedule_end: string | null
+          hotwater_schedule_start: string | null
           id: string
           latitude: number | null
           longitude: number | null
@@ -236,6 +241,11 @@ export type Database = {
           eco_temp?: number
           estrich_storage_enabled?: boolean | null
           floor_heating_response_hours?: number | null
+          hotwater_enabled?: boolean | null
+          hotwater_min_surplus_w?: number | null
+          hotwater_power_w?: number | null
+          hotwater_schedule_end?: string | null
+          hotwater_schedule_start?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null
@@ -261,6 +271,11 @@ export type Database = {
           eco_temp?: number
           estrich_storage_enabled?: boolean | null
           floor_heating_response_hours?: number | null
+          hotwater_enabled?: boolean | null
+          hotwater_min_surplus_w?: number | null
+          hotwater_power_w?: number | null
+          hotwater_schedule_end?: string | null
+          hotwater_schedule_start?: string | null
           id?: string
           latitude?: number | null
           longitude?: number | null

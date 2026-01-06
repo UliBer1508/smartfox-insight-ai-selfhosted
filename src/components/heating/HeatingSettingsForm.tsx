@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save, MapPin, Zap, Thermometer, Car } from 'lucide-react';
+import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
@@ -221,6 +221,73 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </div>
           </div>
 
+          {/* Warmwasser-Bereitung */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Droplets className="w-4 h-4" />
+              Warmwasser-Bereitung (Smartfox-gesteuert)
+            </h3>
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
+              <div className="space-y-2">
+                <Label htmlFor="hotwater_enabled">Warmwasser in Analyse berücksichtigen</Label>
+                <div className="flex items-center space-x-2 pt-2">
+                  <Switch
+                    id="hotwater_enabled"
+                    checked={formData.hotwater_enabled ?? true}
+                    onCheckedChange={(checked) => handleChange('hotwater_enabled', checked)}
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {formData.hotwater_enabled !== false ? 'Aktiv' : 'Deaktiviert'}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hotwater_power">Heizstab-Leistung (W)</Label>
+                <Input
+                  id="hotwater_power"
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={formData.hotwater_power_w || 2800}
+                  onChange={(e) => handleChange('hotwater_power_w', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Typisch: 2000-3000W</p>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="hotwater_start">Schaltzeit Start</Label>
+                <Input
+                  id="hotwater_start"
+                  type="time"
+                  value={formData.hotwater_schedule_start || '10:00'}
+                  onChange={(e) => handleChange('hotwater_schedule_start', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hotwater_end">Schaltzeit Ende</Label>
+                <Input
+                  id="hotwater_end"
+                  type="time"
+                  value={formData.hotwater_schedule_end || '16:00'}
+                  onChange={(e) => handleChange('hotwater_schedule_end', e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="hotwater_surplus">Min. Überschuss (W)</Label>
+                <Input
+                  id="hotwater_surplus"
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={formData.hotwater_min_surplus_w || 1000}
+                  onChange={(e) => handleChange('hotwater_min_surplus_w', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Smartfox aktiviert ab diesem Überschuss</p>
+              </div>
+            </div>
+          </div>
+
           {/* Verbraucher-Priorität */}
           <div className="border-t pt-4">
             <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
@@ -231,19 +298,20 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               <div className="space-y-2">
                 <Label htmlFor="priority">Reihenfolge bei PV-Überschuss</Label>
                 <Select
-                  value={formData.consumer_priority || 'battery,heating,car'}
+                  value={formData.consumer_priority || 'battery,hotwater,heating,car'}
                   onValueChange={(value) => handleChange('consumer_priority', value)}
                 >
                   <SelectTrigger id="priority">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="battery,heating,car">Batterie → Heizung → E-Auto</SelectItem>
-                    <SelectItem value="battery,car,heating">Batterie → E-Auto → Heizung</SelectItem>
-                    <SelectItem value="heating,battery,car">Heizung → Batterie → E-Auto</SelectItem>
+                    <SelectItem value="battery,hotwater,heating,car">Batterie → Warmwasser → Heizung → E-Auto</SelectItem>
+                    <SelectItem value="battery,heating,hotwater,car">Batterie → Heizung → Warmwasser → E-Auto</SelectItem>
+                    <SelectItem value="hotwater,battery,heating,car">Warmwasser → Batterie → Heizung → E-Auto</SelectItem>
+                    <SelectItem value="battery,heating,car">Batterie → Heizung → E-Auto (ohne Warmwasser)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">Smartfox steuert E-Auto-Ladung automatisch</p>
+                <p className="text-xs text-muted-foreground">Smartfox steuert Warmwasser + E-Auto automatisch</p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="car_power">Min. Ladeleistung E-Auto (W)</Label>
