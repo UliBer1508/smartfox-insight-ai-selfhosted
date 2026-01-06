@@ -112,7 +112,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
           <div className="p-4 rounded-lg bg-muted/50 border border-dashed space-y-3">
             <p className="text-sm font-medium">So funktioniert es:</p>
             <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-              <li>Der <strong>Node.js Collector</strong> läuft auf einem lokalen PC im selben Netzwerk wie Smartfox/Fronius</li>
+              <li>Der <strong>Node.js Collector</strong> läuft auf einem lokalen PC im selben Netzwerk wie der Fronius-Wechselrichter</li>
               <li>Er liest Daten von den Geräten und speichert sie in der Cloud-Datenbank</li>
               <li>Diese PWA zeigt die Daten in Echtzeit an (Realtime-Updates)</li>
             </ol>
@@ -135,13 +135,13 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
         <CardContent>
           <div className="text-sm font-mono bg-muted p-4 rounded-lg overflow-x-auto">
             <pre className="text-muted-foreground">{`
-┌─────────────────┐     ┌─────────────────┐
-│  Smartfox       │     │  Fronius        │
-│  (Energiedaten) │     │  (Battery SOC)  │
-└────────┬────────┘     └────────┬────────┘
-         │                       │
-         └───────────┬───────────┘
-                     ▼
+         ┌─────────────────────┐
+         │   Fronius           │
+         │   (Energiedaten +   │
+         │    Battery SOC)     │
+         └──────────┬──────────┘
+                    │
+                    ▼
          ┌─────────────────────┐
          │   Node.js Collector │
          │   (läuft lokal)     │
@@ -150,7 +150,6 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
                     ▼
          ┌─────────────────────┐
          │   Cloud Datenbank   │
-         │   (Supabase)        │
          └──────────┬──────────┘
                     │ (Realtime)
                     ▼
