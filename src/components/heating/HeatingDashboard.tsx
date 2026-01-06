@@ -16,6 +16,7 @@ import { PvForecastCard } from './PvForecastCard';
 import { RoomRecommendations } from './RoomRecommendations';
 import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
+import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -227,6 +228,9 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
         {/* Heating Overview Card */}
         <HeatingOverviewCard rooms={rooms} stats={heatingStats} />
       </div>
+
+      {/* Heating History Chart */}
+      <HeatingHistoryChart rooms={rooms} />
 
       {/* Thermostat Control - show if any rooms have tuya devices */}
       {rooms.some(r => r.tuya_device_id) && (
