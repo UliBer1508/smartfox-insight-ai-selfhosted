@@ -73,8 +73,8 @@ export function ThermostatCard({
 
   return (
     <Card className={cn(
-      'transition-all duration-300',
-      isHeating && 'ring-2 ring-orange-500/50 bg-orange-50/30 dark:bg-orange-950/20'
+      'transition-all duration-300 border-2 border-transparent',
+      isHeating && 'border-orange-500/50 bg-orange-50/30 dark:bg-orange-950/20'
     )}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
