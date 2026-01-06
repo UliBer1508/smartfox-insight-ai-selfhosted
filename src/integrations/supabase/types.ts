@@ -53,6 +53,39 @@ export type Database = {
         }
         Relationships: []
       }
+      data_retention_settings: {
+        Row: {
+          auto_cleanup_enabled: boolean | null
+          created_at: string | null
+          hourly_retention_days: number | null
+          id: string
+          last_cleanup_at: string | null
+          polling_interval_seconds: number | null
+          raw_data_retention_days: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          auto_cleanup_enabled?: boolean | null
+          created_at?: string | null
+          hourly_retention_days?: number | null
+          id?: string
+          last_cleanup_at?: string | null
+          polling_interval_seconds?: number | null
+          raw_data_retention_days?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          auto_cleanup_enabled?: boolean | null
+          created_at?: string | null
+          hourly_retention_days?: number | null
+          id?: string
+          last_cleanup_at?: string | null
+          polling_interval_seconds?: number | null
+          raw_data_retention_days?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       detected_patterns: {
         Row: {
           ai_analysis: string | null
