@@ -76,8 +76,6 @@ const Index = () => {
                   batteryPower={currentReading?.battery_power ?? null}
                 />
 
-                <BatteryHistoryChart />
-
                 <PowerStats
                   pvPower={currentReading?.pv_power ?? null}
                   consumption={currentReading?.consumption ?? null}
@@ -93,6 +91,8 @@ const Index = () => {
                 <EnergyChart readings={readings} />
               </div>
             </div>
+
+            <BatteryHistoryChart />
 
             <div className="grid md:grid-cols-3 gap-4">
               <Card>
