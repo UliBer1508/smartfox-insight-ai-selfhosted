@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnergyReading } from '@/types/energy';
-import { HeatingSettings, HeatingAnalysisResult } from '@/types/heating';
+import { HeatingSettings } from '@/types/heating';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
 import { usePvForecast } from '@/hooks/usePvForecast';
@@ -11,10 +11,8 @@ import { useRooms } from '@/hooks/useRooms';
 import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
-import { HeatingSettingsForm } from './HeatingSettingsForm';
 import { BatteryStatus } from './BatteryStatus';
 import { PvForecastCard } from './PvForecastCard';
-import { RoomManager } from './RoomManager';
 import { RoomRecommendations } from './RoomRecommendations';
 import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
@@ -28,7 +26,7 @@ interface HeatingDashboardProps {
 }
 
 export function HeatingDashboard({ readings, currentReading }: HeatingDashboardProps) {
-  const { settings, saveSettings, isLoading: settingsLoading } = useHeatingSettings();
+  const { settings } = useHeatingSettings();
   const { 
     isAnalyzing, 
     analysisResult, 
@@ -49,7 +47,6 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
     rooms,
     isLoading: roomsLoading,
     saveRoom,
-    deleteRoom,
     saveRecommendations: saveRoomRecommendations,
     getCurrentRecommendation,
     loadRecommendations: loadRoomRecommendations,
@@ -392,7 +389,7 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
                 <div className="text-center py-8 text-muted-foreground">
                   <Home className="w-12 h-12 mx-auto mb-3 opacity-50" />
                   <p>Lege zuerst Räume an, um raumspezifische Empfehlungen zu erhalten.</p>
-                  <p className="text-xs mt-2">Gehe zu den Einstellungen unten.</p>
+                  <p className="text-xs mt-2">Gehe zu Einstellungen → Räume verwalten.</p>
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
@@ -403,21 +400,6 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
           </Tabs>
         </CardContent>
       </Card>
-
-      {/* Room Manager */}
-      <RoomManager 
-        rooms={rooms}
-        onSave={saveRoom}
-        onDelete={deleteRoom}
-        isLoading={roomsLoading}
-      />
-
-      {/* Settings */}
-      <HeatingSettingsForm 
-        settings={settings} 
-        onSave={saveSettings}
-        isLoading={settingsLoading}
-      />
     </div>
   );
 }

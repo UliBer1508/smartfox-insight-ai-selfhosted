@@ -1,7 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Server, CheckCircle, AlertCircle } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Server, CheckCircle, AlertCircle, Settings, Home, Database } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
+import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
+import { RoomManager } from "@/components/heating/RoomManager";
+import { useHeatingSettings } from "@/hooks/useHeatingSettings";
+import { useRooms } from "@/hooks/useRooms";
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -9,6 +14,9 @@ interface SettingsPanelProps {
 }
 
 export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
+  const { settings, saveSettings, isLoading: isHeatingLoading } = useHeatingSettings();
+  const { rooms, saveRoom, deleteRoom, isLoading: isRoomsLoading } = useRooms();
+
   const getTimeSinceUpdate = () => {
     if (!lastUpdate) return null;
     const diff = Date.now() - new Date(lastUpdate).getTime();
@@ -22,8 +30,57 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
 
   return (
     <div className="space-y-6">
-      {/* Data Retention Settings */}
-      <DataRetentionSettings />
+      <Accordion type="multiple" defaultValue={["anlage", "raeume", "daten"]} className="space-y-4">
+        {/* Anlagen-Konfiguration */}
+        <AccordionItem value="anlage" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+            <div className="flex items-center gap-2">
+              <Settings className="h-5 w-5 text-primary" />
+              <span className="font-semibold">Anlagen-Konfiguration</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="p-0">
+            <HeatingSettingsForm
+              settings={settings}
+              onSave={saveSettings}
+              isLoading={isHeatingLoading}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Räume verwalten */}
+        <AccordionItem value="raeume" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+            <div className="flex items-center gap-2">
+              <Home className="h-5 w-5 text-primary" />
+              <span className="font-semibold">Räume verwalten</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="p-0">
+            <RoomManager
+              rooms={rooms}
+              onSave={saveRoom}
+              onDelete={deleteRoom}
+              isLoading={isRoomsLoading}
+            />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Datenspeicherung */}
+        <AccordionItem value="daten" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-primary" />
+              <span className="font-semibold">Datenspeicherung</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="p-4">
+            <DataRetentionSettings />
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {/* Collector Status */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
