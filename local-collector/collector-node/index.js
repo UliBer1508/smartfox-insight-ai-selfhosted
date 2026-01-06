@@ -121,7 +121,8 @@ async function saveReading(smartfoxData, froniusData) {
     energy_out: smartfoxData?.energy_out ?? 0,
     battery_soc: froniusData?.battery_soc ?? null,
     pv_power: smartfoxData?.pv_power ?? froniusData?.pv_power ?? null,
-    consumption: smartfoxData?.consumption ?? froniusData?.load_power ?? null
+    consumption: smartfoxData?.consumption ?? froniusData?.load_power ?? null,
+    battery_power: froniusData?.battery_power ?? null
   };
   
   try {
@@ -134,7 +135,7 @@ async function saveReading(smartfoxData, froniusData) {
       return false;
     }
     
-    console.log(`✅ Daten gespeichert: Power=${reading.power_io}W, PV=${reading.pv_power}W, Battery=${reading.battery_soc}%`);
+    console.log(`✅ Daten gespeichert: Power=${reading.power_io}W, PV=${reading.pv_power}W, Battery=${reading.battery_soc}%, BattPower=${reading.battery_power}W`);
     return true;
   } catch (error) {
     console.error('❌ Speichern fehlgeschlagen:', error.message);

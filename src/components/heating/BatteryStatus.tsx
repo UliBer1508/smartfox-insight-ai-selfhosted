@@ -1,18 +1,23 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Battery, BatteryCharging, BatteryLow, BatteryFull } from 'lucide-react';
+import { Battery, BatteryCharging, BatteryLow, BatteryFull, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface BatteryStatusProps {
   soc: number | null;
   capacity: number;
+  batteryPower?: number | null;
 }
 
-export function BatteryStatus({ soc, capacity }: BatteryStatusProps) {
+export function BatteryStatus({ soc, capacity, batteryPower }: BatteryStatusProps) {
+  const isCharging = batteryPower != null && batteryPower > 50;
+  const isDischarging = batteryPower != null && batteryPower < -50;
+
   const getBatteryIcon = () => {
+    if (isCharging) return BatteryCharging;
     if (soc === null) return Battery;
     if (soc >= 80) return BatteryFull;
     if (soc <= 20) return BatteryLow;
-    return BatteryCharging;
+    return Battery;
   };
 
   const getBatteryColor = () => {
@@ -22,7 +27,21 @@ export function BatteryStatus({ soc, capacity }: BatteryStatusProps) {
     return 'text-primary';
   };
 
+  const getPowerColor = () => {
+    if (isCharging) return 'text-energy-export';
+    if (isDischarging) return 'text-amber-500';
+    return 'text-muted-foreground';
+  };
+
   const Icon = getBatteryIcon();
+
+  const formatPower = (power: number) => {
+    const absPower = Math.abs(power);
+    if (absPower >= 1000) {
+      return `${(absPower / 1000).toFixed(1)} kW`;
+    }
+    return `${Math.round(absPower)} W`;
+  };
 
   return (
     <Card className="overflow-hidden w-full max-w-full">
@@ -37,7 +56,30 @@ export function BatteryStatus({ soc, capacity }: BatteryStatusProps) {
         <div className={cn('text-xl sm:text-2xl font-bold font-mono', getBatteryColor())}>
           {soc !== null ? `${soc.toFixed(0)}%` : '—'}
         </div>
-        <p className="text-[10px] sm:text-xs text-muted-foreground">
+        
+        {/* Battery power display */}
+        {batteryPower != null && (
+          <div className={cn('flex items-center gap-1 text-xs sm:text-sm font-medium mt-0.5', getPowerColor())}>
+            {isCharging ? (
+              <>
+                <ArrowUp className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span>Lädt: {formatPower(batteryPower)}</span>
+              </>
+            ) : isDischarging ? (
+              <>
+                <ArrowDown className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span>Entlädt: {formatPower(batteryPower)}</span>
+              </>
+            ) : (
+              <>
+                <Minus className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                <span>Standby</span>
+              </>
+            )}
+          </div>
+        )}
+        
+        <p className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">
           <span className="hidden sm:inline">Kapazität: </span>{capacity} kWh
         </p>
         
