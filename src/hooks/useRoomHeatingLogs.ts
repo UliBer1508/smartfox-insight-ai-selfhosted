@@ -77,9 +77,9 @@ export function useRoomHeatingLogs(roomId?: string) {
       }
 
       // Calculate running cycles (starts without matching stops)
-      const roomIds = [...new Set((data || []).map(l => l.room_id))];
-      for (const roomId of roomIds) {
-        const roomLogs = (data || []).filter(l => l.room_id === roomId);
+      const uniqueRoomIds = [...new Set((data || []).map(l => l.room_id))];
+      for (const rid of uniqueRoomIds) {
+        const roomLogs = (data || []).filter(l => l.room_id === rid);
         const starts = roomLogs.filter(l => l.event_type === 'heating_start');
         const stops = roomLogs.filter(l => l.event_type === 'heating_stop');
         
@@ -87,10 +87,23 @@ export function useRoomHeatingLogs(roomId?: string) {
         if (starts.length > stops.length && starts[0]?.timestamp) {
           const startTime = new Date(starts[0].timestamp).getTime();
           const runningMin = Math.round((Date.now() - startTime) / 60000);
-          roomStats[roomId].todayDurationMin += runningMin;
+          
+          // Ensure room stats exist
+          if (!roomStats[rid]) {
+            roomStats[rid] = {
+              todayCycles: starts.length,
+              todayDurationMin: 0,
+              todayEnergyWh: 0,
+            };
+          }
+          roomStats[rid].todayDurationMin += runningMin;
+          
+          // Estimate energy for running cycle (heating_power_w * minutes / 60)
+          // This will be updated properly when the cycle ends
         }
       }
       
+      console.log('[HeatingStats] Calculated stats:', roomStats);
       setStats(roomStats);
     } catch (error) {
       console.error('Error loading heating logs:', error);
