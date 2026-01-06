@@ -338,6 +338,68 @@ Deno.serve(async (req) => {
         try {
           const status = await getDeviceStatus(accessId, accessSecret, room.tuya_device_id);
           const parsed = parseThermostatStatus(status as unknown[]);
+          
+          const previousIsHeating = room.is_heating;
+          const now = new Date().toISOString();
+
+          // Log heating state changes
+          if (previousIsHeating !== parsed.isHeating) {
+            if (parsed.isHeating) {
+              // Heating just started
+              console.log(`[${room.name}] Heating started`);
+              await supabase.from('room_heating_logs').insert({
+                room_id: room.id,
+                event_type: 'heating_start',
+                current_temp: parsed.currentTemp,
+                target_temp: parsed.targetTemp,
+                timestamp: now,
+              });
+            } else {
+              // Heating just stopped - calculate duration from last start
+              console.log(`[${room.name}] Heating stopped`);
+              
+              const { data: lastStart } = await supabase
+                .from('room_heating_logs')
+                .select('*')
+                .eq('room_id', room.id)
+                .eq('event_type', 'heating_start')
+                .order('timestamp', { ascending: false })
+                .limit(1)
+                .single();
+
+              let durationMinutes = 0;
+              let energyEstimateWh = 0;
+
+              if (lastStart?.timestamp) {
+                const startTime = new Date(lastStart.timestamp).getTime();
+                const endTime = new Date(now).getTime();
+                durationMinutes = Math.round((endTime - startTime) / 60000);
+                
+                // Estimate energy: heating_power_w * duration_hours
+                if (room.heating_power_w) {
+                  energyEstimateWh = Math.round((room.heating_power_w * durationMinutes) / 60);
+                }
+              }
+
+              await supabase.from('room_heating_logs').insert({
+                room_id: room.id,
+                event_type: 'heating_stop',
+                current_temp: parsed.currentTemp,
+                target_temp: parsed.targetTemp,
+                duration_minutes: durationMinutes,
+                energy_estimate_wh: energyEstimateWh,
+                timestamp: now,
+              });
+
+              // Update room stats
+              await supabase
+                .from('rooms')
+                .update({
+                  last_heating_duration_min: durationMinutes,
+                })
+                .eq('id', room.id);
+            }
+          }
 
           await supabase
             .from('rooms')
@@ -345,7 +407,7 @@ Deno.serve(async (req) => {
               current_temp: parsed.currentTemp,
               target_temp: parsed.targetTemp,
               is_heating: parsed.isHeating,
-              last_thermostat_sync: new Date().toISOString(),
+              last_thermostat_sync: now,
             })
             .eq('id', room.id);
 
