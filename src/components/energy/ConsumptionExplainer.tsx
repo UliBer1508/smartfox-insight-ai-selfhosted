@@ -1,4 +1,5 @@
 import { useConsumptionAnalysis } from '@/hooks/useConsumptionAnalysis';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Info } from 'lucide-react';
 
 interface ConsumptionExplainerProps {
@@ -8,38 +9,57 @@ interface ConsumptionExplainerProps {
 export function ConsumptionExplainer({ consumption }: ConsumptionExplainerProps) {
   const { activeConsumers, isLoading } = useConsumptionAnalysis(consumption);
 
-  // Only show if there are active consumers and consumption is significant
-  if (isLoading || activeConsumers.length === 0 || (consumption ?? 0) < 500) {
-    return null;
+  // Always show the card, but with placeholder if no active consumers
+  if (isLoading) {
+    return (
+      <Card className="h-fit">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm flex items-center gap-2">
+            <Info className="w-4 h-4 text-primary" />
+            Aktive Verbraucher
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground">Lade...</p>
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
-    <div className="bg-muted/50 rounded-lg p-3 border border-border">
-      <div className="flex items-center gap-2 mb-2">
-        <Info className="h-4 w-4 text-muted-foreground" />
-        <span className="text-sm font-medium text-foreground">Aktive Verbraucher</span>
-      </div>
-      <div className="space-y-2">
-        {activeConsumers.map((consumer, index) => {
-          const Icon = consumer.icon;
-          const powerKw = consumer.power >= 1000 
-            ? `${(consumer.power / 1000).toFixed(1)} kW` 
-            : `${consumer.power} W`;
-          
-          return (
-            <div key={index} className="flex items-center justify-between text-sm">
-              <div className="flex items-center gap-2">
-                <Icon className="h-4 w-4" style={{ color: consumer.color }} />
-                <span className="text-foreground">{consumer.name}</span>
-                <span className="text-muted-foreground text-xs">({consumer.reason})</span>
-              </div>
-              <span className="font-medium" style={{ color: consumer.color }}>
-                {powerKw}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+    <Card className="h-fit">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <Info className="w-4 h-4 text-primary" />
+          Aktive Verbraucher
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {activeConsumers.length === 0 || (consumption ?? 0) < 500 ? (
+          <p className="text-sm text-muted-foreground">Keine erkannt</p>
+        ) : (
+          <div className="space-y-1">
+            {activeConsumers.map((consumer, index) => {
+              const Icon = consumer.icon;
+              const powerKw = consumer.power >= 1000 
+                ? `${(consumer.power / 1000).toFixed(1)} kW` 
+                : `${consumer.power} W`;
+              
+              return (
+                <div key={index} className="flex items-center justify-between text-sm">
+                  <div className="flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5" style={{ color: consumer.color }} />
+                    <span className="text-foreground text-xs">{consumer.name}</span>
+                  </div>
+                  <span className="font-medium text-xs" style={{ color: consumer.color }}>
+                    {powerKw}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
