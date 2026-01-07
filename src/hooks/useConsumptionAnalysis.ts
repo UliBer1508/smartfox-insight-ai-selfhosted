@@ -81,18 +81,24 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
       }
     }
 
-    // Check active heating rooms
+    // Check active heating rooms - Direkte elektrische Fußbodenheizung
     if (activeRooms.length > 0) {
       const totalHeatingPower = activeRooms.reduce((sum, room) => {
         return sum + (room.heating_power_w || 800);
       }, 0);
       
-      const roomNames = activeRooms.map(r => r.name).join(', ');
+      const roomDetails = activeRooms.map(r => 
+        `${r.name} (${r.heating_power_w || 800}W)`
+      );
+      const displayRooms = roomDetails.length > 3 
+        ? `${roomDetails.slice(0, 3).join(', ')} +${roomDetails.length - 3}`
+        : roomDetails.join(', ');
+      
       consumers.push({
-        name: 'Heizung',
+        name: `Heizung (${activeRooms.length} Räume)`,
         icon: Flame,
         power: totalHeatingPower,
-        reason: roomNames,
+        reason: `Direkt-Strom: ${displayRooms}`,
         color: '#F97316'
       });
     }

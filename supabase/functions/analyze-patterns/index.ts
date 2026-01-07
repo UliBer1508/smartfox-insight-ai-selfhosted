@@ -50,9 +50,53 @@ serve(async (req) => {
 
       const roomsList = rooms.map((r: any) => 
         `- ${r.name}: ${r.orientation || 'keine Ausrichtung'}, ${r.floor_area_m2 || '?'}m², ` +
+        `Heizleistung: ${r.heating_power_w || 800}W, ` +
         `Sonneneinstrahlung: ${r.has_solar_gain ? 'Ja' : 'Nein'}, ` +
         `Priorität: ${r.priority}, Komfort: ${r.comfort_temp}°C, Eco: ${r.eco_temp}°C, Nacht: ${r.night_temp}°C`
       ).join('\n');
+
+      // Heizungstyp-Information berechnen
+      const heatingType = heatingSettings?.heating_type || 'direct_electric';
+      const totalInstalledPower = heatingSettings?.total_heating_power_w || 
+        rooms.reduce((sum: number, r: any) => sum + (r.heating_power_w || 800), 0);
+      const activeHeatingPower = rooms
+        .filter((r: any) => r.is_heating)
+        .reduce((sum: number, r: any) => sum + (r.heating_power_w || 800), 0);
+      const nightCyclingEnabled = heatingSettings?.night_cycling_enabled !== false;
+      const avgNightCycles = heatingSettings?.avg_night_cycles_per_room || 4;
+      const maxNightPeak = totalInstalledPower * 0.6; // Annahme: max 60% gleichzeitig aktiv
+
+      const heatingTypeInfo = heatingType === 'direct_electric' ? `
+**WICHTIG - Heizungstyp: Direkte elektrische Fußbodenheizung**
+- KEIN Wasser, KEINE Wärmepumpe - direkter Stromverbrauch aus Netz/Batterie!
+- Gesamte installierte Heizleistung: ${totalInstalledPower}W (${(totalInstalledPower / 1000).toFixed(1)} kW)
+- Aktuell aktive Heizleistung: ${activeHeatingPower}W
+- Thermostate: TGP508 WiFi (6 Zeitperioden programmierbar)
+
+**Nacht-Verhalten (erklärt Verbrauchsspitzen):**
+${nightCyclingEnabled ? `- Thermostate takten nachts (An/Aus-Zyklen zur Temperaturregelung)
+- Durchschnittlich ${avgNightCycles} Zyklen pro Raum pro Nacht
+- Jeder Heizzyklus erzeugt Verbrauchsspitze entsprechend der Raumleistung
+- Maximale nächtliche Spitzenlast: bis zu ${Math.round(maxNightPeak)}W` : '- Nacht-Taktung deaktiviert'}
+
+**Optimierungshinweise für Direkt-Strom-Heizung:**
+1. Estrich als Wärmespeicher: Tagsüber bei PV-Überschuss aufheizen
+2. Nachts nur Erhaltungsheizung: Wärme im Estrich hält mehrere Stunden
+3. Batterie für Nacht-Heizzyklen reservieren
+4. Bei niedrigem SOC: Thermostate auf Nacht-Temp setzen, um Zyklen zu minimieren
+` : '';
+
+      const heatingPumpInfo = heatingType === 'heat_pump' ? `
+**Heizungstyp: Wärmepumpe**
+- Effizienter als Direktheizung (COP-Faktor beachten)
+- Stromverbrauch ca. 1/3 der Heizleistung
+` : '';
+
+      const waterHeatingInfo = heatingType === 'water' ? `
+**Heizungstyp: Wasserbasierte Fußbodenheizung**
+- Wird über externen Kessel oder Wärmepumpe beheizt
+- Kein direkter Stromverbrauch für Heizung
+` : '';
 
       // Hotwater configuration
       const hotwaterEnabled = heatingSettings?.hotwater_enabled !== false;
@@ -73,7 +117,7 @@ serve(async (req) => {
       prompt = `Du bist ein Experte für Energiemanagement und Fußbodenheizung mit PV und Batterie.
 
 Erstelle RAUMSPEZIFISCHE Heizempfehlungen für jeden Raum basierend auf:
-
+${heatingTypeInfo}${heatingPumpInfo}${waterHeatingInfo}
 **Anlagen-Konfiguration:**
 - PV-Kapazität: ${heatingSettings?.pv_capacity_kwp || 15.8} kWp
 - Batterie-Kapazität: ${heatingSettings?.battery_capacity_kwh || 13.8} kWh
