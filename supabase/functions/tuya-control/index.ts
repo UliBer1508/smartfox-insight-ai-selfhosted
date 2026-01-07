@@ -333,6 +333,16 @@ Deno.serve(async (req) => {
         .select('*')
         .not('tuya_device_id', 'is', null);
 
+      // Get current total consumption for power calculation
+      const { data: latestReading } = await supabase
+        .from('energy_readings')
+        .select('consumption')
+        .order('timestamp', { ascending: false })
+        .limit(1)
+        .single();
+      
+      const currentConsumption = latestReading?.consumption || 0;
+
       const results = [];
       for (const room of rooms || []) {
         try {
@@ -345,18 +355,19 @@ Deno.serve(async (req) => {
           // Log heating state changes
           if (previousIsHeating !== parsed.isHeating) {
             if (parsed.isHeating) {
-              // Heating just started
-              console.log(`[${room.name}] Heating started`);
+              // Heating just started - save current consumption for power calculation
+              console.log(`[${room.name}] Heating started, consumption: ${currentConsumption}W`);
               await supabase.from('room_heating_logs').insert({
                 room_id: room.id,
                 event_type: 'heating_start',
                 current_temp: parsed.currentTemp,
                 target_temp: parsed.targetTemp,
                 timestamp: now,
+                consumption_at_start_w: Math.round(currentConsumption),
               });
             } else {
-              // Heating just stopped - calculate duration from last start
-              console.log(`[${room.name}] Heating stopped`);
+              // Heating just stopped - calculate duration and power from consumption difference
+              console.log(`[${room.name}] Heating stopped, consumption: ${currentConsumption}W`);
               
               const { data: lastStart } = await supabase
                 .from('room_heating_logs')
@@ -369,15 +380,23 @@ Deno.serve(async (req) => {
 
               let durationMinutes = 0;
               let energyEstimateWh = 0;
+              let consumptionDuringAvg = null;
 
               if (lastStart?.timestamp) {
                 const startTime = new Date(lastStart.timestamp).getTime();
                 const endTime = new Date(now).getTime();
                 durationMinutes = Math.round((endTime - startTime) / 60000);
                 
-                // Estimate energy: heating_power_w * duration_hours
-                if (room.heating_power_w) {
-                  energyEstimateWh = Math.round((room.heating_power_w * durationMinutes) / 60);
+                // Calculate average consumption during heating for power estimation
+                if (lastStart.consumption_at_start_w !== null) {
+                  // Simple approximation: current consumption was roughly the average during heating
+                  consumptionDuringAvg = currentConsumption;
+                }
+                
+                // Use calculated or estimated power for energy calculation
+                const effectivePower = room.calculated_power_w || room.heating_power_w || 0;
+                if (effectivePower) {
+                  energyEstimateWh = Math.round((effectivePower * durationMinutes) / 60);
                 }
               }
 
@@ -389,6 +408,8 @@ Deno.serve(async (req) => {
                 duration_minutes: durationMinutes,
                 energy_estimate_wh: energyEstimateWh,
                 timestamp: now,
+                consumption_at_start_w: lastStart?.consumption_at_start_w || null,
+                consumption_during_avg_w: consumptionDuringAvg ? Math.round(consumptionDuringAvg) : null,
               });
 
               // Update room stats
@@ -418,6 +439,7 @@ Deno.serve(async (req) => {
                 current_temp: parsed.currentTemp,
                 target_temp: parsed.targetTemp,
                 timestamp: now,
+                consumption_at_start_w: Math.round(currentConsumption),
               });
             }
           }
