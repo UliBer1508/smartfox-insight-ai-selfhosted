@@ -78,23 +78,29 @@ export function useBatteryHistory() {
               const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
               const newTime = new Date(newReading.timestamp).getTime();
 
-              // Only add if 5+ minutes since last point
+              // Remove points older than 24h
+              const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+              const filtered = prev.filter(
+                (p) => new Date(p.timestamp).getTime() > cutoff
+              );
+
+              const newPoint = {
+                timestamp: newReading.timestamp,
+                battery_soc: newReading.battery_soc,
+                battery_power: newReading.battery_power,
+              };
+
+              // After 5+ minutes: add new point
               if (newTime - lastTime >= 5 * 60 * 1000) {
-                // Remove points older than 24h
-                const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-                const filtered = prev.filter(
-                  (p) => new Date(p.timestamp).getTime() > cutoff
-                );
-                return [
-                  ...filtered,
-                  {
-                    timestamp: newReading.timestamp,
-                    battery_soc: newReading.battery_soc,
-                    battery_power: newReading.battery_power,
-                  },
-                ];
+                return [...filtered, newPoint];
               }
-              return prev;
+              
+              // Under 5 minutes: update last point for immediate display
+              if (filtered.length > 0) {
+                return [...filtered.slice(0, -1), newPoint];
+              }
+              
+              return [newPoint];
             });
           }
         }
