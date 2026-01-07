@@ -11,6 +11,7 @@ import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
 import { BatteryStatus } from '@/components/heating/BatteryStatus';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { PowerStats } from '@/components/energy/PowerStats';
+import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 import { ConsumptionExplainer } from '@/components/energy/ConsumptionExplainer';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
@@ -78,9 +79,10 @@ const Index = () => {
                   batteryPower={currentReading?.battery_power ?? null}
                 />
 
-                {/* PV-Leistung und Verbrauch+Aktive Verbraucher nebeneinander */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* PV-Leistung, Verbrauch und Aktive Verbraucher */}
+                <div className="grid grid-cols-3 gap-3">
                   <PowerStats pvPower={currentReading?.pv_power ?? null} />
+                  <ConsumptionStats consumption={currentReading?.consumption ?? null} />
                   <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
                 </div>
               </div>
