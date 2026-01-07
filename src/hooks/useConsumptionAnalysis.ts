@@ -64,24 +64,7 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
     const now = new Date();
     const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-    // Check hot water schedule
-    if (heatingSettings?.hotwater_enabled) {
-      const start = heatingSettings.hotwater_schedule_start || '10:00';
-      const end = heatingSettings.hotwater_schedule_end || '16:00';
-      
-      if (currentTime >= start && currentTime <= end) {
-        const hotwaterPower = heatingSettings.hotwater_power_w || 2800;
-        consumers.push({
-          name: 'Warmwasser',
-          icon: Droplet,
-          power: hotwaterPower,
-          reason: `Zeitplan ${start}–${end}`,
-          color: '#3B82F6'
-        });
-      }
-    }
-
-    // Check active heating rooms - Jeder Raum einzeln anzeigen
+    // 1. Erst alle Heizungsräume erfassen
     activeRooms.forEach(room => {
       const power = getEffectiveHeatingPower(room);
       consumers.push({
@@ -93,10 +76,32 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
       });
     });
 
-    // Check car charging (if enabled and likely active based on consumption)
+    // Berechne bereits erklärten Verbrauch (Heizung)
+    const explainedByHeating = consumers.reduce((sum, c) => sum + c.power, 0);
+
+    // 2. Warmwasser - nur anzeigen wenn Zeitplan UND ausreichend unerklärter Verbrauch
+    if (heatingSettings?.hotwater_enabled && currentConsumption) {
+      const start = heatingSettings.hotwater_schedule_start || '10:00';
+      const end = heatingSettings.hotwater_schedule_end || '16:00';
+      const hotwaterPower = heatingSettings.hotwater_power_w || 2800;
+      
+      const unexplained = currentConsumption - explainedByHeating;
+      
+      // Nur anzeigen wenn im Zeitplan UND unerklärter Verbrauch >= 80% der Warmwasser-Leistung
+      if (currentTime >= start && currentTime <= end && unexplained >= hotwaterPower * 0.8) {
+        consumers.push({
+          name: 'Warmwasser',
+          icon: Droplet,
+          power: hotwaterPower,
+          reason: 'Erkannt',
+          color: '#3B82F6'
+        });
+      }
+    }
+
+    // 3. E-Auto - prüft verbleibenden unerklärten Verbrauch nach Heizung + Warmwasser
     if (heatingSettings?.car_charging_enabled && currentConsumption && currentConsumption > 3000) {
       const minCarPower = heatingSettings.car_min_charge_power_w || 1380;
-      // Only suggest car charging if consumption is significantly higher than other consumers
       const explainedByOthers = consumers.reduce((sum, c) => sum + c.power, 0);
       const unexplained = currentConsumption - explainedByOthers;
       
