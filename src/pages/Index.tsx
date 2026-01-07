@@ -83,7 +83,7 @@ const Index = () => {
                   consumption={currentReading?.consumption ?? null}
                 />
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                   <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
                   
                   <Card className="h-fit">
@@ -98,9 +98,7 @@ const Index = () => {
                       <p className="text-xs text-muted-foreground">gespeichert</p>
                     </CardContent>
                   </Card>
-                </div>
 
-                <div className="grid grid-cols-2 gap-3">
                   <Card className="h-fit">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm flex items-center gap-2">
@@ -118,7 +116,7 @@ const Index = () => {
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm flex items-center gap-2">
                         <Clock className="w-4 h-4 text-primary" />
-                        Erste Messung
+                        Start
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
