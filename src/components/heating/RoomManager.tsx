@@ -6,15 +6,17 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, Zap, TrendingUp } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2 } from 'lucide-react';
 import { Room, OrientationType, ORIENTATION_LABELS, getEffectiveHeatingPower } from '@/types/room';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { useSolarGainAnalysis } from '@/hooks/useSolarGainAnalysis';
 
 interface RoomManagerProps {
   rooms: Room[];
   onSave: (room: Partial<Room>) => void;
   onDelete: (roomId: string) => void;
+  onRoomsUpdated?: () => void;
   isLoading?: boolean;
 }
 
@@ -34,9 +36,15 @@ const defaultRoom: Partial<Room> = {
   pv_auto_enabled: false,
 };
 
-export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerProps) {
+export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading }: RoomManagerProps) {
   const [editingRoom, setEditingRoom] = useState<Partial<Room> | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const { isAnalyzing, runAnalysis } = useSolarGainAnalysis();
+
+  const handleAnalyzeSolarGain = async () => {
+    await runAnalysis();
+    onRoomsUpdated?.();
+  };
   const handleSave = () => {
     if (editingRoom && editingRoom.name) {
       onSave(editingRoom);
@@ -68,19 +76,33 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
+      <CardHeader className="flex flex-row items-center justify-between gap-2">
         <CardTitle className="flex items-center gap-2">
           <Home className="h-5 w-5" />
           Räume & Thermostate
         </CardTitle>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" onClick={handleAdd}>
-              <Plus className="h-4 w-4 mr-1" />
-              Raum hinzufügen
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
+        <div className="flex items-center gap-2">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleAnalyzeSolarGain}
+            disabled={isAnalyzing || rooms.length === 0}
+          >
+            {isAnalyzing ? (
+              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+            ) : (
+              <BarChart3 className="h-4 w-4 mr-1" />
+            )}
+            <span className="hidden sm:inline">Solar-Analyse</span>
+          </Button>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button size="sm" onClick={handleAdd}>
+                <Plus className="h-4 w-4 mr-1" />
+                <span className="hidden sm:inline">Raum hinzufügen</span>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>
                 {editingRoom?.id ? 'Raum bearbeiten' : 'Neuer Raum'}
@@ -279,6 +301,7 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
             )}
           </DialogContent>
         </Dialog>
+        </div>
       </CardHeader>
       <CardContent className="space-y-2">
         {rooms.length === 0 ? (
