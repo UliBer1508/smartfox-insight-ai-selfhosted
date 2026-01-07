@@ -196,7 +196,44 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               <Thermometer className="w-4 h-4" />
               Fußbodenheizung-Eigenschaften
             </h3>
-            <div className="grid md:grid-cols-2 gap-4">
+            <div className="grid md:grid-cols-2 gap-4 mb-4">
+              <div className="space-y-2">
+                <Label htmlFor="heating_type">Heizungstyp</Label>
+                <Select
+                  value={formData.heating_type || 'direct_electric'}
+                  onValueChange={(value) => handleChange('heating_type', value)}
+                >
+                  <SelectTrigger id="heating_type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="direct_electric">Direkte Elektro-Fußbodenheizung</SelectItem>
+                    <SelectItem value="heat_pump">Wärmepumpe</SelectItem>
+                    <SelectItem value="water">Wasserbasierte Fußbodenheizung</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {formData.heating_type === 'direct_electric' 
+                    ? 'Stromverbrauch direkt aus Netz/Batterie' 
+                    : formData.heating_type === 'heat_pump'
+                    ? 'Effizient, COP-Faktor beachten'
+                    : 'Über Kessel/Wärmepumpe beheizt'}
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="total_heating_power">Gesamte Heizleistung (W)</Label>
+                <Input
+                  id="total_heating_power"
+                  type="number"
+                  min="0"
+                  step="100"
+                  value={formData.total_heating_power_w || 9600}
+                  onChange={(e) => handleChange('total_heating_power_w', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Summe aller Räume (installiert)</p>
+              </div>
+            </div>
+            <div className="grid md:grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="response_hours">Reaktionszeit (Stunden)</Label>
                 <Input
@@ -208,21 +245,49 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                   value={formData.floor_heating_response_hours || 2}
                   onChange={(e) => handleChange('floor_heating_response_hours', parseFloat(e.target.value))}
                 />
-                <p className="text-xs text-muted-foreground">Wie lange braucht die Heizung zum Aufheizen</p>
+                <p className="text-xs text-muted-foreground">Aufheizzeit</p>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="estrich">Estrich als Wärmespeicher</Label>
+                <Label htmlFor="night_cycling">Nacht-Taktung</Label>
                 <div className="flex items-center space-x-2 pt-2">
                   <Switch
-                    id="estrich"
-                    checked={formData.estrich_storage_enabled ?? true}
-                    onCheckedChange={(checked) => handleChange('estrich_storage_enabled', checked)}
+                    id="night_cycling"
+                    checked={formData.night_cycling_enabled ?? true}
+                    onCheckedChange={(checked) => handleChange('night_cycling_enabled', checked)}
                   />
                   <span className="text-sm text-muted-foreground">
-                    {formData.estrich_storage_enabled ? 'Aktiv - PV-Überschuss in Estrich speichern' : 'Deaktiviert'}
+                    {formData.night_cycling_enabled !== false ? 'Aktiv' : 'Aus'}
                   </span>
                 </div>
+                <p className="text-xs text-muted-foreground">Thermostate takten nachts</p>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="night_cycles">Zyklen/Raum/Nacht</Label>
+                <Input
+                  id="night_cycles"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={formData.avg_night_cycles_per_room || 4}
+                  onChange={(e) => handleChange('avg_night_cycles_per_room', parseInt(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Erklärt Nacht-Verbrauchsspitzen</p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="estrich"
+                  checked={formData.estrich_storage_enabled ?? true}
+                  onCheckedChange={(checked) => handleChange('estrich_storage_enabled', checked)}
+                />
+                <Label htmlFor="estrich" className="text-sm">
+                  Estrich als Wärmespeicher nutzen
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Bei PV-Überschuss den Estrich aufheizen, um Wärme zu speichern
+              </p>
             </div>
           </div>
 

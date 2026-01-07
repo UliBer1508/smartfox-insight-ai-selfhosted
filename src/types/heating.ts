@@ -43,6 +43,11 @@ export interface HeatingSettings {
   hotwater_schedule_start?: string;
   hotwater_schedule_end?: string;
   hotwater_min_surplus_w?: number;
+  // Heizungstyp-Information
+  heating_type?: 'direct_electric' | 'heat_pump' | 'water';
+  total_heating_power_w?: number;
+  night_cycling_enabled?: boolean;
+  avg_night_cycles_per_room?: number;
   created_at?: string;
   updated_at?: string;
 }

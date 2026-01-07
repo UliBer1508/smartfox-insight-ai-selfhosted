@@ -205,6 +205,7 @@ export type Database = {
       }
       heating_settings: {
         Row: {
+          avg_night_cycles_per_room: number | null
           battery_capacity_kwh: number
           car_charging_enabled: boolean | null
           car_min_charge_power_w: number | null
@@ -214,6 +215,7 @@ export type Database = {
           eco_temp: number
           estrich_storage_enabled: boolean | null
           floor_heating_response_hours: number | null
+          heating_type: string | null
           hotwater_enabled: boolean | null
           hotwater_min_surplus_w: number | null
           hotwater_power_w: number | null
@@ -224,6 +226,7 @@ export type Database = {
           longitude: number | null
           min_battery_soc: number
           min_switch_interval_min: number | null
+          night_cycling_enabled: boolean | null
           night_temp: number
           preheat_hours: number
           pv_capacity_kwp: number
@@ -232,9 +235,11 @@ export type Database = {
           roof_azimuth: number | null
           roof_declination: number | null
           target_battery_soc: number
+          total_heating_power_w: number | null
           updated_at: string
         }
         Insert: {
+          avg_night_cycles_per_room?: number | null
           battery_capacity_kwh?: number
           car_charging_enabled?: boolean | null
           car_min_charge_power_w?: number | null
@@ -244,6 +249,7 @@ export type Database = {
           eco_temp?: number
           estrich_storage_enabled?: boolean | null
           floor_heating_response_hours?: number | null
+          heating_type?: string | null
           hotwater_enabled?: boolean | null
           hotwater_min_surplus_w?: number | null
           hotwater_power_w?: number | null
@@ -254,6 +260,7 @@ export type Database = {
           longitude?: number | null
           min_battery_soc?: number
           min_switch_interval_min?: number | null
+          night_cycling_enabled?: boolean | null
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
@@ -262,9 +269,11 @@ export type Database = {
           roof_azimuth?: number | null
           roof_declination?: number | null
           target_battery_soc?: number
+          total_heating_power_w?: number | null
           updated_at?: string
         }
         Update: {
+          avg_night_cycles_per_room?: number | null
           battery_capacity_kwh?: number
           car_charging_enabled?: boolean | null
           car_min_charge_power_w?: number | null
@@ -274,6 +283,7 @@ export type Database = {
           eco_temp?: number
           estrich_storage_enabled?: boolean | null
           floor_heating_response_hours?: number | null
+          heating_type?: string | null
           hotwater_enabled?: boolean | null
           hotwater_min_surplus_w?: number | null
           hotwater_power_w?: number | null
@@ -284,6 +294,7 @@ export type Database = {
           longitude?: number | null
           min_battery_soc?: number
           min_switch_interval_min?: number | null
+          night_cycling_enabled?: boolean | null
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
@@ -292,6 +303,7 @@ export type Database = {
           roof_azimuth?: number | null
           roof_declination?: number | null
           target_battery_soc?: number
+          total_heating_power_w?: number | null
           updated_at?: string
         }
         Relationships: []
