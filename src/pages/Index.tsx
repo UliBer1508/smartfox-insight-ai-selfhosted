@@ -43,7 +43,7 @@ const Index = () => {
     loadDailyPatterns 
   } = usePatternAnalysis();
 
-  const { energyIn, energyOut } = useEnergyCalculation(readings);
+  const { energyIn, energyOut, pvEnergy } = useEnergyCalculation(readings);
 
   useEffect(() => {
     loadDailyPatterns();
@@ -91,6 +91,7 @@ const Index = () => {
                 <EnergyStats
                   energyIn={energyIn}
                   energyOut={energyOut}
+                  pvEnergy={pvEnergy}
                 />
                 
                 <EnergyChart readings={readings} />

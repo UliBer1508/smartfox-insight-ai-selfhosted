@@ -9,8 +9,8 @@ interface BatteryStatusProps {
 }
 
 export function BatteryStatus({ soc, capacity, batteryPower }: BatteryStatusProps) {
-  const isCharging = batteryPower != null && batteryPower > 50;
-  const isDischarging = batteryPower != null && batteryPower < -50;
+  const isCharging = batteryPower != null && batteryPower < -50;     // negativ = laden
+  const isDischarging = batteryPower != null && batteryPower > 50;   // positiv = entladen
 
   const getBatteryIcon = () => {
     if (isCharging) return BatteryCharging;
