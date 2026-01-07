@@ -95,6 +95,8 @@ const Index = () => {
               </div>
             </div>
 
+            <BatteryHistoryChart />
+
             {/* 3-Spalten Widget-Grid über volle Breite */}
             <div className="grid grid-cols-3 gap-4">
               <Card className="h-fit">
@@ -141,8 +143,6 @@ const Index = () => {
                 </CardContent>
               </Card>
             </div>
-
-            <BatteryHistoryChart />
           </>
         )}
 
