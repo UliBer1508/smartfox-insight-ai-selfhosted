@@ -1,9 +1,10 @@
-import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, RefreshCw, X } from 'lucide-react';
+import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, RefreshCw, X, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
+import { useAuth } from '@/hooks/useAuth';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'settings' | 'analysis' | 'heating';
@@ -15,6 +16,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
   const { isInstallable, isInstalled, promptInstall } = usePWAInstall();
   const { isOnline, getOfflineMinutes } = useOnlineStatus();
   const { showUpdatePrompt, updateApp, dismissUpdate } = useServiceWorkerUpdate();
+  const { signOut } = useAuth();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
@@ -125,6 +127,15 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
                 onClick={() => setIsDark(!isDark)}
               >
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </Button>
+              
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={signOut}
+                title="Abmelden"
+              >
+                <LogOut className="w-4 h-4" />
               </Button>
             </nav>
           </div>
