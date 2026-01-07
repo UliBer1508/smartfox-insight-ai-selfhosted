@@ -24,11 +24,18 @@ export interface RoomInfo {
 }
 
 const ROOM_COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
+  '#3b82f6',  // Blau
+  '#10b981',  // Grün
+  '#f97316',  // Orange
+  '#8b5cf6',  // Violett
+  '#ef4444',  // Rot
+  '#06b6d4',  // Cyan
+  '#f59e0b',  // Amber
+  '#ec4899',  // Pink
+  '#84cc16',  // Lime
+  '#6366f1',  // Indigo
+  '#14b8a6',  // Teal
+  '#a855f7',  // Fuchsia
 ];
 
 export function useSolarGainChart(roomIds: string[], roomNames: Record<string, string>, days: number = 1) {
