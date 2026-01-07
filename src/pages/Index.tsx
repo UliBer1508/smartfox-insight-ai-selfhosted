@@ -83,9 +83,9 @@ const Index = () => {
                   consumption={currentReading?.consumption ?? null}
                 />
 
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
-                  
+                <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
+
+                <div className="grid grid-cols-3 gap-3">
                   <Card className="h-fit">
                     <CardHeader className="pb-2">
                       <CardTitle className="text-sm flex items-center gap-2">
