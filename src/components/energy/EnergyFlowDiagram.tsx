@@ -221,8 +221,8 @@ export function EnergyFlowDiagram({
   
   const pvActive = (pvPower ?? 0) > 50;
   const consumptionActive = (consumption ?? 0) > 50;
-  const batteryCharging = (batteryPower ?? 0) > 50;
-  const batteryDischarging = (batteryPower ?? 0) < -50;
+  const batteryCharging = (batteryPower ?? 0) < -50;     // negativ = laden
+  const batteryDischarging = (batteryPower ?? 0) > 50;   // positiv = entladen
   const gridImport = gridPower > 50;
   const gridExport = gridPower < -50;
 
@@ -370,7 +370,19 @@ export function EnergyFlowDiagram({
           <text x={grid.x} y={grid.y + 70} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
             Netz
           </text>
-          <text x={battery.x} y={battery.y + 70} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
+          {batteryPower !== null && Math.abs(batteryPower) > 50 && (
+            <text 
+              x={battery.x} 
+              y={battery.y + 55} 
+              textAnchor="middle" 
+              fill={batteryCharging ? "#4ade80" : "#facc15"} 
+              fontSize="11" 
+              fontWeight="500"
+            >
+              {batteryCharging ? "Lädt" : "Entlädt"} {formatPower(Math.abs(batteryPower))}
+            </text>
+          )}
+          <text x={battery.x} y={battery.y + (Math.abs(batteryPower ?? 0) > 50 ? 72 : 70)} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
             Batterie
           </text>
         </svg>
