@@ -79,14 +79,14 @@ const Index = () => {
                   batteryPower={currentReading?.battery_power ?? null}
                 />
 
-                {/* PV-Leistung, Verbrauch und Aktive Verbraucher */}
-                <div className="grid grid-cols-3 gap-3">
+                {/* PV-Leistung und Verbrauch */}
+                <div className="grid grid-cols-2 gap-3">
                   <PowerStats pvPower={currentReading?.pv_power ?? null} />
                   <ConsumptionStats consumption={currentReading?.consumption ?? null} />
-                  <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
                 </div>
               </div>
 
+              {/* Rechte Spalte: Statistiken, Chart und aktive Verbraucher */}
               <div className="lg:col-span-2 space-y-6">
                 <EnergyStats
                   energyIn={energyIn}
@@ -94,6 +94,8 @@ const Index = () => {
                 />
                 
                 <EnergyChart readings={readings} />
+                
+                <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
               </div>
             </div>
 
