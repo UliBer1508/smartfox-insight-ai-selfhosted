@@ -29,6 +29,7 @@ const Index = () => {
   const { 
     currentReading, 
     readings, 
+    totalCount,
     isConnected, 
     lastError, 
     refresh 
@@ -106,7 +107,7 @@ const Index = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-bold font-mono">{readings.length}</div>
+                  <div className="text-2xl font-bold font-mono">{totalCount.toLocaleString('de-DE')}</div>
                   <p className="text-xs text-muted-foreground">in der Datenbank</p>
                 </CardContent>
               </Card>
