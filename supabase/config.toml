@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.apply-recommendations]
 verify_jwt = false
+
+[functions.calculate-heating-power]
+verify_jwt = false

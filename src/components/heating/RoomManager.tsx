@@ -6,9 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer } from 'lucide-react';
-import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
+import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, Zap, TrendingUp } from 'lucide-react';
+import { Room, OrientationType, ORIENTATION_LABELS, getEffectiveHeatingPower } from '@/types/room';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 interface RoomManagerProps {
   rooms: Room[];
@@ -316,7 +317,34 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                     <p className="text-xs text-muted-foreground mt-0.5">
                       <span className="hidden sm:inline">
                         {room.floor_area_m2 ? `${room.floor_area_m2}m² · ` : ''}
-                        {room.heating_power_w ? `${room.heating_power_w}W · ` : ''}
+                        {room.calculated_power_w && room.power_calculation_confidence ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-0.5 cursor-help">
+                                  <TrendingUp className="h-3 w-3 text-green-500" />
+                                  {room.calculated_power_w}W
+                                  <span className="text-muted-foreground/60">
+                                    ({Math.round(room.power_calculation_confidence * 100)}%)
+                                  </span>
+                                  {' · '}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">
+                                  Berechnet aus {room.power_samples} Heizzyklen
+                                  {room.heating_power_w && (
+                                    <span className="block text-muted-foreground">
+                                      Geschätzt: {room.heating_power_w}W
+                                    </span>
+                                  )}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : room.heating_power_w ? (
+                          `${room.heating_power_w}W · `
+                        ) : null}
                       </span>
                       {room.comfort_temp}/{room.eco_temp}/{room.night_temp}°C
                     </p>

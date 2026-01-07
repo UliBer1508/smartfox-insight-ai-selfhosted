@@ -28,8 +28,36 @@ export interface Room {
   // Automatik-Steuerung
   automation_enabled?: boolean | null;
   last_auto_change?: string | null;
+  // Berechnete Heizleistung
+  calculated_power_w?: number | null;
+  power_calculation_confidence?: number | null;
+  power_samples?: number | null;
+  last_power_calculation?: string | null;
   created_at?: string;
   updated_at?: string;
+}
+
+// Helper function to get effective heating power
+export function getEffectiveHeatingPower(room: Room): number {
+  // Use calculated power if confidence is >= 70% and at least 5 samples
+  if (
+    room.calculated_power_w && 
+    room.power_calculation_confidence && 
+    room.power_samples &&
+    room.power_calculation_confidence >= 0.7 && 
+    room.power_samples >= 5
+  ) {
+    return room.calculated_power_w;
+  }
+  // Fallback to manual/estimated value
+  if (room.heating_power_w) {
+    return room.heating_power_w;
+  }
+  // Last resort: estimate from floor area (80W/m²)
+  if (room.floor_area_m2) {
+    return room.floor_area_m2 * 80;
+  }
+  return 0;
 }
 
 export interface RoomRecommendation {

@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { HeatingSettings } from '@/types/heating';
-import { Room } from '@/types/room';
-import { Droplet, Flame, Car, Zap, LucideIcon } from 'lucide-react';
+import { Room, getEffectiveHeatingPower } from '@/types/room';
+import { Droplet, Flame, Car, LucideIcon } from 'lucide-react';
 
 export interface ActiveConsumer {
   name: string;
@@ -84,12 +84,13 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
     // Check active heating rooms - Direkte elektrische Fußbodenheizung
     if (activeRooms.length > 0) {
       const totalHeatingPower = activeRooms.reduce((sum, room) => {
-        return sum + (room.heating_power_w || 800);
+        return sum + getEffectiveHeatingPower(room);
       }, 0);
       
-      const roomDetails = activeRooms.map(r => 
-        `${r.name} (${r.heating_power_w || 800}W)`
-      );
+      const roomDetails = activeRooms.map(r => {
+        const power = getEffectiveHeatingPower(r);
+        return `${r.name} (${power}W)`;
+      });
       const displayRooms = roomDetails.length > 3 
         ? `${roomDetails.slice(0, 3).join(', ')} +${roomDetails.length - 3}`
         : roomDetails.join(', ');

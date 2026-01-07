@@ -379,6 +379,8 @@ export type Database = {
       }
       room_heating_logs: {
         Row: {
+          consumption_at_start_w: number | null
+          consumption_during_avg_w: number | null
           created_at: string | null
           current_temp: number | null
           duration_minutes: number | null
@@ -391,6 +393,8 @@ export type Database = {
           timestamp: string | null
         }
         Insert: {
+          consumption_at_start_w?: number | null
+          consumption_during_avg_w?: number | null
           created_at?: string | null
           current_temp?: number | null
           duration_minutes?: number | null
@@ -403,6 +407,8 @@ export type Database = {
           timestamp?: string | null
         }
         Update: {
+          consumption_at_start_w?: number | null
+          consumption_during_avg_w?: number | null
           created_at?: string | null
           current_temp?: number | null
           duration_minutes?: number | null
@@ -475,6 +481,7 @@ export type Database = {
         Row: {
           automation_enabled: boolean | null
           avg_heating_cycles_per_day: number | null
+          calculated_power_w: number | null
           comfort_temp: number | null
           created_at: string | null
           current_temp: number | null
@@ -487,10 +494,13 @@ export type Database = {
           is_heating: boolean | null
           last_auto_change: string | null
           last_heating_duration_min: number | null
+          last_power_calculation: string | null
           last_thermostat_sync: string | null
           name: string
           night_temp: number | null
           orientation: string | null
+          power_calculation_confidence: number | null
+          power_samples: number | null
           priority: number | null
           pv_auto_active: boolean | null
           pv_auto_enabled: boolean | null
@@ -504,6 +514,7 @@ export type Database = {
         Insert: {
           automation_enabled?: boolean | null
           avg_heating_cycles_per_day?: number | null
+          calculated_power_w?: number | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
@@ -516,10 +527,13 @@ export type Database = {
           is_heating?: boolean | null
           last_auto_change?: string | null
           last_heating_duration_min?: number | null
+          last_power_calculation?: string | null
           last_thermostat_sync?: string | null
           name: string
           night_temp?: number | null
           orientation?: string | null
+          power_calculation_confidence?: number | null
+          power_samples?: number | null
           priority?: number | null
           pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
@@ -533,6 +547,7 @@ export type Database = {
         Update: {
           automation_enabled?: boolean | null
           avg_heating_cycles_per_day?: number | null
+          calculated_power_w?: number | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
@@ -545,10 +560,13 @@ export type Database = {
           is_heating?: boolean | null
           last_auto_change?: string | null
           last_heating_duration_min?: number | null
+          last_power_calculation?: string | null
           last_thermostat_sync?: string | null
           name?: string
           night_temp?: number | null
           orientation?: string | null
+          power_calculation_confidence?: number | null
+          power_samples?: number | null
           priority?: number | null
           pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
