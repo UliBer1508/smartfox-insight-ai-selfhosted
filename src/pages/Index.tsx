@@ -78,11 +78,11 @@ const Index = () => {
                   batteryPower={currentReading?.battery_power ?? null}
                 />
 
-                <PowerStats
-                  pvPower={currentReading?.pv_power ?? null}
-                  consumption={currentReading?.consumption ?? null}
-                />
-
+                {/* PV-Leistung und Verbrauch+Aktive Verbraucher nebeneinander */}
+                <div className="grid grid-cols-2 gap-3">
+                  <PowerStats pvPower={currentReading?.pv_power ?? null} />
+                  <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
+                </div>
               </div>
 
               <div className="lg:col-span-2 space-y-6">
@@ -95,10 +95,8 @@ const Index = () => {
               </div>
             </div>
 
-            {/* 4-Spalten Widget-Grid über volle Breite */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
-              
+            {/* 3-Spalten Widget-Grid über volle Breite */}
+            <div className="grid grid-cols-3 gap-4">
               <Card className="h-fit">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
