@@ -333,15 +333,16 @@ Deno.serve(async (req) => {
         .select('*')
         .not('tuya_device_id', 'is', null);
 
-      // Get current total consumption for power calculation
+      // Get current total consumption and PV power for analysis
       const { data: latestReading } = await supabase
         .from('energy_readings')
-        .select('consumption')
+        .select('consumption, pv_power')
         .order('timestamp', { ascending: false })
         .limit(1)
         .single();
       
       const currentConsumption = latestReading?.consumption || 0;
+      const currentPvPower = latestReading?.pv_power || 0;
 
       const results = [];
       for (const room of rooms || []) {
@@ -351,6 +352,15 @@ Deno.serve(async (req) => {
           
           const previousIsHeating = room.is_heating;
           const now = new Date().toISOString();
+
+          // ALWAYS save temperature sample for solar gain analysis
+          await supabase.from('room_temperature_samples').insert({
+            room_id: room.id,
+            timestamp: now,
+            temperature: parsed.currentTemp,
+            is_heating: parsed.isHeating,
+            pv_power_w: Math.round(currentPvPower),
+          });
 
           // Log heating state changes
           if (previousIsHeating !== parsed.isHeating) {

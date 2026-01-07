@@ -33,6 +33,12 @@ export interface Room {
   power_calculation_confidence?: number | null;
   power_samples?: number | null;
   last_power_calculation?: string | null;
+  // Solargewinn-Analyse
+  calculated_solar_gain_factor?: number | null;
+  solar_gain_confidence?: number | null;
+  solar_gain_samples?: number | null;
+  calculated_heat_loss_rate?: number | null;
+  last_solar_analysis?: string | null;
   created_at?: string;
   updated_at?: string;
 }

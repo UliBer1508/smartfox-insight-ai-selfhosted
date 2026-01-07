@@ -345,6 +345,32 @@ export function RoomManager({ rooms, onSave, onDelete, isLoading }: RoomManagerP
                         ) : room.heating_power_w ? (
                           `${room.heating_power_w}W · `
                         ) : null}
+                        {room.calculated_solar_gain_factor && room.solar_gain_confidence && room.solar_gain_confidence >= 0.3 ? (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span className="inline-flex items-center gap-0.5 cursor-help text-amber-500">
+                                  <Sun className="h-3 w-3" />
+                                  {room.calculated_solar_gain_factor > 0 ? '+' : ''}{(room.calculated_solar_gain_factor * 5).toFixed(1)}°C/h
+                                  {' · '}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p className="text-xs">
+                                  Solargewinn bei 5kW PV
+                                  <span className="block text-muted-foreground">
+                                    Konfidenz: {Math.round(room.solar_gain_confidence * 100)}% ({room.solar_gain_samples} Samples)
+                                  </span>
+                                  {room.calculated_heat_loss_rate && (
+                                    <span className="block text-blue-400">
+                                      Wärmeverlust: {room.calculated_heat_loss_rate.toFixed(2)}°C/h
+                                    </span>
+                                  )}
+                                </p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        ) : null}
                       </span>
                       {room.comfort_temp}/{room.eco_temp}/{room.night_temp}°C
                     </p>

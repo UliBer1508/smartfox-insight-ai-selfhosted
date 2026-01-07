@@ -477,11 +477,51 @@ export type Database = {
           },
         ]
       }
+      room_temperature_samples: {
+        Row: {
+          created_at: string | null
+          id: string
+          is_heating: boolean
+          pv_power_w: number | null
+          room_id: string
+          temperature: number
+          timestamp: string
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          is_heating?: boolean
+          pv_power_w?: number | null
+          room_id: string
+          temperature: number
+          timestamp?: string
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          is_heating?: boolean
+          pv_power_w?: number | null
+          room_id?: string
+          temperature?: number
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_temperature_samples_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       rooms: {
         Row: {
           automation_enabled: boolean | null
           avg_heating_cycles_per_day: number | null
+          calculated_heat_loss_rate: number | null
           calculated_power_w: number | null
+          calculated_solar_gain_factor: number | null
           comfort_temp: number | null
           created_at: string | null
           current_temp: number | null
@@ -495,6 +535,7 @@ export type Database = {
           last_auto_change: string | null
           last_heating_duration_min: number | null
           last_power_calculation: string | null
+          last_solar_analysis: string | null
           last_thermostat_sync: string | null
           name: string
           night_temp: number | null
@@ -505,6 +546,8 @@ export type Database = {
           pv_auto_active: boolean | null
           pv_auto_enabled: boolean | null
           pv_auto_last_change: string | null
+          solar_gain_confidence: number | null
+          solar_gain_samples: number | null
           target_temp: number | null
           thermostat_ip: string | null
           thermostat_type: string | null
@@ -514,7 +557,9 @@ export type Database = {
         Insert: {
           automation_enabled?: boolean | null
           avg_heating_cycles_per_day?: number | null
+          calculated_heat_loss_rate?: number | null
           calculated_power_w?: number | null
+          calculated_solar_gain_factor?: number | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
@@ -528,6 +573,7 @@ export type Database = {
           last_auto_change?: string | null
           last_heating_duration_min?: number | null
           last_power_calculation?: string | null
+          last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
           name: string
           night_temp?: number | null
@@ -538,6 +584,8 @@ export type Database = {
           pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
           pv_auto_last_change?: string | null
+          solar_gain_confidence?: number | null
+          solar_gain_samples?: number | null
           target_temp?: number | null
           thermostat_ip?: string | null
           thermostat_type?: string | null
@@ -547,7 +595,9 @@ export type Database = {
         Update: {
           automation_enabled?: boolean | null
           avg_heating_cycles_per_day?: number | null
+          calculated_heat_loss_rate?: number | null
           calculated_power_w?: number | null
+          calculated_solar_gain_factor?: number | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
@@ -561,6 +611,7 @@ export type Database = {
           last_auto_change?: string | null
           last_heating_duration_min?: number | null
           last_power_calculation?: string | null
+          last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
           name?: string
           night_temp?: number | null
@@ -571,6 +622,8 @@ export type Database = {
           pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
           pv_auto_last_change?: string | null
+          solar_gain_confidence?: number | null
+          solar_gain_samples?: number | null
           target_temp?: number | null
           thermostat_ip?: string | null
           thermostat_type?: string | null

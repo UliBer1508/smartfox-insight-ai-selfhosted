@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.calculate-heating-power]
 verify_jwt = false
+
+[functions.analyze-solar-gain]
+verify_jwt = false
