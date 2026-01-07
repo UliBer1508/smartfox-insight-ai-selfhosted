@@ -4,12 +4,13 @@ import { EnergyReading } from '@/types/energy';
 interface CalculatedEnergy {
   energyIn: number;  // kWh imported from grid today
   energyOut: number; // kWh exported to grid today
+  pvEnergy: number;  // kWh produced by PV today
 }
 
 export function useEnergyCalculation(readings: EnergyReading[]): CalculatedEnergy {
   return useMemo(() => {
     if (!readings || readings.length < 2) {
-      return { energyIn: 0, energyOut: 0 };
+      return { energyIn: 0, energyOut: 0, pvEnergy: 0 };
     }
 
     // Filter readings from today
@@ -21,11 +22,12 @@ export function useEnergyCalculation(readings: EnergyReading[]): CalculatedEnerg
       .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     if (todayReadings.length < 2) {
-      return { energyIn: 0, energyOut: 0 };
+      return { energyIn: 0, energyOut: 0, pvEnergy: 0 };
     }
 
     let energyIn = 0;  // Grid import (positive power_io)
     let energyOut = 0; // Grid export (negative power_io)
+    let pvEnergy = 0;  // PV production
 
     for (let i = 1; i < todayReadings.length; i++) {
       const prev = todayReadings[i - 1];
@@ -47,11 +49,16 @@ export function useEnergyCalculation(readings: EnergyReading[]): CalculatedEnerg
       } else {
         energyOut += (Math.abs(avgPower) * hoursElapsed) / 1000;
       }
+      
+      // PV energy calculation
+      const avgPvPower = ((prev.pv_power ?? 0) + (curr.pv_power ?? 0)) / 2;
+      pvEnergy += (avgPvPower * hoursElapsed) / 1000;
     }
 
     return {
       energyIn: Math.round(energyIn * 100) / 100,
-      energyOut: Math.round(energyOut * 100) / 100
+      energyOut: Math.round(energyOut * 100) / 100,
+      pvEnergy: Math.round(pvEnergy * 100) / 100
     };
   }, [readings]);
 }

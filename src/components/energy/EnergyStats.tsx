@@ -5,12 +5,23 @@ import { ArrowDownToLine, ArrowUpFromLine, Zap, TrendingUp } from 'lucide-react'
 interface EnergyStatsProps {
   energyIn: number;
   energyOut: number;
+  pvEnergy: number;
   className?: string;
 }
 
-export function EnergyStats({ energyIn, energyOut, className }: EnergyStatsProps) {
+export function EnergyStats({ energyIn, energyOut, pvEnergy, className }: EnergyStatsProps) {
   const netEnergy = energyOut - energyIn;
-  const autarkyRate = energyOut > 0 ? Math.min((energyOut / (energyIn + energyOut)) * 100, 100) : 0;
+  
+  // Eigenverbrauch = PV-Produktion - Einspeisung
+  const selfConsumption = Math.max(0, pvEnergy - energyOut);
+  
+  // Gesamtverbrauch = Eigenverbrauch + Netzbezug
+  const totalConsumption = selfConsumption + energyIn;
+  
+  // Autarkie = Eigenverbrauch / Gesamtverbrauch
+  const autarkyRate = totalConsumption > 0 
+    ? (selfConsumption / totalConsumption) * 100 
+    : 0;
 
   return (
     <div className={cn('grid grid-cols-2 lg:grid-cols-4 gap-4', className)}>
