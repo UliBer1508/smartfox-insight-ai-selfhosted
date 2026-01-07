@@ -21,7 +21,7 @@ export function ConsumptionExplainer({ consumption, className }: ConsumptionExpl
         
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Lade...</p>
-        ) : activeConsumers.length === 0 || (consumption ?? 0) < 500 ? (
+        ) : activeConsumers.length === 0 ? (
           <p className="text-sm text-muted-foreground">Keine erkannt</p>
         ) : (
           <div className="space-y-1.5">
