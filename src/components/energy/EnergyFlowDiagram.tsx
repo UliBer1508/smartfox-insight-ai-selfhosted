@@ -370,10 +370,11 @@ export function EnergyFlowDiagram({
           <text x={grid.x} y={grid.y + 70} textAnchor="middle" fill="hsl(var(--foreground))" fontSize="12" fontWeight="600">
             Netz
           </text>
+          {/* Batterie-Status entlang des Pfades */}
           {batteryPower !== null && Math.abs(batteryPower) > 50 && (
             <text 
-              x={battery.x} 
-              y={battery.y + 55} 
+              x={(battery.x + inverter.x) / 2 + 25} 
+              y={(battery.y + inverter.y) / 2} 
               textAnchor="middle" 
               fill={batteryCharging ? "#4ade80" : "#facc15"} 
               fontSize="11" 
