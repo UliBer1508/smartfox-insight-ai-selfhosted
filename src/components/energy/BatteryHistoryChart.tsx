@@ -36,8 +36,8 @@ export function BatteryHistoryChart() {
         time: format(new Date(point.timestamp), 'HH:mm', { locale: de }),
         timestamp: new Date(point.timestamp),
         soc: point.battery_soc,
-        charging: power > 0 ? power : null,
-        discharging: power < 0 ? power : null,
+        charging: power < 0 ? Math.abs(power) : null,      // negativ = laden, als positiv anzeigen
+        discharging: power > 0 ? -power : null,             // positiv = entladen, als negativ anzeigen
       };
     });
   }, [data]);
