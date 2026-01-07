@@ -5,6 +5,7 @@ import { EnergyReading } from '@/types/energy';
 export function useSmartfoxData() {
   const [currentReading, setCurrentReading] = useState<EnergyReading | null>(null);
   const [readings, setReadings] = useState<EnergyReading[]>([]);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [isConnected, setIsConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<number>(60);
@@ -38,6 +39,17 @@ export function useSmartfoxData() {
     
     setIsConnected(now - readingTime < timeout);
   }, [pollingInterval]);
+
+  // Load total count of readings
+  const loadTotalCount = useCallback(async () => {
+    const { count, error } = await supabase
+      .from('energy_readings')
+      .select('*', { count: 'exact', head: true });
+    
+    if (!error && count !== null) {
+      setTotalCount(count);
+    }
+  }, []);
 
   // Load recent readings on mount
   const loadReadings = useCallback(async () => {
@@ -74,7 +86,8 @@ export function useSmartfoxData() {
   // Load data on mount
   useEffect(() => {
     loadReadings();
-  }, [loadReadings]);
+    loadTotalCount();
+  }, [loadReadings, loadTotalCount]);
 
   // Check connection status periodically
   useEffect(() => {
@@ -96,6 +109,7 @@ export function useSmartfoxData() {
           const newReading = payload.new as EnergyReading;
           setCurrentReading(newReading);
           setReadings(prev => [newReading, ...prev.slice(0, 99)]);
+          setTotalCount(prev => prev + 1);
           checkConnectionStatus(newReading);
         }
       )
@@ -109,6 +123,7 @@ export function useSmartfoxData() {
   return {
     currentReading,
     readings,
+    totalCount,
     isConnected,
     lastError,
     refresh,
