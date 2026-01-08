@@ -92,6 +92,8 @@ const Index = () => {
                   energyIn={energyIn}
                   energyOut={energyOut}
                   pvEnergy={pvEnergy}
+                  electricityPriceCent={heatingSettings.electricity_price_kwh_cent}
+                  feedInPriceCent={heatingSettings.feed_in_price_kwh_cent}
                 />
                 
                 <EnergyChart readings={readings} />

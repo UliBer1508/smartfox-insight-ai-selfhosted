@@ -30,6 +30,10 @@ const defaultSettings: HeatingSettings = {
   hotwater_min_surplus_w: 1000,
   // Priorität
   consumer_priority: 'battery,hotwater,heating,car',
+  // Strompreise (Salzburg AG Defaults)
+  electricity_price_kwh_cent: 20.28,
+  electricity_base_fee_year_eur: 36.00,
+  feed_in_price_kwh_cent: 8.00,
 };
 
 export function useHeatingSettings() {
