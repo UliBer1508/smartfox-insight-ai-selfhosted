@@ -79,21 +79,21 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
     // Berechne bereits erklärten Verbrauch (Heizung)
     const explainedByHeating = consumers.reduce((sum, c) => sum + c.power, 0);
 
-    // 2. Warmwasser - nur anzeigen wenn Zeitplan UND ausreichend unerklärter Verbrauch
+    // 2. Warmwasser - berechnet als Differenz (geschätzt)
     if (heatingSettings?.hotwater_enabled && currentConsumption) {
       const start = heatingSettings.hotwater_schedule_start || '10:00';
       const end = heatingSettings.hotwater_schedule_end || '16:00';
-      const hotwaterPower = heatingSettings.hotwater_power_w || 2800;
+      const minHotwaterPower = heatingSettings.hotwater_min_surplus_w || 1000;
       
       const unexplained = currentConsumption - explainedByHeating;
       
-      // Nur anzeigen wenn im Zeitplan UND unerklärter Verbrauch >= 80% der Warmwasser-Leistung
-      if (currentTime >= start && currentTime <= end && unexplained >= hotwaterPower * 0.8) {
+      // Nur anzeigen wenn im Zeitplan UND Mindestleistung erreicht
+      if (currentTime >= start && currentTime <= end && unexplained >= minHotwaterPower) {
         consumers.push({
           name: 'Warmwasser',
           icon: Droplet,
-          power: hotwaterPower,
-          reason: 'Erkannt',
+          power: unexplained,  // Berechnete Differenz statt statischem Wert
+          reason: '~geschätzt',
           color: '#3B82F6'
         });
       }
