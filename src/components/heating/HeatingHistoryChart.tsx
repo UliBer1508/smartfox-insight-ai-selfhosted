@@ -34,7 +34,8 @@ const ROOM_COLORS = [
 ];
 
 // Generiert 2-Buchstaben-Kürzel für Raumnamen
-const getRoomAbbr = (name: string): string => {
+const getRoomAbbr = (name: string | undefined): string => {
+  if (!name) return '';
   const words = name.split(' ').filter(w => w.length > 0);
   if (words.length >= 2) {
     return (words[0][0] + words[1][0]).toUpperCase();
@@ -46,7 +47,7 @@ const getRoomAbbr = (name: string): string => {
 const renderCustomBarLabel = (props: any) => {
   const { x, y, width, height, value, name } = props;
   
-  if (!value || height < 18 || width < 20) return null;
+  if (!value || !name || height < 18 || width < 20) return null;
   
   return (
     <text
