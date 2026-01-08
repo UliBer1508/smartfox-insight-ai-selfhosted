@@ -37,9 +37,18 @@ const ROOM_COLORS = [
 const getRoomAbbr = (name: string | undefined): string => {
   if (!name) return '';
   const words = name.split(' ').filter(w => w.length > 0);
+  
   if (words.length >= 2) {
+    // Mehrere Wörter: "Schlafzimmer Uli" → "SU"
     return (words[0][0] + words[1][0]).toUpperCase();
   }
+  
+  // Kurze einwörtrige Namen vollständig anzeigen (Luis, Luca, Büro, etc.)
+  if (name.length <= 5) {
+    return name;
+  }
+  
+  // Längere einwörtrige Namen: "Schlafzimmer" → "SC"
   return name.substring(0, 2).toUpperCase();
 };
 
