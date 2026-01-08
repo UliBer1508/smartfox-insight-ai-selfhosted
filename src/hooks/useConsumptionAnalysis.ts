@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { HeatingSettings } from '@/types/heating';
 import { Room, getEffectiveHeatingPower } from '@/types/room';
-import { Droplet, Flame, Car, LucideIcon } from 'lucide-react';
+import { Droplet, Flame, HelpCircle, LucideIcon } from 'lucide-react';
 
 export interface ActiveConsumer {
   name: string;
@@ -99,20 +99,19 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
       }
     }
 
-    // 3. E-Auto - prüft verbleibenden unerklärten Verbrauch nach Heizung + Warmwasser
-    if (heatingSettings?.car_charging_enabled && currentConsumption) {
-      const minCarPower = heatingSettings.car_min_charge_power_w || 3000;
+    // 3. Sonstiger Verbrauch - zeigt unerklärten Verbrauch ehrlich an
+    if (currentConsumption) {
       const explainedByOthers = consumers.reduce((sum, c) => sum + c.power, 0);
       const unexplained = currentConsumption - explainedByOthers;
       
-      // E-Auto Ladung erkannt wenn unerklärter Verbrauch >= Mindestleistung
-      if (unexplained >= minCarPower) {
+      // Nur anzeigen wenn signifikanter unerklärter Verbrauch (>= 300W)
+      if (unexplained >= 300) {
         consumers.push({
-          name: 'E-Auto',
-          icon: Car,
-          power: unexplained,  // Tatsächliche geschätzte Leistung
-          reason: '~geschätzt',
-          color: '#22C55E'
+          name: 'Sonstiger Verbrauch',
+          icon: HelpCircle,
+          power: unexplained,
+          reason: '~unbekannt',
+          color: '#9CA3AF'
         });
       }
     }
