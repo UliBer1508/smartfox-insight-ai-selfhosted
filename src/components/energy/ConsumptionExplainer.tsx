@@ -1,4 +1,5 @@
 import { useConsumptionAnalysis } from '@/hooks/useConsumptionAnalysis';
+import { useConsumerLogging } from '@/hooks/useConsumerLogging';
 import { Card, CardContent } from '@/components/ui/card';
 import { Zap } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -10,6 +11,9 @@ interface ConsumptionExplainerProps {
 
 export function ConsumptionExplainer({ consumption, className }: ConsumptionExplainerProps) {
   const { activeConsumers, isLoading } = useConsumptionAnalysis(consumption);
+  
+  // Automatisches Logging der erkannten Verbraucher
+  useConsumerLogging(activeConsumers, consumption);
 
   return (
     <Card className={cn("bg-gradient-to-br from-orange-500/10 to-red-500/10 border-orange-500/20", className)}>
