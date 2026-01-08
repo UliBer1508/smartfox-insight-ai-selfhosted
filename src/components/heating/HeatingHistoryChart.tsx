@@ -208,11 +208,6 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                     formatter={(value: number, name: string) => [formatMinutes(value), name]}
                     labelFormatter={(label) => `📅 ${label}`}
                   />
-                  <Legend 
-                    wrapperStyle={{ fontSize: '11px' }}
-                    iconSize={10}
-                    formatter={(value: string) => getRoomAbbr(value)}
-                  />
                   {activeRooms.map((room, index) => (
                     <Bar
                       key={room.id}
