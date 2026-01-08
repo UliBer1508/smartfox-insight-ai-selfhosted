@@ -39,16 +39,21 @@ const getRoomAbbr = (name: string | undefined): string => {
   const words = name.split(' ').filter(w => w.length > 0);
   
   if (words.length >= 2) {
-    // Mehrere Wörter: "Schlafzimmer Uli" → "SU"
+    const secondWord = words[1];
+    // "Zimmer Luis" / "Zimmer Luca" → zeige den Namen vollständig
+    if (words[0].toLowerCase() === 'zimmer' && secondWord.length <= 5) {
+      return secondWord;
+    }
+    // Andere Mehrwort-Namen: "Schlafzimmer Uli" → "SU", "Bad Uli" → "BU"
     return (words[0][0] + words[1][0]).toUpperCase();
   }
   
-  // Kurze einwörtrige Namen vollständig anzeigen (Luis, Luca, Büro, etc.)
+  // Kurze einwörtrige Namen vollständig anzeigen (Büro, Flur, etc.)
   if (name.length <= 5) {
     return name;
   }
   
-  // Längere einwörtrige Namen: "Schlafzimmer" → "SC"
+  // Längere einwörtrige Namen: "Wohnzimmer" → "WO"
   return name.substring(0, 2).toUpperCase();
 };
 
