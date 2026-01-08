@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets } from 'lucide-react';
+import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets, Euro } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
@@ -454,6 +454,52 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                   onChange={(e) => handleChange('roof_declination', parseInt(e.target.value))}
                 />
                 <p className="text-xs text-muted-foreground">0° = flach, 90° = senkrecht</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Strompreis-Konfiguration */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Euro className="w-4 h-4" />
+              Strompreise (Salzburg AG)
+            </h3>
+            <div className="grid md:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="electricity_price">Arbeitspreis (Cent/kWh)</Label>
+                <Input
+                  id="electricity_price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.electricity_price_kwh_cent || 20.28}
+                  onChange={(e) => handleChange('electricity_price_kwh_cent', parseFloat(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Preis für Netzbezug</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="feed_in_price">Einspeisetarif (Cent/kWh)</Label>
+                <Input
+                  id="feed_in_price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.feed_in_price_kwh_cent || 8.00}
+                  onChange={(e) => handleChange('feed_in_price_kwh_cent', parseFloat(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Vergütung für Einspeisung</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="base_fee">Grundgebühr (€/Jahr)</Label>
+                <Input
+                  id="base_fee"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={formData.electricity_base_fee_year_eur || 36.00}
+                  onChange={(e) => handleChange('electricity_base_fee_year_eur', parseFloat(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">Jährliche Grundgebühr</p>
               </div>
             </div>
           </div>

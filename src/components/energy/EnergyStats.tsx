@@ -7,9 +7,18 @@ interface EnergyStatsProps {
   energyOut: number;
   pvEnergy: number;
   className?: string;
+  electricityPriceCent?: number;
+  feedInPriceCent?: number;
 }
 
-export function EnergyStats({ energyIn, energyOut, pvEnergy, className }: EnergyStatsProps) {
+export function EnergyStats({ 
+  energyIn, 
+  energyOut, 
+  pvEnergy, 
+  className,
+  electricityPriceCent = 20.28,
+  feedInPriceCent = 8.00
+}: EnergyStatsProps) {
   const netEnergy = energyOut - energyIn;
   
   // Eigenverbrauch = PV-Produktion - Einspeisung
@@ -22,6 +31,11 @@ export function EnergyStats({ energyIn, energyOut, pvEnergy, className }: Energy
   const autarkyRate = totalConsumption > 0 
     ? (selfConsumption / totalConsumption) * 100 
     : 0;
+
+  // Kostenberechnung
+  const costIn = (energyIn * electricityPriceCent) / 100;
+  const earningOut = (energyOut * feedInPriceCent) / 100;
+  const netCost = costIn - earningOut;
 
   return (
     <div className={cn('grid grid-cols-2 lg:grid-cols-4 gap-4', className)}>
@@ -36,7 +50,9 @@ export function EnergyStats({ energyIn, energyOut, pvEnergy, className }: Energy
           <div className="text-2xl font-bold font-mono text-destructive">
             {energyIn.toFixed(2)}
           </div>
-          <p className="text-xs text-muted-foreground">kWh heute</p>
+          <p className="text-xs text-muted-foreground">
+            kWh = {costIn.toFixed(2)} €
+          </p>
         </CardContent>
       </Card>
 
@@ -51,7 +67,9 @@ export function EnergyStats({ energyIn, energyOut, pvEnergy, className }: Energy
           <div className="text-2xl font-bold font-mono text-success">
             {energyOut.toFixed(2)}
           </div>
-          <p className="text-xs text-muted-foreground">kWh heute</p>
+          <p className="text-xs text-muted-foreground">
+            kWh = {earningOut.toFixed(2)} €
+          </p>
         </CardContent>
       </Card>
 
@@ -72,7 +90,12 @@ export function EnergyStats({ energyIn, energyOut, pvEnergy, className }: Energy
           )}>
             {netEnergy >= 0 ? '+' : ''}{netEnergy.toFixed(2)}
           </div>
-          <p className="text-xs text-muted-foreground">kWh netto</p>
+          <p className={cn(
+            'text-xs',
+            netCost <= 0 ? 'text-success' : 'text-destructive'
+          )}>
+            Netto: {netCost <= 0 ? '' : '+'}{netCost.toFixed(2)} €
+          </p>
         </CardContent>
       </Card>
 

@@ -252,7 +252,10 @@ export type Database = {
           consumer_priority: string | null
           created_at: string
           eco_temp: number
+          electricity_base_fee_year_eur: number | null
+          electricity_price_kwh_cent: number | null
           estrich_storage_enabled: boolean | null
+          feed_in_price_kwh_cent: number | null
           floor_heating_response_hours: number | null
           heating_type: string | null
           hotwater_enabled: boolean | null
@@ -286,7 +289,10 @@ export type Database = {
           consumer_priority?: string | null
           created_at?: string
           eco_temp?: number
+          electricity_base_fee_year_eur?: number | null
+          electricity_price_kwh_cent?: number | null
           estrich_storage_enabled?: boolean | null
+          feed_in_price_kwh_cent?: number | null
           floor_heating_response_hours?: number | null
           heating_type?: string | null
           hotwater_enabled?: boolean | null
@@ -320,7 +326,10 @@ export type Database = {
           consumer_priority?: string | null
           created_at?: string
           eco_temp?: number
+          electricity_base_fee_year_eur?: number | null
+          electricity_price_kwh_cent?: number | null
           estrich_storage_enabled?: boolean | null
+          feed_in_price_kwh_cent?: number | null
           floor_heating_response_hours?: number | null
           heating_type?: string | null
           hotwater_enabled?: boolean | null

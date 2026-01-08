@@ -48,6 +48,10 @@ export interface HeatingSettings {
   total_heating_power_w?: number;
   night_cycling_enabled?: boolean;
   avg_night_cycles_per_room?: number;
+  // Strompreis-Konfiguration
+  electricity_price_kwh_cent?: number;
+  electricity_base_fee_year_eur?: number;
+  feed_in_price_kwh_cent?: number;
   created_at?: string;
   updated_at?: string;
 }
