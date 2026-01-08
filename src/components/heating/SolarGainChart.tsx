@@ -117,10 +117,6 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                     return [`${value}°C`, name];
                   }}
                 />
-                <Legend 
-                  formatter={(value: string) => getRoomAbbr(value)}
-                  wrapperStyle={{ fontSize: '11px' }}
-                />
                 
                 {/* PV Production Area */}
                 <Area
