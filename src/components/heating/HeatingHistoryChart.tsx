@@ -205,8 +205,27 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                       border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                     }}
-                    formatter={(value: number, name: string) => [formatMinutes(value), name]}
-                    labelFormatter={(label) => `📅 ${label}`}
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const items = payload.filter(p => p.value && (p.value as number) > 0);
+                      if (items.length === 0) return null;
+                      
+                      return (
+                        <div className="bg-card border border-border rounded-lg px-3 py-2">
+                          <p className="font-medium mb-1">📅 {label}</p>
+                          {items.map((item, i) => (
+                            <p key={i} style={{ color: String(item.color) }}>
+                              {item.name}: {formatMinutes(item.value as number)}
+                            </p>
+                          ))}
+                        </div>
+                      );
+                    }}
+                  />
+                  <Legend 
+                    wrapperStyle={{ fontSize: '11px' }}
+                    iconSize={10}
+                    formatter={(value: string) => getRoomAbbr(value)}
                   />
                   {activeRooms.map((room, index) => (
                     <Bar
