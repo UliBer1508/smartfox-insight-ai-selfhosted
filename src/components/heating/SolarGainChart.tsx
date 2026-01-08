@@ -114,19 +114,38 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                     borderRadius: '8px',
                   }}
                   content={({ active, payload }) => {
-                    if (!active || !payload?.length || !hoveredKey) return null;
+                    if (!active || !payload?.length) return null;
                     
-                    const item = payload.find(p => p.dataKey === hoveredKey);
-                    if (!item || item.value === null || item.value === undefined) return null;
+                    // Wenn eine spezifische Linie gehovert wird, nur diese zeigen
+                    if (hoveredKey) {
+                      const item = payload.find(p => p.dataKey === hoveredKey);
+                      if (!item || item.value === null || item.value === undefined) return null;
+                      
+                      const isPV = item.dataKey === 'pvPower';
+                      const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
+                      const displayName = isPV ? 'PV-Produktion' : item.name;
+                      
+                      return (
+                        <div className="bg-card border border-border rounded-lg px-3 py-2">
+                          <p style={{ color: String(item.color) }} className="font-medium">{displayName}</p>
+                          <p className="text-foreground">{displayValue}</p>
+                        </div>
+                      );
+                    }
                     
-                    const isPV = item.dataKey === 'pvPower';
-                    const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
-                    const displayName = isPV ? 'PV-Produktion' : item.name;
-                    
+                    // Fallback: Zeige alle Werte kompakt
                     return (
-                      <div className="bg-card border border-border rounded-lg px-3 py-2">
-                        <p style={{ color: String(item.color) }} className="font-medium">{displayName}</p>
-                        <p className="text-foreground">{displayValue}</p>
+                      <div className="bg-card border border-border rounded-lg px-3 py-2 space-y-1">
+                        {payload.filter(p => p.value !== null && p.value !== undefined).map((item) => {
+                          const isPV = item.dataKey === 'pvPower';
+                          const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
+                          return (
+                            <div key={String(item.dataKey)} className="flex items-center gap-2 text-sm">
+                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: String(item.color) }} />
+                              <span>{item.name}: {displayValue}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
                   }}
@@ -145,8 +164,13 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                   stroke="hsl(45, 93%, 47%)"
                   fill="url(#pvGradient)"
                   strokeWidth={2}
-                  onMouseEnter={() => setHoveredKey('pvPower')}
-                  onMouseLeave={() => setHoveredKey(null)}
+                  activeDot={{ 
+                    r: 6, 
+                    strokeWidth: 2,
+                    fill: "hsl(45, 93%, 47%)",
+                    onMouseOver: () => setHoveredKey('pvPower'),
+                    onMouseOut: () => setHoveredKey(null),
+                  }}
                 />
                 
                 {/* Temperature Lines per Room */}
@@ -161,9 +185,12 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                     strokeWidth={2}
                     dot={false}
                     connectNulls
-                    activeDot={{ r: 6, strokeWidth: 2 }}
-                    onMouseEnter={() => setHoveredKey(room.id)}
-                    onMouseLeave={() => setHoveredKey(null)}
+                    activeDot={{ 
+                      r: 6, 
+                      strokeWidth: 2,
+                      onMouseOver: () => setHoveredKey(room.id),
+                      onMouseOut: () => setHoveredKey(null),
+                    }}
                   />
                 ))}
               </ComposedChart>
