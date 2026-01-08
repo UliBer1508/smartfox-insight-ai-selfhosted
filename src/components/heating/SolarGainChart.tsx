@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Sun, Thermometer, TrendingUp } from 'lucide-react';
 import { useSolarGainChart } from '@/hooks/useSolarGainChart';
+import { getRoomAbbr } from '@/lib/roomUtils';
 import {
   ComposedChart,
   Line,
@@ -116,7 +117,10 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                     return [`${value}°C`, name];
                   }}
                 />
-                <Legend />
+                <Legend 
+                  formatter={(value: string) => getRoomAbbr(value)}
+                  wrapperStyle={{ fontSize: '11px' }}
+                />
                 
                 {/* PV Production Area */}
                 <Area

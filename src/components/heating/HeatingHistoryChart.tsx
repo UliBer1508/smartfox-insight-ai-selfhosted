@@ -5,6 +5,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { BarChart3, Calendar, Flame } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Room } from '@/types/room';
+import { getRoomAbbr } from '@/lib/roomUtils';
 import { format, subDays, startOfDay } from 'date-fns';
 import { de } from 'date-fns/locale';
 
@@ -33,48 +34,6 @@ const ROOM_COLORS = [
   '#facc15', // Gelb
 ];
 
-// Generiert 2-Buchstaben-Kürzel für Raumnamen
-const getRoomAbbr = (name: string | undefined): string => {
-  if (!name) return '';
-  const words = name.split(' ').filter(w => w.length > 0);
-  const lowerName = name.toLowerCase();
-  
-  if (words.length >= 2) {
-    const firstWord = words[0].toLowerCase();
-    const secondWord = words[1];
-    
-    // "Zimmer Luis/Luca" → "Luis/Luca"
-    if (firstWord === 'zimmer' && secondWord.length <= 5) {
-      return secondWord;
-    }
-    
-    // "Bad Uli" → "Uli" (zeige den Namen)
-    if (firstWord === 'bad' && secondWord.length <= 4) {
-      return secondWord;
-    }
-    
-    // "Kinder Bad" → "K.Bad"
-    if (lowerName === 'kinder bad') {
-      return 'K.Bad';
-    }
-    
-    // "Schlafzimmer Uli" → "SZ.U"
-    if (firstWord === 'schlafzimmer') {
-      return 'SZ.' + secondWord[0].toUpperCase();
-    }
-    
-    // Standard: Erste Buchstaben
-    return (words[0][0] + words[1][0]).toUpperCase();
-  }
-  
-  // Kurze einwörtrige Namen vollständig anzeigen (Büro, Flur, etc.)
-  if (name.length <= 5) {
-    return name;
-  }
-  
-  // Längere einwörtrige Namen: "Wohnzimmer" → "Wohn"
-  return name.substring(0, 4);
-};
 
 // Custom Label für Balken mit Raumkürzel - Factory-Funktion für Closure
 const createBarLabel = (roomName: string) => (props: any) => {
@@ -252,6 +211,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                   <Legend 
                     wrapperStyle={{ fontSize: '11px' }}
                     iconSize={10}
+                    formatter={(value: string) => getRoomAbbr(value)}
                   />
                   {activeRooms.map((room, index) => (
                     <Bar
