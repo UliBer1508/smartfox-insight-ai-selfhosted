@@ -107,27 +107,17 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                   className="text-muted-foreground"
                 />
                 <Tooltip
+                  shared={false}
                   contentStyle={{
                     backgroundColor: 'hsl(var(--card))',
                     border: '1px solid hsl(var(--border))',
                     borderRadius: '8px',
                   }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const item = payload.find(p => p.value !== null && p.value !== undefined);
-                    if (!item) return null;
-                    
-                    const value = item.name === 'PV' 
-                      ? `${item.value} kW` 
-                      : `${item.value}°C`;
-                    
-                    return (
-                      <div className="bg-card border border-border rounded-lg px-3 py-2">
-                        <p style={{ color: String(item.color) }} className="font-medium">{item.name}</p>
-                        <p className="text-foreground">{value}</p>
-                      </div>
-                    );
+                  formatter={(value: number, name: string) => {
+                    if (name === 'PV') return [`${value} kW`, 'PV-Produktion'];
+                    return [`${value}°C`, name];
                   }}
+                  labelStyle={{ display: 'none' }}
                 />
                 <Legend 
                   formatter={(value: string) => getRoomAbbr(value)}
