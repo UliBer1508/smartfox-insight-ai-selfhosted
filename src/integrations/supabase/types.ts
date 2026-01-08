@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      consumer_logs: {
+        Row: {
+          avg_power_w: number | null
+          consumer_type: string
+          created_at: string | null
+          duration_minutes: number | null
+          end_time: string | null
+          id: string
+          is_active: boolean | null
+          max_power_w: number | null
+          start_time: string
+          total_energy_wh: number | null
+        }
+        Insert: {
+          avg_power_w?: number | null
+          consumer_type: string
+          created_at?: string | null
+          duration_minutes?: number | null
+          end_time?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_power_w?: number | null
+          start_time: string
+          total_energy_wh?: number | null
+        }
+        Update: {
+          avg_power_w?: number | null
+          consumer_type?: string
+          created_at?: string | null
+          duration_minutes?: number | null
+          end_time?: string | null
+          id?: string
+          is_active?: boolean | null
+          max_power_w?: number | null
+          start_time?: string
+          total_energy_wh?: number | null
+        }
+        Relationships: []
+      }
       daily_patterns: {
         Row: {
           avg_power: number
