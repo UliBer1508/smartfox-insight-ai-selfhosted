@@ -114,38 +114,19 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                     borderRadius: '8px',
                   }}
                   content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
+                    if (!active || !payload?.length || !hoveredKey) return null;
                     
-                    // Wenn eine spezifische Linie gehovert wird, nur diese zeigen
-                    if (hoveredKey) {
-                      const item = payload.find(p => p.dataKey === hoveredKey);
-                      if (!item || item.value === null || item.value === undefined) return null;
-                      
-                      const isPV = item.dataKey === 'pvPower';
-                      const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
-                      const displayName = isPV ? 'PV-Produktion' : item.name;
-                      
-                      return (
-                        <div className="bg-card border border-border rounded-lg px-3 py-2">
-                          <p style={{ color: String(item.color) }} className="font-medium">{displayName}</p>
-                          <p className="text-foreground">{displayValue}</p>
-                        </div>
-                      );
-                    }
+                    const item = payload.find(p => p.dataKey === hoveredKey);
+                    if (!item || item.value === null || item.value === undefined) return null;
                     
-                    // Fallback: Zeige alle Werte kompakt
+                    const isPV = item.dataKey === 'pvPower';
+                    const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
+                    const displayName = isPV ? 'PV-Produktion' : item.name;
+                    
                     return (
-                      <div className="bg-card border border-border rounded-lg px-3 py-2 space-y-1">
-                        {payload.filter(p => p.value !== null && p.value !== undefined).map((item) => {
-                          const isPV = item.dataKey === 'pvPower';
-                          const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
-                          return (
-                            <div key={String(item.dataKey)} className="flex items-center gap-2 text-sm">
-                              <div className="w-2 h-2 rounded-full" style={{ backgroundColor: String(item.color) }} />
-                              <span>{item.name}: {displayValue}</span>
-                            </div>
-                          );
-                        })}
+                      <div className="bg-card border border-border rounded-lg px-3 py-2">
+                        <p style={{ color: String(item.color) }} className="font-medium">{displayName}</p>
+                        <p className="text-foreground">{displayValue}</p>
                       </div>
                     );
                   }}
