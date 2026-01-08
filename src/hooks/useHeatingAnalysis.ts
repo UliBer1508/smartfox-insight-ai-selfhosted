@@ -34,10 +34,19 @@ export function useHeatingAnalysis() {
 
     setIsAnalyzing(true);
     try {
+      // Consumer-Logs für heute laden um Verbrauch korrekt zuzuordnen
+      const today = new Date().toISOString().split('T')[0];
+      const { data: consumerLogs } = await supabase
+        .from('consumer_logs')
+        .select('*')
+        .gte('start_time', today)
+        .order('start_time', { ascending: true });
+
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
         body: { 
           readings,
           heatingSettings,
+          consumerLogs: consumerLogs || [],
           type: 'heating_optimization' 
         },
       });
