@@ -19,6 +19,7 @@ import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
+import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Bot } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -27,9 +28,12 @@ import { format } from 'date-fns';
 interface HeatingDashboardProps {
   readings: EnergyReading[];
   currentReading: EnergyReading | null;
+  energyIn: number;
+  energyOut: number;
+  pvEnergy: number;
 }
 
-export function HeatingDashboard({ readings, currentReading }: HeatingDashboardProps) {
+export function HeatingDashboard({ readings, currentReading, energyIn, energyOut, pvEnergy }: HeatingDashboardProps) {
   const { settings } = useHeatingSettings();
   const { 
     isAnalyzing, 
@@ -277,8 +281,18 @@ export function HeatingDashboard({ readings, currentReading }: HeatingDashboardP
           pvCapacity={settings.pv_capacity_kwp}
         />
 
-        {/* Heating Overview Card */}
+      </div>
+
+      {/* Heating & Cost Overview - 2 columns */}
+      <div className="grid md:grid-cols-2 gap-4">
         <HeatingOverviewCard rooms={rooms} stats={heatingStats} />
+        <EnergyCostWidget
+          energyIn={energyIn}
+          energyOut={energyOut}
+          pvEnergy={pvEnergy}
+          electricityPriceCent={settings.electricity_price_kwh_cent ?? 20.28}
+          feedInPriceCent={settings.feed_in_price_kwh_cent ?? 8.0}
+        />
       </div>
 
       {/* Heating History Chart */}

@@ -32,7 +32,7 @@ export function EnergyCostWidget({
   };
 
   return (
-    <Card className="col-span-2">
+    <Card>
       <CardHeader className="pb-3">
         <CardTitle className="text-base font-medium flex items-center gap-2">
           <Euro className="h-4 w-4" />
