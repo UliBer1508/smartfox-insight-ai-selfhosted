@@ -62,6 +62,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
   const [chartData, setChartData] = useState<DailyRoomData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [totals, setTotals] = useState({ minutes: 0, energy: 0, cycles: 0 });
+  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
 
   const loadHistoryData = useCallback(async () => {
     setIsLoading(true);
@@ -205,19 +206,16 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                       border: '1px solid hsl(var(--border))',
                       borderRadius: '8px',
                     }}
-                    content={({ active, payload, label }) => {
-                      if (!active || !payload?.length) return null;
-                      const items = payload.filter(p => p.value && (p.value as number) > 0);
-                      if (items.length === 0) return null;
+                    content={({ active, payload }) => {
+                      if (!active || !payload?.length || !hoveredRoom) return null;
+                      
+                      const item = payload.find(p => p.dataKey === hoveredRoom);
+                      if (!item || !item.value || (item.value as number) <= 0) return null;
                       
                       return (
                         <div className="bg-card border border-border rounded-lg px-3 py-2">
-                          <p className="font-medium mb-1">📅 {label}</p>
-                          {items.map((item, i) => (
-                            <p key={i} style={{ color: String(item.color) }}>
-                              {item.name}: {formatMinutes(item.value as number)}
-                            </p>
-                          ))}
+                          <p style={{ color: String(item.color) }} className="font-medium">{item.name}</p>
+                          <p className="text-foreground">{formatMinutes(item.value as number)}</p>
                         </div>
                       );
                     }}
@@ -227,16 +225,18 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                     iconSize={10}
                     formatter={(value: string) => getRoomAbbr(value)}
                   />
-                  {activeRooms.map((room, index) => (
-                    <Bar
-                      key={room.id}
-                      dataKey={room.name}
-                      stackId="a"
-                      fill={ROOM_COLORS[index % ROOM_COLORS.length]}
-                      radius={index === activeRooms.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                      label={createBarLabel(room.name)}
-                    />
-                  ))}
+                {activeRooms.map((room, index) => (
+                  <Bar
+                    key={room.id}
+                    dataKey={room.name}
+                    stackId="a"
+                    fill={ROOM_COLORS[index % ROOM_COLORS.length]}
+                    radius={index === activeRooms.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                    label={createBarLabel(room.name)}
+                    onMouseOver={() => setHoveredRoom(room.name)}
+                    onMouseOut={() => setHoveredRoom(null)}
+                  />
+                ))}
                 </BarChart>
               </ResponsiveContainer>
             </div>
