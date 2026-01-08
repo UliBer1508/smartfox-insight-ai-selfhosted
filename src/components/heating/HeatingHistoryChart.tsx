@@ -43,11 +43,11 @@ const getRoomAbbr = (name: string | undefined): string => {
   return name.substring(0, 2).toUpperCase();
 };
 
-// Custom Label für Balken mit Raumkürzel
-const renderCustomBarLabel = (props: any) => {
-  const { x, y, width, height, value, name } = props;
+// Custom Label für Balken mit Raumkürzel - Factory-Funktion für Closure
+const createBarLabel = (roomName: string) => (props: any) => {
+  const { x, y, width, height, value } = props;
   
-  if (!value || !name || height < 18 || width < 20) return null;
+  if (!value || value < 30 || height < 18 || width < 20) return null;
   
   return (
     <text
@@ -56,11 +56,11 @@ const renderCustomBarLabel = (props: any) => {
       textAnchor="middle"
       dominantBaseline="middle"
       fill="#ffffff"
-      fontSize={9}
+      fontSize={10}
       fontWeight="bold"
-      style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.6)' }}
+      style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.7)' }}
     >
-      {getRoomAbbr(name)}
+      {getRoomAbbr(roomName)}
     </text>
   );
 };
@@ -227,7 +227,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                       stackId="a"
                       fill={ROOM_COLORS[index % ROOM_COLORS.length]}
                       radius={index === activeRooms.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                      label={renderCustomBarLabel}
+                      label={createBarLabel(room.name)}
                     />
                   ))}
                 </BarChart>
