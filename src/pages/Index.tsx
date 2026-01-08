@@ -13,6 +13,7 @@ import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { PowerStats } from '@/components/energy/PowerStats';
 import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 import { ConsumptionExplainer } from '@/components/energy/ConsumptionExplainer';
+import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
 import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
@@ -104,8 +105,16 @@ const Index = () => {
 
             <BatteryHistoryChart />
 
-            {/* 3-Spalten Widget-Grid über volle Breite */}
-            <div className="grid grid-cols-3 gap-4">
+            {/* 4-Spalten Widget-Grid über volle Breite */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <EnergyCostWidget
+                energyIn={energyIn}
+                energyOut={energyOut}
+                pvEnergy={pvEnergy}
+                electricityPriceCent={heatingSettings.electricity_price_kwh_cent ?? 20.28}
+                feedInPriceCent={heatingSettings.feed_in_price_kwh_cent ?? 8.0}
+              />
+
               <Card className="h-fit">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
