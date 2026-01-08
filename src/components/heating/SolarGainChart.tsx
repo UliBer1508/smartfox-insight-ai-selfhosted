@@ -25,6 +25,7 @@ type TimeRange = '24h' | '48h' | '7d';
 
 export function SolarGainChart({ rooms }: SolarGainChartProps) {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
   
   const days = timeRange === '24h' ? 1 : timeRange === '48h' ? 2 : 7;
   
@@ -107,17 +108,28 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                   className="text-muted-foreground"
                 />
                 <Tooltip
-                  shared={false}
                   contentStyle={{
                     backgroundColor: 'hsl(var(--card))',
                     border: '1px solid hsl(var(--border))',
                     borderRadius: '8px',
                   }}
-                  formatter={(value: number, name: string) => {
-                    if (name === 'PV') return [`${value} kW`, 'PV-Produktion'];
-                    return [`${value}°C`, name];
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length || !hoveredKey) return null;
+                    
+                    const item = payload.find(p => p.dataKey === hoveredKey);
+                    if (!item || item.value === null || item.value === undefined) return null;
+                    
+                    const isPV = item.dataKey === 'pvPower';
+                    const displayValue = isPV ? `${item.value} kW` : `${item.value}°C`;
+                    const displayName = isPV ? 'PV-Produktion' : item.name;
+                    
+                    return (
+                      <div className="bg-card border border-border rounded-lg px-3 py-2">
+                        <p style={{ color: String(item.color) }} className="font-medium">{displayName}</p>
+                        <p className="text-foreground">{displayValue}</p>
+                      </div>
+                    );
                   }}
-                  labelStyle={{ display: 'none' }}
                 />
                 <Legend 
                   formatter={(value: string) => getRoomAbbr(value)}
@@ -133,6 +145,8 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                   stroke="hsl(45, 93%, 47%)"
                   fill="url(#pvGradient)"
                   strokeWidth={2}
+                  onMouseEnter={() => setHoveredKey('pvPower')}
+                  onMouseLeave={() => setHoveredKey(null)}
                 />
                 
                 {/* Temperature Lines per Room */}
@@ -148,6 +162,8 @@ export function SolarGainChart({ rooms }: SolarGainChartProps) {
                     dot={false}
                     connectNulls
                     activeDot={{ r: 6, strokeWidth: 2 }}
+                    onMouseEnter={() => setHoveredKey(room.id)}
+                    onMouseLeave={() => setHoveredKey(null)}
                   />
                 ))}
               </ComposedChart>
