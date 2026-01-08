@@ -27,9 +27,10 @@ export function ConsumptionExplainer({ consumption, className }: ConsumptionExpl
           <div className="space-y-1.5">
             {activeConsumers.map((consumer, index) => {
               const Icon = consumer.icon;
+              const isEstimate = consumer.reason.includes('~');
               const powerKw = consumer.power >= 1000 
-                ? `${(consumer.power / 1000).toFixed(1)} kW` 
-                : `${consumer.power} W`;
+                ? `${isEstimate ? '~' : ''}${(consumer.power / 1000).toFixed(1)} kW` 
+                : `${isEstimate ? '~' : ''}${consumer.power} W`;
               
               return (
                 <div key={index} className="flex items-center justify-between text-sm">
