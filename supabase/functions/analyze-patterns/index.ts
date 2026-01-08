@@ -11,9 +11,9 @@ serve(async (req) => {
   }
 
   try {
-    const { readings, heatingSettings, rooms, type } = await req.json();
+    const { readings, heatingSettings, rooms, consumerLogs, type } = await req.json();
     
-    console.log(`Analyzing type: ${type}, readings: ${readings?.length || 0}, rooms: ${rooms?.length || 0}`);
+    console.log(`Analyzing type: ${type}, readings: ${readings?.length || 0}, rooms: ${rooms?.length || 0}, consumerLogs: ${consumerLogs?.length || 0}`);
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -114,6 +114,40 @@ ${nightCyclingEnabled ? `- Thermostate takten nachts (An/Aus-Zyklen zur Temperat
 - Die effektive verfügbare Leistung für Heizung ist entsprechend reduziert.
 ` : '';
 
+      // E-Auto und andere Großverbraucher-Info für Raumanalyse
+      let roomConsumerInfo = '';
+      if (consumerLogs && consumerLogs.length > 0) {
+        const carLogs = consumerLogs.filter((c: any) => c.consumer_type === 'car');
+        const hotwaterLogs = consumerLogs.filter((c: any) => c.consumer_type === 'hotwater');
+        
+        if (carLogs.length > 0) {
+          roomConsumerInfo += `\n**E-Auto Ladevorgänge heute (NICHT Heizung!):**\n`;
+          carLogs.forEach((log: any) => {
+            const start = new Date(log.start_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const end = log.end_time ? new Date(log.end_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'läuft noch';
+            const energy = log.total_energy_wh ? `${(log.total_energy_wh / 1000).toFixed(1)} kWh` : 'aktiv';
+            roomConsumerInfo += `- ${start} - ${end}: ~${Math.round((log.avg_power_w || 0) / 1000)} kW, ${energy}\n`;
+          });
+        }
+        
+        if (hotwaterLogs.length > 0) {
+          roomConsumerInfo += `\n**Warmwasser-Bereitung heute:**\n`;
+          hotwaterLogs.forEach((log: any) => {
+            const start = new Date(log.start_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const end = log.end_time ? new Date(log.end_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'läuft noch';
+            roomConsumerInfo += `- ${start} - ${end}: ~${Math.round((log.avg_power_w || 0) / 1000)} kW\n`;
+          });
+        }
+        
+        if (roomConsumerInfo) {
+          roomConsumerInfo += `
+**WICHTIG - Verbrauchsbereinigung:**
+E-Auto und Warmwasser sind KEINE Heizung! Ziehe diese von den stündlichen Werten ab.
+Bereinigter Heizungsbedarf = Gesamtverbrauch - E-Auto - Warmwasser
+`;
+        }
+      }
+
       prompt = `Du bist ein Experte für Energiemanagement und Fußbodenheizung mit PV und Batterie.
 
 Erstelle RAUMSPEZIFISCHE Heizempfehlungen für jeden Raum basierend auf:
@@ -132,6 +166,7 @@ ${heatingTypeInfo}${heatingPumpInfo}${waterHeatingInfo}
 
 **Stündliche Durchschnittsleistung (W, negativ = Einspeisung):**
 ${hourlyAvg.map(h => `${h.hour}:00 Uhr: ${h.avgPower.toFixed(0)}W`).join('\n')}
+${roomConsumerInfo}
 ${hotwaterInfo}
 **Räume im Haushalt:**
 ${roomsList}
@@ -231,6 +266,52 @@ Erstelle für JEDEN Raum eine aktuelle Empfehlung mit Zieltemperatur und Begrün
 - WICHTIG: Während der Warmwasser-Schaltzeit (${hotwaterStart}-${hotwaterEnd}) wird PV-Überschuss primär für Warmwasser genutzt!
 ` : '';
 
+      // E-Auto und andere Großverbraucher-Info
+      let consumerInfo = '';
+      if (consumerLogs && consumerLogs.length > 0) {
+        const carLogs = consumerLogs.filter((c: any) => c.consumer_type === 'car');
+        const hotwaterLogs = consumerLogs.filter((c: any) => c.consumer_type === 'hotwater');
+        const heatingLogs = consumerLogs.filter((c: any) => c.consumer_type === 'heating');
+        
+        if (carLogs.length > 0) {
+          consumerInfo += `\n**E-Auto Ladevorgänge heute (NICHT Heizung!):**\n`;
+          carLogs.forEach((log: any) => {
+            const start = new Date(log.start_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const end = log.end_time ? new Date(log.end_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'läuft noch';
+            const energy = log.total_energy_wh ? `${(log.total_energy_wh / 1000).toFixed(1)} kWh` : 'aktiv';
+            consumerInfo += `- ${start} - ${end}: ~${Math.round((log.avg_power_w || 0) / 1000)} kW, ${energy}\n`;
+          });
+        }
+        
+        if (hotwaterLogs.length > 0) {
+          consumerInfo += `\n**Warmwasser-Bereitung heute:**\n`;
+          hotwaterLogs.forEach((log: any) => {
+            const start = new Date(log.start_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const end = log.end_time ? new Date(log.end_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'läuft noch';
+            consumerInfo += `- ${start} - ${end}: ~${Math.round((log.avg_power_w || 0) / 1000)} kW\n`;
+          });
+        }
+        
+        if (heatingLogs.length > 0) {
+          consumerInfo += `\n**Heizungsaktivität heute:**\n`;
+          heatingLogs.forEach((log: any) => {
+            const start = new Date(log.start_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+            const end = log.end_time ? new Date(log.end_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'läuft noch';
+            consumerInfo += `- ${start} - ${end}: ~${Math.round((log.avg_power_w || 0) / 1000)} kW\n`;
+          });
+        }
+        
+        if (consumerInfo) {
+          consumerInfo += `
+**WICHTIG - Verbrauchsbereinigung:**
+Die oben genannten Verbraucher sind KEINE Heizung! Ziehe diese Verbräuche von den stündlichen Durchschnittswerten ab:
+- E-Auto: Typisch 11 kW (3-phasig) oder 3.7 kW (1-phasig)
+- Warmwasser: ~${hotwaterPower}W während Schaltzeit
+Bereinigter Heizungsbedarf = Gesamtverbrauch - E-Auto - Warmwasser
+`;
+        }
+      }
+
       prompt = `Du bist ein Experte für Energiemanagement und Fußbodenheizung mit PV und Batterie.
 
 Analysiere diese Daten und erstelle einen optimalen Heizplan für einen TGP508 WiFi-Thermostat (6 Zeitperioden):
@@ -251,6 +332,7 @@ Analysiere diese Daten und erstelle einen optimalen Heizplan für einen TGP508 W
 
 **Stündliche Durchschnittsleistung (W, negativ = Einspeisung):**
 ${hourlyAvg.map(h => `${h.hour}:00 Uhr: ${h.avgPower.toFixed(0)}W`).join('\n')}
+${consumerInfo}
 ${hotwaterInfo}
 **Optimierungsziele:**
 1. Estrich als Wärmespeicher nutzen (Vorheizen bei PV-Überschuss)
