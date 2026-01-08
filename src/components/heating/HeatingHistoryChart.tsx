@@ -19,19 +19,50 @@ interface HeatingHistoryChartProps {
 }
 
 const ROOM_COLORS = [
-  '#3b82f6',  // Blau
-  '#10b981',  // Grün
-  '#f97316',  // Orange
-  '#8b5cf6',  // Violett
-  '#ef4444',  // Rot
-  '#06b6d4',  // Cyan
-  '#f59e0b',  // Amber
-  '#ec4899',  // Pink
-  '#84cc16',  // Lime
-  '#6366f1',  // Indigo
-  '#14b8a6',  // Teal
-  '#a855f7',  // Fuchsia
+  '#ef4444', // Rot
+  '#22c55e', // Grün
+  '#3b82f6', // Blau
+  '#f59e0b', // Amber/Orange
+  '#a855f7', // Violett
+  '#06b6d4', // Cyan
+  '#ec4899', // Pink
+  '#84cc16', // Lime
+  '#f97316', // Deep Orange
+  '#6366f1', // Indigo
+  '#14b8a6', // Teal
+  '#facc15', // Gelb
 ];
+
+// Generiert 2-Buchstaben-Kürzel für Raumnamen
+const getRoomAbbr = (name: string): string => {
+  const words = name.split(' ').filter(w => w.length > 0);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return name.substring(0, 2).toUpperCase();
+};
+
+// Custom Label für Balken mit Raumkürzel
+const renderCustomBarLabel = (props: any) => {
+  const { x, y, width, height, value, name } = props;
+  
+  if (!value || height < 18 || width < 20) return null;
+  
+  return (
+    <text
+      x={x + width / 2}
+      y={y + height / 2}
+      textAnchor="middle"
+      dominantBaseline="middle"
+      fill="#ffffff"
+      fontSize={9}
+      fontWeight="bold"
+      style={{ textShadow: '1px 1px 2px rgba(0,0,0,0.6)' }}
+    >
+      {getRoomAbbr(name)}
+    </text>
+  );
+};
 
 export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
   const [days, setDays] = useState(7);
@@ -195,6 +226,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                       stackId="a"
                       fill={ROOM_COLORS[index % ROOM_COLORS.length]}
                       radius={index === activeRooms.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                      label={renderCustomBarLabel}
                     />
                   ))}
                 </BarChart>
