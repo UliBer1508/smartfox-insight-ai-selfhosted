@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { startOfMonth, startOfYear, format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -161,13 +161,57 @@ export function useEnergyCosts(
     setIsLoading(false);
   }, [calculateTodayCosts]);
 
-  // Speichere bei Änderungen und lade historische Daten
+  // Ref für Debounce der DB-Speicherung
+  const lastSaveRef = useRef<number>(0);
+  const SAVE_INTERVAL_MS = 5 * 60 * 1000; // Alle 5 Minuten speichern
+
+  // Lade historische Daten beim Mount
   useEffect(() => {
-    if (todayEnergyIn > 0 || todayEnergyOut > 0 || todayPvEnergy > 0) {
-      saveTodayCosts();
-    }
     loadCosts();
-  }, [todayEnergyIn, todayEnergyOut, todayPvEnergy, saveTodayCosts, loadCosts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Aktualisiere Anzeige bei Änderungen der Tageswerte
+  useEffect(() => {
+    const todayCosts = calculateTodayCosts();
+    setCosts(prev => ({
+      ...prev,
+      day: todayCosts,
+      month: {
+        ...prev.month,
+        energyIn: prev.month.energyIn - prev.day.energyIn + todayCosts.energyIn,
+        energyOut: prev.month.energyOut - prev.day.energyOut + todayCosts.energyOut,
+        pvEnergy: prev.month.pvEnergy - prev.day.pvEnergy + todayCosts.pvEnergy,
+        selfConsumption: prev.month.selfConsumption - prev.day.selfConsumption + todayCosts.selfConsumption,
+        gridCost: prev.month.gridCost - prev.day.gridCost + todayCosts.gridCost,
+        feedInEarnings: prev.month.feedInEarnings - prev.day.feedInEarnings + todayCosts.feedInEarnings,
+        pvSavings: prev.month.pvSavings - prev.day.pvSavings + todayCosts.pvSavings,
+        netBalance: prev.month.netBalance - prev.day.netBalance + todayCosts.netBalance,
+      },
+      year: {
+        ...prev.year,
+        energyIn: prev.year.energyIn - prev.day.energyIn + todayCosts.energyIn,
+        energyOut: prev.year.energyOut - prev.day.energyOut + todayCosts.energyOut,
+        pvEnergy: prev.year.pvEnergy - prev.day.pvEnergy + todayCosts.pvEnergy,
+        selfConsumption: prev.year.selfConsumption - prev.day.selfConsumption + todayCosts.selfConsumption,
+        gridCost: prev.year.gridCost - prev.day.gridCost + todayCosts.gridCost,
+        feedInEarnings: prev.year.feedInEarnings - prev.day.feedInEarnings + todayCosts.feedInEarnings,
+        pvSavings: prev.year.pvSavings - prev.day.pvSavings + todayCosts.pvSavings,
+        netBalance: prev.year.netBalance - prev.day.netBalance + todayCosts.netBalance,
+      },
+    }));
+  }, [todayEnergyIn, todayEnergyOut, todayPvEnergy, calculateTodayCosts]);
+
+  // Speichere in DB mit Debounce (alle 5 Minuten)
+  useEffect(() => {
+    const now = Date.now();
+    if (now - lastSaveRef.current >= SAVE_INTERVAL_MS) {
+      if (todayEnergyIn > 0 || todayEnergyOut > 0 || todayPvEnergy > 0) {
+        saveTodayCosts();
+        lastSaveRef.current = now;
+      }
+    }
+  }, [todayEnergyIn, todayEnergyOut, todayPvEnergy, saveTodayCosts]);
 
   const periodLabel = (period: CostPeriod): string => {
     const today = new Date();

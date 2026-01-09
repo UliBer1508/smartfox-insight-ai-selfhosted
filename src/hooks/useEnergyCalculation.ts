@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading } from '@/types/energy';
 
@@ -17,8 +17,27 @@ function getTodayDateString(): string {
 }
 
 export function useEnergyCalculation(currentReadings: EnergyReading[]): CalculatedEnergy {
+  const queryClient = useQueryClient();
   const todayStr = useMemo(() => getTodayDateString(), []);
   const todayStart = useMemo(() => `${todayStr}T00:00:00`, [todayStr]);
+
+  // Realtime-Subscription: Bei neuen Readings Query invalidieren
+  useEffect(() => {
+    const channel = supabase
+      .channel('energy-calc-realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'energy_readings' },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['energy-readings-today', todayStr] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient, todayStr]);
 
   // Lade ALLE Readings von heute aus der Datenbank
   const { data: todayReadings, isLoading } = useQuery({
@@ -33,8 +52,8 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
       if (error) throw error;
       return data as EnergyReading[];
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   return useMemo(() => {
