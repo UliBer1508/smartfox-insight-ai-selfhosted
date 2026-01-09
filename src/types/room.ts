@@ -39,6 +39,8 @@ export interface Room {
   solar_gain_samples?: number | null;
   calculated_heat_loss_rate?: number | null;
   last_solar_analysis?: string | null;
+  // Manual Override - schützt manuelle Änderungen vor Automatik
+  manual_override_until?: string | null;
   created_at?: string;
   updated_at?: string;
 }

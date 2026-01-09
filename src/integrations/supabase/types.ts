@@ -760,6 +760,7 @@ export type Database = {
           last_power_calculation: string | null
           last_solar_analysis: string | null
           last_thermostat_sync: string | null
+          manual_override_until: string | null
           name: string
           night_temp: number | null
           orientation: string | null
@@ -798,6 +799,7 @@ export type Database = {
           last_power_calculation?: string | null
           last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
+          manual_override_until?: string | null
           name: string
           night_temp?: number | null
           orientation?: string | null
@@ -836,6 +838,7 @@ export type Database = {
           last_power_calculation?: string | null
           last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
+          manual_override_until?: string | null
           name?: string
           night_temp?: number | null
           orientation?: string | null

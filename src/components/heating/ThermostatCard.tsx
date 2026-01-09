@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Flame, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot } from 'lucide-react';
+import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, X } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 
@@ -72,6 +72,7 @@ export function ThermostatCard({
   const hasDevice = !!room.tuya_device_id;
   const currentTemp = room.current_temp ?? '--';
   const isHeating = room.is_heating ?? false;
+  const hasManualOverride = room.manual_override_until && new Date(room.manual_override_until) > new Date();
 
   return (
     <Card className={cn(
@@ -104,6 +105,15 @@ export function ThermostatCard({
             </Button>
           </div>
         </div>
+        {/* Manual Override Badge */}
+        {hasManualOverride && (
+          <div className="flex justify-center -mt-1">
+            <Badge variant="secondary" className="gap-1 text-xs">
+              <Hand className="h-3 w-3" />
+              Manuell bis {new Date(room.manual_override_until!).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+            </Badge>
+          </div>
+        )}
       </CardHeader>
       
       <CardContent className="space-y-4">

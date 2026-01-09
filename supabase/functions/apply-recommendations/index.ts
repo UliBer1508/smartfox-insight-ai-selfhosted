@@ -165,6 +165,7 @@ interface Room {
   comfort_temp: number | null;
   eco_temp: number | null;
   night_temp: number | null;
+  manual_override_until: string | null;
 }
 
 interface Recommendation {
@@ -292,6 +293,20 @@ Deno.serve(async (req) => {
       };
 
       for (const room of rooms as Room[]) {
+        // Check manual override first
+        if (room.manual_override_until) {
+          const overrideUntil = new Date(room.manual_override_until);
+          if (now < overrideUntil) {
+            console.log(`[apply-recommendations] Room ${room.name} has manual override until ${overrideUntil.toLocaleTimeString('de-DE')}`);
+            results.skipped.push({ 
+              roomId: room.id, 
+              name: room.name, 
+              reason: `Manueller Override bis ${overrideUntil.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` 
+            });
+            continue;
+          }
+        }
+
         const recommendation = recMap.get(room.id);
 
         // Check if recommendation exists
