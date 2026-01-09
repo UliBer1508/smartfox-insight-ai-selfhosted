@@ -25,6 +25,34 @@ const emptyStats: PeriodStats = {
   topConsumers: [],
 };
 
+// Hilfsfunktion: Überlappende Intervalle zusammenführen
+function calculateMergedDuration(intervals: { start: Date; end: Date }[]): number {
+  if (intervals.length === 0) return 0;
+  
+  // Sortiere nach Startzeit
+  const sorted = [...intervals].sort((a, b) => a.start.getTime() - b.start.getTime());
+  
+  const merged: { start: Date; end: Date }[] = [];
+  let current = { ...sorted[0] };
+  
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].start.getTime() <= current.end.getTime()) {
+      // Überlappung - erweitere aktuelles Intervall
+      current.end = new Date(Math.max(current.end.getTime(), sorted[i].end.getTime()));
+    } else {
+      // Keine Überlappung - speichere und starte neu
+      merged.push(current);
+      current = { ...sorted[i] };
+    }
+  }
+  merged.push(current);
+  
+  // Summiere Dauer aller zusammengeführten Intervalle
+  return merged.reduce((total, interval) => {
+    return total + Math.round((interval.end.getTime() - interval.start.getTime()) / 60000);
+  }, 0);
+}
+
 export function useHeatingConsumption(rooms: Room[]) {
   const [consumption, setConsumption] = useState<HeatingConsumption>({
     day: emptyStats,
@@ -68,6 +96,9 @@ export function useHeatingConsumption(rooms: Room[]) {
         );
 
         const roomStats = new Map<string, { cycles: number; durationMin: number; energyWh: number }>();
+        
+        // Sammle alle Heizintervalle für überlappende Berechnung
+        const allIntervals: { start: Date; end: Date }[] = [];
 
         periodLogs.forEach(log => {
           const roomId = log.room_id;
@@ -82,6 +113,13 @@ export function useHeatingConsumption(rooms: Room[]) {
           if (log.event_type === 'heating_stop') {
             stats.durationMin += log.duration_minutes || 0;
             stats.energyWh += log.energy_estimate_wh || 0;
+            
+            // Erstelle Interval für überlappende Berechnung
+            if (log.duration_minutes && log.timestamp) {
+              const endTime = new Date(log.timestamp);
+              const startTime = new Date(endTime.getTime() - (log.duration_minutes * 60000));
+              allIntervals.push({ start: startTime, end: endTime });
+            }
           }
         });
 
@@ -93,8 +131,8 @@ export function useHeatingConsumption(rooms: Room[]) {
               .filter(l => l.room_id === room.id && l.event_type === 'heating_start')
               .pop();
 
-            if (lastStart) {
-              const startTime = new Date(lastStart.timestamp || '');
+            if (lastStart?.timestamp) {
+              const startTime = new Date(lastStart.timestamp);
               const durationMin = Math.round((now.getTime() - startTime.getTime()) / 60000);
               const energyWh = Math.round((power * durationMin) / 60);
 
@@ -104,19 +142,23 @@ export function useHeatingConsumption(rooms: Room[]) {
               const stats = roomStats.get(room.id)!;
               stats.durationMin += durationMin;
               stats.energyWh += energyWh;
+              
+              // Füge laufendes Intervall hinzu
+              allIntervals.push({ start: startTime, end: now });
             }
           }
         });
 
+        // Berechne nicht-überlappende Gesamtdauer
+        const mergedDuration = calculateMergedDuration(allIntervals);
+
         // Calculate totals and top consumers
         let totalCycles = 0;
-        let totalDuration = 0;
         let totalEnergy = 0;
         const consumers: { roomId: string; roomName: string; energyWh: number }[] = [];
 
         roomStats.forEach((stats, roomId) => {
           totalCycles += stats.cycles;
-          totalDuration += stats.durationMin;
           totalEnergy += stats.energyWh;
 
           const room = roomMap.get(roomId);
@@ -133,7 +175,7 @@ export function useHeatingConsumption(rooms: Room[]) {
 
         return {
           cycles: totalCycles,
-          durationMin: totalDuration,
+          durationMin: mergedDuration, // Überlappungsfreie Dauer
           energyWh: totalEnergy,
           topConsumers: consumers.slice(0, 3),
         };
