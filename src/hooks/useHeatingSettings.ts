@@ -34,6 +34,9 @@ const defaultSettings: HeatingSettings = {
   electricity_price_kwh_cent: 20.28,
   electricity_base_fee_year_eur: 36.00,
   feed_in_price_kwh_cent: 8.00,
+  // Nacht-Zeiten
+  night_start_time: '22:00',
+  night_end_time: '06:00',
 };
 
 export function useHeatingSettings() {

@@ -52,6 +52,9 @@ export interface HeatingSettings {
   electricity_price_kwh_cent?: number;
   electricity_base_fee_year_eur?: number;
   feed_in_price_kwh_cent?: number;
+  // Nacht-Zeiten
+  night_start_time?: string;
+  night_end_time?: string;
   created_at?: string;
   updated_at?: string;
 }

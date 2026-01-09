@@ -320,6 +320,8 @@ export type Database = {
           min_battery_soc: number
           min_switch_interval_min: number | null
           night_cycling_enabled: boolean | null
+          night_end_time: string | null
+          night_start_time: string | null
           night_temp: number
           preheat_hours: number
           pv_capacity_kwp: number
@@ -357,6 +359,8 @@ export type Database = {
           min_battery_soc?: number
           min_switch_interval_min?: number | null
           night_cycling_enabled?: boolean | null
+          night_end_time?: string | null
+          night_start_time?: string | null
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
@@ -394,6 +398,8 @@ export type Database = {
           min_battery_soc?: number
           min_switch_interval_min?: number | null
           night_cycling_enabled?: boolean | null
+          night_end_time?: string | null
+          night_start_time?: string | null
           night_temp?: number
           preheat_hours?: number
           pv_capacity_kwp?: number
