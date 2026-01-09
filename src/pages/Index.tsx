@@ -44,7 +44,7 @@ const Index = () => {
     loadDailyPatterns 
   } = usePatternAnalysis();
 
-  const { energyIn, energyOut, pvEnergy } = useEnergyCalculation(readings);
+  const { energyIn, energyOut, pvEnergy, hasDataGaps, largestGapMinutes } = useEnergyCalculation(readings);
 
   useEffect(() => {
     loadDailyPatterns();
@@ -95,6 +95,8 @@ const Index = () => {
                   pvEnergy={pvEnergy}
                   electricityPriceCent={heatingSettings.electricity_price_kwh_cent}
                   feedInPriceCent={heatingSettings.feed_in_price_kwh_cent}
+                  hasDataGaps={hasDataGaps}
+                  largestGapMinutes={largestGapMinutes}
                 />
                 
                 <EnergyChart readings={readings} />

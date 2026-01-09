@@ -8,6 +8,8 @@ interface CalculatedEnergy {
   energyOut: number; // kWh exported to grid today
   pvEnergy: number;  // kWh produced by PV today
   isLoading: boolean;
+  hasDataGaps: boolean;      // Gibt es signifikante Datenlücken?
+  largestGapMinutes: number; // Größte Lücke in Minuten
 }
 
 // Stabiler Datumsstring für heute (ändert sich nur täglich)
@@ -15,6 +17,9 @@ function getTodayDateString(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
+
+// Max Lücke für Interpolation (6 Stunden)
+const MAX_GAP_FOR_INTERPOLATION_HOURS = 6;
 
 export function useEnergyCalculation(currentReadings: EnergyReading[]): CalculatedEnergy {
   const queryClient = useQueryClient();
@@ -60,12 +65,14 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
     const readings = todayReadings || [];
     
     if (readings.length < 2) {
-      return { energyIn: 0, energyOut: 0, pvEnergy: 0, isLoading };
+      return { energyIn: 0, energyOut: 0, pvEnergy: 0, isLoading, hasDataGaps: false, largestGapMinutes: 0 };
     }
 
     let energyIn = 0;
     let energyOut = 0;
     let pvEnergy = 0;
+    let largestGapMinutes = 0;
+    let hasDataGaps = false;
 
     for (let i = 1; i < readings.length; i++) {
       const prev = readings[i - 1];
@@ -74,9 +81,18 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
       const hoursElapsed = (new Date(curr.timestamp).getTime() - 
                            new Date(prev.timestamp).getTime()) / (1000 * 60 * 60);
       
-      // Größere Lücken tolerieren (bis 30 min)
-      if (hoursElapsed > 0.5) continue;
+      const gapMinutes = hoursElapsed * 60;
+      if (gapMinutes > largestGapMinutes) {
+        largestGapMinutes = gapMinutes;
+      }
+      if (gapMinutes > 30) {
+        hasDataGaps = true;
+      }
       
+      // Zu große Lücken (> 6h) ignorieren - vermutlich Tageswechsel oder größerer Ausfall
+      if (hoursElapsed > MAX_GAP_FOR_INTERPOLATION_HOURS) continue;
+      
+      // Normale Berechnung für alle Lücken bis 6 Stunden (inkl. Interpolation)
       const avgPower = ((prev.power_io ?? 0) + (curr.power_io ?? 0)) / 2;
       
       if (avgPower > 0) {
@@ -93,7 +109,9 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
       energyIn: Math.round(energyIn * 100) / 100,
       energyOut: Math.round(energyOut * 100) / 100,
       pvEnergy: Math.round(pvEnergy * 100) / 100,
-      isLoading
+      isLoading,
+      hasDataGaps,
+      largestGapMinutes: Math.round(largestGapMinutes)
     };
   }, [todayReadings, isLoading]);
 }
