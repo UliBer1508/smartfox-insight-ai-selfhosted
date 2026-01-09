@@ -8,12 +8,14 @@ import Auth from "./pages/Auth";
 import Install from "./pages/Install";
 import NotFound from "./pages/NotFound";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { PWARegistration } from "./components/PWARegistration";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <PWARegistration />
       <Toaster />
       <Sonner />
       <BrowserRouter>
