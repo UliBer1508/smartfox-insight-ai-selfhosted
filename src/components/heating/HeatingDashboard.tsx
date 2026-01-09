@@ -20,7 +20,8 @@ import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Bot } from 'lucide-react';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Bot, Brain } from 'lucide-react';
+import { LearningProgress } from './LearningProgress';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -373,7 +374,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         </CardHeader>
         <CardContent className="space-y-4">
           <Tabs defaultValue={rooms.length > 0 ? "rooms" : "global"} className="w-full">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="global">
                 <Thermometer className="w-4 h-4 mr-2" />
                 TGP508 Global
@@ -381,6 +382,10 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               <TabsTrigger value="rooms">
                 <Home className="w-4 h-4 mr-2" />
                 Raumweise
+              </TabsTrigger>
+              <TabsTrigger value="learning">
+                <Brain className="w-4 h-4 mr-2" />
+                ML-Status
               </TabsTrigger>
             </TabsList>
 
@@ -496,6 +501,10 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                   {rooms.length} Räume konfiguriert. Klicke auf &quot;Raumempfehlungen erstellen&quot; für individuelle Temperaturempfehlungen.
                 </div>
               )}
+            </TabsContent>
+
+            <TabsContent value="learning" className="mt-4">
+              <LearningProgress />
             </TabsContent>
           </Tabs>
         </CardContent>
