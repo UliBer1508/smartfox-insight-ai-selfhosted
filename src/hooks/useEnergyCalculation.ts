@@ -10,18 +10,24 @@ interface CalculatedEnergy {
   isLoading: boolean;
 }
 
+// Stabiler Datumsstring für heute (ändert sich nur täglich)
+function getTodayDateString(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+}
+
 export function useEnergyCalculation(currentReadings: EnergyReading[]): CalculatedEnergy {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const todayStr = useMemo(() => getTodayDateString(), []);
+  const todayStart = useMemo(() => `${todayStr}T00:00:00`, [todayStr]);
 
   // Lade ALLE Readings von heute aus der Datenbank
   const { data: todayReadings, isLoading } = useQuery({
-    queryKey: ['energy-readings-today', today.toISOString()],
+    queryKey: ['energy-readings-today', todayStr],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('energy_readings')
         .select('timestamp, power_io, pv_power, consumption')
-        .gte('timestamp', today.toISOString())
+        .gte('timestamp', todayStart)
         .order('timestamp', { ascending: true });
       
       if (error) throw error;
