@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, X } from 'lucide-react';
+import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, Leaf, Moon } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +14,8 @@ interface HeatingStats {
   todayEnergyWh: number;
 }
 
+type ActiveMode = 'comfort' | 'eco' | 'night';
+
 interface ThermostatCardProps {
   room: Room;
   onSetTemperature: (roomId: string, deviceId: string, temp: number) => Promise<boolean>;
@@ -22,6 +24,14 @@ interface ThermostatCardProps {
   onRefresh: (roomId: string) => void;
   isLoading?: boolean;
   heatingStats?: HeatingStats;
+  nightStartTime?: string;
+  nightEndTime?: string;
+}
+
+// Helper to parse time string "HH:MM" to minutes since midnight
+function parseTimeToMinutes(time: string): number {
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + (minutes || 0);
 }
 
 export function ThermostatCard({
@@ -32,9 +42,28 @@ export function ThermostatCard({
   onRefresh,
   isLoading = false,
   heatingStats,
+  nightStartTime = '22:00',
+  nightEndTime = '06:00',
 }: ThermostatCardProps) {
   const [localTemp, setLocalTemp] = useState(room.target_temp ?? room.comfort_temp);
   const [isSetting, setIsSetting] = useState(false);
+
+  // Determine active automatic mode
+  const activeMode = useMemo((): ActiveMode => {
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const nightStart = parseTimeToMinutes(nightStartTime);
+    const nightEnd = parseTimeToMinutes(nightEndTime);
+    
+    // Check if current time is in night period (handles overnight)
+    const isNight = nightStart > nightEnd 
+      ? (currentMinutes >= nightStart || currentMinutes < nightEnd)  // e.g., 22:00-06:00
+      : (currentMinutes >= nightStart && currentMinutes < nightEnd);
+    
+    if (isNight) return 'night';
+    if (room.pv_auto_active) return 'comfort';
+    return 'eco';
+  }, [nightStartTime, nightEndTime, room.pv_auto_active]);
 
   const handleTempChange = (value: number[]) => {
     setLocalTemp(value[0]);
@@ -173,33 +202,45 @@ export function ThermostatCard({
               </Button>
             </div>
 
-            {/* Preset Buttons */}
+            {/* Preset Buttons with Active Mode Highlighting */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               <Button
                 variant={localTemp === room.comfort_temp ? 'default' : 'outline'}
                 size="sm"
-                className="text-xs sm:text-sm"
+                className={cn(
+                  "text-xs sm:text-sm gap-1",
+                  activeMode === 'comfort' && room.pv_auto_enabled && 'ring-2 ring-amber-400 ring-offset-1 ring-offset-background'
+                )}
                 onClick={() => setPresetTemp(room.comfort_temp)}
                 disabled={isSetting}
               >
+                <Sun className="h-3 w-3" />
                 Komfort ({room.comfort_temp}°)
               </Button>
               <Button
                 variant={localTemp === room.eco_temp ? 'default' : 'outline'}
                 size="sm"
-                className="text-xs sm:text-sm"
+                className={cn(
+                  "text-xs sm:text-sm gap-1",
+                  activeMode === 'eco' && room.pv_auto_enabled && 'ring-2 ring-green-400 ring-offset-1 ring-offset-background'
+                )}
                 onClick={() => setPresetTemp(room.eco_temp)}
                 disabled={isSetting}
               >
+                <Leaf className="h-3 w-3" />
                 Eco ({room.eco_temp}°)
               </Button>
               <Button
                 variant={localTemp === room.night_temp ? 'default' : 'outline'}
                 size="sm"
-                className="col-span-2 sm:col-span-1 text-xs sm:text-sm"
+                className={cn(
+                  "col-span-2 sm:col-span-1 text-xs sm:text-sm gap-1",
+                  activeMode === 'night' && room.pv_auto_enabled && 'ring-2 ring-blue-400 ring-offset-1 ring-offset-background'
+                )}
                 onClick={() => setPresetTemp(room.night_temp)}
                 disabled={isSetting}
               >
+                <Moon className="h-3 w-3" />
                 Nacht ({room.night_temp}°)
               </Button>
             </div>
