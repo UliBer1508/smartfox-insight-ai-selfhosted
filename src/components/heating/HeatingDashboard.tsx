@@ -59,7 +59,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     saveRecommendations: saveRoomRecommendations,
     getCurrentRecommendation,
     loadRecommendations: loadRoomRecommendations,
-    loadRooms
+    loadRooms,
+    updateRoomLocally
   } = useRooms();
 
   const {
@@ -139,15 +140,20 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   }, [setTemperature, loadRooms]);
 
   const handleTogglePvAuto = useCallback(async (roomId: string, enabled: boolean) => {
-    await saveRoom({ id: roomId, pv_auto_enabled: enabled });
+    // skipReload=true für optimistisches Update ohne Karten-Verschiebung
+    await saveRoom({ id: roomId, pv_auto_enabled: enabled }, true);
   }, [saveRoom]);
 
   const handleToggleAutomation = useCallback(async (roomId: string, enabled: boolean) => {
+    // Optimistisches Update vor Server-Call
+    updateRoomLocally(roomId, { automation_enabled: enabled });
+    
     const success = await toggleAutomation(roomId, enabled);
-    if (success) {
-      await loadRooms();
+    if (!success) {
+      // Bei Fehler: Zustand zurücksetzen
+      updateRoomLocally(roomId, { automation_enabled: !enabled });
     }
-  }, [toggleAutomation, loadRooms]);
+  }, [toggleAutomation, updateRoomLocally]);
 
   const handleRefreshRoom = useCallback(async (roomId: string) => {
     await syncAllStatus();
