@@ -68,9 +68,9 @@ export function EnergyCostWidget({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <TrendingDown className="h-4 w-4 text-destructive" />
-                <span className="text-sm text-muted-foreground">Strombezug (Salzburg AG)</span>
+                <span className="text-sm text-muted-foreground">Strombezug</span>
               </div>
-              <span className="text-sm font-medium text-destructive">
+              <span className="text-base sm:text-lg font-bold font-mono text-destructive">
                 -{formatCurrency(data.gridCost)}
               </span>
             </div>
@@ -81,7 +81,7 @@ export function EnergyCostWidget({
                 <TrendingUp className="h-4 w-4 text-green-500" />
                 <span className="text-sm text-muted-foreground">ÖMAG Einspeisung</span>
               </div>
-              <span className="text-sm font-medium text-green-500">
+              <span className="text-base sm:text-lg font-bold font-mono text-green-500">
                 +{formatCurrency(data.feedInEarnings)}
               </span>
             </div>
@@ -90,9 +90,9 @@ export function EnergyCostWidget({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Sun className="h-4 w-4 text-yellow-500" />
-                <span className="text-sm text-muted-foreground">PV-Ersparnis (Eigenverbrauch)</span>
+                <span className="text-sm text-muted-foreground">PV-Ersparnis</span>
               </div>
-              <span className="text-sm font-medium text-yellow-500">
+              <span className="text-base sm:text-lg font-bold font-mono text-yellow-500">
                 +{formatCurrency(data.pvSavings)}
               </span>
             </div>
@@ -100,8 +100,8 @@ export function EnergyCostWidget({
             {/* Trennlinie */}
             <div className="border-t border-border pt-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">Bilanz {periodLabel(period)}</span>
-                <span className={`text-base font-bold ${data.netBalance >= 0 ? 'text-green-500' : 'text-destructive'}`}>
+                <span className="text-sm font-medium">Bilanz</span>
+                <span className={`text-xl sm:text-2xl font-bold font-mono ${data.netBalance >= 0 ? 'text-green-500' : 'text-destructive'}`}>
                   {formatCurrency(data.netBalance, true)}
                 </span>
               </div>

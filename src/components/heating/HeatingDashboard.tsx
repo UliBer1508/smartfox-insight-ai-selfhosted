@@ -248,7 +248,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono text-energy-export">
+            <div className="text-xl sm:text-2xl font-bold font-mono text-energy-export">
               {latestPvPower !== null ? `${(latestPvPower / 1000).toFixed(1)} kW` : '—'}
             </div>
             <p className="text-xs text-muted-foreground">
@@ -265,7 +265,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold font-mono">
+            <div className="text-xl sm:text-2xl font-bold font-mono">
               {getHeatingRecommendation(latestPvPower, latestSoc, settings)}
             </div>
             <p className="text-xs text-muted-foreground">aktuelle Empfehlung</p>
