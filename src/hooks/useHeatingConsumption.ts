@@ -100,28 +100,41 @@ export function useHeatingConsumption(rooms: Room[]) {
         // Sammle alle Heizintervalle für überlappende Berechnung
         const allIntervals: { start: Date; end: Date }[] = [];
 
-        periodLogs.forEach(log => {
-          const roomId = log.room_id;
-          if (!roomStats.has(roomId)) {
-            roomStats.set(roomId, { cycles: 0, durationMin: 0, energyWh: 0 });
-          }
-          const stats = roomStats.get(roomId)!;
+      periodLogs.forEach(log => {
+        const roomId = log.room_id;
+        if (!roomStats.has(roomId)) {
+          roomStats.set(roomId, { cycles: 0, durationMin: 0, energyWh: 0 });
+        }
+        const stats = roomStats.get(roomId)!;
 
-          if (log.event_type === 'heating_start') {
-            stats.cycles += 1;
-          }
-          if (log.event_type === 'heating_stop') {
-            stats.durationMin += log.duration_minutes || 0;
-            stats.energyWh += log.energy_estimate_wh || 0;
+        if (log.event_type === 'heating_start') {
+          stats.cycles += 1;
+        }
+        if (log.event_type === 'heating_stop' && log.duration_minutes && log.timestamp) {
+          const stopTime = new Date(log.timestamp);
+          const startTime = new Date(stopTime.getTime() - (log.duration_minutes * 60000));
+          
+          // Prüfe ob Heizzyklus vor periodStart begonnen hat
+          if (startTime < periodStart) {
+            // Berechne nur den Anteil innerhalb der Periode
+            const totalDuration = log.duration_minutes;
+            const durationInPeriod = Math.max(0, (stopTime.getTime() - periodStart.getTime()) / 60000);
+            const ratio = durationInPeriod / totalDuration;
             
-            // Erstelle Interval für überlappende Berechnung
-            if (log.duration_minutes && log.timestamp) {
-              const endTime = new Date(log.timestamp);
-              const startTime = new Date(endTime.getTime() - (log.duration_minutes * 60000));
-              allIntervals.push({ start: startTime, end: endTime });
-            }
+            // Nur proportionaler Anteil der Energie
+            stats.durationMin += Math.round(durationInPeriod);
+            stats.energyWh += Math.round((log.energy_estimate_wh || 0) * ratio);
+            
+            // Interval nur für den Teil innerhalb der Periode
+            allIntervals.push({ start: periodStart, end: stopTime });
+          } else {
+            // Kompletter Zyklus in der Periode
+            stats.durationMin += log.duration_minutes;
+            stats.energyWh += log.energy_estimate_wh || 0;
+            allIntervals.push({ start: startTime, end: stopTime });
           }
-        });
+        }
+      });
 
         // Add energy for currently heating rooms
         rooms.forEach(room => {
