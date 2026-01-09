@@ -92,6 +92,15 @@ export function useTuyaControl() {
       if (error) throw error;
       if (!data.success) throw new Error(data.error);
 
+      // Set manual override for 2 hours to protect from automation
+      if (roomId) {
+        const overrideUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        await supabase.from('rooms').update({
+          manual_override_until: overrideUntil
+        }).eq('id', roomId);
+        console.log(`[useTuyaControl] Manual override set until ${overrideUntil} for room ${roomId}`);
+      }
+
       toast.success(`Temperatur auf ${temperature}°C gesetzt`);
       return true;
     } catch (error) {

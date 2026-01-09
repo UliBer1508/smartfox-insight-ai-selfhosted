@@ -292,6 +292,22 @@ Deno.serve(async (req) => {
       const now = new Date();
 
       for (const room of rooms) {
+        // Check manual override first
+        if (room.manual_override_until) {
+          const overrideUntil = new Date(room.manual_override_until);
+          if (overrideUntil > now) {
+            console.log(`[PV-Automation] Room ${room.name} has manual override until ${overrideUntil.toLocaleTimeString('de-DE')}`);
+            results.push({
+              roomId: room.id,
+              roomName: room.name,
+              action: 'skip',
+              message: `Manueller Override bis ${overrideUntil.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`,
+              mlBased: false
+            });
+            continue;
+          }
+        }
+
         const lastChange = room.pv_auto_last_change ? new Date(room.pv_auto_last_change) : null;
         const minutesSinceChange = lastChange ? (now.getTime() - lastChange.getTime()) / (1000 * 60) : 999;
 
