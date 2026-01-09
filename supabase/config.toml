@@ -23,3 +23,12 @@ verify_jwt = false
 
 [functions.analyze-solar-gain]
 verify_jwt = false
+
+[functions.ml-feature-extraction]
+verify_jwt = false
+
+[functions.evaluate-decision]
+verify_jwt = false
+
+[functions.fetch-weather]
+verify_jwt = false
