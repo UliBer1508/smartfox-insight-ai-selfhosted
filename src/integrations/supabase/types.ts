@@ -443,6 +443,59 @@ export type Database = {
         }
         Relationships: []
       }
+      learning_events: {
+        Row: {
+          action: Json
+          context: Json
+          created_at: string | null
+          decision_type: string
+          evaluated_at: string | null
+          id: string
+          is_evaluated: boolean | null
+          outcome: Json | null
+          reward: number | null
+          reward_breakdown: Json | null
+          room_id: string | null
+          timestamp: string
+        }
+        Insert: {
+          action?: Json
+          context?: Json
+          created_at?: string | null
+          decision_type: string
+          evaluated_at?: string | null
+          id?: string
+          is_evaluated?: boolean | null
+          outcome?: Json | null
+          reward?: number | null
+          reward_breakdown?: Json | null
+          room_id?: string | null
+          timestamp?: string
+        }
+        Update: {
+          action?: Json
+          context?: Json
+          created_at?: string | null
+          decision_type?: string
+          evaluated_at?: string | null
+          id?: string
+          is_evaluated?: boolean | null
+          outcome?: Json | null
+          reward?: number | null
+          reward_breakdown?: Json | null
+          room_id?: string | null
+          timestamp?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learning_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pv_forecasts: {
         Row: {
           created_at: string
@@ -522,6 +575,77 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "room_heating_logs_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      room_ml_features: {
+        Row: {
+          avg_cycles_per_day: number | null
+          avg_heating_duration_min: number | null
+          battery_dependency_ratio: number | null
+          confidence: number | null
+          created_at: string | null
+          date: string
+          energy_per_degree_wh: number | null
+          grid_import_ratio: number | null
+          heat_loss_rate_deg_per_hour: number | null
+          heating_rate_deg_per_hour: number | null
+          id: string
+          optimal_solar_hours: string[] | null
+          preheat_duration_for_1deg_min: number | null
+          pv_heating_ratio: number | null
+          room_id: string
+          sample_count: number | null
+          solar_gain_factor: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          avg_cycles_per_day?: number | null
+          avg_heating_duration_min?: number | null
+          battery_dependency_ratio?: number | null
+          confidence?: number | null
+          created_at?: string | null
+          date: string
+          energy_per_degree_wh?: number | null
+          grid_import_ratio?: number | null
+          heat_loss_rate_deg_per_hour?: number | null
+          heating_rate_deg_per_hour?: number | null
+          id?: string
+          optimal_solar_hours?: string[] | null
+          preheat_duration_for_1deg_min?: number | null
+          pv_heating_ratio?: number | null
+          room_id: string
+          sample_count?: number | null
+          solar_gain_factor?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          avg_cycles_per_day?: number | null
+          avg_heating_duration_min?: number | null
+          battery_dependency_ratio?: number | null
+          confidence?: number | null
+          created_at?: string | null
+          date?: string
+          energy_per_degree_wh?: number | null
+          grid_import_ratio?: number | null
+          heat_loss_rate_deg_per_hour?: number | null
+          heating_rate_deg_per_hour?: number | null
+          id?: string
+          optimal_solar_hours?: string[] | null
+          preheat_duration_for_1deg_min?: number | null
+          pv_heating_ratio?: number | null
+          room_id?: string
+          sample_count?: number | null
+          solar_gain_factor?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_ml_features_room_id_fkey"
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
@@ -764,6 +888,54 @@ export type Database = {
           polling_interval?: number
           smartfox_ip?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      weather_data: {
+        Row: {
+          apparent_temperature_c: number | null
+          cloud_cover_percent: number | null
+          created_at: string | null
+          diffuse_radiation_wm2: number | null
+          direct_radiation_wm2: number | null
+          humidity_percent: number | null
+          id: string
+          is_day: boolean | null
+          precipitation_mm: number | null
+          source: string | null
+          temperature_c: number | null
+          timestamp: string
+          wind_speed_kmh: number | null
+        }
+        Insert: {
+          apparent_temperature_c?: number | null
+          cloud_cover_percent?: number | null
+          created_at?: string | null
+          diffuse_radiation_wm2?: number | null
+          direct_radiation_wm2?: number | null
+          humidity_percent?: number | null
+          id?: string
+          is_day?: boolean | null
+          precipitation_mm?: number | null
+          source?: string | null
+          temperature_c?: number | null
+          timestamp: string
+          wind_speed_kmh?: number | null
+        }
+        Update: {
+          apparent_temperature_c?: number | null
+          cloud_cover_percent?: number | null
+          created_at?: string | null
+          diffuse_radiation_wm2?: number | null
+          direct_radiation_wm2?: number | null
+          humidity_percent?: number | null
+          id?: string
+          is_day?: boolean | null
+          precipitation_mm?: number | null
+          source?: string | null
+          temperature_c?: number | null
+          timestamp?: string
+          wind_speed_kmh?: number | null
         }
         Relationships: []
       }
