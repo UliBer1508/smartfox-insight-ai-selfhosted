@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets, Euro } from 'lucide-react';
+import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets, Euro, Moon } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
@@ -140,8 +140,39 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                 value={formData.night_temp}
                 onChange={(e) => handleChange('night_temp', parseFloat(e.target.value))}
               />
-              <p className="text-xs text-muted-foreground">Nachtabsenkung</p>
+              <p className="text-xs text-muted-foreground">Während Nacht-Zeiten</p>
             </div>
+          </div>
+
+          {/* Nacht-Zeiten */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Moon className="w-4 h-4" />
+              Nacht-Zeiten für Automatik
+            </h3>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="night_start">Nacht-Start</Label>
+                <Input
+                  id="night_start"
+                  type="time"
+                  value={formData.night_start_time || '22:00'}
+                  onChange={(e) => handleChange('night_start_time', e.target.value)}
+              />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="night_end">Nacht-Ende</Label>
+                <Input
+                  id="night_end"
+                  type="time"
+                  value={formData.night_end_time || '06:00'}
+                  onChange={(e) => handleChange('night_end_time', e.target.value)}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              Während dieser Zeit wird automatisch die Nacht-Temperatur verwendet
+            </p>
           </div>
 
           {/* PV-Automatik Schwellwerte */}

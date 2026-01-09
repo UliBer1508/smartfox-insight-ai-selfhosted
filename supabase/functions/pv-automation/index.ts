@@ -9,6 +9,25 @@ const DEFAULT_PV_SURPLUS_THRESHOLD_ON = 500;
 const DEFAULT_PV_SURPLUS_THRESHOLD_OFF = 200;
 const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 5;
 
+// Helper: Check if current time is within night hours
+function isNightTime(nightStartTime: string, nightEndTime: string): boolean {
+  const now = new Date();
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  const [startH, startM] = (nightStartTime || '22:00').split(':').map(Number);
+  const [endH, endM] = (nightEndTime || '06:00').split(':').map(Number);
+  
+  const nightStart = startH * 60 + startM;
+  const nightEnd = endH * 60 + endM;
+  
+  // Case: Night spans midnight (e.g., 22:00-06:00)
+  if (nightStart > nightEnd) {
+    return currentMinutes >= nightStart || currentMinutes < nightEnd;
+  }
+  // Case: Night within same day (e.g., 00:00-06:00)
+  return currentMinutes >= nightStart && currentMinutes < nightEnd;
+}
+
 interface MLDecision {
   room_id: string;
   room_name: string;
@@ -352,19 +371,44 @@ Deno.serve(async (req) => {
           expectedEnergyWh = mlDecision.expected_energy_wh;
           confidence = mlDecision.confidence;
         } else {
-          // Fallback: Simple threshold logic
-          if (batterySoc < minBatterySoc) {
+          // Time-based logic: Night mode has priority
+          const nightStart = settings?.night_start_time || '22:00';
+          const nightEnd = settings?.night_end_time || '06:00';
+          const isNight = isNightTime(nightStart, nightEnd);
+          
+          if (isNight) {
+            // Night mode: Use night temperature
+            const nightTemp = room.night_temp || settings?.night_temp || 17;
+            if (room.target_temp !== nightTemp) {
+              action = 'deactivate'; // Use deactivate to trigger temp change
+              targetTemp = nightTemp;
+              reasoning = `Nachtmodus (${nightStart}-${nightEnd})`;
+            }
+          } else if (batterySoc < minBatterySoc) {
+            // Battery protection
             if (room.pv_auto_active) {
               action = 'deactivate';
-              reasoning = `Battery <${minBatterySoc}%`;
+              targetTemp = room.eco_temp || settings?.eco_temp || 19;
+              reasoning = `Batterie <${minBatterySoc}%`;
             }
           } else if (surplus >= thresholdOn && !room.pv_auto_active) {
+            // PV surplus: Activate comfort mode
             action = 'activate';
             targetTemp = room.comfort_temp || settings?.comfort_temp || 21;
-            reasoning = `Surplus ${surplus}W >= ${thresholdOn}W`;
+            reasoning = `PV-Überschuss ${surplus}W >= ${thresholdOn}W`;
           } else if (surplus < thresholdOff && room.pv_auto_active) {
+            // Low surplus: Switch to eco mode
             action = 'deactivate';
-            reasoning = `Surplus ${surplus}W < ${thresholdOff}W`;
+            targetTemp = room.eco_temp || settings?.eco_temp || 19;
+            reasoning = `Eco-Modus (Überschuss ${surplus}W < ${thresholdOff}W)`;
+          } else if (!room.pv_auto_active) {
+            // Day without surplus: Ensure eco temp
+            const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
+            if (room.target_temp !== ecoTemp) {
+              action = 'deactivate';
+              targetTemp = ecoTemp;
+              reasoning = 'Eco-Modus (Standard tagsüber)';
+            }
           }
         }
 
