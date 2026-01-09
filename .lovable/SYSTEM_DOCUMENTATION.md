@@ -1,5 +1,15 @@
 # Energie-Management-System - Vollständige Dokumentation
 
+> **🔴 WICHTIG FÜR DIE ENTWICKLUNG:** Diese Dokumentation enthält alle System-Details,
+> Architektur-Entscheidungen und die Änderungshistorie. Bei jeder Änderung MUSS 
+> das Changelog (Sektion 12) aktualisiert werden!
+
+**Letzte Aktualisierung:** 09.01.2026  
+**Version:** 2.0  
+**Projekt-ID:** tvqmhdpcixkfsudxughs
+
+---
+
 ## 1. System-Architektur
 
 ### Übersicht
@@ -723,3 +733,136 @@ supabase functions serve function-name
 cd local-collector/collector-node
 npm start
 ```
+
+---
+
+## 12. Änderungshistorie (Changelog)
+
+> **Bei jeder Änderung hier dokumentieren!**
+
+### Januar 2026
+
+#### 09.01.2026 - Sicherheitsimplementierung
+- **RLS aktiviert** auf allen 10 Tabellen die zuvor keine RLS hatten
+- **Alte Policies entfernt** (18 unsichere "Allow All" Policies)
+- **Neue einheitliche Policies erstellt** für alle 18 Tabellen
+- **Security-Findings dokumentiert** und als nicht-relevant markiert
+- **System-Dokumentation erweitert** mit Sicherheitsmodell und Changelog
+
+#### 09.01.2026 - Heizungsverbrauch-Korrektur
+- **Mitternachtsberechnung korrigiert** in `useHeatingConsumption.ts`
+- Heizzyklen die über Mitternacht laufen werden jetzt proportional aufgeteilt
+- `energy_estimate_wh` und `duration_minutes` werden korrekt zum jeweiligen Tag zugeordnet
+
+#### [Frühere Änderungen]
+- PV-Automatik mit Schwellwerten implementiert
+- Tuya-Integration für Thermostate (TGP508)
+- PWA mit Offline-Support und Auto-Update
+- Datenretention-System mit Aggregation
+- Pattern-Analyse mit AI (Lovable AI)
+- Lokaler Collector (Python und Node.js)
+
+---
+
+## 13. Sicherheitsmodell
+
+### Authentifizierung
+
+| Aspekt | Implementierung |
+|--------|-----------------|
+| Methode | Email/Passwort |
+| Provider | Supabase Auth (via Lovable Cloud) |
+| Auto-Confirm | Aktiviert für Email-Signups |
+| Registrierung | Nur für Familienmitglieder (privat) |
+
+### Row Level Security (RLS)
+
+**Konzept:** Einfaches Single-Household-Modell
+
+| Benutzertyp | Zugriff |
+|-------------|---------|
+| Unauthentifiziert | ❌ Kein Zugriff |
+| Authentifiziert | ✅ Voller Zugriff auf alle Daten |
+| Edge Functions (service_role) | ✅ Voller Zugriff (RLS umgangen) |
+
+**Begründung für dieses einfache Modell:**
+- Private Familien-App ohne externe Benutzer
+- Keine öffentliche Registrierung möglich
+- Alle Familienmitglieder sollen alle Energiedaten sehen und steuern können
+- Kein Multi-Tenant-Szenario erforderlich
+
+### RLS Policies (Stand: 09.01.2026)
+
+Alle 18 Tabellen haben eine einheitliche Policy:
+
+```sql
+CREATE POLICY "Authenticated users full access"
+ON public.<table_name>
+FOR ALL
+TO authenticated
+USING (true)
+WITH CHECK (true);
+```
+
+**Betroffene Tabellen:**
+1. `consumer_logs`
+2. `daily_patterns`
+3. `data_retention_settings`
+4. `detected_patterns`
+5. `energy_daily_costs`
+6. `energy_readings`
+7. `heating_recommendations`
+8. `heating_settings`
+9. `hourly_aggregates`
+10. `learning_events`
+11. `pv_forecasts`
+12. `room_heating_logs`
+13. `room_ml_features`
+14. `room_recommendations`
+15. `room_temperature_samples`
+16. `rooms`
+17. `smartfox_settings`
+18. `weather_data`
+
+### Ignorierte Security-Findings
+
+| Finding | Kategorie | Begründung |
+|---------|-----------|------------|
+| GPS-Koordinaten in `heating_settings` | Location Exposure | Nur authentifizierte Familienmitglieder haben Zugriff; für PV-Forecast benötigt |
+| `USING (true)` in allen Policies | Permissive Policy | Bewusste Entscheidung für Single-Household-System ohne Multi-Tenant-Anforderung |
+
+---
+
+## 14. Entscheidungsprotokoll
+
+> Dokumentiert wichtige Architektur-Entscheidungen mit Begründung
+
+| Entscheidung | Begründung | Datum |
+|--------------|------------|-------|
+| **Fronius-Only Collector** | Smartfox liefert keine zuverlässigen kumulierten Energiewerte; Fronius P_Grid/P_PV/P_Load sind genauer | 01/2026 |
+| **Simple RLS statt User-ID-basiert** | Single-Household-App, keine Multi-Tenant-Anforderung, alle Familienmitglieder brauchen vollen Zugriff | 09.01.2026 |
+| **PV-Automatik mit Hysterese** | Zwei Schwellwerte (on/off) verhindern häufiges Schalten bei schwankender Solarproduktion | Initial |
+| **Lokaler Collector statt Cloud-Polling** | Smartfox/Fronius nur im LAN erreichbar, kein Cloud-Zugriff möglich | Initial |
+| **PWA statt Native App** | Plattformübergreifend (iOS/Android/Windows), einfache Updates, keine App-Store-Zulassung nötig | Initial |
+| **Tuya Cloud API statt lokale Steuerung** | TGP508 Thermostate haben keine lokale API, nur Tuya Cloud | Initial |
+| **30-Sekunden Polling-Intervall** | Kompromiss zwischen Echtzeit-Gefühl und Datenvolumen | Initial |
+| **Datenretention mit Aggregation** | Rohdaten 7 Tage, stündlich 90 Tage, täglich unbegrenzt - spart Speicherplatz | Initial |
+
+---
+
+## 15. Bekannte Einschränkungen
+
+| Bereich | Einschränkung | Workaround |
+|---------|---------------|------------|
+| Smartfox-Daten | Keine zuverlässigen kumulierten kWh-Werte | Nur Fronius-Daten verwenden |
+| Tuya-API | Rate-Limiting bei zu vielen Anfragen | Min. 5 Minuten zwischen Temperaturänderungen |
+| PV-Forecast | forecast.solar Free-Tier: 12 Anfragen/Stunde | Nur einmal täglich abrufen |
+| Offline-Modus | Nur Lesezugriff auf gecachte Daten | Thermostat-Steuerung benötigt Online |
+
+---
+
+## 16. Kontakt & Links
+
+- **Lovable Cloud Projekt-ID:** `tvqmhdpcixkfsudxughs`
+- **PV-Forecast API:** https://forecast.solar
+- **Tuya IoT Platform:** https://iot.tuya.com
