@@ -47,6 +47,10 @@ export function useEnergyCosts(
     year: { ...emptyCost },
   });
   const [isLoading, setIsLoading] = useState(true);
+  
+  // Ref für Debounce der DB-Speicherung (muss vor useCallback/useEffect kommen)
+  const lastSaveRef = useRef<number>(0);
+  const SAVE_INTERVAL_MS = 5 * 60 * 1000; // Alle 5 Minuten speichern
 
   // Berechne aktuelle Tageskosten aus Props
   const calculateTodayCosts = useCallback((): CostData => {
@@ -161,9 +165,6 @@ export function useEnergyCosts(
     setIsLoading(false);
   }, [calculateTodayCosts]);
 
-  // Ref für Debounce der DB-Speicherung
-  const lastSaveRef = useRef<number>(0);
-  const SAVE_INTERVAL_MS = 5 * 60 * 1000; // Alle 5 Minuten speichern
 
   // Lade historische Daten beim Mount
   useEffect(() => {
