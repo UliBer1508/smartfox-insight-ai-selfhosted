@@ -292,7 +292,20 @@ Deno.serve(async (req) => {
       const now = new Date();
 
       for (const room of rooms) {
-        // Check manual override first
+        // Check if automation is disabled for this room - full manual control
+        if (!room.automation_enabled) {
+          console.log(`[PV-Automation] Room ${room.name} has automation disabled, skipping`);
+          results.push({
+            roomId: room.id,
+            roomName: room.name,
+            action: 'skip',
+            message: 'Automatik deaktiviert - manuelle Kontrolle',
+            mlBased: false
+          });
+          continue;
+        }
+
+        // Check manual override (temporary protection)
         if (room.manual_override_until) {
           const overrideUntil = new Date(room.manual_override_until);
           if (overrideUntil > now) {
