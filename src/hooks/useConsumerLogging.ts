@@ -28,8 +28,8 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
       .insert({
         consumer_type: consumerType,
         start_time: new Date().toISOString(),
-        avg_power_w: consumer.power,
-        max_power_w: consumer.power,
+        avg_power_w: Math.round(consumer.power),
+        max_power_w: Math.round(consumer.power),
         is_active: true
       })
       .select('id')
@@ -40,8 +40,8 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
         logId: data.id,
         consumerType,
         startTime: new Date(),
-        powerSamples: [consumer.power],
-        maxPower: consumer.power
+        powerSamples: [Math.round(consumer.power)],
+        maxPower: Math.round(consumer.power)
       });
       console.log(`[ConsumerLogging] Session gestartet: ${consumerType}`);
     }
@@ -79,8 +79,8 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
     const session = activeSessions.current.get(consumerType);
     if (!session) return;
 
-    session.powerSamples.push(consumer.power);
-    session.maxPower = Math.max(session.maxPower, consumer.power);
+    session.powerSamples.push(Math.round(consumer.power));
+    session.maxPower = Math.max(session.maxPower, Math.round(consumer.power));
 
     // Nur alle 60 Sekunden in DB updaten
     const now = new Date();
