@@ -48,7 +48,7 @@ export function EnergyCostWidget({
             Kostenübersicht {periodLabel(period)}
           </CardTitle>
           <Select value={period} onValueChange={(v) => setPeriod(v as CostPeriod)}>
-            <SelectTrigger className="w-[100px] h-8">
+            <SelectTrigger className="w-[75px] h-6 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
