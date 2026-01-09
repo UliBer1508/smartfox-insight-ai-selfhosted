@@ -75,7 +75,7 @@ export function ThermostatCard({
 
   return (
     <Card className={cn(
-      'transition-all duration-300 border-2 border-transparent min-w-0 overflow-hidden',
+      'transition-all duration-300 border-2 border-transparent min-w-0 overflow-hidden min-h-[380px]',
       isHeating && 'border-orange-500/50 bg-orange-50/30 dark:bg-orange-950/20'
     )}>
       <CardHeader className="pb-2">
@@ -221,31 +221,37 @@ export function ThermostatCard({
               </div>
             </div>
 
-            {/* Heating Stats */}
-            {heatingStats && heatingStats.todayCycles > 0 && (
-              <div className="grid grid-cols-3 gap-1 pt-2 border-t text-xs text-muted-foreground text-center">
-                <div className="flex flex-col items-center gap-0.5">
-                  <Flame className="h-3 w-3 text-orange-500" />
-                  <span className="font-medium">{heatingStats.todayCycles}</span>
+            {/* Heating Stats - immer anzeigen für stabile Höhe */}
+            <div className="grid grid-cols-3 gap-1 pt-2 border-t text-xs text-muted-foreground text-center min-h-[40px]">
+              {heatingStats && heatingStats.todayCycles > 0 ? (
+                <>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <Flame className="h-3 w-3 text-orange-500" />
+                    <span className="font-medium">{heatingStats.todayCycles}</span>
+                  </div>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <Clock className="h-3 w-3 text-blue-500" />
+                    <span className="font-medium">
+                      {heatingStats.todayDurationMin < 60 
+                        ? `${heatingStats.todayDurationMin}m` 
+                        : `${Math.floor(heatingStats.todayDurationMin / 60)}h${heatingStats.todayDurationMin % 60}m`}
+                    </span>
+                  </div>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <Zap className="h-3 w-3 text-yellow-500" />
+                    <span className="font-medium">
+                      {heatingStats.todayEnergyWh < 1000 
+                        ? `${heatingStats.todayEnergyWh}Wh` 
+                        : `${(heatingStats.todayEnergyWh / 1000).toFixed(1)}kWh`}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="col-span-3 flex items-center justify-center text-muted-foreground/50">
+                  Keine Zyklen heute
                 </div>
-                <div className="flex flex-col items-center gap-0.5">
-                  <Clock className="h-3 w-3 text-blue-500" />
-                  <span className="font-medium">
-                    {heatingStats.todayDurationMin < 60 
-                      ? `${heatingStats.todayDurationMin}m` 
-                      : `${Math.floor(heatingStats.todayDurationMin / 60)}h${heatingStats.todayDurationMin % 60}m`}
-                  </span>
-                </div>
-                <div className="flex flex-col items-center gap-0.5">
-                  <Zap className="h-3 w-3 text-yellow-500" />
-                  <span className="font-medium">
-                    {heatingStats.todayEnergyWh < 1000 
-                      ? `${heatingStats.todayEnergyWh}Wh` 
-                      : `${(heatingStats.todayEnergyWh / 1000).toFixed(1)}kWh`}
-                  </span>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* Last Sync */}
             {room.last_thermostat_sync && (

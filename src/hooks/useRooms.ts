@@ -14,7 +14,8 @@ export function useRooms() {
       const { data, error } = await supabase
         .from('rooms')
         .select('*')
-        .order('priority', { ascending: true });
+        .order('priority', { ascending: true })
+        .order('created_at', { ascending: true });
 
       console.log('📊 Rooms response:', { data, error, count: data?.length });
 
