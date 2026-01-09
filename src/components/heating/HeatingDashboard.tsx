@@ -285,7 +285,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
 
       {/* Heating & Cost Overview - 2 columns */}
       <div className="grid md:grid-cols-2 gap-4">
-        <HeatingOverviewCard rooms={rooms} stats={heatingStats} />
+        <HeatingOverviewCard rooms={rooms} />
         <EnergyCostWidget
           energyIn={energyIn}
           energyOut={energyOut}
