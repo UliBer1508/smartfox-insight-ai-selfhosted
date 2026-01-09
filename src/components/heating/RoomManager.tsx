@@ -6,7 +6,8 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2 } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2, Info, Leaf, Moon, ChevronDown } from 'lucide-react';
 import { Room, OrientationType, ORIENTATION_LABELS, getEffectiveHeatingPower } from '@/types/room';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -303,7 +304,32 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
         </Dialog>
         </div>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="space-y-3">
+        {/* Temperatur-Modi Legende */}
+        <Collapsible>
+          <CollapsibleTrigger className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors w-full">
+            <Info className="h-4 w-4" />
+            <span>Wann wird welche Temperatur verwendet?</span>
+            <ChevronDown className="h-4 w-4 ml-auto transition-transform [[data-state=open]>&]:rotate-180" />
+          </CollapsibleTrigger>
+          <CollapsibleContent className="mt-2 p-3 bg-muted/30 rounded-lg text-sm space-y-2">
+            <div className="flex items-start gap-2">
+              <Sun className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+              <span><strong>Komfort:</strong> Bei PV-Überschuss tagsüber (Schwellwert aus Einstellungen)</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <Leaf className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+              <span><strong>Eco:</strong> Tagsüber ohne ausreichend PV-Überschuss oder bei niedriger Batterie</span>
+            </div>
+            <div className="flex items-start gap-2">
+              <Moon className="h-4 w-4 text-blue-400 mt-0.5 shrink-0" />
+              <span><strong>Nacht:</strong> Während der Nachtzeit (konfigurierbar in Einstellungen)</span>
+            </div>
+            <p className="text-xs text-muted-foreground border-t border-border pt-2 mt-2">
+              💡 Die Automatik greift nur bei aktivierter <strong>PV-Auto</strong> Option für den jeweiligen Raum.
+            </p>
+          </CollapsibleContent>
+        </Collapsible>
         {rooms.length === 0 ? (
           <p className="text-muted-foreground text-sm text-center py-4">
             Noch keine Räume angelegt. Füge Räume hinzu, um raumspezifische Empfehlungen zu erhalten.
