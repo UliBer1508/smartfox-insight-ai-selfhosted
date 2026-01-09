@@ -28,8 +28,25 @@ export function usePatternAnalysis() {
 
     setIsAnalyzing(true);
     try {
+      // Lade Verbraucher-Kontext parallel
+      const todayStart = new Date().toISOString().split('T')[0];
+      const [settingsResult, roomsResult, logsResult] = await Promise.all([
+        supabase.from('heating_settings').select('*').limit(1).single(),
+        supabase.from('rooms').select('*'),
+        supabase.from('consumer_logs')
+          .select('*')
+          .gte('start_time', todayStart)
+          .order('start_time', { ascending: false })
+      ]);
+
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
-        body: { readings, type: 'daily_pattern' },
+        body: { 
+          readings, 
+          type: 'daily_pattern',
+          heatingSettings: settingsResult.data,
+          rooms: roomsResult.data,
+          consumerLogs: logsResult.data
+        },
       });
 
       if (error) throw error;
@@ -52,8 +69,19 @@ export function usePatternAnalysis() {
 
     setIsAnalyzing(true);
     try {
+      // Lade Verbraucher-Kontext
+      const [settingsResult, roomsResult] = await Promise.all([
+        supabase.from('heating_settings').select('*').limit(1).single(),
+        supabase.from('rooms').select('*')
+      ]);
+
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
-        body: { readings: dailyPatterns, type: 'weekly_comparison' },
+        body: { 
+          readings: dailyPatterns, 
+          type: 'weekly_comparison',
+          heatingSettings: settingsResult.data,
+          rooms: roomsResult.data
+        },
       });
 
       if (error) throw error;

@@ -381,28 +381,87 @@ Erstelle einen optimalen 6-Perioden-Plan für den TGP508.`;
       };
 
     } else if (type === 'daily_pattern') {
-      prompt = `Analysiere diese Energiedaten und identifiziere Tagesmuster:
+      // Verbraucher-Informationen aufbereiten
+      const heatingType = heatingSettings?.heating_type || 'direct_electric';
+      const totalHeatingPower = rooms?.reduce((sum: number, r: any) => sum + (r.heating_power_w || 800), 0) || 0;
+      const hotwaterPower = heatingSettings?.hotwater_power_w || 6000;
+      const hotwaterStart = heatingSettings?.hotwater_schedule_start || '12:00';
+      const hotwaterEnd = heatingSettings?.hotwater_schedule_end || '16:00';
+      const hotwaterMinSurplus = heatingSettings?.hotwater_min_surplus_w || 1000;
+      const carEnabled = heatingSettings?.car_charging_enabled;
+      
+      const roomsList = rooms?.map((r: any) => `${r.name} (${r.heating_power_w || 800}W)`).join(', ') || 'Keine Räume definiert';
+      
+      // Consumer-Logs aufbereiten
+      let consumerActivity = '';
+      if (consumerLogs && consumerLogs.length > 0) {
+        consumerActivity = '\n**HEUTIGE VERBRAUCHER-AKTIVITÄT:**\n';
+        consumerLogs.forEach((log: any) => {
+          const start = new Date(log.start_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+          const end = log.end_time ? new Date(log.end_time).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'aktiv';
+          const avgPower = Math.round(log.avg_power_w || 0);
+          consumerActivity += `- ${log.consumer_type}: ${start} - ${end}, ~${avgPower}W\n`;
+        });
+      }
 
-Daten (Zeitstempel, Leistung in W, Energie Import kWh, Energie Export kWh):
-${readings.map((r: any) => `${r.timestamp}: ${r.power_io}W, Import: ${r.energy_in}kWh, Export: ${r.energy_out}kWh`).join('\n')}
+      prompt = `Du bist ein Experte für Energiemanagement mit DETAILLIERTEM Wissen über diesen Haushalt.
 
-Bitte analysiere:
-1. Typische Verbrauchsmuster (Morgenpeak, Mittagspeak, Abendpeak)
-2. Zeiten mit hohem Eigenverbrauch vs. Netzimport
-3. Zeiten mit Überschusseinspeisung
-4. Auffälligkeiten oder Anomalien
+**BEKANNTE VERBRAUCHER IM HAUSHALT:**
 
-Antworte auf Deutsch mit konkreten Uhrzeiten und Werten.`;
+1. **Elektrische Fußbodenheizung** (${heatingType === 'direct_electric' ? 'Direkt-Strom' : heatingType}):
+   - Gesamtleistung installiert: ${totalHeatingPower}W (${(totalHeatingPower / 1000).toFixed(1)} kW)
+   - Räume: ${roomsList}
+   - Nachts takten Thermostate (An/Aus-Zyklen zur Temperaturregelung)
+   - Typische Nacht-Spitzen: 3-7 kW wenn mehrere Räume gleichzeitig heizen
+
+2. **Warmwasser-Bereitung** (Smartfox-gesteuert):
+   - Heizstab-Leistung: ${hotwaterPower}W (${(hotwaterPower / 1000).toFixed(1)} kW)
+   - Schaltzeit: ${hotwaterStart} - ${hotwaterEnd} Uhr
+   - Aktivierung ab: ${hotwaterMinSurplus}W PV-Überschuss
+
+3. **E-Auto Ladestation**:
+   - Typische Ladeleistung: 3.7kW (1-phasig) oder 11kW (3-phasig)
+   ${carEnabled ? '- E-Auto-Laden ist aktiviert' : '- Aktuell deaktiviert'}
+${consumerActivity}
+**WICHTIG - ANALYSEANWEISUNGEN:**
+- Ordne Verbrauchsspitzen den BEKANNTEN Verbrauchern zu!
+- Nächtliche Spitzen (3-7kW) sind typischerweise Heizungs-Taktzyklen der Fußbodenheizung
+- Verbrauch zwischen ${hotwaterStart}-${hotwaterEnd} kann Warmwasser-Bereitung sein
+- Spekuliere NICHT über unbekannte Verbraucher wenn bekannte Verbraucher die Werte erklären!
+
+**ENERGIEDATEN ZU ANALYSIEREN:**
+${readings.map((r: any) => `${r.timestamp}: ${r.power_io}W, PV: ${r.pv_power || 0}W, Batterie: ${r.battery_soc || 0}%`).join('\n')}
+
+Analysiere die Daten und:
+1. Ordne Verbrauchsspitzen konkret den BEKANNTEN Verbrauchern zu (Heizung, Warmwasser, E-Auto)
+2. Erkläre typische Muster (z.B. Heizungs-Taktzyklen nachts, Warmwasser mittags)
+3. Identifiziere nur WIRKLICH unerklärten Verbrauch der nicht zu den bekannten Verbrauchern passt
+4. Gib konkrete Optimierungsvorschläge basierend auf dem Haushaltsprofil
+
+Antworte auf Deutsch mit konkreten Uhrzeiten und klaren Zuordnungen.`;
+
     } else if (type === 'weekly_comparison') {
-      prompt = `Vergleiche diese Energiedaten über die Woche:
+      // Verbraucher-Kontext für Wochenvergleich
+      const heatingType = heatingSettings?.heating_type || 'direct_electric';
+      const totalHeatingPower = rooms?.reduce((sum: number, r: any) => sum + (r.heating_power_w || 800), 0) || 0;
+      const roomsList = rooms?.map((r: any) => `${r.name} (${r.heating_power_w || 800}W)`).join(', ') || 'Keine Räume';
 
+      prompt = `Du bist ein Experte für Energiemanagement mit DETAILLIERTEM Wissen über diesen Haushalt.
+
+**BEKANNTE VERBRAUCHER:**
+- Elektrische Fußbodenheizung (${heatingType}): ${totalHeatingPower}W gesamt
+- Räume: ${roomsList}
+- Warmwasser: ${heatingSettings?.hotwater_power_w || 6000}W Heizstab
+- E-Auto: ${heatingSettings?.car_charging_enabled ? 'aktiviert' : 'deaktiviert'}
+
+**WOCHENDATEN:**
 ${readings.map((r: any) => `${r.date}: Peak: ${r.peak_power}W, Durchschnitt: ${r.avg_power}W, Import: ${r.total_energy_in}kWh, Export: ${r.total_energy_out}kWh`).join('\n')}
 
-Analysiere:
-1. Unterschiede zwischen Wochentagen und Wochenende
-2. Trends über die Woche
+Analysiere unter Berücksichtigung der bekannten Verbraucher:
+1. Unterschiede zwischen Wochentagen und Wochenende (Heizverhalten, Anwesenheit)
+2. Trends über die Woche (Wetter-Einfluss auf Heizung?)
 3. Beste und schlechteste Tage für Eigenverbrauch
-4. Empfehlungen zur Optimierung
+4. Konkrete Optimierungsempfehlungen für diesen Haushalt
 
 Antworte auf Deutsch mit konkreten Zahlen und Empfehlungen.`;
     } else {
