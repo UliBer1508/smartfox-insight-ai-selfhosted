@@ -75,7 +75,7 @@ export function ThermostatCard({
 
   return (
     <Card className={cn(
-      'transition-all duration-300 border-2 border-transparent min-w-0 overflow-hidden min-h-[380px]',
+      'transition-colors duration-300 border-2 border-transparent min-w-0 overflow-hidden min-h-[380px] h-full',
       isHeating && 'border-orange-500/50 bg-orange-50/30 dark:bg-orange-950/20'
     )}>
       <CardHeader className="pb-2">
@@ -84,12 +84,14 @@ export function ThermostatCard({
             <Thermometer className="h-5 w-5 text-muted-foreground" />
             {room.name}
           </CardTitle>
-          <div className="flex items-center gap-2">
-            {isHeating && (
+          <div className="flex items-center gap-2 min-w-[60px] justify-end">
+            {isHeating ? (
               <Badge variant="destructive" className="gap-1">
                 <Flame className="h-3 w-3" />
                 Heizt
               </Badge>
+            ) : (
+              <div className="h-5 w-[52px]" />
             )}
             <Button
               variant="ghost"
@@ -253,12 +255,12 @@ export function ThermostatCard({
               )}
             </div>
 
-            {/* Last Sync */}
-            {room.last_thermostat_sync && (
-              <p className="text-xs text-muted-foreground text-center">
-                Zuletzt aktualisiert: {new Date(room.last_thermostat_sync).toLocaleTimeString('de-DE')}
-              </p>
-            )}
+            {/* Last Sync - immer anzeigen für stabile Höhe */}
+            <p className="text-xs text-muted-foreground text-center h-4">
+              {room.last_thermostat_sync 
+                ? `Zuletzt: ${new Date(room.last_thermostat_sync).toLocaleTimeString('de-DE')}`
+                : '\u00A0'}
+            </p>
           </>
         )}
       </CardContent>

@@ -24,7 +24,8 @@ export function useRooms() {
         .from('rooms')
         .select('*')
         .order('priority', { ascending: true })
-        .order('created_at', { ascending: true });
+        .order('name', { ascending: true })
+        .order('id', { ascending: true });
 
       console.log('📊 Rooms response:', { data, error, count: data?.length });
 
