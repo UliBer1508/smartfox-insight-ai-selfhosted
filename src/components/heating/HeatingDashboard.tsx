@@ -132,12 +132,16 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   }, [syncAllStatus, loadRooms, loadHeatingLogs]);
 
   const handleSetTemperature = useCallback(async (roomId: string, deviceId: string, temp: number): Promise<boolean> => {
+    // Optimistisches Update VOR dem API-Call
+    updateRoomLocally(roomId, { target_temp: temp });
+    
     const success = await setTemperature(deviceId, temp, roomId);
-    if (success) {
+    if (!success) {
+      // Bei Fehler: Zustand durch Neuladen korrigieren
       await loadRooms();
     }
     return success;
-  }, [setTemperature, loadRooms]);
+  }, [setTemperature, updateRoomLocally, loadRooms]);
 
   const handleTogglePvAuto = useCallback(async (roomId: string, enabled: boolean) => {
     // skipReload=true für optimistisches Update ohne Karten-Verschiebung
@@ -340,7 +344,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-0 items-start">
+            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-0">
               {rooms.filter(r => r.tuya_device_id).map(room => (
                 <ThermostatCard
                   key={room.id}
