@@ -1,3 +1,4 @@
+import React, { forwardRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { EnergyReading } from '@/types/energy';
@@ -12,15 +13,10 @@ interface AnalysisPanelProps {
   onAnalyzeWeekly: () => void;
 }
 
-export function AnalysisPanel({ 
-  readings, 
-  analysis, 
-  isAnalyzing, 
-  onAnalyzeDaily,
-  onAnalyzeWeekly 
-}: AnalysisPanelProps) {
-  return (
-    <Card>
+export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
+  ({ readings, analysis, isAnalyzing, onAnalyzeDaily, onAnalyzeWeekly }, ref) => {
+    return (
+      <Card ref={ref}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-primary" />
@@ -89,4 +85,7 @@ export function AnalysisPanel({
       </CardContent>
     </Card>
   );
-}
+  }
+);
+
+AnalysisPanel.displayName = 'AnalysisPanel';

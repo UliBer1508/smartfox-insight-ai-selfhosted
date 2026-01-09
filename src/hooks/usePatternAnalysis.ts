@@ -21,7 +21,10 @@ export function usePatternAnalysis() {
   }, []);
 
   const analyzeDailyPattern = useCallback(async (readings: EnergyReading[]) => {
+    console.log('📊 analyzeDailyPattern aufgerufen mit', readings.length, 'readings');
+    
     if (readings.length < 10) {
+      console.log('⚠️ Nicht genug Readings:', readings.length);
       toast.error('Nicht genug Daten für Analyse (mind. 10 Messungen)');
       return;
     }
@@ -39,6 +42,7 @@ export function usePatternAnalysis() {
           .order('start_time', { ascending: false })
       ]);
 
+      console.log('📤 Rufe analyze-patterns Edge Function auf...');
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
         body: { 
           readings, 
@@ -49,12 +53,14 @@ export function usePatternAnalysis() {
         },
       });
 
+      console.log('📥 Edge Function Response:', { data, error });
+
       if (error) throw error;
 
       setAnalysis(data.analysis);
       toast.success('Analyse abgeschlossen');
     } catch (error) {
-      console.error('Analysis error:', error);
+      console.error('❌ Analysis error:', error);
       toast.error('Fehler bei der Analyse');
     } finally {
       setIsAnalyzing(false);

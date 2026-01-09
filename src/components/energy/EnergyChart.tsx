@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import React, { forwardRef, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { EnergyReading } from '@/types/energy';
@@ -10,7 +10,8 @@ interface EnergyChartProps {
   title?: string;
 }
 
-export function EnergyChart({ readings, title = 'Leistungsverlauf' }: EnergyChartProps) {
+export const EnergyChart = forwardRef<HTMLDivElement, EnergyChartProps>(
+  ({ readings, title = 'Leistungsverlauf' }, ref) => {
   const chartData = useMemo(() => {
     return [...readings]
       .reverse()
@@ -25,7 +26,7 @@ export function EnergyChart({ readings, title = 'Leistungsverlauf' }: EnergyChar
 
   if (chartData.length === 0) {
     return (
-      <Card>
+      <Card ref={ref}>
         <CardHeader>
           <CardTitle className="text-lg">{title}</CardTitle>
         </CardHeader>
@@ -37,7 +38,7 @@ export function EnergyChart({ readings, title = 'Leistungsverlauf' }: EnergyChar
   }
 
   return (
-    <Card>
+    <Card ref={ref}>
       <CardHeader>
         <CardTitle className="text-lg">{title}</CardTitle>
       </CardHeader>
@@ -100,4 +101,7 @@ export function EnergyChart({ readings, title = 'Leistungsverlauf' }: EnergyChar
       </CardContent>
     </Card>
   );
-}
+  }
+);
+
+EnergyChart.displayName = 'EnergyChart';
