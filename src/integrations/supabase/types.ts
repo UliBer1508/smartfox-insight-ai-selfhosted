@@ -164,6 +164,57 @@ export type Database = {
         }
         Relationships: []
       }
+      energy_daily_costs: {
+        Row: {
+          created_at: string | null
+          date: string
+          electricity_price_cent: number
+          energy_in_kwh: number
+          energy_out_kwh: number
+          feed_in_earnings_eur: number
+          feed_in_price_cent: number
+          grid_cost_eur: number
+          id: string
+          net_balance_eur: number
+          pv_energy_kwh: number
+          pv_savings_eur: number
+          self_consumption_kwh: number
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          electricity_price_cent?: number
+          energy_in_kwh?: number
+          energy_out_kwh?: number
+          feed_in_earnings_eur?: number
+          feed_in_price_cent?: number
+          grid_cost_eur?: number
+          id?: string
+          net_balance_eur?: number
+          pv_energy_kwh?: number
+          pv_savings_eur?: number
+          self_consumption_kwh?: number
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          electricity_price_cent?: number
+          energy_in_kwh?: number
+          energy_out_kwh?: number
+          feed_in_earnings_eur?: number
+          feed_in_price_cent?: number
+          grid_cost_eur?: number
+          id?: string
+          net_balance_eur?: number
+          pv_energy_kwh?: number
+          pv_savings_eur?: number
+          self_consumption_kwh?: number
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       energy_readings: {
         Row: {
           battery_power: number | null
