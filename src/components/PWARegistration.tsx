@@ -2,9 +2,7 @@ import { useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
 export const PWARegistration = () => {
-  const {
-    needRefresh: [needRefresh],
-  } = useRegisterSW({
+  const { needRefresh } = useRegisterSW({
     onRegisteredSW(swUrl, r) {
       console.log('✅ Service Worker registriert:', swUrl);
       
@@ -21,7 +19,8 @@ export const PWARegistration = () => {
   });
 
   useEffect(() => {
-    if (needRefresh) {
+    const [refresh] = needRefresh || [];
+    if (refresh) {
       console.log('🔄 Neue PWA-Version verfügbar');
     }
   }, [needRefresh]);
