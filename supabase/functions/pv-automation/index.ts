@@ -360,7 +360,7 @@ Deno.serve(async (req) => {
             }
           } else if (surplus >= thresholdOn && !room.pv_auto_active) {
             action = 'activate';
-            targetTemp = settings?.comfort_temp || 21;
+            targetTemp = room.comfort_temp || settings?.comfort_temp || 21;
             reasoning = `Surplus ${surplus}W >= ${thresholdOn}W`;
           } else if (surplus < thresholdOff && room.pv_auto_active) {
             action = 'deactivate';
