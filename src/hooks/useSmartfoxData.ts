@@ -1,6 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading } from '@/types/energy';
+import { toast } from 'sonner';
+
+const COLLECTOR_TIMEOUT_MINUTES = 10;
 
 export function useSmartfoxData() {
   const [currentReading, setCurrentReading] = useState<EnergyReading | null>(null);
@@ -9,6 +12,8 @@ export function useSmartfoxData() {
   const [isConnected, setIsConnected] = useState(false);
   const [lastError, setLastError] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<number>(60);
+  const [offlineMinutes, setOfflineMinutes] = useState<number | null>(null);
+  const hasShownTimeoutWarning = useRef(false);
 
   // Load polling interval from database
   useEffect(() => {
@@ -30,14 +35,29 @@ export function useSmartfoxData() {
   const checkConnectionStatus = useCallback((reading: EnergyReading | null) => {
     if (!reading?.timestamp) {
       setIsConnected(false);
+      setOfflineMinutes(null);
       return;
     }
     
     const readingTime = new Date(reading.timestamp).getTime();
     const now = Date.now();
     const timeout = pollingInterval * 3 * 1000;
+    const minutesOffline = Math.floor((now - readingTime) / 60000);
     
+    setOfflineMinutes(minutesOffline > 0 ? minutesOffline : null);
     setIsConnected(now - readingTime < timeout);
+    
+    // Warnung nach 10 Minuten ohne Daten
+    if (minutesOffline >= COLLECTOR_TIMEOUT_MINUTES && !hasShownTimeoutWarning.current) {
+      toast.warning(
+        `Collector sendet seit ${minutesOffline} Minuten keine Daten!`,
+        {
+          description: 'Bitte prüfe, ob der Collector läuft und eine Verbindung zum Fronius-Gerät besteht.',
+          duration: 10000,
+        }
+      );
+      hasShownTimeoutWarning.current = true;
+    }
   }, [pollingInterval]);
 
   // Load total count of readings
@@ -111,6 +131,12 @@ export function useSmartfoxData() {
           setReadings(prev => [newReading, ...prev.slice(0, 99)]);
           setTotalCount(prev => prev + 1);
           checkConnectionStatus(newReading);
+          
+          // Reset warning flag when data arrives
+          if (hasShownTimeoutWarning.current) {
+            toast.success('Collector ist wieder online!', { duration: 3000 });
+            hasShownTimeoutWarning.current = false;
+          }
         }
       )
       .subscribe();
@@ -126,6 +152,7 @@ export function useSmartfoxData() {
     totalCount,
     isConnected,
     lastError,
+    offlineMinutes,
     refresh,
   };
 }
