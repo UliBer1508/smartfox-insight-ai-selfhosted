@@ -5,6 +5,27 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.1.0] - 2026-01-10
+
+### Added
+- **DailyHeatingSchedule** - Neue Komponente für übersichtliches Heizungs-Tagesprogramm
+  - Zeigt alle 4 Heizungsmodi (Nacht/Eco/Komfort/Batterie-Schutz)
+  - Tabellarische Übersicht aller Räume mit Temperaturen pro Modus
+  - Separate Spalten für PV-Automatik (☀️) und KI-Empfehlungen (🤖)
+  - Echtzeit-Anzeige des aktuellen Modus basierend auf Zeit, PV-Überschuss und Batterie
+
+### Changed
+- **LearningProgress** kompakter gestaltet
+  - Nur noch 3 Kennzahlen im Header (Samples, Confidence, Ø Reward)
+  - Details in Collapsible-Bereich verschoben
+  - Zeigt nur noch die letzten 3 statt 5 Entscheidungen
+
+### Documentation
+- SYSTEM_DOCUMENTATION.md mit neuen Komponenten aktualisiert
+- Heizungs-Modi und Automatik-Schalter dokumentiert
+
+---
+
 ## [2.0.0] - 2026-01-09
 
 ### Security

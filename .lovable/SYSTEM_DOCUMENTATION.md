@@ -78,11 +78,23 @@
 │  └── EnergyChart          - Zeitreihen-Diagramm                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  HEIZUNGS-KOMPONENTEN                                                        │
-│  ├── HeatingDashboard     - Übersicht aller Räume                           │
-│  ├── RoomManager          - Raum-Verwaltung                                 │
-│  ├── ThermostatCard       - Einzelner Thermostat                            │
-│  ├── PvForecastCard       - PV-Prognose Anzeige                             │
-│  └── RoomRecommendations  - Heiz-Empfehlungen                               │
+│  ├── HeatingDashboard       - Übersicht aller Räume                          │
+│  ├── DailyHeatingSchedule   - Tagesprogramm mit 4 Modi & Temperaturen        │
+│  ├── LearningProgress       - Kompakter ML-Status (Collapsible)              │
+│  ├── RoomManager            - Raum-Verwaltung                                │
+│  ├── ThermostatCard         - Einzelner Thermostat                           │
+│  ├── PvForecastCard         - PV-Prognose Anzeige                            │
+│  └── RoomRecommendations    - Heiz-Empfehlungen                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  HEIZUNGS-MODI                                                               │
+│  ├── Nacht      - 22:00-06:00, night_temp (17-18°C)                         │
+│  ├── Eco        - Tagsüber Standard, eco_temp (19-20°C)                     │
+│  ├── Komfort    - PV >= 500W, comfort_temp (21-22°C)                        │
+│  └── Batterie   - SOC < 20%, erzwingt eco_temp                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  AUTOMATIK-SCHALTER (pro Raum)                                               │
+│  ├── pv_auto_enabled      - Zeit-/Überschuss-basierte Schaltung (☀️)        │
+│  └── automation_enabled   - ML-Empfehlungen aktiviert (🤖)                  │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │  PWA FEATURES                                                                │
 │  ├── Offline-fähig (Service Worker)                                         │
