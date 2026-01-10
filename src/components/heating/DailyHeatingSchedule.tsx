@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Room } from '@/types/room';
 import { HeatingSettings } from '@/types/heating';
-import { Sun, Moon, Battery, Thermometer, Zap, Check, X } from 'lucide-react';
+import { Sun, Moon, Battery, Thermometer, Zap, Check, X, Bot } from 'lucide-react';
 
 interface DailyHeatingScheduleProps {
   rooms: Room[];
@@ -153,7 +153,12 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                   <Sun className="h-3 w-3 inline text-orange-500" />
                 </th>
                 <th className="text-center py-2 font-medium w-12">Prio</th>
-                <th className="text-center py-2 font-medium w-12">Auto</th>
+                <th className="text-center py-2 font-medium w-10" title="PV-Automatik">
+                  <Sun className="h-3 w-3 inline text-amber-500" />
+                </th>
+                <th className="text-center py-2 font-medium w-10" title="KI-Empfehlung">
+                  <Bot className="h-3 w-3 inline text-purple-500" />
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -198,11 +203,30 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                         <X className="h-4 w-4 text-muted-foreground inline" />
                       )}
                     </td>
+                    <td className="text-center py-2">
+                      {room.automation_enabled ? (
+                        <Check className="h-4 w-4 text-purple-500 inline" />
+                      ) : (
+                        <X className="h-4 w-4 text-muted-foreground inline" />
+                      )}
+                    </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Legend */}
+        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground pt-2 border-t">
+          <div className="flex items-center gap-1">
+            <Sun className="h-3 w-3 text-amber-500" />
+            <span>PV = Zeit-/Überschuss-Automatik</span>
+          </div>
+          <div className="flex items-center gap-1">
+            <Bot className="h-3 w-3 text-purple-500" />
+            <span>KI = ML-Empfehlungen</span>
+          </div>
         </div>
 
         {/* Current status info */}
