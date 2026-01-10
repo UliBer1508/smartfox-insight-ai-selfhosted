@@ -203,49 +203,91 @@ export function ThermostatCard({
             </div>
 
             {/* Preset Buttons with Active Mode Highlighting */}
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              <Button
-                variant={localTemp === room.comfort_temp ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "text-xs sm:text-sm gap-1",
-                  activeMode === 'comfort' && room.pv_auto_enabled && 'ring-2 ring-amber-400 ring-offset-1 ring-offset-background'
+            <div className="grid grid-cols-3 gap-2">
+              {/* Komfort Button */}
+              <div className="flex flex-col items-center gap-1">
+                <Button
+                  variant={activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "w-full text-xs gap-1 h-9",
+                    activeMode === 'comfort' && room.pv_auto_enabled && !hasManualOverride && 
+                      'bg-amber-500 hover:bg-amber-600 text-white border-amber-500',
+                    activeMode === 'comfort' && room.automation_enabled && !room.pv_auto_enabled && !hasManualOverride &&
+                      'bg-blue-500 hover:bg-blue-600 text-white border-blue-500'
+                  )}
+                  onClick={() => setPresetTemp(room.comfort_temp)}
+                  disabled={isSetting}
+                >
+                  <Sun className="h-3 w-3" />
+                  {room.comfort_temp}°
+                </Button>
+                {activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
+                  <span className={cn(
+                    "text-[10px] font-medium flex items-center gap-0.5",
+                    room.pv_auto_enabled ? "text-amber-600" : "text-blue-600"
+                  )}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    {room.pv_auto_enabled ? 'PV' : 'KI'}
+                  </span>
                 )}
-                onClick={() => setPresetTemp(room.comfort_temp)}
-                disabled={isSetting}
-              >
-                <Sun className="h-3 w-3" />
-                Komfort ({room.comfort_temp}°)
-              </Button>
-              <Button
-                variant={localTemp === room.eco_temp ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "text-xs sm:text-sm gap-1",
-                  activeMode === 'eco' && room.pv_auto_enabled && 'ring-2 ring-green-400 ring-offset-1 ring-offset-background'
+              </div>
+
+              {/* Eco Button */}
+              <div className="flex flex-col items-center gap-1">
+                <Button
+                  variant={activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "w-full text-xs gap-1 h-9",
+                    activeMode === 'eco' && room.pv_auto_enabled && !hasManualOverride && 
+                      'bg-green-500 hover:bg-green-600 text-white border-green-500',
+                    activeMode === 'eco' && room.automation_enabled && !room.pv_auto_enabled && !hasManualOverride &&
+                      'bg-blue-500 hover:bg-blue-600 text-white border-blue-500'
+                  )}
+                  onClick={() => setPresetTemp(room.eco_temp)}
+                  disabled={isSetting}
+                >
+                  <Leaf className="h-3 w-3" />
+                  {room.eco_temp}°
+                </Button>
+                {activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
+                  <span className={cn(
+                    "text-[10px] font-medium flex items-center gap-0.5",
+                    room.pv_auto_enabled ? "text-green-600" : "text-blue-600"
+                  )}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    {room.pv_auto_enabled ? 'PV' : 'KI'}
+                  </span>
                 )}
-                onClick={() => setPresetTemp(room.eco_temp)}
-                disabled={isSetting}
-              >
-                <Leaf className="h-3 w-3" />
-                Eco ({room.eco_temp}°)
-              </Button>
-              <Button
-                variant={localTemp === room.night_temp ? 'default' : 'outline'}
-                size="sm"
-                className={cn(
-                  "col-span-2 sm:col-span-1 text-xs sm:text-sm gap-1",
-                  activeMode === 'night' && room.pv_auto_enabled && 'ring-2 ring-blue-400 ring-offset-1 ring-offset-background'
+              </div>
+
+              {/* Nacht Button */}
+              <div className="flex flex-col items-center gap-1">
+                <Button
+                  variant={activeMode === 'night' ? 'default' : 'outline'}
+                  size="sm"
+                  className={cn(
+                    "w-full text-xs gap-1 h-9",
+                    activeMode === 'night' && !hasManualOverride && 
+                      'bg-indigo-500 hover:bg-indigo-600 text-white border-indigo-500'
+                  )}
+                  onClick={() => setPresetTemp(room.night_temp)}
+                  disabled={isSetting}
+                >
+                  <Moon className="h-3 w-3" />
+                  {room.night_temp}°
+                </Button>
+                {activeMode === 'night' && !hasManualOverride && (
+                  <span className="text-[10px] font-medium flex items-center gap-0.5 text-indigo-600">
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                    Zeit
+                  </span>
                 )}
-                onClick={() => setPresetTemp(room.night_temp)}
-                disabled={isSetting}
-              >
-                <Moon className="h-3 w-3" />
-                Nacht ({room.night_temp}°)
-              </Button>
+              </div>
             </div>
 
-            {/* Automation Toggles */}
+            {/* Automation Toggles with Activity Indicators */}
             <div className="flex flex-col gap-2 pt-2 border-t">
               {/* Automatik Toggle */}
               {onToggleAutomation && (
@@ -253,6 +295,12 @@ export function ThermostatCard({
                   <div className="flex items-center gap-2">
                     <Bot className="h-4 w-4 text-blue-500" />
                     <span className="text-sm">Auto-Empfehlung</span>
+                    {room.automation_enabled && !hasManualOverride && (
+                      <Badge variant="outline" className="text-[10px] h-5 gap-0.5 border-blue-400 text-blue-600 bg-blue-50 dark:bg-blue-950">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                        Aktiv
+                      </Badge>
+                    )}
                   </div>
                   <Switch
                     checked={room.automation_enabled ?? false}
@@ -266,6 +314,23 @@ export function ThermostatCard({
                 <div className="flex items-center gap-2">
                   <Sun className="h-4 w-4 text-yellow-500" />
                   <span className="text-sm">PV-Automatik</span>
+                  {room.pv_auto_enabled && !hasManualOverride && (
+                    <Badge 
+                      variant="outline" 
+                      className={cn(
+                        "text-[10px] h-5 gap-0.5",
+                        room.pv_auto_active 
+                          ? "border-amber-400 text-amber-600 bg-amber-50 dark:bg-amber-950" 
+                          : "border-green-400 text-green-600 bg-green-50 dark:bg-green-950"
+                      )}
+                    >
+                      <span className={cn(
+                        "w-1.5 h-1.5 rounded-full animate-pulse",
+                        room.pv_auto_active ? "bg-amber-500" : "bg-green-500"
+                      )} />
+                      {room.pv_auto_active ? 'Komfort' : 'Eco'}
+                    </Badge>
+                  )}
                 </div>
                 <Switch
                   checked={room.pv_auto_enabled ?? false}
