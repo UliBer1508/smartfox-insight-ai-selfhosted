@@ -30,38 +30,24 @@ export default defineConfig(({ mode }) => ({
       registerType: 'prompt',
       includeAssets: ['favicon.ico', 'robots.txt', 'offline.html', 'apple-touch-icon.png'],
       manifest: {
+        id: '/fronius-smart-ai',
         name: 'Fronius Smart AI',
         short_name: 'Fronius AI',
         description: 'KI-gestütztes Energie-Management mit Fronius-Integration',
-        theme_color: '#ffffff',
+        theme_color: '#16a34a',
         background_color: '#ffffff',
         display: 'standalone',
         orientation: 'portrait',
         scope: '/',
         start_url: '/',
         categories: ['utilities', 'productivity'],
+        prefer_related_applications: false,
         icons: [
           { src: '/pwa-144x144.png', sizes: '144x144', type: 'image/png' },
           { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png' },
           { src: '/pwa-384x384.png', sizes: '384x384', type: 'image/png' },
           { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png' },
           { src: '/maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
-        ],
-        screenshots: [
-          {
-            src: '/screenshot-desktop.png',
-            sizes: '1280x720',
-            type: 'image/png',
-            form_factor: 'wide',
-            label: 'Fronius Smart AI Dashboard'
-          },
-          {
-            src: '/screenshot-mobile.png',
-            sizes: '750x1334',
-            type: 'image/png',
-            form_factor: 'narrow',
-            label: 'Fronius Smart AI Mobile'
-          }
         ],
         shortcuts: [
           {
@@ -82,15 +68,16 @@ export default defineConfig(({ mode }) => ({
         skipWaiting: true,
         clientsClaim: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        navigateFallback: '/offline.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/supabase/],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api/, /^\/supabase/, /^\/offline\.html/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
             handler: 'CacheFirst',
             options: {
               cacheName: 'google-fonts-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 }
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] }
             }
           },
           {
@@ -98,7 +85,8 @@ export default defineConfig(({ mode }) => ({
             handler: 'CacheFirst',
             options: {
               cacheName: 'gstatic-fonts-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 }
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365 },
+              cacheableResponse: { statuses: [0, 200] }
             }
           },
           {
@@ -106,8 +94,9 @@ export default defineConfig(({ mode }) => ({
             handler: 'NetworkFirst',
             options: {
               cacheName: 'supabase-api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 * 5 },
-              networkTimeoutSeconds: 10
+              expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 },
+              networkTimeoutSeconds: 5,
+              cacheableResponse: { statuses: [0, 200] }
             }
           }
         ]
