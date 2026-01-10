@@ -22,6 +22,7 @@ import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Bot, Brain } from 'lucide-react';
 import { LearningProgress } from './LearningProgress';
+import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -362,6 +363,16 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Daily Heating Schedule - Primary view */}
+      {rooms.length > 0 && (
+        <DailyHeatingSchedule
+          rooms={rooms}
+          settings={settings}
+          currentSurplus={currentReading?.pv_power ? currentReading.pv_power - (currentReading.consumption || 0) : null}
+          batterySoc={currentReading?.battery_soc ?? null}
+        />
       )}
 
       {/* Room Recommendations - show if rooms exist */}
