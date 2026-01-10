@@ -165,6 +165,14 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     await loadRooms();
   }, [syncAllStatus, loadRooms]);
 
+  const handleCancelOverride = useCallback(async (roomId: string) => {
+    // Optimistisches Update
+    updateRoomLocally(roomId, { manual_override_until: null });
+    
+    // Server-Update
+    await saveRoom({ id: roomId, manual_override_until: null }, true);
+  }, [saveRoom, updateRoomLocally]);
+
   const handleAnalyze = () => {
     analyzeHeating(readings, settings);
   };
@@ -353,6 +361,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                   onSetTemperature={handleSetTemperature}
                   onTogglePvAuto={handleTogglePvAuto}
                   onToggleAutomation={handleToggleAutomation}
+                  onCancelOverride={handleCancelOverride}
                   onRefresh={handleRefreshRoom}
                   isLoading={isSyncing}
                   heatingStats={room.id ? getRoomStats(room.id) : undefined}
