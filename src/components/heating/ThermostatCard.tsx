@@ -1,12 +1,13 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
-import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, Leaf, Moon } from 'lucide-react';
+import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, Leaf, Moon, X } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface HeatingStats {
   todayCycles: number;
@@ -21,6 +22,7 @@ interface ThermostatCardProps {
   onSetTemperature: (roomId: string, deviceId: string, temp: number) => Promise<boolean>;
   onTogglePvAuto: (roomId: string, enabled: boolean) => void;
   onToggleAutomation?: (roomId: string, enabled: boolean) => void;
+  onCancelOverride?: (roomId: string) => void;
   onRefresh: (roomId: string) => void;
   isLoading?: boolean;
   heatingStats?: HeatingStats;
@@ -39,6 +41,7 @@ export function ThermostatCard({
   onSetTemperature,
   onTogglePvAuto,
   onToggleAutomation,
+  onCancelOverride,
   onRefresh,
   isLoading = false,
   heatingStats,
@@ -47,6 +50,51 @@ export function ThermostatCard({
 }: ThermostatCardProps) {
   const [localTemp, setLocalTemp] = useState(room.target_temp ?? room.comfort_temp);
   const [isSetting, setIsSetting] = useState(false);
+  const [overrideRemaining, setOverrideRemaining] = useState<string | null>(null);
+
+  // Calculate override remaining time
+  const overrideUntil = useMemo(() => {
+    if (!room.manual_override_until) return null;
+    const until = new Date(room.manual_override_until);
+    if (until <= new Date()) return null;
+    return until;
+  }, [room.manual_override_until]);
+
+  // Update countdown every minute
+  useEffect(() => {
+    if (!overrideUntil) {
+      setOverrideRemaining(null);
+      return;
+    }
+
+    const updateRemaining = () => {
+      const now = new Date();
+      const diff = overrideUntil.getTime() - now.getTime();
+      if (diff <= 0) {
+        setOverrideRemaining(null);
+        return;
+      }
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      if (hours > 0) {
+        setOverrideRemaining(`${hours}h ${mins}m`);
+      } else {
+        setOverrideRemaining(`${mins}m`);
+      }
+    };
+
+    updateRemaining();
+    const interval = setInterval(updateRemaining, 30000); // Update every 30 seconds
+    return () => clearInterval(interval);
+  }, [overrideUntil]);
+
+  const handleCancelOverride = () => {
+    if (room.id && onCancelOverride) {
+      onCancelOverride(room.id);
+      toast.success('Automatik wieder aktiv');
+    }
+  };
 
   // Determine active automatic mode (what automation would choose)
   const activeMode = useMemo((): ActiveMode => {
@@ -148,13 +196,31 @@ export function ThermostatCard({
             </Button>
           </div>
         </div>
-        {/* Manual Override Badge */}
-        {hasManualOverride && (
-          <div className="flex justify-center -mt-1">
-            <Badge variant="secondary" className="gap-1 text-xs">
-              <Hand className="h-3 w-3" />
-              Manuell bis {new Date(room.manual_override_until!).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
-            </Badge>
+        {/* Manual Override Banner */}
+        {hasManualOverride && overrideUntil && (
+          <div className="bg-amber-100 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700 rounded-lg p-2 flex items-center justify-between gap-2 -mt-1">
+            <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-sm min-w-0">
+              <Hand className="h-4 w-4 flex-shrink-0" />
+              <span className="truncate">
+                Manuell bis {overrideUntil.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              {overrideRemaining && (
+                <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0">
+                  ({overrideRemaining})
+                </span>
+              )}
+            </div>
+            {onCancelOverride && (
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                onClick={handleCancelOverride}
+                className="h-6 w-6 p-0 hover:bg-amber-200 dark:hover:bg-amber-800 flex-shrink-0"
+                title="Override beenden"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         )}
       </CardHeader>
@@ -233,14 +299,21 @@ export function ThermostatCard({
                   <Sun className="h-3 w-3" />
                   {room.comfort_temp}°
                 </Button>
-                {displayMode === 'comfort' && activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
-                  <span className={cn(
-                    "text-[10px] font-medium flex items-center gap-0.5",
-                    room.pv_auto_enabled ? "text-amber-600" : "text-blue-600"
-                  )}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                    {room.pv_auto_enabled ? 'PV' : 'KI'}
-                  </span>
+                {displayMode === 'comfort' && (
+                  hasManualOverride ? (
+                    <span className="text-[10px] font-medium flex items-center gap-0.5 text-amber-600">
+                      <Hand className="h-2.5 w-2.5" />
+                      Manuell
+                    </span>
+                  ) : activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) && (
+                    <span className={cn(
+                      "text-[10px] font-medium flex items-center gap-0.5",
+                      room.pv_auto_enabled ? "text-amber-600" : "text-blue-600"
+                    )}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                      {room.pv_auto_enabled ? 'PV' : 'KI'}
+                    </span>
+                  )
                 )}
               </div>
 
@@ -259,14 +332,21 @@ export function ThermostatCard({
                   <Leaf className="h-3 w-3" />
                   {room.eco_temp}°
                 </Button>
-                {displayMode === 'eco' && activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
-                  <span className={cn(
-                    "text-[10px] font-medium flex items-center gap-0.5",
-                    room.pv_auto_enabled ? "text-green-600" : "text-blue-600"
-                  )}>
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                    {room.pv_auto_enabled ? 'PV' : 'KI'}
-                  </span>
+                {displayMode === 'eco' && (
+                  hasManualOverride ? (
+                    <span className="text-[10px] font-medium flex items-center gap-0.5 text-amber-600">
+                      <Hand className="h-2.5 w-2.5" />
+                      Manuell
+                    </span>
+                  ) : activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) && (
+                    <span className={cn(
+                      "text-[10px] font-medium flex items-center gap-0.5",
+                      room.pv_auto_enabled ? "text-green-600" : "text-blue-600"
+                    )}>
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                      {room.pv_auto_enabled ? 'PV' : 'KI'}
+                    </span>
+                  )
                 )}
               </div>
 
@@ -285,11 +365,18 @@ export function ThermostatCard({
                   <Moon className="h-3 w-3" />
                   {room.night_temp}°
                 </Button>
-                {displayMode === 'night' && activeMode === 'night' && !hasManualOverride && (
-                  <span className="text-[10px] font-medium flex items-center gap-0.5 text-indigo-600">
-                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                    Zeit
-                  </span>
+                {displayMode === 'night' && (
+                  hasManualOverride ? (
+                    <span className="text-[10px] font-medium flex items-center gap-0.5 text-amber-600">
+                      <Hand className="h-2.5 w-2.5" />
+                      Manuell
+                    </span>
+                  ) : activeMode === 'night' && (
+                    <span className="text-[10px] font-medium flex items-center gap-0.5 text-indigo-600">
+                      <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
+                      Zeit
+                    </span>
+                  )
                 )}
               </div>
             </div>
