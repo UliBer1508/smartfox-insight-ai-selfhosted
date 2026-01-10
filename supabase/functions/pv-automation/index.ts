@@ -311,17 +311,11 @@ Deno.serve(async (req) => {
       const now = new Date();
 
       for (const room of rooms) {
-        // Check if automation is disabled for this room - full manual control
-        if (!room.automation_enabled) {
-          console.log(`[PV-Automation] Room ${room.name} has automation disabled, skipping`);
-          results.push({
-            roomId: room.id,
-            roomName: room.name,
-            action: 'skip',
-            message: 'Automatik deaktiviert - manuelle Kontrolle',
-            mlBased: false
-          });
-          continue;
+        // automation_enabled controls ONLY ML recommendations, not basic time-based logic
+        const useMLDecisions = room.automation_enabled === true;
+        
+        if (!useMLDecisions) {
+          console.log(`[PV-Automation] Room ${room.name}: ML disabled, using time-based logic only`);
         }
 
         // Check manual override (temporary protection)
@@ -356,53 +350,56 @@ Deno.serve(async (req) => {
         }
 
         let action: 'activate' | 'deactivate' | 'keep' = 'keep';
-        let targetTemp = room.target_temp || settings?.comfort_temp || 21;
+        let targetTemp = room.target_temp || settings?.eco_temp || 19;
         let reasoning = '';
         let expectedEnergyWh: number | undefined;
         let confidence: number | undefined;
 
-        // Check ML decision for this room
-        const mlDecision = mlDecisions.find(d => d.room_id === room.id);
+        // ML decision ONLY if automation_enabled = true
+        const mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
 
-        if (mlDecision && usedMlDecision) {
+        if (mlDecision && usedMlDecision && useMLDecisions) {
+          // Use ML/AI recommendation
           action = mlDecision.action;
           targetTemp = mlDecision.target_temp;
-          reasoning = mlDecision.reasoning;
+          reasoning = mlDecision.reasoning + ' (KI)';
           expectedEnergyWh = mlDecision.expected_energy_wh;
           confidence = mlDecision.confidence;
         } else {
-          // Time-based logic: Night mode has priority
+          // Basis-Zeitschaltung: Always active regardless of automation_enabled
           const nightStart = settings?.night_start_time || '22:00';
           const nightEnd = settings?.night_end_time || '06:00';
           const isNight = isNightTime(nightStart, nightEnd);
           
+          // 1. Night mode has highest priority
           if (isNight) {
-            // Night mode: Use night temperature
             const nightTemp = room.night_temp || settings?.night_temp || 17;
             if (room.target_temp !== nightTemp) {
-              action = 'deactivate'; // Use deactivate to trigger temp change
+              action = 'deactivate';
               targetTemp = nightTemp;
               reasoning = `Nachtmodus (${nightStart}-${nightEnd})`;
             }
-          } else if (batterySoc < minBatterySoc) {
-            // Battery protection
-            if (room.pv_auto_active) {
-              action = 'deactivate';
-              targetTemp = room.eco_temp || settings?.eco_temp || 19;
-              reasoning = `Batterie <${minBatterySoc}%`;
-            }
-          } else if (surplus >= thresholdOn && !room.pv_auto_active) {
-            // PV surplus: Activate comfort mode
+          } 
+          // 2. Battery protection
+          else if (batterySoc < minBatterySoc && room.pv_auto_active) {
+            action = 'deactivate';
+            targetTemp = room.eco_temp || settings?.eco_temp || 19;
+            reasoning = `Batterie <${minBatterySoc}%`;
+          } 
+          // 3. PV surplus -> Comfort mode
+          else if (surplus >= thresholdOn && !room.pv_auto_active) {
             action = 'activate';
             targetTemp = room.comfort_temp || settings?.comfort_temp || 21;
             reasoning = `PV-Überschuss ${surplus}W >= ${thresholdOn}W`;
-          } else if (surplus < thresholdOff && room.pv_auto_active) {
-            // Low surplus: Switch to eco mode
+          } 
+          // 4. Low/no surplus -> Eco mode
+          else if (surplus < thresholdOff && room.pv_auto_active) {
             action = 'deactivate';
             targetTemp = room.eco_temp || settings?.eco_temp || 19;
             reasoning = `Eco-Modus (Überschuss ${surplus}W < ${thresholdOff}W)`;
-          } else if (!room.pv_auto_active) {
-            // Day without surplus: Ensure eco temp
+          } 
+          // 5. Daytime default: Ensure eco temp is set
+          else if (!room.pv_auto_active) {
             const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
             if (room.target_temp !== ecoTemp) {
               action = 'deactivate';
