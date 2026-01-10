@@ -48,7 +48,7 @@ export function ThermostatCard({
   const [localTemp, setLocalTemp] = useState(room.target_temp ?? room.comfort_temp);
   const [isSetting, setIsSetting] = useState(false);
 
-  // Determine active automatic mode
+  // Determine active automatic mode (what automation would choose)
   const activeMode = useMemo((): ActiveMode => {
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
@@ -64,6 +64,20 @@ export function ThermostatCard({
     if (room.pv_auto_active) return 'comfort';
     return 'eco';
   }, [nightStartTime, nightEndTime, room.pv_auto_active]);
+
+  // Determine which mode button to highlight based on actual target temperature
+  const displayMode = useMemo((): ActiveMode | null => {
+    const targetTemp = room.target_temp;
+    if (targetTemp === undefined || targetTemp === null) return null;
+    
+    // Check which preset the target temperature matches
+    if (targetTemp === room.comfort_temp) return 'comfort';
+    if (targetTemp === room.eco_temp) return 'eco';
+    if (targetTemp === room.night_temp) return 'night';
+    
+    // If temp doesn't match any preset (e.g., manually set to 19°C)
+    return null;
+  }, [room.target_temp, room.comfort_temp, room.eco_temp, room.night_temp]);
 
   const handleTempChange = (value: number[]) => {
     setLocalTemp(value[0]);
@@ -207,14 +221,11 @@ export function ThermostatCard({
               {/* Komfort Button */}
               <div className="flex flex-col items-center gap-1">
                 <Button
-                  variant={activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) ? 'default' : 'outline'}
+                  variant={displayMode === 'comfort' ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
                     "w-full text-xs gap-1 h-9",
-                    activeMode === 'comfort' && room.pv_auto_enabled && !hasManualOverride && 
-                      'bg-amber-500 hover:bg-amber-600 text-white border-amber-500',
-                    activeMode === 'comfort' && room.automation_enabled && !room.pv_auto_enabled && !hasManualOverride &&
-                      'bg-blue-500 hover:bg-blue-600 text-white border-blue-500'
+                    displayMode === 'comfort' && 'bg-amber-500 hover:bg-amber-600 text-white border-amber-500'
                   )}
                   onClick={() => setPresetTemp(room.comfort_temp)}
                   disabled={isSetting}
@@ -222,7 +233,7 @@ export function ThermostatCard({
                   <Sun className="h-3 w-3" />
                   {room.comfort_temp}°
                 </Button>
-                {activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
+                {displayMode === 'comfort' && activeMode === 'comfort' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
                   <span className={cn(
                     "text-[10px] font-medium flex items-center gap-0.5",
                     room.pv_auto_enabled ? "text-amber-600" : "text-blue-600"
@@ -236,14 +247,11 @@ export function ThermostatCard({
               {/* Eco Button */}
               <div className="flex flex-col items-center gap-1">
                 <Button
-                  variant={activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) ? 'default' : 'outline'}
+                  variant={displayMode === 'eco' ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
                     "w-full text-xs gap-1 h-9",
-                    activeMode === 'eco' && room.pv_auto_enabled && !hasManualOverride && 
-                      'bg-green-500 hover:bg-green-600 text-white border-green-500',
-                    activeMode === 'eco' && room.automation_enabled && !room.pv_auto_enabled && !hasManualOverride &&
-                      'bg-blue-500 hover:bg-blue-600 text-white border-blue-500'
+                    displayMode === 'eco' && 'bg-green-500 hover:bg-green-600 text-white border-green-500'
                   )}
                   onClick={() => setPresetTemp(room.eco_temp)}
                   disabled={isSetting}
@@ -251,7 +259,7 @@ export function ThermostatCard({
                   <Leaf className="h-3 w-3" />
                   {room.eco_temp}°
                 </Button>
-                {activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
+                {displayMode === 'eco' && activeMode === 'eco' && (room.pv_auto_enabled || room.automation_enabled) && !hasManualOverride && (
                   <span className={cn(
                     "text-[10px] font-medium flex items-center gap-0.5",
                     room.pv_auto_enabled ? "text-green-600" : "text-blue-600"
@@ -265,12 +273,11 @@ export function ThermostatCard({
               {/* Nacht Button */}
               <div className="flex flex-col items-center gap-1">
                 <Button
-                  variant={activeMode === 'night' ? 'default' : 'outline'}
+                  variant={displayMode === 'night' ? 'default' : 'outline'}
                   size="sm"
                   className={cn(
                     "w-full text-xs gap-1 h-9",
-                    activeMode === 'night' && !hasManualOverride && 
-                      'bg-indigo-500 hover:bg-indigo-600 text-white border-indigo-500'
+                    displayMode === 'night' && 'bg-indigo-500 hover:bg-indigo-600 text-white border-indigo-500'
                   )}
                   onClick={() => setPresetTemp(room.night_temp)}
                   disabled={isSetting}
@@ -278,7 +285,7 @@ export function ThermostatCard({
                   <Moon className="h-3 w-3" />
                   {room.night_temp}°
                 </Button>
-                {activeMode === 'night' && !hasManualOverride && (
+                {displayMode === 'night' && activeMode === 'night' && !hasManualOverride && (
                   <span className="text-[10px] font-medium flex items-center gap-0.5 text-indigo-600">
                     <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
                     Zeit
