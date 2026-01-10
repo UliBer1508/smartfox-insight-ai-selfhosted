@@ -65,6 +65,9 @@ Stand: 2026-01-09
 ### Behoben ✅
 - ~~Heizungsverbrauch-Berechnung über Mitternacht falsch~~ (v2.0.0)
 - ~~RLS Policies fehlten auf einigen Tabellen~~ (v2.0.0)
+- ~~ML-Status war zu ausführlich und unübersichtlich~~ (v2.1.0)
+- ~~Keine klare Übersicht der Heizungsmodi pro Raum~~ (v2.1.0)
+- ~~Automatik-Schalter (PV vs KI) waren nicht klar unterscheidbar~~ (v2.1.0)
 
 ### Offen
 - [ ] Thermostat-Sync zeigt manchmal alten Wert (Cache-Problem?)
