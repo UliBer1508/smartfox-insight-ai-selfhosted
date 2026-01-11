@@ -57,7 +57,21 @@ export function usePatternAnalysis() {
 
       if (error) throw error;
 
-      setAnalysis(data.analysis);
+      // Strukturierte Ausgabe verarbeiten
+      if (data.dailyPattern) {
+        const dp = data.dailyPattern;
+        const ratingEmoji: Record<string, string> = {excellent: '🌟', good: '✅', improvable: '⚠️', poor: '❌'};
+        
+        const summary = `${ratingEmoji[dp.rating] || '📊'} ${dp.summary}
+
+📊 PV: ${dp.pv_kwh?.toFixed(1) || 0}kWh | Verbrauch: ${dp.consumption_kwh?.toFixed(1) || 0}kWh | ${dp.self_consumption_percent?.toFixed(0) || 0}% Eigen
+
+💡 ${dp.tips?.join(' • ') || 'Keine Tipps'}`;
+        
+        setAnalysis(summary);
+      } else {
+        setAnalysis(data.analysis);
+      }
       toast.success('Analyse abgeschlossen');
     } catch (error) {
       console.error('❌ Analysis error:', error);
