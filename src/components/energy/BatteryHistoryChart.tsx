@@ -266,6 +266,7 @@ export function BatteryHistoryChart() {
               {/* Vertikale Referenzlinie für Slider-Position */}
               {selectedPoint?.time && (
                 <ReferenceLine
+                  yAxisId="soc"
                   x={selectedPoint.time}
                   stroke="hsl(var(--primary))"
                   strokeWidth={2}
