@@ -7,33 +7,35 @@ export interface BatteryHistoryPoint {
   battery_power: number | null;
 }
 
-export function useBatteryHistory() {
+export function useBatteryHistory(hours: number = 24) {
   const [data, setData] = useState<BatteryHistoryPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Sampling-Intervall basierend auf Zeitraum: 12h=2.5min, 24h=5min, 48h=10min
+  const samplingInterval = hours <= 12 ? 2.5 * 60 * 1000 : hours <= 24 ? 5 * 60 * 1000 : 10 * 60 * 1000;
+
   const loadHistory = useCallback(async () => {
+    setIsLoading(true);
     try {
-      const twentyFourHoursAgo = new Date();
-      twentyFourHoursAgo.setHours(twentyFourHoursAgo.getHours() - 24);
+      const hoursAgo = new Date();
+      hoursAgo.setHours(hoursAgo.getHours() - hours);
 
       const { data: readings, error } = await supabase
         .from('energy_readings')
         .select('timestamp, battery_soc, battery_power')
-        .gte('timestamp', twentyFourHoursAgo.toISOString())
+        .gte('timestamp', hoursAgo.toISOString())
         .order('timestamp', { ascending: true });
 
       if (error) throw error;
 
-      // Filter to entries with battery data and sample every ~5 minutes
+      // Filter to entries with battery data
       const filtered = (readings || []).filter(
         (r) => r.battery_soc !== null || r.battery_power !== null
       );
 
-      // Sample data to reduce points (max ~288 points for 24h at 5min intervals)
-      // aber immer den letzten Punkt einschließen für aktuelle Werte
+      // Sample data to reduce points (max ~288 points)
       const sampled: BatteryHistoryPoint[] = [];
       let lastTime = 0;
-      const interval = 5 * 60 * 1000; // 5 minutes
 
       for (let i = 0; i < filtered.length; i++) {
         const reading = filtered[i];
@@ -41,7 +43,7 @@ export function useBatteryHistory() {
         const isLast = i === filtered.length - 1;
         
         // Immer den letzten Punkt einschließen für aktuelle Anzeige
-        if (time - lastTime >= interval || sampled.length === 0 || isLast) {
+        if (time - lastTime >= samplingInterval || sampled.length === 0 || isLast) {
           sampled.push({
             timestamp: reading.timestamp,
             battery_soc: reading.battery_soc,
@@ -50,8 +52,6 @@ export function useBatteryHistory() {
           lastTime = time;
         }
       }
-      
-      console.log('Battery history loaded:', sampled.length, 'points, latest:', sampled[sampled.length - 1]);
 
       setData(sampled);
     } catch (error) {
@@ -59,7 +59,7 @@ export function useBatteryHistory() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [hours, samplingInterval]);
 
   useEffect(() => {
     loadHistory();
@@ -85,8 +85,8 @@ export function useBatteryHistory() {
               const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
               const newTime = new Date(newReading.timestamp).getTime();
 
-              // Remove points older than 24h
-              const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+              // Remove points older than selected hours
+              const cutoff = Date.now() - hours * 60 * 60 * 1000;
               const filtered = prev.filter(
                 (p) => new Date(p.timestamp).getTime() > cutoff
               );
@@ -97,8 +97,8 @@ export function useBatteryHistory() {
                 battery_power: newReading.battery_power,
               };
 
-              // After 5+ minutes: add new point
-              if (newTime - lastTime >= 5 * 60 * 1000) {
+              // After sampling interval: add new point
+              if (newTime - lastTime >= samplingInterval) {
                 return [...filtered, newPoint];
               }
               
