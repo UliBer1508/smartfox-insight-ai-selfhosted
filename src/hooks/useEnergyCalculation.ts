@@ -12,10 +12,20 @@ interface CalculatedEnergy {
   largestGapMinutes: number; // Größte Lücke in Minuten
 }
 
-// Stabiler Datumsstring für heute (ändert sich nur täglich)
+// Stabiler Datumsstring für heute (lokale Zeit, ändert sich nur täglich)
 function getTodayDateString(): string {
   const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Lokale Mitternacht als ISO-String für konsistente DB-Queries
+function getLocalMidnightISO(): string {
+  const now = new Date();
+  const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  return localMidnight.toISOString();
 }
 
 // Max Lücke für Interpolation (6 Stunden)
@@ -24,7 +34,8 @@ const MAX_GAP_FOR_INTERPOLATION_HOURS = 6;
 export function useEnergyCalculation(currentReadings: EnergyReading[]): CalculatedEnergy {
   const queryClient = useQueryClient();
   const todayStr = useMemo(() => getTodayDateString(), []);
-  const todayStart = useMemo(() => `${todayStr}T00:00:00`, [todayStr]);
+  // Verwende lokale Mitternacht für konsistente Queries
+  const todayStart = useMemo(() => getLocalMidnightISO(), []);
 
   // Realtime-Subscription: Bei neuen Readings Query invalidieren
   useEffect(() => {
@@ -56,6 +67,7 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
         .limit(5000); // Explizites Limit für alle Tages-Readings (bei 30s Intervall: ~2880/Tag)
       
       if (error) throw error;
+      console.log(`[EnergyCalc] Loaded ${data?.length || 0} readings for ${todayStr} (from ${todayStart})`);
       return data as EnergyReading[];
     },
     staleTime: 10_000,

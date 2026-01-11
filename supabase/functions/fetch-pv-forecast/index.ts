@@ -20,6 +20,26 @@ interface ForecastSolarResponse {
   };
 }
 
+// Saisonaler Korrekturfaktor für realistische Winter-Prognosen
+// Forecast.Solar liefert Idealwerte, die in der Praxis oft nicht erreicht werden
+function getSeasonalFactor(month: number): number {
+  const factors: Record<number, number> = {
+    1: 0.35,  // Januar - kurze Tage, tiefer Sonnenstand, oft bewölkt
+    2: 0.45,  // Februar
+    3: 0.65,  // März
+    4: 0.80,  // April
+    5: 0.90,  // Mai
+    6: 1.00,  // Juni - Optimum
+    7: 1.00,  // Juli
+    8: 0.95,  // August
+    9: 0.80,  // September
+    10: 0.60, // Oktober
+    11: 0.40, // November
+    12: 0.30, // Dezember - kürzeste Tage
+  };
+  return factors[month] || 1.0;
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -98,14 +118,22 @@ serve(async (req) => {
       hourlyWattsByDate[date][datetime] = wattValue;
     }
 
-    // Create forecast entries for each day
+    // Create forecast entries for each day with seasonal correction
     for (const [date, kwhValue] of Object.entries(wattHoursDay)) {
-      const expectedKwh = kwhValue / 1000; // Convert Wh to kWh
+      const rawKwh = kwhValue / 1000; // Convert Wh to kWh
       const hourlyWatts = hourlyWattsByDate[date] || {};
+      
+      // Saisonalen Korrekturfaktor anwenden
+      const forecastDate = new Date(date);
+      const month = forecastDate.getMonth() + 1; // 1-12
+      const seasonalFactor = getSeasonalFactor(month);
+      const adjustedKwh = rawKwh * seasonalFactor;
+      
+      console.log(`[Forecast] ${date}: ${rawKwh.toFixed(1)} kWh × ${seasonalFactor} = ${adjustedKwh.toFixed(1)} kWh (Monat ${month})`);
 
       forecasts.push({
         date,
-        expected_kwh: Math.round(expectedKwh * 10) / 10,
+        expected_kwh: Math.round(adjustedKwh * 10) / 10,
         hourly_watts: hourlyWatts,
         sunrise: sunrise || null,
         sunset: sunset || null,

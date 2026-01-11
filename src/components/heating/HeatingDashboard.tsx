@@ -296,6 +296,12 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                 }`}>
                   {Math.round((pvEnergy / todayForecast.expected_kwh) * 100)}% der Prognose
                 </p>
+                {/* Warnung bei sehr niedriger Erfüllung trotz signifikanter Produktion */}
+                {(pvEnergy / todayForecast.expected_kwh) < 0.3 && pvEnergy > 5 && (
+                  <p className="text-xs text-amber-500 mt-1">
+                    ⚠️ Prognose evtl. zu optimistisch – aktualisiere für genauere Werte
+                  </p>
+                )}
               </div>
             )}
             
