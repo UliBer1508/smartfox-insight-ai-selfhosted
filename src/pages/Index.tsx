@@ -430,8 +430,6 @@ const Index = () => {
                 strategy={roomStrategy}
               />
             )}
-
-            <EnergyChart readings={readings} title="Daten für Analyse" />
           </div>
         )}
 
