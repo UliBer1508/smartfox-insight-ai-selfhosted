@@ -525,13 +525,33 @@ Deno.serve(async (req) => {
         });
       }
 
+      // Trigger evaluation of old learning events (self-learning loop)
+      let evaluationResult = null;
+      try {
+        const evalResponse = await fetch(`${supabaseUrl}/functions/v1/evaluate-decision`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${supabaseKey}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ evaluate_all: true })
+        });
+        if (evalResponse.ok) {
+          evaluationResult = await evalResponse.json();
+          console.log(`[PV-Automation] Evaluated ${evaluationResult.evaluated || 0} old learning events`);
+        }
+      } catch (evalError) {
+        console.error('[PV-Automation] Evaluation trigger error:', evalError);
+      }
+
       return new Response(JSON.stringify({
         success: true,
         timestamp: now.toISOString(),
         surplus,
         batterySoc,
         usedMlDecision,
-        results
+        results,
+        evaluatedEvents: evaluationResult?.evaluated || 0
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
