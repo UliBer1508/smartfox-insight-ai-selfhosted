@@ -19,7 +19,8 @@ serve(async (req) => {
       type,
       mlFeatures,
       weatherData,
-      recentRewards
+      recentRewards,
+      pvForecast
     } = await req.json();
     
     console.log(`Analyzing type: ${type}, readings: ${readings?.length || 0}, rooms: ${rooms?.length || 0}`);
@@ -75,6 +76,41 @@ serve(async (req) => {
       const totalHeatingPower = heatingSettings?.total_heating_power_w || 
         rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || (r.calculated_power_w as number) || 800), 0) || 0;
       
+      // Dachausrichtung für PV
+      const roofAzimuth = heatingSettings?.roof_azimuth || 0;
+      const roofDeclination = heatingSettings?.roof_declination || 35;
+      
+      // PV-Prognose verarbeiten
+      const hourlyWatts = pvForecast?.hourly_watts as Record<string, number> | null;
+      let hourlyPvData = 'Keine Prognose verfügbar';
+      let peakHours: string[] = [];
+      let pvPeakPower = 0;
+      let expectedKwh = 0;
+      
+      if (hourlyWatts && typeof hourlyWatts === 'object') {
+        // Stündliche Daten formatieren (nur signifikante Werte)
+        hourlyPvData = Object.entries(hourlyWatts)
+          .filter(([_, watts]) => (watts as number) > 100)
+          .map(([time, watts]) => {
+            const timeStr = (time as string).includes(' ') ? (time as string).split(' ')[1]?.substring(0,5) : time;
+            return `${timeStr}: ${Math.round(watts as number)}W`;
+          })
+          .join(', ');
+        
+        // Peak-Stunden ermitteln (>5kW)
+        peakHours = Object.entries(hourlyWatts)
+          .filter(([_, watts]) => (watts as number) > 5000)
+          .map(([time]) => {
+            const t = time as string;
+            return t.includes(' ') ? t.split(' ')[1]?.substring(0,5) : t;
+          })
+          .filter(Boolean) as string[];
+        
+        // Maximale PV-Leistung
+        pvPeakPower = Math.max(...Object.values(hourlyWatts).map(w => w as number));
+        expectedKwh = pvForecast?.expected_kwh || 0;
+      }
+      
       prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
 
 ⚠️ **WICHTIG: ALLE ERFORDERLICHEN DATEN SIND UNTEN AUFGEFÜHRT. GIB NUR KONKRETE EMPFEHLUNGEN, KEINE RÜCKFRAGEN!**
@@ -96,10 +132,17 @@ serve(async (req) => {
 **WETTER:**
 ${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${weatherData.cloud_cover_percent}%, Strahlung: ${weatherData.direct_radiation_wm2 || 0}W/m²` : '- Keine Wetterdaten verfügbar'}
 
+**PV-PROGNOSE (basierend auf Dachausrichtung: Azimut ${roofAzimuth}°, Neigung ${roofDeclination}°):**
+- Erwartete Tagesproduktion: ${expectedKwh.toFixed(1)} kWh
+- Maximale Leistung: ${Math.round(pvPeakPower)}W
+- Sonnenaufgang: ${pvForecast?.sunrise || '?'} | Sonnenuntergang: ${pvForecast?.sunset || '?'}
+- **Peak-Stunden (>5kW):** ${peakHours.length > 0 ? peakHours.join(', ') : 'keine signifikanten Peaks'}
+- Stündliche Leistung: ${hourlyPvData}
+
 **WARMWASSER (EXTERN - SmartFox gesteuert):**
 - Aktuelle Einstellung: ${hotwaterStart}-${hotwaterEnd}
 - Leistung: ${hotwaterPower}W, Mind. Überschuss: ${hotwaterMinSurplus}W
-- Empfehle das optimale Zeitfenster basierend auf PV-Überschuss
+- ⚠️ **NUR während Peak-Stunden empfehlen!** Zeitfenster muss innerhalb ${peakHours[0] || '10:00'}-${peakHours[peakHours.length-1] || '15:00'} liegen, da nur dann genug PV-Leistung verfügbar ist
 
 **NACHTZYKLEN:**
 - Aktuell: ${nightCyclingEnabled ? `${avgNightCycles} Zyklen/Raum` : 'Deaktiviert'}
