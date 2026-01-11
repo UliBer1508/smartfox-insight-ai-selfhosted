@@ -83,6 +83,21 @@ export function BatteryHistoryChart() {
     return `${Math.round(value)} W`;
   };
 
+  // Relative Zeit berechnen (vor X Min/Std/Tagen)
+  const getRelativeTime = (date: Date) => {
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 2) return null; // "gerade eben" = kein Zusatz nötig
+    if (diffMins < 60) return `vor ${diffMins} Min.`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `vor ${diffHours} Std.`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `vor ${diffDays} Tag${diffDays > 1 ? 'en' : ''}`;
+  };
+
+  const isLatestSelected = sliderIndex === chartData.length - 1;
+
   const maxPower = useMemo(() => {
     let max = 0;
     for (const point of chartData) {
@@ -338,11 +353,14 @@ export function BatteryHistoryChart() {
               className="w-full"
             />
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>{chartData[0]?.fullTime}</span>
+              <span className="opacity-60">{chartData[0]?.fullTime}</span>
               <span className="font-medium text-foreground">
-                {selectedPoint?.fullTime} Uhr
+                {isLatestSelected ? 'Jetzt' : selectedPoint?.fullTime + ' Uhr'}
+                {!isLatestSelected && selectedPoint && getRelativeTime(selectedPoint.timestamp) && (
+                  <span className="text-muted-foreground ml-1">({getRelativeTime(selectedPoint.timestamp)})</span>
+                )}
               </span>
-              <span>{chartData[chartData.length - 1]?.fullTime}</span>
+              <span className="font-semibold text-primary">Jetzt</span>
             </div>
           </div>
         )}
@@ -350,7 +368,12 @@ export function BatteryHistoryChart() {
         {/* Detail-Anzeige für ausgewählten Zeitpunkt */}
         {selectedPoint && (
           <div className="mt-3 p-3 bg-muted/50 rounded-lg flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="font-medium">{selectedPoint.fullTime} Uhr</span>
+            <span className="font-medium">
+              {isLatestSelected ? 'Jetzt' : `${selectedPoint.fullTime} Uhr`}
+              {!isLatestSelected && getRelativeTime(selectedPoint.timestamp) && (
+                <span className="text-muted-foreground font-normal ml-1">({getRelativeTime(selectedPoint.timestamp)})</span>
+              )}
+            </span>
             <div className="flex flex-wrap gap-4">
               {selectedPoint.soc != null && (
                 <span>
