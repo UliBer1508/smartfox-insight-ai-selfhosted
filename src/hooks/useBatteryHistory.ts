@@ -30,13 +30,18 @@ export function useBatteryHistory() {
       );
 
       // Sample data to reduce points (max ~288 points for 24h at 5min intervals)
+      // aber immer den letzten Punkt einschließen für aktuelle Werte
       const sampled: BatteryHistoryPoint[] = [];
       let lastTime = 0;
       const interval = 5 * 60 * 1000; // 5 minutes
 
-      for (const reading of filtered) {
+      for (let i = 0; i < filtered.length; i++) {
+        const reading = filtered[i];
         const time = new Date(reading.timestamp).getTime();
-        if (time - lastTime >= interval || sampled.length === 0) {
+        const isLast = i === filtered.length - 1;
+        
+        // Immer den letzten Punkt einschließen für aktuelle Anzeige
+        if (time - lastTime >= interval || sampled.length === 0 || isLast) {
           sampled.push({
             timestamp: reading.timestamp,
             battery_soc: reading.battery_soc,
@@ -45,6 +50,8 @@ export function useBatteryHistory() {
           lastTime = time;
         }
       }
+      
+      console.log('Battery history loaded:', sampled.length, 'points, latest:', sampled[sampled.length - 1]);
 
       setData(sampled);
     } catch (error) {
