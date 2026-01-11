@@ -19,6 +19,7 @@ import { useBatteryHistory, BatteryHistoryPoint } from '@/hooks/useBatteryHistor
 
 interface ChartDataPoint {
   time: string;
+  fullTime: string;  // Immer mit Datum für Slider/Details
   timestamp: Date;
   soc: number | null;
   charging: number | null;
@@ -43,13 +44,23 @@ export function BatteryHistoryChart() {
       const pointDateStr = pointDate.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
       const isToday = pointDateStr === todayStr;
       
-      // Zeige Datum nur wenn nicht heute
+      // Zeige Datum nur wenn nicht heute (für Chart X-Achse)
       const time = isToday
         ? pointDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
         : pointDate.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }).replace(', ', ' ');
       
+      // Immer mit Datum für Slider/Details
+      const fullTime = pointDate.toLocaleString('de-DE', { 
+        day: '2-digit', 
+        month: '2-digit', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        timeZone: 'Europe/Berlin' 
+      }).replace(', ', ' ');
+      
       return {
         time,
+        fullTime,
         timestamp: pointDate,
         soc: point.battery_soc,
         charging: power < 0 ? Math.abs(power) : null,      // negativ = laden, als positiv anzeigen
@@ -327,11 +338,11 @@ export function BatteryHistoryChart() {
               className="w-full"
             />
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span>{chartData[0]?.time}</span>
+              <span>{chartData[0]?.fullTime}</span>
               <span className="font-medium text-foreground">
-                {selectedPoint?.time} Uhr
+                {selectedPoint?.fullTime} Uhr
               </span>
-              <span>{chartData[chartData.length - 1]?.time}</span>
+              <span>{chartData[chartData.length - 1]?.fullTime}</span>
             </div>
           </div>
         )}
@@ -339,7 +350,7 @@ export function BatteryHistoryChart() {
         {/* Detail-Anzeige für ausgewählten Zeitpunkt */}
         {selectedPoint && (
           <div className="mt-3 p-3 bg-muted/50 rounded-lg flex flex-wrap items-center justify-between gap-2 text-sm">
-            <span className="font-medium">{selectedPoint.time} Uhr</span>
+            <span className="font-medium">{selectedPoint.fullTime} Uhr</span>
             <div className="flex flex-wrap gap-4">
               {selectedPoint.soc != null && (
                 <span>
