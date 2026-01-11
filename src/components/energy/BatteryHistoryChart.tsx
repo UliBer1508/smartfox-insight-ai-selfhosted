@@ -81,7 +81,9 @@ export function BatteryHistoryChart() {
     return Math.max(max, 1000); // Minimum 1kW scale
   }, [chartData]);
 
-  const selectedPoint = chartData[sliderIndex];
+  const selectedPoint = chartData.length > 0 && sliderIndex >= 0 && sliderIndex < chartData.length 
+    ? chartData[sliderIndex] 
+    : null;
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -262,7 +264,7 @@ export function BatteryHistoryChart() {
               <ReferenceLine yAxisId="power" y={0} stroke="hsl(var(--border))" />
               
               {/* Vertikale Referenzlinie für Slider-Position */}
-              {selectedPoint && (
+              {selectedPoint?.time && (
                 <ReferenceLine
                   x={selectedPoint.time}
                   stroke="hsl(var(--primary))"
@@ -312,24 +314,26 @@ export function BatteryHistoryChart() {
           </ResponsiveContainer>
         </div>
 
-        {/* Zeit-Slider */}
-        <div className="mt-4 px-2">
-          <Slider
-            value={[sliderIndex]}
-            max={chartData.length - 1}
-            min={0}
-            step={1}
-            onValueChange={(value) => setSliderIndex(value[0])}
-            className="w-full"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground mt-1">
-            <span>{chartData[0]?.time}</span>
-            <span className="font-medium text-foreground">
-              {selectedPoint?.time} Uhr
-            </span>
-            <span>{chartData[chartData.length - 1]?.time}</span>
+        {/* Zeit-Slider - nur wenn genug Daten vorhanden */}
+        {chartData.length > 1 && (
+          <div className="mt-4 px-2">
+            <Slider
+              value={[Math.max(0, Math.min(sliderIndex, chartData.length - 1))]}
+              max={chartData.length - 1}
+              min={0}
+              step={1}
+              onValueChange={(value) => setSliderIndex(value[0])}
+              className="w-full"
+            />
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span>{chartData[0]?.time}</span>
+              <span className="font-medium text-foreground">
+                {selectedPoint?.time} Uhr
+              </span>
+              <span>{chartData[chartData.length - 1]?.time}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Detail-Anzeige für ausgewählten Zeitpunkt */}
         {selectedPoint && (
