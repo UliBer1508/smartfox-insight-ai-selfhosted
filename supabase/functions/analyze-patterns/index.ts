@@ -164,11 +164,47 @@ ${rooms?.map((r: Record<string, unknown>) => {
    ${f ? `ML: Wärmeverlust ${(f.heat_loss_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, Aufheizrate ${(f.heating_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, PV-Anteil ${(((f.pv_heating_ratio as number) || 0) * 100).toFixed(0)}%, Konfidenz ${(((f.confidence as number) || 0) * 100).toFixed(0)}%` : '⚠️ Keine ML-Features (Lernphase)'}`;
 }).join('\n\n') || 'Keine Räume konfiguriert'}
 
-**FEEDBACK (letzte Entscheidungen):**
-${recentRewards?.length > 0 ? recentRewards.slice(0, 5).map((r: Record<string, unknown>) => {
-  const reward = r.reward as number | null;
-  return `${reward === null ? '⏳' : reward > 0.5 ? '✅' : reward > 0 ? '➖' : '❌'} ${r.decision_type}: Reward ${reward?.toFixed(2) || 'pending'}`;
-}).join('\n') : '⏳ Noch keine Bewertungsdaten'}
+**FEEDBACK & LERNFORTSCHRITT (evaluierte Entscheidungen):**
+${(() => {
+  if (!recentRewards || recentRewards.length === 0) {
+    return '⏳ Noch keine evaluierten Events - Selbstlernzyklus startet nach 2h';
+  }
+  
+  const evaluatedEvents = recentRewards.filter((r: Record<string, unknown>) => r.reward !== null);
+  if (evaluatedEvents.length === 0) {
+    return '⏳ Events warten auf Evaluation (nach 2h)';
+  }
+  
+  const avgReward = evaluatedEvents.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.reward as number) || 0), 0) / evaluatedEvents.length;
+  const positiveCount = evaluatedEvents.filter((r: Record<string, unknown>) => (r.reward as number) > 0).length;
+  const negativeCount = evaluatedEvents.filter((r: Record<string, unknown>) => (r.reward as number) < 0).length;
+  
+  let summary = `📊 STATISTIK: ${evaluatedEvents.length} evaluiert | Ø Reward: ${avgReward.toFixed(2)} | ✅ ${positiveCount} gut | ❌ ${negativeCount} schlecht\n\n`;
+  
+  summary += 'LETZTE 5 ENTSCHEIDUNGEN:\n';
+  summary += evaluatedEvents.slice(0, 5).map((r: Record<string, unknown>) => {
+    const reward = r.reward as number;
+    const breakdown = r.reward_breakdown as Record<string, number> | undefined;
+    const icon = reward > 0.5 ? '✅' : reward > 0 ? '➖' : '❌';
+    
+    let details = `${icon} ${r.decision_type}: Reward ${reward.toFixed(2)}`;
+    if (breakdown) {
+      details += `\n   PV-Nutzung: ${(breakdown.pv_usage_bonus || 0).toFixed(2)} | Komfort: ${(breakdown.comfort_bonus || 0).toFixed(2)} | Prognose: ${(breakdown.forecast_quality || 0).toFixed(2)}`;
+    }
+    return details;
+  }).join('\n');
+  
+  // Lern-Hinweis basierend auf Trends
+  if (avgReward < 0) {
+    summary += '\n\n⚠️ LERNHINWEIS: Negativer Durchschnitts-Reward! Strategieänderung empfohlen:';
+    summary += '\n- Bei schlechter PV-Nutzung: Heizung stärker auf Sonnenspitzen konzentrieren';
+    summary += '\n- Bei schlechtem Komfort: Vorheizzeit erhöhen oder Zieltemperatur anpassen';
+  } else if (avgReward > 0.5) {
+    summary += '\n\n✅ LERNHINWEIS: Positive Entwicklung! Aktuelle Strategie beibehalten.';
+  }
+  
+  return summary;
+})()}
 
 **🤖 DEINE AUTOMATIK-ENTSCHEIDUNGEN HEUTE (DU BIST DAS STEUERNDE SYSTEM!):**
 ${(() => {

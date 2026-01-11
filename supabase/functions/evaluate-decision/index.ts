@@ -115,6 +115,40 @@ async function evaluateEvent(
   const eventTime = new Date(event.timestamp);
   const evaluationWindow = 2 * 60 * 60 * 1000; // 2 Stunden
   const endTime = new Date(eventTime.getTime() + evaluationWindow);
+  const eventDate = event.timestamp.split('T')[0];
+
+  // Lade PV-Prognose für den Tag des Events
+  const { data: forecast } = await supabase
+    .from('pv_forecasts')
+    .select('expected_kwh, hourly_watts')
+    .eq('date', eventDate)
+    .single();
+
+  // Lade tatsächliche PV-Produktion für den Tag
+  const { data: actualPvReadings } = await supabase
+    .from('energy_readings')
+    .select('pv_power, timestamp')
+    .gte('timestamp', `${eventDate}T00:00:00`)
+    .lt('timestamp', `${eventDate}T23:59:59`)
+    .order('timestamp');
+
+  // Berechne tatsächliche kWh aus Samples (30s Intervalle geschätzt)
+  let actualDayKwh = 0;
+  if (actualPvReadings && actualPvReadings.length > 1) {
+    for (let i = 1; i < actualPvReadings.length; i++) {
+      const prev = actualPvReadings[i - 1];
+      const curr = actualPvReadings[i];
+      const intervalHours = (new Date(curr.timestamp).getTime() - new Date(prev.timestamp).getTime()) / 3600000;
+      actualDayKwh += ((curr.pv_power || 0) / 1000) * intervalHours;
+    }
+  }
+
+  // Berechne Prognose-Genauigkeit
+  let forecastAccuracy: number | null = null;
+  if (forecast?.expected_kwh && forecast.expected_kwh > 0 && actualDayKwh > 0) {
+    const deviation = Math.abs(actualDayKwh - forecast.expected_kwh) / forecast.expected_kwh;
+    forecastAccuracy = Math.max(0, 1 - deviation);
+  }
 
   // Lade Energiedaten im Evaluierungsfenster
   const { data: energyData } = await supabase
@@ -149,8 +183,11 @@ async function evaluateEvent(
     heatingLogs = data || [];
   }
 
-  // Berechne Outcome
+  // Berechne Outcome mit Prognose-Info
   const outcome = calculateOutcome(energyData || [], tempData, heatingLogs, event);
+  outcome.forecast_expected_kwh = forecast?.expected_kwh || null;
+  outcome.actual_day_kwh = Math.round(actualDayKwh * 100) / 100;
+  outcome.forecast_accuracy = forecastAccuracy !== null ? Math.round(forecastAccuracy * 100) / 100 : null;
 
   // Berechne Reward
   const reward = calculateReward(outcome, event, electricityPrice, feedInPrice);
@@ -248,7 +285,7 @@ function calculateReward(
     : -batteryRatio * 0.3; // Tags: Batterie vermeiden wenn PV da
 
   // 4. Komfort-Komponente
-  if (event.decision_type === 'heating_on' || event.decision_type === 'preheat') {
+  if (event.decision_type === 'activate' || event.decision_type === 'heating_on' || event.decision_type === 'preheat') {
     if (outcome.target_reached) {
       breakdown.comfort_bonus = 0.8; // Ziel erreicht
     } else if (outcome.temp_change && outcome.temp_change > 0) {
@@ -269,6 +306,23 @@ function calculateReward(
     breakdown.efficiency_bonus = Math.min(0.5, Math.max(-0.5, (efficiency - 1) * 0.5));
   } else {
     breakdown.efficiency_bonus = 0;
+  }
+
+  // 6. Prognose-Qualitäts-Komponente (NEU)
+  // Bonus wenn die PV-Prognose akkurat war und die Entscheidung darauf basierte
+  if (outcome.forecast_accuracy !== null) {
+    if (outcome.forecast_accuracy > 0.8) {
+      // Gute Prognose = die Entscheidung basierte auf guten Daten
+      breakdown.forecast_quality = 0.2;
+    } else if (outcome.forecast_accuracy > 0.5) {
+      // Mittlere Prognose = neutral
+      breakdown.forecast_quality = 0;
+    } else {
+      // Schlechte Prognose = Entscheidung basierte auf falschen Annahmen
+      breakdown.forecast_quality = -0.1;
+    }
+  } else {
+    breakdown.forecast_quality = 0;
   }
 
   // Gesamtreward
