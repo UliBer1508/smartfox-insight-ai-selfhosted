@@ -52,7 +52,11 @@ interface AnalysisResult {
   expected_total_savings_wh?: number;
 }
 
-export function LearningProgress() {
+interface LearningProgressProps {
+  autoRunAnalysis?: boolean;
+}
+
+export function LearningProgress({ autoRunAnalysis = false }: LearningProgressProps) {
   const [features, setFeatures] = useState<RoomMLFeatures[]>([]);
   const [recentEvents, setRecentEvents] = useState<LearningEvent[]>([]);
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
@@ -65,6 +69,16 @@ export function LearningProgress() {
   useEffect(() => {
     loadData();
   }, []);
+
+  // Auto-run analysis when enabled and rooms are loaded
+  useEffect(() => {
+    if (autoRunAnalysis && rooms.length > 0 && !analysisResult && !isAnalyzing && !isLoading) {
+      const tuyaRooms = rooms.filter(r => r.tuya_device_id);
+      if (tuyaRooms.length > 0) {
+        runAnalysis();
+      }
+    }
+  }, [autoRunAnalysis, rooms, analysisResult, isAnalyzing, isLoading]);
 
   const loadData = async () => {
     setIsLoading(true);
@@ -329,68 +343,48 @@ export function LearningProgress() {
               </div>
 
               {analysisResult ? (
-                <div className="space-y-3">
-                  {/* Strategy Summary */}
-                  <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
-                    <p className="text-sm text-foreground leading-relaxed">
-                      {analysisResult.overall_strategy}
-                    </p>
-                    {analysisResult.expected_total_savings_wh && (
-                      <p className="text-xs text-muted-foreground mt-2">
-                        💡 Erwartete Einsparung: ~{Math.round(analysisResult.expected_total_savings_wh)} Wh
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Thermostat Recommendations */}
-                  <div className="space-y-2">
-                    <h5 className="text-xs font-medium text-muted-foreground">Thermostat-Einstellungen:</h5>
-                    <div className="space-y-2">
-                      {analysisResult.decisions.map((decision, idx) => (
-                        <div 
-                          key={decision.room_id || idx} 
-                          className="flex items-center justify-between bg-muted/30 rounded-lg p-3 border border-border/50"
-                        >
-                          <div className="flex items-center gap-3">
-                            {getActionIcon(decision.action, decision.priority)}
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-medium text-sm">{decision.room_name}</span>
-                                <Badge 
-                                  variant={getActionBadgeVariant(decision.action, decision.priority)}
-                                  className="text-[10px] px-1.5 h-5"
-                                >
-                                  {getActionLabel(decision.action, decision.priority)}
-                                </Badge>
-                              </div>
-                              <p className="text-xs text-muted-foreground mt-0.5 max-w-[200px]">
-                                {decision.reasoning}
-                              </p>
-                            </div>
+                <div className="space-y-2">
+                  {/* Thermostat Recommendations - direkt anzeigen */}
+                  {analysisResult.decisions.map((decision, idx) => (
+                    <div 
+                      key={decision.room_id || idx} 
+                      className="flex items-center justify-between bg-muted/30 rounded-lg p-2 border border-border/50"
+                    >
+                      <div className="flex items-center gap-2">
+                        {getActionIcon(decision.action, decision.priority)}
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-sm">{decision.room_name}</span>
+                            <Badge 
+                              variant={getActionBadgeVariant(decision.action, decision.priority)}
+                              className="text-[10px] px-1 h-4"
+                            >
+                              {getActionLabel(decision.action, decision.priority)}
+                            </Badge>
                           </div>
-                          <div className="text-right">
-                            <span className="text-2xl font-bold text-foreground">
-                              {decision.target_temp}°C
-                            </span>
-                            {decision.confidence !== undefined && (
-                              <p className="text-[10px] text-muted-foreground">
-                                {Math.round(decision.confidence * 100)}% sicher
-                              </p>
-                            )}
-                          </div>
+                          <p className="text-[11px] text-muted-foreground truncate max-w-[180px]">
+                            {decision.reasoning}
+                          </p>
                         </div>
-                      ))}
+                      </div>
+                      <span className="text-xl font-bold text-foreground ml-2">
+                        {decision.target_temp}°
+                      </span>
                     </div>
-                  </div>
+                  ))}
+                  
+                  {analysisResult.expected_total_savings_wh && analysisResult.expected_total_savings_wh > 0 && (
+                    <p className="text-[11px] text-muted-foreground text-center">
+                      💡 ~{Math.round(analysisResult.expected_total_savings_wh)} Wh Einsparung
+                    </p>
+                  )}
                 </div>
               ) : (
-                <div className="text-center py-4 text-muted-foreground">
-                  <p className="text-xs">
-                    {tuyaRooms.length === 0 
-                      ? 'Keine Tuya-Thermostate konfiguriert' 
-                      : 'Klicke "Analyse starten" für KI-Empfehlungen'}
-                  </p>
-                </div>
+                <p className="text-xs text-center text-muted-foreground py-2">
+                  {tuyaRooms.length === 0 
+                    ? 'Keine Tuya-Thermostate' 
+                    : isAnalyzing ? 'Analysiere...' : 'Klicke "Analyse starten"'}
+                </p>
               )}
             </div>
 

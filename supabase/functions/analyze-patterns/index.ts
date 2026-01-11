@@ -291,27 +291,68 @@ Erstelle für JEDEN Raum eine Empfehlung.`;
       };
 
     } else if (type === 'daily_pattern') {
-      const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
-      const roomsList = rooms?.map((r: Record<string, unknown>) => `${r.name} (${r.heating_power_w || 800}W)`).join(', ') || 'Keine Räume';
+      useToolCalling = true;
+      toolName = 'analyze_daily_pattern';
       
-      let consumerActivity = '';
+      const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
+      
+      // Daten aggregieren statt alle senden
+      const totalPv = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r.pv_power as number) || 0) * 30/3600/1000, 0);
+      const totalConsumption = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r.consumption as number) || 0) * 30/3600/1000, 0);
+      const totalImport = readings.filter((r: Record<string, unknown>) => (r.power_io as number) > 0).reduce((s: number, r: Record<string, unknown>) => s + (r.power_io as number) * 30/3600/1000, 0);
+      const totalExport = readings.filter((r: Record<string, unknown>) => (r.power_io as number) < 0).reduce((s: number, r: Record<string, unknown>) => s + Math.abs(r.power_io as number) * 30/3600/1000, 0);
+      const selfConsumption = totalPv > 0 ? ((totalPv - totalExport) / totalPv * 100) : 0;
+      
+      // Spitzen identifizieren
+      const peaks = readings
+        .filter((r: Record<string, unknown>) => (r.consumption as number) > 2000)
+        .map((r: Record<string, unknown>) => ({
+          time: new Date(r.timestamp as string).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}),
+          power: Math.round(r.consumption as number)
+        }))
+        .slice(0, 5);
+      
+      // Verbraucher-Info
+      let consumerInfo = '';
       if (consumerLogs && consumerLogs.length > 0) {
-        consumerActivity = '\n**VERBRAUCHER:**\n';
-        consumerLogs.forEach((log: Record<string, unknown>) => {
+        consumerInfo = consumerLogs.map((log: Record<string, unknown>) => {
           const start = new Date(log.start_time as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-          const end = log.end_time ? new Date(log.end_time as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'aktiv';
-          consumerActivity += `- ${log.consumer_type}: ${start}-${end}, ~${Math.round((log.avg_power_w as number) || 0)}W\n`;
-        });
+          return `${log.consumer_type}: ${start}, ${Math.round((log.avg_power_w as number) || 0)}W`;
+        }).join('; ');
       }
 
-      prompt = `Analysiere Tagesenergieprofil:
+      prompt = `Tagesprofil analysieren (KURZ antworten, max 40 Woerter):
 
-**Bekannte Verbraucher:** Heizung ${totalHeatingPower}W (${roomsList}), Warmwasser ${heatingSettings?.hotwater_power_w || 6000}W
-${consumerActivity}
-**Daten:**
-${readings.map((r: Record<string, unknown>) => `${r.timestamp}: ${r.power_io}W, PV: ${r.pv_power || 0}W, SOC: ${r.battery_soc || 0}%`).join('\n')}
+PV: ${totalPv.toFixed(1)}kWh | Verbrauch: ${totalConsumption.toFixed(1)}kWh
+Import: ${totalImport.toFixed(1)}kWh | Export: ${totalExport.toFixed(1)}kWh | Eigenverbrauch: ${selfConsumption.toFixed(0)}%
 
-Ordne Spitzen den bekannten Verbrauchern zu. Antworte auf Deutsch.`;
+Heizung: ${totalHeatingPower}W, Warmwasser: ${heatingSettings?.hotwater_power_w || 2800}W
+${consumerInfo ? `Verbraucher: ${consumerInfo}` : ''}
+${peaks.length > 0 ? `Spitzen: ${peaks.map((p: {time: string, power: number}) => `${p.time}:${p.power}W`).join(', ')}` : ''}`;
+
+      toolDefinition = {
+        type: "function",
+        function: {
+          name: "analyze_daily_pattern",
+          description: "Kurze strukturierte Tagesmuster-Analyse",
+          parameters: {
+            type: "object",
+            properties: {
+              summary: { type: "string", description: "Max 40 Woerter Zusammenfassung" },
+              rating: { type: "string", enum: ["excellent", "good", "improvable", "poor"] },
+              self_consumption_percent: { type: "number" },
+              pv_kwh: { type: "number" },
+              consumption_kwh: { type: "number" },
+              tips: { 
+                type: "array", 
+                items: { type: "string", description: "Kurzer Tipp, max 10 Woerter" },
+                maxItems: 2
+              }
+            },
+            required: ["summary", "rating", "self_consumption_percent", "pv_kwh", "consumption_kwh", "tips"]
+          }
+        }
+      };
 
     } else if (type === 'weekly_comparison') {
       const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
@@ -385,6 +426,10 @@ Kurze Einschätzung auf Deutsch.`;
             });
           } else if (toolName === 'create_room_heating_plan') {
             return new Response(JSON.stringify({ roomHeatingPlan: result }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          } else if (toolName === 'analyze_daily_pattern') {
+            return new Response(JSON.stringify({ dailyPattern: result }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           } else {
