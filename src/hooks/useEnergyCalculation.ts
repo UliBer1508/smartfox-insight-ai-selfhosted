@@ -72,6 +72,8 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
     },
     staleTime: 10_000,
     refetchInterval: 30_000,
+    refetchOnMount: 'always',
+    refetchOnWindowFocus: true,
   });
 
   return useMemo(() => {
