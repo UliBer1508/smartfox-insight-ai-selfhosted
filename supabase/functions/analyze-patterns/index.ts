@@ -51,19 +51,7 @@ serve(async (req) => {
       const isMorning = hour >= 6 && hour < 10;
       const isPeakSolar = hour >= 10 && hour < 16;
       
-      // Berechne Schaltzyklen (vereinfacht aus rooms)
-      const totalCyclesToday = rooms?.reduce((sum: number, r: Record<string, unknown>) => 
-        sum + ((r.avg_heating_cycles_per_day as number) || 0), 0) || 0;
-      
-      // Erkenne überheizte Räume
-      const overheatedRooms = rooms?.filter((r: Record<string, unknown>) => 
-        ((r.current_temp as number) || 0) > ((r.target_temp as number) || 20) + 1.5
-      ) || [];
-      
-      // Strompreis berechnen
-      const electricityPriceCent = heatingSettings?.electricity_price_kwh_cent || 25;
-      
-      prompt = `Du bist ein EXPERTEN-Heizungsoptimierungssystem. Erstelle DETAILLIERTE, VERSTÄNDLICHE Empfehlungen.
+      prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
 
 **ZEITPUNKT:** ${now.toLocaleString('de-DE')} (${isNight ? 'Nacht' : isMorning ? 'Morgen' : isPeakSolar ? 'Hauptsonnenzeit' : 'Nachmittag/Abend'})
 
@@ -72,30 +60,19 @@ serve(async (req) => {
 - Batterie-SOC: ${batterySoc}% ${batterySoc > 80 ? '✅' : batterySoc > 50 ? '➖' : batterySoc > 20 ? '⚠️' : '❌'}
 - PV-Leistung: ${pvPower}W
 - Verbrauch: ${consumption}W
-- Strompreis: ${electricityPriceCent} ct/kWh
 
 **WETTER:**
 ${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${weatherData.cloud_cover_percent}%, Strahlung: ${weatherData.direct_radiation_wm2 || 0}W/m²` : '- Keine Wetterdaten'}
 
-**SYSTEMEINSTELLUNGEN (WICHTIG FÜR OPTIMIERUNG):**
-- Min. Schaltintervall: ${heatingSettings?.min_switch_interval_min || 5} Minuten
-- PV-Schwelle EIN: ${heatingSettings?.pv_surplus_threshold_on || 500}W
-- PV-Schwelle AUS: ${heatingSettings?.pv_surplus_threshold_off || 200}W  
-- Hysterese: ${(heatingSettings?.pv_surplus_threshold_on || 500) - (heatingSettings?.pv_surplus_threshold_off || 200)}W
-- Warmwasser: ${heatingSettings?.hotwater_schedule_start || '12:00'} - ${heatingSettings?.hotwater_schedule_end || '16:00'}
-
-**PROBLEME ERKANNT:**
-- Schaltzyklen heute: ~${totalCyclesToday > 0 ? totalCyclesToday : '50+'} (Optimal: <20/Tag)
-- Überheizte Räume: ${overheatedRooms.length} Räume >1.5°C über Ziel
-${overheatedRooms.map((r: Record<string, unknown>) => `  - ${r.name}: ${r.current_temp}°C (Ziel: ${r.target_temp}°C) = +${(((r.current_temp as number) || 0) - ((r.target_temp as number) || 0)).toFixed(1)}°C`).join('\n')}
+**EINSTELLUNGEN:**
+- Komfort: ${heatingSettings?.comfort_temp || 21}°C, Eco: ${heatingSettings?.eco_temp || 18}°C, Nacht: ${heatingSettings?.night_temp || 16}°C
+- Min. SOC: ${heatingSettings?.min_battery_soc || 20}%, PV-Schwelle EIN: ${heatingSettings?.pv_surplus_threshold_on || 500}W, AUS: ${heatingSettings?.pv_surplus_threshold_off || 200}W
 
 **RÄUME MIT ML-FEATURES:**
 ${rooms?.map((r: Record<string, unknown>) => {
   const f = mlFeatures?.find((mf: Record<string, unknown>) => mf.room_id === r.id);
-  const power = (r.heating_power_w as number) || (r.calculated_power_w as number) || 1000;
-  const costPerHour = (power / 1000) * (electricityPriceCent / 100);
-  return `📍 ${r.name} (${r.id}): ${r.current_temp || '?'}°C→${r.target_temp || '?'}°C | Heizung: ${r.is_heating ? '🔥 AN' : '❄️ AUS'} | Power: ${power}W (${costPerHour.toFixed(2)}€/h)
-   ${f ? `ML: HeatLoss ${(f.heat_loss_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, HeatingRate ${(f.heating_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, PV-Anteil ${(((f.pv_heating_ratio as number) || 0) * 100).toFixed(0)}%` : '⚠️ Keine ML-Features'}`;
+  return `📍 ${r.name} (${r.id}): ${r.current_temp || '?'}°C→${r.target_temp || '?'}°C | PV-Auto: ${r.pv_auto_active ? '🔥' : '❄️'} | Power: ${r.heating_power_w || r.calculated_power_w || 1000}W
+   ${f ? `ML: HeatLoss ${(f.heat_loss_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, HeatingRate ${(f.heating_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, PV-Anteil ${(((f.pv_heating_ratio as number) || 0) * 100).toFixed(0)}%, Confidence ${(((f.confidence as number) || 0) * 100).toFixed(0)}%` : '⚠️ Keine ML-Features'}`;
 }).join('\n') || 'Keine Räume'}
 
 **FEEDBACK (letzte Entscheidungen):**
@@ -104,38 +81,24 @@ ${recentRewards?.length > 0 ? recentRewards.slice(0, 5).map((r: Record<string, u
   return `${reward === null ? '⏳' : reward > 0.5 ? '✅' : reward > 0 ? '➖' : '❌'} ${r.decision_type}: Reward ${reward?.toFixed(2) || 'pending'}`;
 }).join('\n') : '⏳ Noch keine Daten'}
 
-**AUFGABE:**
-1. Gib für jeden Raum eine DETAILLIERTE Empfehlung mit:
-   - Aktuelle vs. empfohlene Temperatur
-   - WARUM diese Empfehlung (2-3 Sätze)
-   - Konkrete Einsparung in Wh und € 
-   - Was passiert wenn man es umsetzt
+**REGELN:**
+1. PV-Überschuss >${heatingSettings?.pv_surplus_threshold_on || 500}W → Heizung aktivieren erwägen
+2. PV-Überschuss <${heatingSettings?.pv_surplus_threshold_off || 200}W → Heizung deaktivieren erwägen
+3. Batterie <${heatingSettings?.min_battery_soc || 20}% → Keine Aktivierung
+4. Nachts nur bei voller Batterie
+5. Räume mit hohem PV-Anteil bevorzugen
+6. Bei niedriger Confidence vorsichtiger
 
-2. Gib SYSTEM-OPTIMIERUNGEN wenn nötig:
-   - Schaltintervall zu kurz? (< 15 Min bei vielen Zyklen)
-   - Hysterese zu klein? (< 400W)
-   - Warmwasser-Timing suboptimal?
-   - Überheizte Räume?
-
-Erkläre WARUM jede Empfehlung hilft und was der Nutzer davon hat.`;
+Gib für jeden Raum mit pv_auto_enabled=true eine Entscheidung.`;
 
       toolDefinition = {
         type: "function",
         function: {
           name: "make_heating_decision",
-          description: "ML-basierte Heizungsentscheidungen mit detaillierten Erklärungen",
+          description: "ML-basierte Heizungsentscheidungen",
           parameters: {
             type: "object",
             properties: {
-              situation_summary: {
-                type: "object",
-                description: "Zusammenfassung der aktuellen Situation",
-                properties: {
-                  energy_status: { type: "string", description: "PV/Batterie Status kurz" },
-                  problems_found: { type: "array", items: { type: "string" }, description: "Liste erkannter Probleme" },
-                  overall_recommendation: { type: "string", description: "Hauptempfehlung in 1-2 Sätzen" }
-                }
-              },
               decisions: {
                 type: "array",
                 items: {
@@ -144,40 +107,18 @@ Erkläre WARUM jede Empfehlung hilft und was der Nutzer davon hat.`;
                     room_id: { type: "string" },
                     room_name: { type: "string" },
                     action: { type: "string", enum: ["activate", "deactivate", "keep"] },
-                    current_temp: { type: "number", description: "Aktuelle Temperatur" },
-                    target_temp: { type: "number", description: "Empfohlene Zieltemperatur" },
-                    temp_change: { type: "number", description: "Änderung in °C (positiv=erhöhen, negativ=reduzieren)" },
-                    reasoning_short: { type: "string", description: "Kurzgrund in 5-10 Wörtern" },
-                    reasoning_detailed: { type: "string", description: "Ausführliche Erklärung in 2-3 Sätzen WARUM" },
-                    expected_savings_wh: { type: "number", description: "Erwartete Einsparung in Wh" },
-                    expected_savings_eur: { type: "number", description: "Erwartete Einsparung in EUR" },
-                    action_description: { type: "string", description: "Was genau passiert wenn man es umsetzt" },
-                    priority: { type: "string", enum: ["high", "medium", "low"], description: "Priorität der Empfehlung" }
+                    target_temp: { type: "number" },
+                    reasoning: { type: "string" },
+                    expected_energy_wh: { type: "number" },
+                    confidence: { type: "number" }
                   },
-                  required: ["room_id", "room_name", "action", "target_temp", "reasoning_short", "reasoning_detailed", "action_description"]
+                  required: ["room_id", "room_name", "action", "target_temp", "reasoning"]
                 }
               },
-              system_recommendations: {
-                type: "array",
-                description: "System-Einstellungsempfehlungen",
-                items: {
-                  type: "object",
-                  properties: {
-                    setting_key: { type: "string", description: "Technischer Key der Einstellung" },
-                    setting_name: { type: "string", description: "Verständlicher Name" },
-                    current_value: { type: "string", description: "Aktueller Wert mit Einheit" },
-                    recommended_value: { type: "string", description: "Empfohlener Wert mit Einheit" },
-                    reason_why: { type: "string", description: "2-3 Sätze WARUM diese Änderung hilft" },
-                    expected_result: { type: "string", description: "Was sich verbessert" },
-                    priority: { type: "string", enum: ["high", "medium", "low"] }
-                  },
-                  required: ["setting_key", "setting_name", "current_value", "recommended_value", "reason_why", "expected_result"]
-                }
-              },
-              overall_strategy: { type: "string", description: "Gesamtstrategie in 1-2 Sätzen" },
+              overall_strategy: { type: "string" },
               expected_total_savings_wh: { type: "number" }
             },
-            required: ["decisions", "overall_strategy", "situation_summary"]
+            required: ["decisions", "overall_strategy"]
           }
         }
       };
@@ -350,68 +291,27 @@ Erstelle für JEDEN Raum eine Empfehlung.`;
       };
 
     } else if (type === 'daily_pattern') {
-      useToolCalling = true;
-      toolName = 'analyze_daily_pattern';
-      
       const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
+      const roomsList = rooms?.map((r: Record<string, unknown>) => `${r.name} (${r.heating_power_w || 800}W)`).join(', ') || 'Keine Räume';
       
-      // Daten aggregieren statt alle senden
-      const totalPv = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r.pv_power as number) || 0) * 30/3600/1000, 0);
-      const totalConsumption = readings.reduce((s: number, r: Record<string, unknown>) => s + ((r.consumption as number) || 0) * 30/3600/1000, 0);
-      const totalImport = readings.filter((r: Record<string, unknown>) => (r.power_io as number) > 0).reduce((s: number, r: Record<string, unknown>) => s + (r.power_io as number) * 30/3600/1000, 0);
-      const totalExport = readings.filter((r: Record<string, unknown>) => (r.power_io as number) < 0).reduce((s: number, r: Record<string, unknown>) => s + Math.abs(r.power_io as number) * 30/3600/1000, 0);
-      const selfConsumption = totalPv > 0 ? ((totalPv - totalExport) / totalPv * 100) : 0;
-      
-      // Spitzen identifizieren
-      const peaks = readings
-        .filter((r: Record<string, unknown>) => (r.consumption as number) > 2000)
-        .map((r: Record<string, unknown>) => ({
-          time: new Date(r.timestamp as string).toLocaleTimeString('de-DE', {hour: '2-digit', minute: '2-digit'}),
-          power: Math.round(r.consumption as number)
-        }))
-        .slice(0, 5);
-      
-      // Verbraucher-Info
-      let consumerInfo = '';
+      let consumerActivity = '';
       if (consumerLogs && consumerLogs.length > 0) {
-        consumerInfo = consumerLogs.map((log: Record<string, unknown>) => {
+        consumerActivity = '\n**VERBRAUCHER:**\n';
+        consumerLogs.forEach((log: Record<string, unknown>) => {
           const start = new Date(log.start_time as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
-          return `${log.consumer_type}: ${start}, ${Math.round((log.avg_power_w as number) || 0)}W`;
-        }).join('; ');
+          const end = log.end_time ? new Date(log.end_time as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : 'aktiv';
+          consumerActivity += `- ${log.consumer_type}: ${start}-${end}, ~${Math.round((log.avg_power_w as number) || 0)}W\n`;
+        });
       }
 
-      prompt = `Tagesprofil analysieren (KURZ antworten, max 40 Woerter):
+      prompt = `Analysiere Tagesenergieprofil:
 
-PV: ${totalPv.toFixed(1)}kWh | Verbrauch: ${totalConsumption.toFixed(1)}kWh
-Import: ${totalImport.toFixed(1)}kWh | Export: ${totalExport.toFixed(1)}kWh | Eigenverbrauch: ${selfConsumption.toFixed(0)}%
+**Bekannte Verbraucher:** Heizung ${totalHeatingPower}W (${roomsList}), Warmwasser ${heatingSettings?.hotwater_power_w || 6000}W
+${consumerActivity}
+**Daten:**
+${readings.map((r: Record<string, unknown>) => `${r.timestamp}: ${r.power_io}W, PV: ${r.pv_power || 0}W, SOC: ${r.battery_soc || 0}%`).join('\n')}
 
-Heizung: ${totalHeatingPower}W, Warmwasser: ${heatingSettings?.hotwater_power_w || 2800}W
-${consumerInfo ? `Verbraucher: ${consumerInfo}` : ''}
-${peaks.length > 0 ? `Spitzen: ${peaks.map((p: {time: string, power: number}) => `${p.time}:${p.power}W`).join(', ')}` : ''}`;
-
-      toolDefinition = {
-        type: "function",
-        function: {
-          name: "analyze_daily_pattern",
-          description: "Kurze strukturierte Tagesmuster-Analyse",
-          parameters: {
-            type: "object",
-            properties: {
-              summary: { type: "string", description: "Max 40 Woerter Zusammenfassung" },
-              rating: { type: "string", enum: ["excellent", "good", "improvable", "poor"] },
-              self_consumption_percent: { type: "number" },
-              pv_kwh: { type: "number" },
-              consumption_kwh: { type: "number" },
-              tips: { 
-                type: "array", 
-                items: { type: "string", description: "Kurzer Tipp, max 10 Woerter" },
-                maxItems: 2
-              }
-            },
-            required: ["summary", "rating", "self_consumption_percent", "pv_kwh", "consumption_kwh", "tips"]
-          }
-        }
-      };
+Ordne Spitzen den bekannten Verbrauchern zu. Antworte auf Deutsch.`;
 
     } else if (type === 'weekly_comparison') {
       const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
@@ -485,10 +385,6 @@ Kurze Einschätzung auf Deutsch.`;
             });
           } else if (toolName === 'create_room_heating_plan') {
             return new Response(JSON.stringify({ roomHeatingPlan: result }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          } else if (toolName === 'analyze_daily_pattern') {
-            return new Response(JSON.stringify({ dailyPattern: result }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           } else {
