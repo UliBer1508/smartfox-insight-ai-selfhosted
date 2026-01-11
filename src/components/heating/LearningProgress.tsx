@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown, Sparkles, Flame, Snowflake, Zap, CheckCircle2 } from 'lucide-react';
+import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown, Sparkles, Flame, Snowflake, Zap, CheckCircle2, Droplets, Clock, Moon, Sun, Thermometer } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -46,10 +46,36 @@ interface ThermostatDecision {
   priority?: string;
 }
 
+interface HotwaterRecommendation {
+  enabled: boolean;
+  recommended_start: string;
+  recommended_end: string;
+  min_surplus_w?: number;
+  reasoning: string;
+}
+
+interface ThermostatPeriod {
+  period: number;
+  start_time: string;
+  end_time: string;
+  temperature: number;
+  mode: 'comfort' | 'eco' | 'night' | 'off';
+  reasoning?: string;
+}
+
+interface NightCyclingRecommendation {
+  enabled: boolean;
+  cycles_per_room: number;
+  reasoning: string;
+}
+
 interface AnalysisResult {
   decisions: ThermostatDecision[];
   overall_strategy: string;
   expected_total_savings_wh?: number;
+  hotwater_recommendation?: HotwaterRecommendation;
+  thermostat_schedule?: ThermostatPeriod[];
+  night_cycling?: NightCyclingRecommendation;
 }
 
 export function LearningProgress() {
@@ -178,7 +204,10 @@ export function LearningProgress() {
         setAnalysisResult({
           decisions: decisionsWithNames,
           overall_strategy: data.overall_strategy || 'Optimale Heizstrategie basierend auf aktueller Energiesituation',
-          expected_total_savings_wh: data.expected_total_savings_wh
+          expected_total_savings_wh: data.expected_total_savings_wh,
+          hotwater_recommendation: data.hotwater_recommendation,
+          thermostat_schedule: data.thermostat_schedule,
+          night_cycling: data.night_cycling
         });
         
         toast.success('KI-Analyse abgeschlossen');
@@ -342,9 +371,98 @@ export function LearningProgress() {
                     )}
                   </div>
 
+                  {/* Hotwater Recommendation */}
+                  {analysisResult.hotwater_recommendation && (
+                    <div className="space-y-2">
+                      <h5 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Droplets className="h-3 w-3" />
+                        Warmwasser-Bereitung (extern einstellen):
+                      </h5>
+                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sm font-medium">Empfohlenes Zeitfenster:</span>
+                          <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                            {analysisResult.hotwater_recommendation.recommended_start} - {analysisResult.hotwater_recommendation.recommended_end}
+                          </span>
+                        </div>
+                        {analysisResult.hotwater_recommendation.min_surplus_w && (
+                          <p className="text-xs text-muted-foreground">
+                            Mind. Überschuss: {analysisResult.hotwater_recommendation.min_surplus_w}W
+                          </p>
+                        )}
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {analysisResult.hotwater_recommendation.reasoning}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* TGP508 Thermostat Schedule */}
+                  {analysisResult.thermostat_schedule && analysisResult.thermostat_schedule.length > 0 && (
+                    <div className="space-y-2">
+                      <h5 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        TGP508 Heizprogramm (am Thermostat einstellen):
+                      </h5>
+                      <div className="bg-muted/30 border border-border/50 rounded-lg overflow-hidden">
+                        <div className="grid grid-cols-[auto_1fr_auto_auto] gap-x-3 gap-y-0.5 text-xs">
+                          {analysisResult.thermostat_schedule.map((period) => (
+                            <div key={period.period} className="contents">
+                              <div className="bg-primary/10 px-2 py-1.5 font-mono font-medium text-primary">
+                                P{period.period}
+                              </div>
+                              <div className="flex items-center gap-1 py-1.5">
+                                <span className="font-mono">{period.start_time}-{period.end_time}</span>
+                              </div>
+                              <div className="flex items-center gap-1 py-1.5">
+                                <span className="text-lg font-bold">{period.temperature}°C</span>
+                              </div>
+                              <div className="flex items-center gap-1 py-1.5 pr-2">
+                                <Badge 
+                                  variant={period.mode === 'comfort' ? 'default' : period.mode === 'night' ? 'secondary' : 'outline'}
+                                  className="text-[10px] px-1.5 h-5"
+                                >
+                                  {period.mode === 'comfort' && <Sun className="h-2.5 w-2.5 mr-0.5" />}
+                                  {period.mode === 'eco' && <Thermometer className="h-2.5 w-2.5 mr-0.5" />}
+                                  {period.mode === 'night' && <Moon className="h-2.5 w-2.5 mr-0.5" />}
+                                  {period.mode === 'off' && <Snowflake className="h-2.5 w-2.5 mr-0.5" />}
+                                  {period.mode}
+                                </Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Night Cycling Recommendation */}
+                  {analysisResult.night_cycling && (
+                    <div className="space-y-2">
+                      <h5 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        <Moon className="h-3 w-3" />
+                        Nachtzyklen:
+                      </h5>
+                      <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium">Empfehlung:</span>
+                          <span className="text-xl font-bold text-purple-600 dark:text-purple-400">
+                            {analysisResult.night_cycling.cycles_per_room} Zyklen/Raum
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {analysisResult.night_cycling.reasoning}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Thermostat Recommendations */}
                   <div className="space-y-2">
-                    <h5 className="text-xs font-medium text-muted-foreground">Thermostat-Einstellungen:</h5>
+                    <h5 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                      <Flame className="h-3 w-3" />
+                      Aktuelle Thermostat-Einstellungen:
+                    </h5>
                     <div className="space-y-2">
                       {analysisResult.decisions.map((decision, idx) => (
                         <div 
