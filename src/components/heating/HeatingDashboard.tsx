@@ -23,6 +23,7 @@ import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { AIStatusWidget } from './AIStatusWidget';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { supabase } from '@/integrations/supabase/client';
@@ -261,17 +262,43 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           batteryPower={currentReading?.battery_power ?? null}
         />
         
-          <Card className="overflow-hidden">
+        <Card className="overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <Sun className="w-4 h-4 text-energy-export" />
               PV-Leistung
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
             <div className="text-xl sm:text-2xl font-bold font-mono text-energy-export">
               {latestPvPower !== null ? `${(latestPvPower / 1000).toFixed(1)} kW` : '—'}
             </div>
+            
+            {/* Tagesproduktion vs Prognose */}
+            {todayForecast && todayForecast.expected_kwh > 0 && (
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Heute</span>
+                  <span className="font-mono font-medium">
+                    {pvEnergy.toFixed(1)} / {todayForecast.expected_kwh.toFixed(1)} kWh
+                  </span>
+                </div>
+                <Progress 
+                  value={Math.min((pvEnergy / todayForecast.expected_kwh) * 100, 100)} 
+                  className="h-2"
+                />
+                <p className={`text-xs text-right font-medium ${
+                  (pvEnergy / todayForecast.expected_kwh) >= 0.8 
+                    ? 'text-green-500' 
+                    : (pvEnergy / todayForecast.expected_kwh) >= 0.5 
+                      ? 'text-yellow-500' 
+                      : 'text-muted-foreground'
+                }`}>
+                  {Math.round((pvEnergy / todayForecast.expected_kwh) * 100)}% der Prognose
+                </p>
+              </div>
+            )}
+            
             <p className="text-xs text-muted-foreground">
               Anlage: {settings.pv_capacity_kwp} kWp
             </p>
