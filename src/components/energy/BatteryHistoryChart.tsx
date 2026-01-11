@@ -26,14 +26,20 @@ interface ChartDataPoint {
   discharging: number | null;
 }
 
-type TimeRange = '12h' | '24h' | '48h';
+type TimeRange = 'today' | '2days' | '3days';
+
+const timeRangeLabels: Record<TimeRange, string> = {
+  'today': 'Heute',
+  '2days': '2 Tage',
+  '3days': '3 Tage',
+};
 
 export function BatteryHistoryChart() {
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [timeRange, setTimeRange] = useState<TimeRange>('today');
   const [sliderIndex, setSliderIndex] = useState<number>(0);
   const [stayAtLatest, setStayAtLatest] = useState(true);
-  const hours = timeRange === '12h' ? 12 : timeRange === '24h' ? 24 : 48;
-  const { data, isLoading, refresh } = useBatteryHistory(hours);
+  const daysBack = timeRange === 'today' ? 0 : timeRange === '2days' ? 1 : 2;
+  const { data, isLoading, refresh } = useBatteryHistory(daysBack);
 
   const chartData = useMemo(() => {
     const today = new Date();
@@ -155,7 +161,7 @@ export function BatteryHistoryChart() {
               Batterie-Verlauf
             </CardTitle>
             <div className="flex items-center gap-1">
-              {(['12h', '24h', '48h'] as TimeRange[]).map((range) => (
+              {(['today', '2days', '3days'] as TimeRange[]).map((range) => (
                 <Button
                   key={range}
                   variant={timeRange === range ? 'default' : 'outline'}
@@ -163,7 +169,7 @@ export function BatteryHistoryChart() {
                   className="h-7 px-2 text-xs"
                   onClick={() => setTimeRange(range)}
                 >
-                  {range}
+                  {timeRangeLabels[range]}
                 </Button>
               ))}
             </div>
@@ -188,7 +194,7 @@ export function BatteryHistoryChart() {
               Batterie-Verlauf
             </CardTitle>
             <div className="flex items-center gap-1">
-              {(['12h', '24h', '48h'] as TimeRange[]).map((range) => (
+              {(['today', '2days', '3days'] as TimeRange[]).map((range) => (
                 <Button
                   key={range}
                   variant={timeRange === range ? 'default' : 'outline'}
@@ -196,7 +202,7 @@ export function BatteryHistoryChart() {
                   className="h-7 px-2 text-xs"
                   onClick={() => setTimeRange(range)}
                 >
-                  {range}
+                  {timeRangeLabels[range]}
                 </Button>
               ))}
             </div>
@@ -204,7 +210,7 @@ export function BatteryHistoryChart() {
         </CardHeader>
         <CardContent>
           <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-            Keine Batterie-Daten der letzten {timeRange} verfügbar
+            Keine Batterie-Daten für {timeRangeLabels[timeRange]} verfügbar
           </div>
         </CardContent>
       </Card>
@@ -220,17 +226,17 @@ export function BatteryHistoryChart() {
             Batterie-Verlauf
           </CardTitle>
           <div className="flex items-center gap-1">
-            {(['12h', '24h', '48h'] as TimeRange[]).map((range) => (
-              <Button
-                key={range}
-                variant={timeRange === range ? 'default' : 'outline'}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setTimeRange(range)}
-              >
-                {range}
-              </Button>
-            ))}
+              {(['today', '2days', '3days'] as TimeRange[]).map((range) => (
+                <Button
+                  key={range}
+                  variant={timeRange === range ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setTimeRange(range)}
+                >
+                  {timeRangeLabels[range]}
+                </Button>
+              ))}
             <Button variant="ghost" size="icon" onClick={refresh} className="h-7 w-7 ml-1">
               <RefreshCw className="w-4 h-4" />
             </Button>
