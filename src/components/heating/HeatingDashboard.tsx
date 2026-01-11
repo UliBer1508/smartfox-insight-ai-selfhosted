@@ -21,7 +21,8 @@ import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Bot, Brain } from 'lucide-react';
+import { AIStatusWidget } from './AIStatusWidget';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot } from 'lucide-react';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { supabase } from '@/integrations/supabase/client';
@@ -277,49 +278,11 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           </CardContent>
         </Card>
 
-          <Card className="overflow-hidden">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <Bot className="w-4 h-4 text-primary" />
-              KI-Steuerung
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {(() => {
-              const status = getAutomationStatus(rooms, latestPvPower, latestSoc);
-              
-              // Finde letzte KI-Aktion
-              const lastChange = rooms
-                .filter(r => r.last_auto_change)
-                .sort((a, b) => new Date(b.last_auto_change!).getTime() - new Date(a.last_auto_change!).getTime())[0];
-              
-              const getTimeAgo = (dateStr: string) => {
-                const diff = Date.now() - new Date(dateStr).getTime();
-                const mins = Math.floor(diff / 60000);
-                if (mins < 1) return 'gerade eben';
-                if (mins < 60) return `vor ${mins} Min`;
-                const hours = Math.floor(mins / 60);
-                if (hours < 24) return `vor ${hours} Std`;
-                return `vor ${Math.floor(hours / 24)} Tag${Math.floor(hours / 24) > 1 ? 'en' : ''}`;
-              };
-              
-              return (
-                <>
-                  <div className="text-xl sm:text-2xl font-bold font-mono">
-                    {status.icon} {status.status}
-                  </div>
-                  <p className="text-xs text-muted-foreground">{status.detail}</p>
-                  {lastChange && lastChange.last_auto_change && (
-                    <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
-                      <Clock className="h-3 w-3" />
-                      {lastChange.name} → {lastChange.target_temp}°C {getTimeAgo(lastChange.last_auto_change)}
-                    </p>
-                  )}
-                </>
-              );
-            })()}
-          </CardContent>
-        </Card>
+        <AIStatusWidget 
+          rooms={rooms} 
+          pvPower={latestPvPower} 
+          soc={latestSoc} 
+        />
 
         {/* PV Forecast Card */}
         <PvForecastCard
@@ -575,55 +538,4 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   );
 }
 
-function getAutomationStatus(
-  rooms: Room[],
-  pvPower: number | null,
-  soc: number | null
-): { icon: string; status: string; detail: string } {
-  const heatingRooms = rooms.filter(r => r.is_heating);
-  const automatedRooms = rooms.filter(r => r.automation_enabled);
-  
-  // Was macht die KI gerade?
-  if (heatingRooms.length > 0) {
-    const names = heatingRooms.slice(0, 3).map(r => r.name).join(', ');
-    const suffix = heatingRooms.length > 3 ? ` +${heatingRooms.length - 3}` : '';
-    return {
-      icon: '🔥',
-      status: `${heatingRooms.length} ${heatingRooms.length === 1 ? 'Raum heizt' : 'Räume heizen'}`,
-      detail: names + suffix
-    };
-  }
-  
-  // Keine Heizung aktiv - zeige Kontext
-  const pvKw = (pvPower ?? 0) / 1000;
-  
-  if (pvKw > 2) {
-    return {
-      icon: '☀️',
-      status: 'PV-Überschuss',
-      detail: 'KI prüft Heizoptionen'
-    };
-  }
-  
-  if (pvKw > 0.5) {
-    return {
-      icon: '⚡',
-      status: 'Teilversorgung',
-      detail: 'Temperaturen werden gehalten'
-    };
-  }
-  
-  if (soc !== null && soc > 50) {
-    return {
-      icon: '✅',
-      status: 'Alle auf Temperatur',
-      detail: `${automatedRooms.length} Räume automatisiert`
-    };
-  }
-  
-  return {
-    icon: '🌙',
-    status: 'Energiesparmodus',
-    detail: 'KI optimiert Verbrauch'
-  };
-}
+// getAutomationStatus moved to AIStatusWidget.tsx
