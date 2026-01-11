@@ -31,6 +31,7 @@ type TimeRange = '12h' | '24h' | '48h';
 export function BatteryHistoryChart() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [sliderIndex, setSliderIndex] = useState<number>(0);
+  const [stayAtLatest, setStayAtLatest] = useState(true);
   const hours = timeRange === '12h' ? 12 : timeRange === '24h' ? 24 : 48;
   const { data, isLoading, refresh } = useBatteryHistory(hours);
 
@@ -69,12 +70,12 @@ export function BatteryHistoryChart() {
     });
   }, [data]);
 
-  // Slider auf "Jetzt" (letzter Datenpunkt) setzen wenn Daten laden
+  // Keep slider at latest when stayAtLatest is true or when data first loads
   useEffect(() => {
-    if (chartData.length > 0) {
+    if (chartData.length > 0 && stayAtLatest) {
       setSliderIndex(chartData.length - 1);
     }
-  }, [chartData.length]);
+  }, [chartData, stayAtLatest]);
 
   const formatPower = (value: number) => {
     if (Math.abs(value) >= 1000) {
@@ -96,7 +97,7 @@ export function BatteryHistoryChart() {
     return `vor ${diffDays} Tag${diffDays > 1 ? 'en' : ''}`;
   };
 
-  const isLatestSelected = sliderIndex === chartData.length - 1;
+  const isLatestSelected = stayAtLatest || sliderIndex === chartData.length - 1;
 
   const maxPower = useMemo(() => {
     let max = 0;
@@ -107,9 +108,12 @@ export function BatteryHistoryChart() {
     return Math.max(max, 1000); // Minimum 1kW scale
   }, [chartData]);
 
-  const selectedPoint = chartData.length > 0 && sliderIndex >= 0 && sliderIndex < chartData.length 
-    ? chartData[sliderIndex] 
-    : null;
+  // When stayAtLatest, always show the very latest point
+  const selectedPoint = stayAtLatest && chartData.length > 0
+    ? chartData[chartData.length - 1]
+    : (chartData.length > 0 && sliderIndex >= 0 && sliderIndex < chartData.length 
+        ? chartData[sliderIndex] 
+        : null);
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -349,7 +353,12 @@ export function BatteryHistoryChart() {
               max={chartData.length - 1}
               min={0}
               step={1}
-              onValueChange={(value) => setSliderIndex(value[0])}
+              onValueChange={(value) => {
+                const newIndex = value[0];
+                setSliderIndex(newIndex);
+                // Activate "stay at latest" mode when navigating to the end
+                setStayAtLatest(newIndex >= chartData.length - 1);
+              }}
               className="w-full"
             />
             <div className="flex justify-between text-xs text-muted-foreground mt-1">
