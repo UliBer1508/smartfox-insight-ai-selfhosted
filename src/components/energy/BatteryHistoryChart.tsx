@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Battery, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -14,8 +14,6 @@ import {
   ReferenceLine,
   Legend,
 } from 'recharts';
-import { format } from 'date-fns';
-import { de } from 'date-fns/locale';
 import { useBatteryHistory, BatteryHistoryPoint } from '@/hooks/useBatteryHistory';
 
 interface ChartDataPoint {
@@ -26,8 +24,12 @@ interface ChartDataPoint {
   discharging: number | null;
 }
 
+type TimeRange = '12h' | '24h' | '48h';
+
 export function BatteryHistoryChart() {
-  const { data, isLoading, refresh } = useBatteryHistory();
+  const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const hours = timeRange === '12h' ? 12 : timeRange === '24h' ? 24 : 48;
+  const { data, isLoading, refresh } = useBatteryHistory(hours);
 
   const chartData = useMemo(() => {
     const today = new Date();
@@ -104,10 +106,25 @@ export function BatteryHistoryChart() {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Battery className="w-4 h-4 text-primary" />
-            Batterie-Verlauf (24h)
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Battery className="w-4 h-4 text-primary" />
+              Batterie-Verlauf
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              {(['12h', '24h', '48h'] as TimeRange[]).map((range) => (
+                <Button
+                  key={range}
+                  variant={timeRange === range ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setTimeRange(range)}
+                >
+                  {range}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="h-[250px] flex items-center justify-center text-muted-foreground">
@@ -122,14 +139,29 @@ export function BatteryHistoryChart() {
     return (
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2">
-            <Battery className="w-4 h-4 text-primary" />
-            Batterie-Verlauf (24h)
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Battery className="w-4 h-4 text-primary" />
+              Batterie-Verlauf
+            </CardTitle>
+            <div className="flex items-center gap-1">
+              {(['12h', '24h', '48h'] as TimeRange[]).map((range) => (
+                <Button
+                  key={range}
+                  variant={timeRange === range ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setTimeRange(range)}
+                >
+                  {range}
+                </Button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="h-[250px] flex items-center justify-center text-muted-foreground">
-            Keine Batterie-Daten der letzten 24 Stunden verfügbar
+            Keine Batterie-Daten der letzten {timeRange} verfügbar
           </div>
         </CardContent>
       </Card>
@@ -142,11 +174,24 @@ export function BatteryHistoryChart() {
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm flex items-center gap-2">
             <Battery className="w-4 h-4 text-primary" />
-            Batterie-Verlauf (24h)
+            Batterie-Verlauf
           </CardTitle>
-          <Button variant="ghost" size="icon" onClick={refresh} className="h-8 w-8">
-            <RefreshCw className="w-4 h-4" />
-          </Button>
+          <div className="flex items-center gap-1">
+            {(['12h', '24h', '48h'] as TimeRange[]).map((range) => (
+              <Button
+                key={range}
+                variant={timeRange === range ? 'default' : 'outline'}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setTimeRange(range)}
+              >
+                {range}
+              </Button>
+            ))}
+            <Button variant="ghost" size="icon" onClick={refresh} className="h-7 w-7 ml-1">
+              <RefreshCw className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
       </CardHeader>
       <CardContent>
