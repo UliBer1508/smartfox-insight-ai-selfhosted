@@ -306,8 +306,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             )}
             
             {/* Debug-Anzeige für berechneten PV-Wert */}
-            <p className="text-xs text-muted-foreground/50">
-              Debug: {pvEnergy.toFixed(2)} kWh berechnet
+            <p className="text-xs text-amber-500/70 font-mono">
+              DEBUG: {pvEnergy.toFixed(2)} kWh (Props)
             </p>
             
             <p className="text-xs text-muted-foreground">
