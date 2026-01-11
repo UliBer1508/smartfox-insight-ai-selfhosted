@@ -20,10 +20,11 @@ serve(async (req) => {
       mlFeatures,
       weatherData,
       recentRewards,
-      pvForecast
+      pvForecast,
+      automationHistory
     } = await req.json();
     
-    console.log(`Analyzing type: ${type}, readings: ${readings?.length || 0}, rooms: ${rooms?.length || 0}`);
+    console.log(`Analyzing type: ${type}, readings: ${readings?.length || 0}, rooms: ${rooms?.length || 0}, automationHistory: ${automationHistory?.length || 0}`);
     
     const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     if (!LOVABLE_API_KEY) {
@@ -168,6 +169,44 @@ ${recentRewards?.length > 0 ? recentRewards.slice(0, 5).map((r: Record<string, u
   const reward = r.reward as number | null;
   return `${reward === null ? '⏳' : reward > 0.5 ? '✅' : reward > 0 ? '➖' : '❌'} ${r.decision_type}: Reward ${reward?.toFixed(2) || 'pending'}`;
 }).join('\n') : '⏳ Noch keine Bewertungsdaten'}
+
+**🤖 DEINE AUTOMATIK-ENTSCHEIDUNGEN HEUTE (DU BIST DAS STEUERNDE SYSTEM!):**
+${(() => {
+  if (!automationHistory || automationHistory.length === 0) {
+    return '⚠️ Noch keine Automatik-Entscheidungen heute - Erste Analyse des Tages';
+  }
+  
+  // Gruppiere nach Raum
+  const roomDecisions: Record<string, Array<Record<string, unknown>>> = {};
+  automationHistory.forEach((e: Record<string, unknown>) => {
+    const roomId = e.room_id as string || 'global';
+    if (!roomDecisions[roomId]) roomDecisions[roomId] = [];
+    roomDecisions[roomId].push(e);
+  });
+  
+  return Object.entries(roomDecisions).map(([roomId, decisions]) => {
+    const roomName = rooms?.find((r: Record<string, unknown>) => r.id === roomId)?.name || 'Global';
+    const activations = decisions.filter((d: Record<string, unknown>) => d.decision_type === 'activate').length;
+    const deactivations = decisions.filter((d: Record<string, unknown>) => d.decision_type === 'deactivate').length;
+    const lastDecision = decisions[0];
+    const lastAction = lastDecision?.action as Record<string, unknown> | undefined;
+    const lastContext = lastDecision?.context as Record<string, unknown> | undefined;
+    const lastTime = lastDecision?.timestamp ? new Date(lastDecision.timestamp as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : '?';
+    
+    return `📍 ${roomName}:
+   Heute: ${activations}x aktiviert, ${deactivations}x deaktiviert
+   Letzte Aktion (${lastTime}): ${lastDecision?.decision_type || '?'} → ${(lastAction?.target_temp as number) || '?'}°C
+   Begründung: ${(lastAction?.reasoning as string)?.substring(0, 100) || 'keine'}${(lastAction?.reasoning as string)?.length > 100 ? '...' : ''}
+   Kontext: PV ${lastContext?.pv_power || '?'}W, SOC ${lastContext?.battery_soc || '?'}%, Raum-Temp ${lastContext?.room_temp || '?'}°C`;
+  }).join('\n\n');
+})()}
+
+**⚠️ WICHTIG - REGELN FÜR DEINE EMPFEHLUNGEN:**
+1. Du BIST das System, das die Thermostate steuert - empfehle NICHT, was du bereits tust!
+2. Wenn du einen Raum heute auf Eco gestellt hast wegen mangelndem PV-Überschuss, ist "Intensität reduzieren" keine sinnvolle Empfehlung
+3. Fokussiere auf ÄNDERUNGEN deiner Strategie, nicht auf Bestätigung des Status Quo
+4. Falls alles optimal läuft, sage klar: "Aktuelle Automatik-Strategie ist optimal"
+5. Empfehle nur Anpassungen, die über deine bisherigen Entscheidungen hinausgehen
 
 **REGELN FÜR STROMDIREKTHEIZUNG:**
 1. PV-Überschuss >${heatingSettings?.pv_surplus_threshold_on || 500}W → Heizung auf Comfort-Temp aktivieren
