@@ -158,8 +158,8 @@ export function LearningProgress() {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Fetch all required data including PV forecast
-      const [readingsResult, settingsResult, mlFeaturesResult, rewardsResult, pvForecastResult] = await Promise.all([
+      // Fetch all required data including PV forecast and automation history
+      const [readingsResult, settingsResult, mlFeaturesResult, rewardsResult, pvForecastResult, automationHistoryResult] = await Promise.all([
         supabase
           .from('energy_readings')
           .select('*')
@@ -184,7 +184,13 @@ export function LearningProgress() {
           .from('pv_forecasts')
           .select('*')
           .eq('date', today)
-          .maybeSingle()
+          .maybeSingle(),
+        // Fetch today's automation decisions for AI self-awareness
+        supabase
+          .from('learning_events')
+          .select('room_id, decision_type, action, context, timestamp')
+          .gte('timestamp', `${today}T00:00:00`)
+          .order('timestamp', { ascending: false })
       ]);
 
       const currentReading = readingsResult.data?.[0];
@@ -192,13 +198,14 @@ export function LearningProgress() {
       const mlFeatures = mlFeaturesResult.data || [];
       const recentRewards = rewardsResult.data || [];
       const pvForecast = pvForecastResult.data;
+      const automationHistory = automationHistoryResult.data || [];
 
       if (!currentReading) {
         toast.error('Keine aktuellen Energiedaten verfügbar');
         return;
       }
 
-      // Call analyze-patterns with optimize_decision type including PV forecast
+      // Call analyze-patterns with optimize_decision type including PV forecast and automation history
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
         body: {
           readings: [currentReading],
@@ -207,6 +214,7 @@ export function LearningProgress() {
           mlFeatures: mlFeatures,
           recentRewards: recentRewards,
           pvForecast: pvForecast,
+          automationHistory: automationHistory,
           type: 'optimize_decision'
         }
       });
