@@ -36,9 +36,10 @@ interface HeatingDashboardProps {
   energyIn: number;
   energyOut: number;
   pvEnergy: number;
+  isLoadingPv?: boolean;
 }
 
-export function HeatingDashboard({ readings, currentReading, energyIn, energyOut, pvEnergy }: HeatingDashboardProps) {
+export function HeatingDashboard({ readings, currentReading, energyIn, energyOut, pvEnergy, isLoadingPv }: HeatingDashboardProps) {
   const { settings } = useHeatingSettings();
   const { 
     isAnalyzing, 
@@ -280,7 +281,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                 <div className="flex justify-between text-xs">
                   <span className="text-muted-foreground">Heute</span>
                   <span className="font-mono font-medium">
-                    {pvEnergy.toFixed(1)} / {todayForecast.expected_kwh.toFixed(1)} kWh
+                    {isLoadingPv ? '...' : pvEnergy.toFixed(1)} / {todayForecast.expected_kwh.toFixed(1)} kWh
                   </span>
                 </div>
                 <Progress 

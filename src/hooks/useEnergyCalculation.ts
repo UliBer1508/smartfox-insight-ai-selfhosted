@@ -106,10 +106,11 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
       
       return readings;
     },
-    staleTime: 10_000,
+    staleTime: 5_000,
     refetchInterval: 30_000,
     refetchOnMount: 'always',
     refetchOnWindowFocus: true,
+    gcTime: 0,
   });
 
   return useMemo(() => {
