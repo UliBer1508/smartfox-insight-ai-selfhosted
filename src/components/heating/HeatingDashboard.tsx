@@ -12,6 +12,7 @@ import { useRooms } from '@/hooks/useRooms';
 import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
 import { useAutomation } from '@/hooks/useAutomation';
+import { useSmartPvEstimate } from '@/hooks/useSmartPvEstimate';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
 import { PvForecastCard } from './PvForecastCard';
@@ -22,7 +23,7 @@ import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { AIStatusWidget } from './AIStatusWidget';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot } from 'lucide-react';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot, TrendingUp } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
@@ -85,6 +86,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     applyRecommendations,
     isApplying,
   } = useAutomation();
+
+  // Smart PV Estimate basierend auf Stundenprofil
+  const smartEstimate = useSmartPvEstimate(pvEnergy, todayForecast);
 
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
@@ -275,45 +279,61 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               {latestPvPower !== null ? `${(latestPvPower / 1000).toFixed(1)} kW` : '—'}
             </div>
             
-            {/* Tagesproduktion vs Prognose */}
+            {/* Tagesproduktion mit Smart Estimate */}
             {todayForecast && todayForecast.expected_kwh > 0 && (
-              <div className="space-y-1.5">
+              <div className="space-y-2">
+                {/* Aktuelle Produktion */}
                 <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Heute</span>
+                  <span className="text-muted-foreground">Produziert</span>
                   <span className="font-mono font-medium">
-                    {isLoadingPv ? '...' : pvEnergy.toFixed(1)} / {todayForecast.expected_kwh.toFixed(1)} kWh
+                    {isLoadingPv ? '...' : pvEnergy.toFixed(1)} kWh
                   </span>
                 </div>
+                
+                {/* Smart Estimate - geschätzte Endproduktion */}
+                <div className="flex justify-between text-xs items-center">
+                  <span className="text-muted-foreground flex items-center gap-1">
+                    <TrendingUp className="h-3 w-3" />
+                    Geschätzt
+                  </span>
+                  <span className="font-mono font-medium text-energy-export">
+                    ~{smartEstimate.estimatedTotal.toFixed(1)} kWh
+                    <span className={`ml-1 text-[10px] ${
+                      smartEstimate.confidence === 'high' ? 'text-green-500' :
+                      smartEstimate.confidence === 'medium' ? 'text-yellow-500' :
+                      'text-muted-foreground'
+                    }`}>
+                      ({smartEstimate.confidence === 'high' ? '●●●' : 
+                        smartEstimate.confidence === 'medium' ? '●●○' : '●○○'})
+                    </span>
+                  </span>
+                </div>
+                
+                {/* Prognose zum Vergleich */}
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Prognose</span>
+                  <span className="font-mono text-muted-foreground">
+                    {todayForecast.expected_kwh.toFixed(1)} kWh
+                  </span>
+                </div>
+                
+                {/* Progress basierend auf Tagesfortschritt */}
                 <Progress 
-                  value={Math.min((pvEnergy / todayForecast.expected_kwh) * 100, 100)} 
-                  className="h-2"
+                  value={smartEstimate.progressPercent} 
+                  className="h-1.5"
                 />
-                <p className={`text-xs text-right font-medium ${
-                  (pvEnergy / todayForecast.expected_kwh) >= 0.8 
-                    ? 'text-green-500' 
-                    : (pvEnergy / todayForecast.expected_kwh) >= 0.5 
-                      ? 'text-yellow-500' 
-                      : 'text-muted-foreground'
-                }`}>
-                  {Math.round((pvEnergy / todayForecast.expected_kwh) * 100)}% der Prognose
+                <p className="text-[10px] text-muted-foreground text-right">
+                  {Math.round(smartEstimate.progressPercent)}% des Sonnentages
                 </p>
-                {/* Warnung bei sehr niedriger Erfüllung trotz signifikanter Produktion */}
-                {(pvEnergy / todayForecast.expected_kwh) < 0.3 && pvEnergy > 5 && (
-                  <p className="text-xs text-amber-500 mt-1">
-                    ⚠️ Prognose evtl. zu optimistisch – aktualisiere für genauere Werte
-                  </p>
-                )}
               </div>
             )}
             
-            {/* Debug-Anzeige für berechneten PV-Wert */}
-            <p className="text-xs text-amber-500/70 font-mono">
-              DEBUG: {pvEnergy.toFixed(2)} kWh (Props)
-            </p>
-            
-            <p className="text-xs text-muted-foreground">
-              Anlage: {settings.pv_capacity_kwp} kWp
-            </p>
+            {/* Fallback wenn keine Prognose */}
+            {(!todayForecast || todayForecast.expected_kwh === 0) && (
+              <p className="text-xs text-muted-foreground">
+                Heute: {pvEnergy.toFixed(1)} kWh | Anlage: {settings.pv_capacity_kwp} kWp
+              </p>
+            )}
           </CardContent>
         </Card>
 
