@@ -64,7 +64,26 @@ serve(async (req) => {
       const nightStart = heatingSettings?.night_start_time || '22:00';
       const nightEnd = heatingSettings?.night_end_time || '06:00';
       
+      // Heizungstyp ermitteln
+      const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
+      const heatingTypeLabels: Record<string, string> = {
+        'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
+        'heat_pump': 'Wärmepumpe',
+        'water': 'Wasserbasierte Heizung'
+      };
+      const heatingTypeLabel = heatingTypeLabels[heatingTypeRaw] || 'Stromdirektheizung';
+      const totalHeatingPower = heatingSettings?.total_heating_power_w || 
+        rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || (r.calculated_power_w as number) || 800), 0) || 0;
+      
       prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
+
+⚠️ **WICHTIG: ALLE ERFORDERLICHEN DATEN SIND UNTEN AUFGEFÜHRT. GIB NUR KONKRETE EMPFEHLUNGEN, KEINE RÜCKFRAGEN!**
+
+**HEIZUNGSANLAGE (BEKANNT):**
+- Typ: ${heatingTypeLabel}
+- Gesamt-Heizleistung: ${totalHeatingPower}W
+- Thermostate: TGP508 WiFi (6 Zeitperioden programmierbar)
+- Charakteristik: Direkte Wärmeabgabe, geringe thermische Masse, schnelle Reaktion
 
 **ZEITPUNKT:** ${now.toLocaleString('de-DE')} (${isNight ? 'Nacht' : isMorning ? 'Morgen' : isPeakSolar ? 'Hauptsonnenzeit' : 'Nachmittag/Abend'})
 
@@ -75,7 +94,7 @@ serve(async (req) => {
 - Verbrauch: ${consumption}W
 
 **WETTER:**
-${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${weatherData.cloud_cover_percent}%, Strahlung: ${weatherData.direct_radiation_wm2 || 0}W/m²` : '- Keine Wetterdaten'}
+${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${weatherData.cloud_cover_percent}%, Strahlung: ${weatherData.direct_radiation_wm2 || 0}W/m²` : '- Keine Wetterdaten verfügbar'}
 
 **WARMWASSER (EXTERN - SmartFox gesteuert):**
 - Aktuelle Einstellung: ${hotwaterStart}-${hotwaterEnd}
@@ -87,36 +106,39 @@ ${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${we
 - Nacht: ${nightStart}-${nightEnd}
 - Empfehle Anzahl basierend auf Außentemperatur und Batterie-Reserve
 
-**EINSTELLUNGEN:**
+**GLOBALE TEMPERATUREINSTELLUNGEN:**
 - Komfort: ${heatingSettings?.comfort_temp || 21}°C, Eco: ${heatingSettings?.eco_temp || 18}°C, Nacht: ${heatingSettings?.night_temp || 16}°C
 - Min. SOC: ${heatingSettings?.min_battery_soc || 20}%, PV-Schwelle EIN: ${heatingSettings?.pv_surplus_threshold_on || 500}W, AUS: ${heatingSettings?.pv_surplus_threshold_off || 200}W
 
-**RÄUME MIT ML-FEATURES:**
+**RÄUME MIT VOLLSTÄNDIGEN EINSTELLUNGEN:**
 ${rooms?.map((r: Record<string, unknown>) => {
   const f = mlFeatures?.find((mf: Record<string, unknown>) => mf.room_id === r.id);
-  return `📍 ${r.name} (${r.id}): ${r.current_temp || '?'}°C→${r.target_temp || '?'}°C | PV-Auto: ${r.pv_auto_active ? '🔥' : '❄️'} | Power: ${r.heating_power_w || r.calculated_power_w || 1000}W
-   ${f ? `ML: HeatLoss ${(f.heat_loss_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, HeatingRate ${(f.heating_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, PV-Anteil ${(((f.pv_heating_ratio as number) || 0) * 100).toFixed(0)}%, Confidence ${(((f.confidence as number) || 0) * 100).toFixed(0)}%` : '⚠️ Keine ML-Features'}`;
-}).join('\n') || 'Keine Räume'}
+  return `📍 ${r.name} (${r.id}):
+   Ist-Temp: ${r.current_temp || '?'}°C → Soll-Temp: ${r.target_temp || '?'}°C
+   Comfort: ${r.comfort_temp || heatingSettings?.comfort_temp || 21}°C | Eco: ${r.eco_temp || heatingSettings?.eco_temp || 18}°C | Nacht: ${r.night_temp || heatingSettings?.night_temp || 16}°C
+   Heizleistung: ${r.heating_power_w || r.calculated_power_w || 1000}W | PV-Auto aktiv: ${r.pv_auto_active ? '🔥 Ja' : '❄️ Nein'}
+   ${f ? `ML: Wärmeverlust ${(f.heat_loss_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, Aufheizrate ${(f.heating_rate_deg_per_hour as number)?.toFixed(2) || '?'}°/h, PV-Anteil ${(((f.pv_heating_ratio as number) || 0) * 100).toFixed(0)}%, Konfidenz ${(((f.confidence as number) || 0) * 100).toFixed(0)}%` : '⚠️ Keine ML-Features (Lernphase)'}`;
+}).join('\n\n') || 'Keine Räume konfiguriert'}
 
 **FEEDBACK (letzte Entscheidungen):**
 ${recentRewards?.length > 0 ? recentRewards.slice(0, 5).map((r: Record<string, unknown>) => {
   const reward = r.reward as number | null;
   return `${reward === null ? '⏳' : reward > 0.5 ? '✅' : reward > 0 ? '➖' : '❌'} ${r.decision_type}: Reward ${reward?.toFixed(2) || 'pending'}`;
-}).join('\n') : '⏳ Noch keine Daten'}
+}).join('\n') : '⏳ Noch keine Bewertungsdaten'}
 
-**REGELN:**
-1. PV-Überschuss >${heatingSettings?.pv_surplus_threshold_on || 500}W → Heizung aktivieren erwägen
-2. PV-Überschuss <${heatingSettings?.pv_surplus_threshold_off || 200}W → Heizung deaktivieren erwägen
-3. Batterie <${heatingSettings?.min_battery_soc || 20}% → Keine Aktivierung
-4. Nachts nur bei voller Batterie
-5. Räume mit hohem PV-Anteil bevorzugen
-6. Bei niedriger Confidence vorsichtiger
+**REGELN FÜR STROMDIREKTHEIZUNG:**
+1. PV-Überschuss >${heatingSettings?.pv_surplus_threshold_on || 500}W → Heizung auf Comfort-Temp aktivieren
+2. PV-Überschuss <${heatingSettings?.pv_surplus_threshold_off || 200}W → Auf Eco-Temp reduzieren
+3. Batterie <${heatingSettings?.min_battery_soc || 20}% → Keine Aktivierung, nur Frostschutz
+4. Nachts nur bei Batterie >80% heizen, sonst Nacht-Temp
+5. Räume mit hohem PV-Anteil (ML) bevorzugt während Sonnenstunden heizen
+6. Geringe thermische Masse = schnelle Reaktion → häufigere, kürzere Heizphasen möglich
 
-**AUFGABEN:**
-1. Gib für jeden Raum eine Thermostat-Empfehlung (Temperatur + Aktion)
-2. Empfehle optimales Warmwasser-Zeitfenster (HH:MM-HH:MM)
-3. Erstelle TGP508 Heizprogramm mit 6 Perioden (Start/Ende/Temp/Modus)
-4. Empfehle Nachtzyklen-Anzahl (0-6 pro Raum)`;
+**AUFGABEN (NUR EMPFEHLUNGEN, KEINE FRAGEN):**
+1. Gib für jeden Raum eine Thermostat-Empfehlung (Zieltemperatur + Aktion: activate/deactivate/keep)
+2. Empfehle optimales Warmwasser-Zeitfenster (HH:MM-HH:MM) für maximale PV-Nutzung
+3. Erstelle TGP508 Heizprogramm mit 6 Perioden (Start/Ende/Temp/Modus) für PV-optimiertes Lastmanagement
+4. Empfehle Nachtzyklen-Anzahl (0-6 pro Raum) basierend auf Außentemperatur`;
 
       toolDefinition = {
         type: "function",
