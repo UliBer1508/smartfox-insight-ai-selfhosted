@@ -51,6 +51,19 @@ serve(async (req) => {
       const isMorning = hour >= 6 && hour < 10;
       const isPeakSolar = hour >= 10 && hour < 16;
       
+      // Warmwasser-Einstellungen
+      const hotwaterEnabled = heatingSettings?.hotwater_enabled !== false;
+      const hotwaterPower = heatingSettings?.hotwater_power_w || 6000;
+      const hotwaterStart = heatingSettings?.hotwater_schedule_start || '12:00';
+      const hotwaterEnd = heatingSettings?.hotwater_schedule_end || '16:00';
+      const hotwaterMinSurplus = heatingSettings?.hotwater_min_surplus_w || 1000;
+      
+      // Nachtzyklen-Einstellungen
+      const nightCyclingEnabled = heatingSettings?.night_cycling_enabled !== false;
+      const avgNightCycles = heatingSettings?.avg_night_cycles_per_room || 3;
+      const nightStart = heatingSettings?.night_start_time || '22:00';
+      const nightEnd = heatingSettings?.night_end_time || '06:00';
+      
       prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
 
 **ZEITPUNKT:** ${now.toLocaleString('de-DE')} (${isNight ? 'Nacht' : isMorning ? 'Morgen' : isPeakSolar ? 'Hauptsonnenzeit' : 'Nachmittag/Abend'})
@@ -63,6 +76,16 @@ serve(async (req) => {
 
 **WETTER:**
 ${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${weatherData.cloud_cover_percent}%, Strahlung: ${weatherData.direct_radiation_wm2 || 0}W/m²` : '- Keine Wetterdaten'}
+
+**WARMWASSER (EXTERN - SmartFox gesteuert):**
+- Aktuelle Einstellung: ${hotwaterStart}-${hotwaterEnd}
+- Leistung: ${hotwaterPower}W, Mind. Überschuss: ${hotwaterMinSurplus}W
+- Empfehle das optimale Zeitfenster basierend auf PV-Überschuss
+
+**NACHTZYKLEN:**
+- Aktuell: ${nightCyclingEnabled ? `${avgNightCycles} Zyklen/Raum` : 'Deaktiviert'}
+- Nacht: ${nightStart}-${nightEnd}
+- Empfehle Anzahl basierend auf Außentemperatur und Batterie-Reserve
 
 **EINSTELLUNGEN:**
 - Komfort: ${heatingSettings?.comfort_temp || 21}°C, Eco: ${heatingSettings?.eco_temp || 18}°C, Nacht: ${heatingSettings?.night_temp || 16}°C
@@ -89,13 +112,17 @@ ${recentRewards?.length > 0 ? recentRewards.slice(0, 5).map((r: Record<string, u
 5. Räume mit hohem PV-Anteil bevorzugen
 6. Bei niedriger Confidence vorsichtiger
 
-Gib für jeden Raum mit pv_auto_enabled=true eine Entscheidung.`;
+**AUFGABEN:**
+1. Gib für jeden Raum eine Thermostat-Empfehlung (Temperatur + Aktion)
+2. Empfehle optimales Warmwasser-Zeitfenster (HH:MM-HH:MM)
+3. Erstelle TGP508 Heizprogramm mit 6 Perioden (Start/Ende/Temp/Modus)
+4. Empfehle Nachtzyklen-Anzahl (0-6 pro Raum)`;
 
       toolDefinition = {
         type: "function",
         function: {
           name: "make_heating_decision",
-          description: "ML-basierte Heizungsentscheidungen",
+          description: "ML-basierte Heizungsentscheidungen mit konkreten Einstellungen für Thermostate, Warmwasser und Heizzyklen",
           parameters: {
             type: "object",
             properties: {
@@ -113,12 +140,53 @@ Gib für jeden Raum mit pv_auto_enabled=true eine Entscheidung.`;
                     confidence: { type: "number" }
                   },
                   required: ["room_id", "room_name", "action", "target_temp", "reasoning"]
-                }
+                },
+                description: "Thermostat-Empfehlungen pro Raum"
               },
-              overall_strategy: { type: "string" },
-              expected_total_savings_wh: { type: "number" }
+              overall_strategy: { type: "string", description: "Zusammenfassung der Gesamtstrategie" },
+              expected_total_savings_wh: { type: "number" },
+              hotwater_recommendation: {
+                type: "object",
+                properties: {
+                  enabled: { type: "boolean", description: "Warmwasser heute sinnvoll?" },
+                  recommended_start: { type: "string", description: "Empfohlene Startzeit HH:MM" },
+                  recommended_end: { type: "string", description: "Empfohlene Endzeit HH:MM" },
+                  min_surplus_w: { type: "number", description: "Mindest-PV-Überschuss in Watt" },
+                  reasoning: { type: "string", description: "Begründung für das Zeitfenster" }
+                },
+                required: ["enabled", "recommended_start", "recommended_end", "reasoning"],
+                description: "Empfehlung für externe Warmwasser-Bereitung (SmartFox)"
+              },
+              thermostat_schedule: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    period: { type: "number", description: "Periode 1-6" },
+                    start_time: { type: "string", description: "Startzeit HH:MM" },
+                    end_time: { type: "string", description: "Endzeit HH:MM" },
+                    temperature: { type: "number", description: "Zieltemperatur in °C" },
+                    mode: { type: "string", enum: ["comfort", "eco", "night", "off"], description: "Heizmodus" },
+                    reasoning: { type: "string", description: "Kurze Begründung" }
+                  },
+                  required: ["period", "start_time", "end_time", "temperature", "mode"]
+                },
+                description: "TGP508 Heizprogramm mit exakt 6 Perioden",
+                minItems: 6,
+                maxItems: 6
+              },
+              night_cycling: {
+                type: "object",
+                properties: {
+                  enabled: { type: "boolean", description: "Nachtzyklen aktivieren?" },
+                  cycles_per_room: { type: "number", description: "Anzahl Zyklen pro Raum (0-6)" },
+                  reasoning: { type: "string", description: "Begründung" }
+                },
+                required: ["enabled", "cycles_per_room", "reasoning"],
+                description: "Empfehlung für Nacht-Heizzyklen"
+              }
             },
-            required: ["decisions", "overall_strategy"]
+            required: ["decisions", "overall_strategy", "hotwater_recommendation", "thermostat_schedule", "night_cycling"]
           }
         }
       };
