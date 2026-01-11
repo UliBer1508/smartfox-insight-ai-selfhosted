@@ -33,7 +33,7 @@ export function BatteryHistoryChart() {
     return data.map((point: BatteryHistoryPoint): ChartDataPoint => {
       const power = point.battery_power ?? 0;
       return {
-        time: format(new Date(point.timestamp), 'HH:mm', { locale: de }),
+        time: new Date(point.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }),
         timestamp: new Date(point.timestamp),
         soc: point.battery_soc,
         charging: power < 0 ? Math.abs(power) : null,      // negativ = laden, als positiv anzeigen
