@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { EnergyReading } from '@/types/energy';
 import { HeatingSettings } from '@/types/heating';
+import { Room } from '@/types/room';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
 import { usePvForecast } from '@/hooks/usePvForecast';
@@ -279,15 +280,22 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           <Card className="overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Thermometer className="w-4 h-4 text-primary" />
-              Heizungsstatus
+              <Bot className="w-4 h-4 text-primary" />
+              KI-Steuerung
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-xl sm:text-2xl font-bold font-mono">
-              {getHeatingRecommendation(latestPvPower, latestSoc, settings)}
-            </div>
-            <p className="text-xs text-muted-foreground">aktuelle Empfehlung</p>
+            {(() => {
+              const status = getAutomationStatus(rooms, latestPvPower, latestSoc);
+              return (
+                <>
+                  <div className="text-xl sm:text-2xl font-bold font-mono">
+                    {status.icon} {status.status}
+                  </div>
+                  <p className="text-xs text-muted-foreground">{status.detail}</p>
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -545,38 +553,55 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   );
 }
 
-function getHeatingRecommendation(
-  pvPower: number | null, 
-  soc: number | null, 
-  settings: HeatingSettings
-): string {
-  if (pvPower === null) return 'Keine Daten';
+function getAutomationStatus(
+  rooms: Room[],
+  pvPower: number | null,
+  soc: number | null
+): { icon: string; status: string; detail: string } {
+  const heatingRooms = rooms.filter(r => r.is_heating);
+  const automatedRooms = rooms.filter(r => r.automation_enabled);
   
-  const pvKw = pvPower / 1000;
-  const targetSoc = settings.target_battery_soc ?? 80;
-  const hasGoodSoc = soc !== null && soc >= targetSoc;
-  const hasUsableSoc = soc !== null && soc > 60;
+  // Was macht die KI gerade?
+  if (heatingRooms.length > 0) {
+    const names = heatingRooms.slice(0, 3).map(r => r.name).join(', ');
+    const suffix = heatingRooms.length > 3 ? ` +${heatingRooms.length - 3}` : '';
+    return {
+      icon: '🔥',
+      status: `${heatingRooms.length} ${heatingRooms.length === 1 ? 'Raum heizt' : 'Räume heizen'}`,
+      detail: names + suffix
+    };
+  }
   
-  // Priorität 1: Viel PV-Leistung (> 2 kW)
+  // Keine Heizung aktiv - zeige Kontext
+  const pvKw = (pvPower ?? 0) / 1000;
+  
   if (pvKw > 2) {
-    if (!hasGoodSoc) {
-      return '🔋⚡ Laden + heizen';
-    }
-    return '☀️ Jetzt heizen!';
+    return {
+      icon: '☀️',
+      status: 'PV-Überschuss',
+      detail: 'KI prüft Heizoptionen'
+    };
   }
   
-  // Priorität 2: Mittlerer PV-Ertrag (0.5-2 kW)
   if (pvKw > 0.5) {
-    if (!hasGoodSoc) {
-      return '🔋 Batterie laden';
-    }
-    return '⚡ Wärme halten';
+    return {
+      icon: '⚡',
+      status: 'Teilversorgung',
+      detail: 'Temperaturen werden gehalten'
+    };
   }
   
-  // Priorität 3: Wenig/keine PV (< 0.5 kW)
-  if (hasUsableSoc) {
-    return '🔋 Batterie nutzbar';
+  if (soc !== null && soc > 50) {
+    return {
+      icon: '✅',
+      status: 'Alle auf Temperatur',
+      detail: `${automatedRooms.length} Räume automatisiert`
+    };
   }
   
-  return '❄️ Energie sparen';
+  return {
+    icon: '🌙',
+    status: 'Energiesparmodus',
+    detail: 'KI optimiert Verbrauch'
+  };
 }
