@@ -44,7 +44,7 @@ const Index = () => {
     loadDailyPatterns 
   } = usePatternAnalysis();
 
-  const { energyIn, energyOut, pvEnergy, hasDataGaps, largestGapMinutes } = useEnergyCalculation(readings);
+  const { energyIn, energyOut, pvEnergy, hasDataGaps, largestGapMinutes, isLoading: isLoadingPv } = useEnergyCalculation(readings);
 
   useEffect(() => {
     loadDailyPatterns();
@@ -184,6 +184,7 @@ const Index = () => {
             energyIn={energyIn}
             energyOut={energyOut}
             pvEnergy={pvEnergy}
+            isLoadingPv={isLoadingPv}
           />
         )}
       </main>
