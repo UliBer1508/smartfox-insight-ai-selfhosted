@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown, Sparkles, Flame, Snowflake, Zap, CheckCircle2, Droplets, Clock, Moon, Sun, Thermometer } from 'lucide-react';
+import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown, Sparkles, Flame, Snowflake, Zap, CheckCircle2, Droplets, Clock, Moon, Sun, Thermometer, AlertCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -78,10 +78,16 @@ interface AnalysisResult {
   night_cycling?: NightCyclingRecommendation;
 }
 
+interface HeatingSettingsInfo {
+  hotwater_schedule_start?: string;
+  hotwater_schedule_end?: string;
+}
+
 export function LearningProgress() {
   const [features, setFeatures] = useState<RoomMLFeatures[]>([]);
   const [recentEvents, setRecentEvents] = useState<LearningEvent[]>([]);
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
+  const [heatingSettings, setHeatingSettings] = useState<HeatingSettingsInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -97,7 +103,7 @@ export function LearningProgress() {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const [featuresResult, eventsResult, roomsResult] = await Promise.all([
+      const [featuresResult, eventsResult, roomsResult, settingsResult] = await Promise.all([
         supabase
           .from('room_ml_features')
           .select('*')
@@ -109,12 +115,18 @@ export function LearningProgress() {
           .limit(5),
         supabase
           .from('rooms')
-          .select('id, name, current_temp, target_temp, tuya_device_id')
+          .select('id, name, current_temp, target_temp, tuya_device_id'),
+        supabase
+          .from('heating_settings')
+          .select('hotwater_schedule_start, hotwater_schedule_end')
+          .limit(1)
+          .maybeSingle()
       ]);
 
       setFeatures((featuresResult.data || []) as RoomMLFeatures[]);
       setRecentEvents((eventsResult.data || []) as LearningEvent[]);
       setRooms((roomsResult.data || []) as RoomInfo[]);
+      setHeatingSettings(settingsResult.data as HeatingSettingsInfo | null);
     } catch (error) {
       console.error('Error loading learning data:', error);
     } finally {
@@ -378,26 +390,45 @@ export function LearningProgress() {
                     )}
                   </div>
 
-                  {/* Hotwater Recommendation */}
+                  {/* Smartfox Hotwater Recommendation */}
                   {analysisResult.hotwater_recommendation && (
                     <div className="space-y-2">
                       <h5 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                         <Droplets className="h-3 w-3" />
-                        Warmwasser-Bereitung (extern einstellen):
+                        Smartfox Warmwasser-Zeitschaltung:
                       </h5>
-                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
-                        <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium">Empfohlenes Zeitfenster:</span>
-                          <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
-                            {analysisResult.hotwater_recommendation.recommended_start} - {analysisResult.hotwater_recommendation.recommended_end}
-                          </span>
+                      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 space-y-3">
+                        {/* Current vs Recommended comparison */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="text-center p-2 bg-muted/30 rounded">
+                            <span className="text-[10px] text-muted-foreground block mb-1">Aktuelle Einstellung</span>
+                            <span className="text-sm font-mono">
+                              {heatingSettings?.hotwater_schedule_start || '10:00'} - {heatingSettings?.hotwater_schedule_end || '14:00'}
+                            </span>
+                          </div>
+                          <div className="text-center p-2 bg-blue-500/20 rounded border border-blue-500/40">
+                            <span className="text-[10px] text-blue-600 dark:text-blue-400 block mb-1">KI-Empfehlung</span>
+                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400 font-mono">
+                              {analysisResult.hotwater_recommendation.recommended_start} - {analysisResult.hotwater_recommendation.recommended_end}
+                            </span>
+                          </div>
                         </div>
+                        
+                        {/* Arrow indicator if different */}
+                        {(heatingSettings?.hotwater_schedule_start !== analysisResult.hotwater_recommendation.recommended_start ||
+                          heatingSettings?.hotwater_schedule_end !== analysisResult.hotwater_recommendation.recommended_end) && (
+                          <div className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-1.5 rounded">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <span>→ Am Smartfox auf <strong>{analysisResult.hotwater_recommendation.recommended_start}-{analysisResult.hotwater_recommendation.recommended_end}</strong> ändern</span>
+                          </div>
+                        )}
+                        
                         {analysisResult.hotwater_recommendation.min_surplus_w && (
                           <p className="text-xs text-muted-foreground">
                             Mind. Überschuss: {analysisResult.hotwater_recommendation.min_surplus_w}W
                           </p>
                         )}
-                        <p className="text-xs text-muted-foreground mt-1">
+                        <p className="text-xs text-muted-foreground border-t border-border/50 pt-2">
                           {analysisResult.hotwater_recommendation.reasoning}
                         </p>
                       </div>
