@@ -30,11 +30,23 @@ export function BatteryHistoryChart() {
   const { data, isLoading, refresh } = useBatteryHistory();
 
   const chartData = useMemo(() => {
+    const today = new Date();
+    const todayStr = today.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+    
     return data.map((point: BatteryHistoryPoint): ChartDataPoint => {
       const power = point.battery_power ?? 0;
+      const pointDate = new Date(point.timestamp);
+      const pointDateStr = pointDate.toLocaleDateString('de-DE', { timeZone: 'Europe/Berlin' });
+      const isToday = pointDateStr === todayStr;
+      
+      // Zeige Datum nur wenn nicht heute
+      const time = isToday
+        ? pointDate.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+        : pointDate.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }).replace(', ', ' ');
+      
       return {
-        time: new Date(point.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
-        timestamp: new Date(point.timestamp),
+        time,
+        timestamp: pointDate,
         soc: point.battery_soc,
         charging: power < 0 ? Math.abs(power) : null,      // negativ = laden, als positiv anzeigen
         discharging: power > 0 ? -power : null,             // positiv = entladen, als negativ anzeigen
