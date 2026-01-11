@@ -52,7 +52,8 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
         .from('energy_readings')
         .select('timestamp, power_io, pv_power, consumption')
         .gte('timestamp', todayStart)
-        .order('timestamp', { ascending: true });
+        .order('timestamp', { ascending: true })
+        .limit(5000); // Explizites Limit für alle Tages-Readings (bei 30s Intervall: ~2880/Tag)
       
       if (error) throw error;
       return data as EnergyReading[];
