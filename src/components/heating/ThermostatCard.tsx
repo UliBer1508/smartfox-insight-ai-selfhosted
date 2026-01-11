@@ -202,7 +202,7 @@ export function ThermostatCard({
             <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200 text-sm min-w-0">
               <Hand className="h-4 w-4 flex-shrink-0" />
               <span className="truncate">
-                Manuell bis {overrideUntil.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+                Manuell bis {overrideUntil.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })}
               </span>
               {overrideRemaining && (
                 <span className="text-xs text-amber-600 dark:text-amber-400 flex-shrink-0">

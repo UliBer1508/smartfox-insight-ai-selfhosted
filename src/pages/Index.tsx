@@ -145,7 +145,7 @@ const Index = () => {
                 <CardContent>
                   <div className="text-lg font-bold font-mono">
                     {readings.length > 0 
-                      ? format(new Date(readings[readings.length - 1].timestamp), 'dd.MM. HH:mm', { locale: de })
+                      ? new Date(readings[readings.length - 1].timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
                       : '-'
                     }
                   </div>

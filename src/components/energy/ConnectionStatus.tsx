@@ -40,7 +40,7 @@ export function ConnectionStatus({
 
       {lastUpdate && (
         <div className="text-sm text-muted-foreground">
-          {format(new Date(lastUpdate), 'HH:mm:ss', { locale: de })} ({formatDistanceToNow(new Date(lastUpdate), { addSuffix: true, locale: de })})
+          {new Date(lastUpdate).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Berlin' })} ({formatDistanceToNow(new Date(lastUpdate), { addSuffix: true, locale: de })})
         </div>
       )}
 

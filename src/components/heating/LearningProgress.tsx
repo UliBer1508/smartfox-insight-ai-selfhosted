@@ -190,7 +190,8 @@ export function LearningProgress() {
                       <span className="text-muted-foreground">
                         {new Date(event.timestamp).toLocaleTimeString('de-DE', { 
                           hour: '2-digit', 
-                          minute: '2-digit' 
+                          minute: '2-digit',
+                          timeZone: 'Europe/Berlin'
                         })}
                       </span>
                       <span className="truncate max-w-[80px]">{getRoomName(event.room_id)}</span>
