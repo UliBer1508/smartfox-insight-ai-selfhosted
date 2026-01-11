@@ -146,8 +146,8 @@ export function LearningProgress() {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      // Fetch all required data
-      const [readingsResult, settingsResult, mlFeaturesResult, rewardsResult] = await Promise.all([
+      // Fetch all required data including PV forecast
+      const [readingsResult, settingsResult, mlFeaturesResult, rewardsResult, pvForecastResult] = await Promise.all([
         supabase
           .from('energy_readings')
           .select('*')
@@ -167,20 +167,26 @@ export function LearningProgress() {
           .select('*')
           .eq('is_evaluated', true)
           .order('timestamp', { ascending: false })
-          .limit(10)
+          .limit(10),
+        supabase
+          .from('pv_forecasts')
+          .select('*')
+          .eq('date', today)
+          .maybeSingle()
       ]);
 
       const currentReading = readingsResult.data?.[0];
       const heatingSettings = settingsResult.data;
       const mlFeatures = mlFeaturesResult.data || [];
       const recentRewards = rewardsResult.data || [];
+      const pvForecast = pvForecastResult.data;
 
       if (!currentReading) {
         toast.error('Keine aktuellen Energiedaten verfügbar');
         return;
       }
 
-      // Call analyze-patterns with optimize_decision type
+      // Call analyze-patterns with optimize_decision type including PV forecast
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
         body: {
           readings: [currentReading],
@@ -188,6 +194,7 @@ export function LearningProgress() {
           rooms: rooms,
           mlFeatures: mlFeatures,
           recentRewards: recentRewards,
+          pvForecast: pvForecast,
           type: 'optimize_decision'
         }
       });
