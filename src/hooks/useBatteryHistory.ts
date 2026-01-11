@@ -7,23 +7,25 @@ export interface BatteryHistoryPoint {
   battery_power: number | null;
 }
 
-export function useBatteryHistory(hours: number = 24) {
+export function useBatteryHistory(daysBack: number = 0) {
   const [data, setData] = useState<BatteryHistoryPoint[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Sampling-Intervall basierend auf Zeitraum: 12h=2.5min, 24h=5min, 48h=10min
-  const samplingInterval = hours <= 12 ? 2.5 * 60 * 1000 : hours <= 24 ? 5 * 60 * 1000 : 10 * 60 * 1000;
+  // Sampling-Intervall basierend auf Zeitraum: heute=2min, 2 Tage=4min, 3 Tage=8min
+  const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 4 * 60 * 1000 : 8 * 60 * 1000;
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true);
     try {
-      const hoursAgo = new Date();
-      hoursAgo.setHours(hoursAgo.getHours() - hours);
+      // Start from midnight of the selected day
+      const startDate = new Date();
+      startDate.setHours(0, 0, 0, 0);
+      startDate.setDate(startDate.getDate() - daysBack);
 
       const { data: readings, error } = await supabase
         .from('energy_readings')
         .select('timestamp, battery_soc, battery_power')
-        .gte('timestamp', hoursAgo.toISOString())
+        .gte('timestamp', startDate.toISOString())
         .order('timestamp', { ascending: true });
 
       if (error) throw error;
@@ -33,7 +35,7 @@ export function useBatteryHistory(hours: number = 24) {
         (r) => r.battery_soc !== null || r.battery_power !== null
       );
 
-      // Sample data to reduce points (max ~288 points)
+      // Sample data to reduce points
       const sampled: BatteryHistoryPoint[] = [];
       let lastTime = 0;
 
@@ -59,7 +61,7 @@ export function useBatteryHistory(hours: number = 24) {
     } finally {
       setIsLoading(false);
     }
-  }, [hours, samplingInterval]);
+  }, [daysBack, samplingInterval]);
 
   useEffect(() => {
     loadHistory();
@@ -85,10 +87,13 @@ export function useBatteryHistory(hours: number = 24) {
               const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
               const newTime = new Date(newReading.timestamp).getTime();
 
-              // Remove points older than selected hours
-              const cutoff = Date.now() - hours * 60 * 60 * 1000;
+              // Remove points before midnight of start date
+              const startDate = new Date();
+              startDate.setHours(0, 0, 0, 0);
+              startDate.setDate(startDate.getDate() - daysBack);
+              const cutoff = startDate.getTime();
               const filtered = prev.filter(
-                (p) => new Date(p.timestamp).getTime() > cutoff
+                (p) => new Date(p.timestamp).getTime() >= cutoff
               );
 
               const newPoint = {
