@@ -553,17 +553,29 @@ function getHeatingRecommendation(
   if (pvPower === null) return 'Keine Daten';
   
   const pvKw = pvPower / 1000;
+  const targetSoc = settings.target_battery_soc ?? 80;
+  const hasGoodSoc = soc !== null && soc >= targetSoc;
+  const hasUsableSoc = soc !== null && soc > 60;
   
-  if (soc !== null && soc < settings.target_battery_soc) {
-    return '🔋 Batterie laden';
-  }
-  
+  // Priorität 1: Viel PV-Leistung (> 2 kW)
   if (pvKw > 2) {
+    if (!hasGoodSoc) {
+      return '🔋⚡ Laden + heizen';
+    }
     return '☀️ Jetzt heizen!';
   }
   
+  // Priorität 2: Mittlerer PV-Ertrag (0.5-2 kW)
   if (pvKw > 0.5) {
+    if (!hasGoodSoc) {
+      return '🔋 Batterie laden';
+    }
     return '⚡ Wärme halten';
+  }
+  
+  // Priorität 3: Wenig/keine PV (< 0.5 kW)
+  if (hasUsableSoc) {
+    return '🔋 Batterie nutzbar';
   }
   
   return '❄️ Energie sparen';
