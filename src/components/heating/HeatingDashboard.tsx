@@ -287,12 +287,34 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           <CardContent>
             {(() => {
               const status = getAutomationStatus(rooms, latestPvPower, latestSoc);
+              
+              // Finde letzte KI-Aktion
+              const lastChange = rooms
+                .filter(r => r.last_auto_change)
+                .sort((a, b) => new Date(b.last_auto_change!).getTime() - new Date(a.last_auto_change!).getTime())[0];
+              
+              const getTimeAgo = (dateStr: string) => {
+                const diff = Date.now() - new Date(dateStr).getTime();
+                const mins = Math.floor(diff / 60000);
+                if (mins < 1) return 'gerade eben';
+                if (mins < 60) return `vor ${mins} Min`;
+                const hours = Math.floor(mins / 60);
+                if (hours < 24) return `vor ${hours} Std`;
+                return `vor ${Math.floor(hours / 24)} Tag${Math.floor(hours / 24) > 1 ? 'en' : ''}`;
+              };
+              
               return (
                 <>
                   <div className="text-xl sm:text-2xl font-bold font-mono">
                     {status.icon} {status.status}
                   </div>
                   <p className="text-xs text-muted-foreground">{status.detail}</p>
+                  {lastChange && lastChange.last_auto_change && (
+                    <p className="text-xs text-muted-foreground mt-2 flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {lastChange.name} → {lastChange.target_temp}°C {getTimeAgo(lastChange.last_auto_change)}
+                    </p>
+                  )}
                 </>
               );
             })()}
