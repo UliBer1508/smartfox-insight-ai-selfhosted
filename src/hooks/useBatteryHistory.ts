@@ -22,16 +22,21 @@ export function useBatteryHistory(daysBack: number = 0) {
       startDate.setHours(0, 0, 0, 0);
       startDate.setDate(startDate.getDate() - daysBack);
 
+      // Fetch in descending order to get newest data first (avoids 1000 row limit cutting off new data)
       const { data: readings, error } = await supabase
         .from('energy_readings')
         .select('timestamp, battery_soc, battery_power')
         .gte('timestamp', startDate.toISOString())
-        .order('timestamp', { ascending: true });
+        .order('timestamp', { ascending: false })
+        .limit(5000);
 
       if (error) throw error;
 
+      // Reverse to get chronological order (oldest first)
+      const chronological = (readings || []).reverse();
+
       // Filter to entries with battery data
-      const filtered = (readings || []).filter(
+      const filtered = chronological.filter(
         (r) => r.battery_soc !== null || r.battery_power !== null
       );
 
@@ -67,10 +72,16 @@ export function useBatteryHistory(daysBack: number = 0) {
     loadHistory();
   }, [loadHistory]);
 
-  // Subscribe to new readings
+  // Subscribe to new readings - use unique channel name per daysBack
   useEffect(() => {
+    // Calculate cutoff outside callback to use current daysBack value
+    const startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
+    startDate.setDate(startDate.getDate() - daysBack);
+    const cutoff = startDate.getTime();
+
     const channel = supabase
-      .channel('battery_history_updates')
+      .channel(`battery_history_updates_${daysBack}`)
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'energy_readings' },
@@ -88,10 +99,6 @@ export function useBatteryHistory(daysBack: number = 0) {
               const newTime = new Date(newReading.timestamp).getTime();
 
               // Remove points before midnight of start date
-              const startDate = new Date();
-              startDate.setHours(0, 0, 0, 0);
-              startDate.setDate(startDate.getDate() - daysBack);
-              const cutoff = startDate.getTime();
               const filtered = prev.filter(
                 (p) => new Date(p.timestamp).getTime() >= cutoff
               );
@@ -107,7 +114,7 @@ export function useBatteryHistory(daysBack: number = 0) {
                 return [...filtered, newPoint];
               }
               
-              // Under 5 minutes: update last point for immediate display
+              // Under sampling interval: update last point for immediate display
               if (filtered.length > 0) {
                 return [...filtered.slice(0, -1), newPoint];
               }
@@ -122,7 +129,7 @@ export function useBatteryHistory(daysBack: number = 0) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [daysBack, samplingInterval]);
 
   return { data, isLoading, refresh: loadHistory };
 }
