@@ -89,7 +89,7 @@ export function useSolarGainChart(roomIds: string[], roomNames: Record<string, s
         const timestamp = new Date(intervalStart);
         
         const point: ChartDataPoint = {
-          time: format(timestamp, 'HH:mm'),
+          time: timestamp.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
           timestamp,
           pvPower: group.pvPowers.length > 0 
             ? Math.round(group.pvPowers.reduce((a, b) => a + b, 0) / group.pvPowers.length / 1000 * 10) / 10 

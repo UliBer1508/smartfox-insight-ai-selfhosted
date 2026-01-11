@@ -163,7 +163,7 @@ export function PvForecastCard({
         {todayForecast?.fetched_at && (
           <p className="text-[8px] sm:text-[10px] text-muted-foreground text-right">
             <span className="hidden sm:inline">Aktualisiert: </span>
-            {format(new Date(todayForecast.fetched_at), 'dd.MM. HH:mm', { locale: de })}
+            {new Date(todayForecast.fetched_at).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })}
           </p>
         )}
       </CardContent>

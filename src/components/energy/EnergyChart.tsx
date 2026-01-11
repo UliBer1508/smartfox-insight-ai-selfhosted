@@ -17,7 +17,7 @@ export const EnergyChart = forwardRef<HTMLDivElement, EnergyChartProps>(
       .reverse()
       .slice(-50)
       .map(reading => ({
-        time: format(new Date(reading.timestamp), 'HH:mm', { locale: de }),
+        time: new Date(reading.timestamp).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' }),
         power: reading.power_io,
         import: reading.power_io > 0 ? reading.power_io : 0,
         export: reading.power_io < 0 ? Math.abs(reading.power_io) : 0,
