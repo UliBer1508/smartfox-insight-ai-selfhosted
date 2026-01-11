@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown } from 'lucide-react';
+import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown, Sparkles, Flame, Snowflake, Zap, CheckCircle2 } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
@@ -31,6 +31,25 @@ interface LearningEvent {
 interface RoomInfo {
   id: string;
   name: string;
+  current_temp?: number | null;
+  target_temp?: number | null;
+  tuya_device_id?: string | null;
+}
+
+interface ThermostatDecision {
+  room_id: string;
+  room_name: string;
+  action: 'activate' | 'deactivate' | 'keep';
+  target_temp: number;
+  reasoning: string;
+  confidence?: number;
+  priority?: string;
+}
+
+interface AnalysisResult {
+  decisions: ThermostatDecision[];
+  overall_strategy: string;
+  expected_total_savings_wh?: number;
 }
 
 export function LearningProgress() {
@@ -39,7 +58,9 @@ export function LearningProgress() {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExtracting, setIsExtracting] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
 
   useEffect(() => {
     loadData();
@@ -62,7 +83,7 @@ export function LearningProgress() {
           .limit(5),
         supabase
           .from('rooms')
-          .select('id, name')
+          .select('id, name, current_temp, target_temp, tuya_device_id')
       ]);
 
       setFeatures((featuresResult.data || []) as RoomMLFeatures[]);
@@ -94,6 +115,84 @@ export function LearningProgress() {
     }
   };
 
+  const runAnalysis = async () => {
+    setIsAnalyzing(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      
+      // Fetch all required data
+      const [readingsResult, settingsResult, mlFeaturesResult, rewardsResult] = await Promise.all([
+        supabase
+          .from('energy_readings')
+          .select('*')
+          .order('timestamp', { ascending: false })
+          .limit(1),
+        supabase
+          .from('heating_settings')
+          .select('*')
+          .limit(1)
+          .single(),
+        supabase
+          .from('room_ml_features')
+          .select('*')
+          .eq('date', today),
+        supabase
+          .from('learning_events')
+          .select('*')
+          .eq('is_evaluated', true)
+          .order('timestamp', { ascending: false })
+          .limit(10)
+      ]);
+
+      const currentReading = readingsResult.data?.[0];
+      const heatingSettings = settingsResult.data;
+      const mlFeatures = mlFeaturesResult.data || [];
+      const recentRewards = rewardsResult.data || [];
+
+      if (!currentReading) {
+        toast.error('Keine aktuellen Energiedaten verfügbar');
+        return;
+      }
+
+      // Call analyze-patterns with optimize_decision type
+      const { data, error } = await supabase.functions.invoke('analyze-patterns', {
+        body: {
+          readings: [currentReading],
+          heatingSettings: heatingSettings,
+          rooms: rooms,
+          mlFeatures: mlFeatures,
+          recentRewards: recentRewards,
+          type: 'optimize_decision'
+        }
+      });
+
+      if (error) throw error;
+
+      if (data?.decisions) {
+        // Map room names to decisions
+        const decisionsWithNames = data.decisions.map((d: any) => ({
+          ...d,
+          room_name: d.room_name || rooms.find(r => r.id === d.room_id)?.name || 'Unbekannt'
+        }));
+
+        setAnalysisResult({
+          decisions: decisionsWithNames,
+          overall_strategy: data.overall_strategy || 'Optimale Heizstrategie basierend auf aktueller Energiesituation',
+          expected_total_savings_wh: data.expected_total_savings_wh
+        });
+        
+        toast.success('KI-Analyse abgeschlossen');
+      } else {
+        toast.error('Keine Empfehlungen erhalten');
+      }
+    } catch (error) {
+      console.error('Analysis error:', error);
+      toast.error('Fehler bei KI-Analyse');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const getRoomName = (roomId: string | null) => {
     if (!roomId) return 'Global';
     const room = rooms.find(r => r.id === roomId);
@@ -105,6 +204,30 @@ export function LearningProgress() {
     if (reward > 0.5) return <TrendingUp className="h-3 w-3 text-green-500" />;
     if (reward < -0.2) return <TrendingDown className="h-3 w-3 text-red-500" />;
     return <Minus className="h-3 w-3 text-yellow-500" />;
+  };
+
+  const getActionIcon = (action: string, priority?: string) => {
+    if (action === 'activate' || priority === 'heat_now') {
+      return <Flame className="h-4 w-4 text-orange-500" />;
+    }
+    if (action === 'deactivate' || priority === 'off' || priority === 'reduce') {
+      return <Snowflake className="h-4 w-4 text-cyan-500" />;
+    }
+    return <Zap className="h-4 w-4 text-blue-500" />;
+  };
+
+  const getActionLabel = (action: string, priority?: string) => {
+    if (action === 'activate' || priority === 'heat_now') return 'Heizen';
+    if (action === 'deactivate' || priority === 'off') return 'Aus';
+    if (priority === 'reduce') return 'Reduzieren';
+    if (priority === 'preheat') return 'Vorheizen';
+    return 'Halten';
+  };
+
+  const getActionBadgeVariant = (action: string, priority?: string): 'default' | 'secondary' | 'outline' | 'destructive' => {
+    if (action === 'activate' || priority === 'heat_now' || priority === 'preheat') return 'default';
+    if (action === 'deactivate' || priority === 'off' || priority === 'reduce') return 'secondary';
+    return 'outline';
   };
 
   const totalSamples = features.reduce((sum, f) => sum + (f.sample_count || 0), 0);
@@ -127,6 +250,7 @@ export function LearningProgress() {
   }
 
   const hasData = features.length > 0 || recentEvents.length > 0;
+  const tuyaRooms = rooms.filter(r => r.tuya_device_id);
 
   return (
     <Card>
@@ -175,7 +299,104 @@ export function LearningProgress() {
         </CardHeader>
 
         <CollapsibleContent>
-          <CardContent className="pt-0 space-y-3">
+          <CardContent className="pt-0 space-y-4">
+            {/* KI Analysis Section */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" />
+                  KI-Empfehlungen
+                </h4>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  className="h-7 text-xs"
+                  onClick={runAnalysis}
+                  disabled={isAnalyzing || tuyaRooms.length === 0}
+                >
+                  {isAnalyzing ? (
+                    <>
+                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                      Analysiere...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="h-3 w-3 mr-1" />
+                      Analyse starten
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {analysisResult ? (
+                <div className="space-y-3">
+                  {/* Strategy Summary */}
+                  <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+                    <p className="text-sm text-foreground leading-relaxed">
+                      {analysisResult.overall_strategy}
+                    </p>
+                    {analysisResult.expected_total_savings_wh && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        💡 Erwartete Einsparung: ~{Math.round(analysisResult.expected_total_savings_wh)} Wh
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Thermostat Recommendations */}
+                  <div className="space-y-2">
+                    <h5 className="text-xs font-medium text-muted-foreground">Thermostat-Einstellungen:</h5>
+                    <div className="space-y-2">
+                      {analysisResult.decisions.map((decision, idx) => (
+                        <div 
+                          key={decision.room_id || idx} 
+                          className="flex items-center justify-between bg-muted/30 rounded-lg p-3 border border-border/50"
+                        >
+                          <div className="flex items-center gap-3">
+                            {getActionIcon(decision.action, decision.priority)}
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm">{decision.room_name}</span>
+                                <Badge 
+                                  variant={getActionBadgeVariant(decision.action, decision.priority)}
+                                  className="text-[10px] px-1.5 h-5"
+                                >
+                                  {getActionLabel(decision.action, decision.priority)}
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5 max-w-[200px]">
+                                {decision.reasoning}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-2xl font-bold text-foreground">
+                              {decision.target_temp}°C
+                            </span>
+                            {decision.confidence !== undefined && (
+                              <p className="text-[10px] text-muted-foreground">
+                                {Math.round(decision.confidence * 100)}% sicher
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-4 text-muted-foreground">
+                  <p className="text-xs">
+                    {tuyaRooms.length === 0 
+                      ? 'Keine Tuya-Thermostate konfiguriert' 
+                      : 'Klicke "Analyse starten" für KI-Empfehlungen'}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Separator */}
+            <div className="border-t border-border/50" />
+
             {/* Recent decisions - compact */}
             {recentEvents.length > 0 && (
               <div className="space-y-1">
@@ -223,7 +444,7 @@ export function LearningProgress() {
               </div>
             )}
 
-            {!hasData && (
+            {!hasData && !analysisResult && (
               <div className="text-center text-muted-foreground py-2">
                 <p className="text-xs">Noch keine Lerndaten. Das System lernt automatisch.</p>
               </div>
