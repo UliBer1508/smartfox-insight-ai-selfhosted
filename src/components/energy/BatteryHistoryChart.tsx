@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Battery, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
 import {
   ComposedChart,
   Line,
@@ -28,6 +29,7 @@ type TimeRange = '12h' | '24h' | '48h';
 
 export function BatteryHistoryChart() {
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
+  const [sliderIndex, setSliderIndex] = useState<number>(0);
   const hours = timeRange === '12h' ? 12 : timeRange === '24h' ? 24 : 48;
   const { data, isLoading, refresh } = useBatteryHistory(hours);
 
@@ -56,6 +58,13 @@ export function BatteryHistoryChart() {
     });
   }, [data]);
 
+  // Slider auf "Jetzt" (letzter Datenpunkt) setzen wenn Daten laden
+  useEffect(() => {
+    if (chartData.length > 0) {
+      setSliderIndex(chartData.length - 1);
+    }
+  }, [chartData.length]);
+
   const formatPower = (value: number) => {
     if (Math.abs(value) >= 1000) {
       return `${(value / 1000).toFixed(1)} kW`;
@@ -71,6 +80,8 @@ export function BatteryHistoryChart() {
     }
     return Math.max(max, 1000); // Minimum 1kW scale
   }, [chartData]);
+
+  const selectedPoint = chartData[sliderIndex];
 
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -249,6 +260,17 @@ export function BatteryHistoryChart() {
               />
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine yAxisId="power" y={0} stroke="hsl(var(--border))" />
+              
+              {/* Vertikale Referenzlinie für Slider-Position */}
+              {selectedPoint && (
+                <ReferenceLine
+                  x={selectedPoint.time}
+                  stroke="hsl(var(--primary))"
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                />
+              )}
+              
               <Area
                 yAxisId="power"
                 type="monotone"
@@ -289,6 +311,52 @@ export function BatteryHistoryChart() {
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+
+        {/* Zeit-Slider */}
+        <div className="mt-4 px-2">
+          <Slider
+            value={[sliderIndex]}
+            max={chartData.length - 1}
+            min={0}
+            step={1}
+            onValueChange={(value) => setSliderIndex(value[0])}
+            className="w-full"
+          />
+          <div className="flex justify-between text-xs text-muted-foreground mt-1">
+            <span>{chartData[0]?.time}</span>
+            <span className="font-medium text-foreground">
+              {selectedPoint?.time} Uhr
+            </span>
+            <span>{chartData[chartData.length - 1]?.time}</span>
+          </div>
+        </div>
+
+        {/* Detail-Anzeige für ausgewählten Zeitpunkt */}
+        {selectedPoint && (
+          <div className="mt-3 p-3 bg-muted/50 rounded-lg flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="font-medium">{selectedPoint.time} Uhr</span>
+            <div className="flex flex-wrap gap-4">
+              {selectedPoint.soc != null && (
+                <span>
+                  SOC: <span className="font-mono font-medium">{selectedPoint.soc.toFixed(0)}%</span>
+                </span>
+              )}
+              {selectedPoint.charging != null && selectedPoint.charging > 0 && (
+                <span className="text-energy-export">
+                  Laden: <span className="font-mono">{formatPower(selectedPoint.charging)}</span>
+                </span>
+              )}
+              {selectedPoint.discharging != null && selectedPoint.discharging < 0 && (
+                <span className="text-amber-500">
+                  Entladen: <span className="font-mono">{formatPower(Math.abs(selectedPoint.discharging))}</span>
+                </span>
+              )}
+              {!selectedPoint.charging && !selectedPoint.discharging && (
+                <span className="text-muted-foreground">Standby</span>
+              )}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
