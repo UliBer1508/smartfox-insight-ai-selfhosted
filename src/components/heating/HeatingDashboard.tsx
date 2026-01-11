@@ -271,19 +271,17 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
+            {/* Label "Heute" */}
+            <p className="text-xs text-muted-foreground">Heute</p>
+            
+            {/* Tagesproduktion als große Zahl */}
             <div className="text-xl sm:text-2xl font-bold font-mono text-energy-export">
-              {latestPvPower !== null ? `${(latestPvPower / 1000).toFixed(1)} kW` : '—'}
+              {isLoadingPv ? '...' : `${pvEnergy.toFixed(1)} kWh`}
             </div>
             
-            {/* Tagesproduktion vs Prognose */}
+            {/* Progress-Bar und Prognose-Vergleich */}
             {todayForecast && todayForecast.expected_kwh > 0 && (
               <div className="space-y-1.5">
-                <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Heute</span>
-                  <span className="font-mono font-medium">
-                    {isLoadingPv ? '...' : pvEnergy.toFixed(1)} / {todayForecast.expected_kwh.toFixed(1)} kWh
-                  </span>
-                </div>
                 <Progress 
                   value={Math.min((pvEnergy / todayForecast.expected_kwh) * 100, 100)} 
                   className="h-2"
@@ -295,21 +293,18 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                       ? 'text-yellow-500' 
                       : 'text-muted-foreground'
                 }`}>
-                  {Math.round((pvEnergy / todayForecast.expected_kwh) * 100)}% der Prognose
+                  {Math.round((pvEnergy / todayForecast.expected_kwh) * 100)}% der Prognose ({todayForecast.expected_kwh.toFixed(1)} kWh)
                 </p>
-                {/* Warnung bei sehr niedriger Erfüllung trotz signifikanter Produktion */}
-                {(pvEnergy / todayForecast.expected_kwh) < 0.3 && pvEnergy > 5 && (
-                  <p className="text-xs text-amber-500 mt-1">
-                    ⚠️ Prognose evtl. zu optimistisch – aktualisiere für genauere Werte
-                  </p>
-                )}
               </div>
             )}
             
-            {/* Debug-Anzeige für berechneten PV-Wert */}
-            <p className="text-xs text-amber-500/70 font-mono">
-              DEBUG: {pvEnergy.toFixed(2)} kWh (Props)
-            </p>
+            {/* Aktuelle Leistung als kleine Info */}
+            <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border/50">
+              <span>Aktuell</span>
+              <span className="font-mono">
+                {latestPvPower !== null ? `${(latestPvPower / 1000).toFixed(1)} kW` : '—'}
+              </span>
+            </div>
             
             <p className="text-xs text-muted-foreground">
               Anlage: {settings.pv_capacity_kwp} kWp
