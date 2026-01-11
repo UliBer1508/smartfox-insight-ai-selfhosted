@@ -10,6 +10,7 @@ interface CalculatedEnergy {
   isLoading: boolean;
   hasDataGaps: boolean;      // Gibt es signifikante Datenlücken?
   largestGapMinutes: number; // Größte Lücke in Minuten
+  readingsCount: number;     // Anzahl geladener Readings für Debug
 }
 
 // Stabiler Datumsstring für heute (lokale Zeit, ändert sich nur täglich)
@@ -22,10 +23,41 @@ function getTodayDateString(): string {
 }
 
 // Lokale Mitternacht als ISO-String für konsistente DB-Queries
+// WICHTIG: Für MEZ (UTC+1) ist 00:00 lokal = 23:00 UTC am Vortag
 function getLocalMidnightISO(): string {
   const now = new Date();
   const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
   return localMidnight.toISOString();
+}
+
+// Pagination: Alle Readings in 1000er-Batches laden (Supabase-Limit umgehen)
+async function fetchAllReadingsSince(startTimestamp: string): Promise<{ timestamp: string; power_io: number | null; pv_power: number | null; consumption: number | null }[]> {
+  const PAGE_SIZE = 1000;
+  let allReadings: { timestamp: string; power_io: number | null; pv_power: number | null; consumption: number | null }[] = [];
+  let offset = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    const { data, error } = await supabase
+      .from('energy_readings')
+      .select('timestamp, power_io, pv_power, consumption')
+      .gte('timestamp', startTimestamp)
+      .order('timestamp', { ascending: true })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+    if (error) throw error;
+    
+    if (data && data.length > 0) {
+      allReadings = [...allReadings, ...data];
+      offset += data.length;
+      hasMore = data.length === PAGE_SIZE;
+      console.log(`[EnergyCalc] Batch loaded: ${data.length} readings (total: ${allReadings.length})`);
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return allReadings;
 }
 
 // Max Lücke für Interpolation (6 Stunden)
@@ -55,20 +87,24 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
     };
   }, [queryClient, todayStr]);
 
-  // Lade ALLE Readings von heute aus der Datenbank
+  // Lade ALLE Readings von heute aus der Datenbank mit Pagination
   const { data: todayReadings, isLoading } = useQuery({
     queryKey: ['energy-readings-today', todayStr],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from('energy_readings')
-        .select('timestamp, power_io, pv_power, consumption')
-        .gte('timestamp', todayStart)
-        .order('timestamp', { ascending: true })
-        .limit(5000); // Explizites Limit für alle Tages-Readings (bei 30s Intervall: ~2880/Tag)
+      console.log(`[EnergyCalc] Fetching all readings since ${todayStart}`);
+      const readings = await fetchAllReadingsSince(todayStart);
       
-      if (error) throw error;
-      console.log(`[EnergyCalc] Loaded ${data?.length || 0} readings for ${todayStr} (from ${todayStart})`);
-      return data as EnergyReading[];
+      if (readings.length > 0) {
+        console.log(`[EnergyCalc] Total: ${readings.length} readings for ${todayStr}`);
+        console.log(`[EnergyCalc] First: ${readings[0].timestamp}`);
+        console.log(`[EnergyCalc] Last: ${readings[readings.length - 1].timestamp}`);
+        
+        // Debug: PV-Summe berechnen
+        const pvSum = readings.reduce((sum, r) => sum + (r.pv_power ?? 0), 0);
+        console.log(`[EnergyCalc] PV power sum: ${pvSum} W across all readings`);
+      }
+      
+      return readings;
     },
     staleTime: 10_000,
     refetchInterval: 30_000,
@@ -80,7 +116,7 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
     const readings = todayReadings || [];
     
     if (readings.length < 2) {
-      return { energyIn: 0, energyOut: 0, pvEnergy: 0, isLoading, hasDataGaps: false, largestGapMinutes: 0 };
+      return { energyIn: 0, energyOut: 0, pvEnergy: 0, isLoading, hasDataGaps: false, largestGapMinutes: 0, readingsCount: readings.length };
     }
 
     let energyIn = 0;
@@ -120,13 +156,18 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
       pvEnergy += (avgPvPower * hoursElapsed) / 1000;
     }
 
-    return {
+    const result = {
       energyIn: Math.round(energyIn * 100) / 100,
       energyOut: Math.round(energyOut * 100) / 100,
       pvEnergy: Math.round(pvEnergy * 100) / 100,
       isLoading,
       hasDataGaps,
-      largestGapMinutes: Math.round(largestGapMinutes)
+      largestGapMinutes: Math.round(largestGapMinutes),
+      readingsCount: readings.length
     };
+    
+    console.log(`[EnergyCalc] Result: ${result.pvEnergy} kWh PV, ${result.energyIn} kWh In, ${result.energyOut} kWh Out (${result.readingsCount} readings)`);
+    
+    return result;
   }, [todayReadings, isLoading]);
 }
