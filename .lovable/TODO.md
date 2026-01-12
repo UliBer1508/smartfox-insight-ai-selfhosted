@@ -1,6 +1,6 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-01-09
+Stand: 2026-01-12
 
 ---
 
@@ -68,6 +68,8 @@ Stand: 2026-01-09
 - ~~ML-Status war zu ausführlich und unübersichtlich~~ (v2.1.0)
 - ~~Keine klare Übersicht der Heizungsmodi pro Raum~~ (v2.1.0)
 - ~~Automatik-Schalter (PV vs KI) waren nicht klar unterscheidbar~~ (v2.1.0)
+- ~~KI-Empfehlungen enthielten irrelevante Wärmepumpen-Tipps~~ (v2.2.0)
+- ~~Heizungstyp wurde nicht konsistent an alle KI-Analysen übergeben~~ (v2.2.0)
 
 ### Offen
 - [ ] Thermostat-Sync zeigt manchmal alten Wert (Cache-Problem?)

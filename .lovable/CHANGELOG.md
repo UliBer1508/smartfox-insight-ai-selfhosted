@@ -5,6 +5,23 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.2.0] - 2026-01-12
+
+### Fixed
+- **Heizungstyp-Konsistenz** - KI-Empfehlungen berücksichtigen jetzt den Heizungstyp
+  - `analyze-patterns` Edge Function übergibt `heating_type` in allen 5 Analyse-Modi
+  - Keine irrelevanten Wärmepumpen-Tipps mehr für direkte elektrische Fußbodenheizung
+  - Explizite Anweisung an KI: "KEINE Wärmepumpen-Tipps!" bei `direct_electric`
+
+### Added
+- **useHeatingSettings Default-Erweiterung**
+  - `heating_type: 'direct_electric'` als Standard
+  - `total_heating_power_w: 5200` (Summe aller Räume)
+  - `night_cycling_enabled: true`
+  - `avg_night_cycles_per_room: 3`
+
+---
+
 ## [2.1.0] - 2026-01-10
 
 ### Added
