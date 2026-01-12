@@ -30,6 +30,11 @@ const defaultSettings: HeatingSettings = {
   hotwater_min_surplus_w: 1000,
   // Priorität
   consumer_priority: 'battery,hotwater,heating,car',
+  // Heizungstyp-Information
+  heating_type: 'direct_electric',
+  total_heating_power_w: 5200,
+  night_cycling_enabled: true,
+  avg_night_cycles_per_room: 3,
   // Strompreise (Salzburg AG Defaults)
   electricity_price_kwh_cent: 20.28,
   electricity_base_fee_year_eur: 36.00,

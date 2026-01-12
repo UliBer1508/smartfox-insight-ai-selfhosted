@@ -366,11 +366,20 @@ ${(() => {
       const totalInstalledPower = heatingSettings?.total_heating_power_w || 
         rooms.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0);
 
-      const heatingTypeInfo = heatingType === 'direct_electric' ? `
-**Heizungstyp: Direkte elektrische Fußbodenheizung**
+      const heatingTypeLabels: Record<string, string> = {
+        'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
+        'heat_pump': 'Wärmepumpe',
+        'water': 'Wasserbasierte Heizung'
+      };
+      const heatingTypeLabel = heatingTypeLabels[heatingType] || 'Stromdirektheizung';
+
+      const heatingTypeInfo = `
+**HEIZUNGSANLAGE:**
+- Typ: ${heatingTypeLabel}
 - Gesamtleistung: ${totalInstalledPower}W
-- Thermostate: TGP508 WiFi
-` : '';
+- Thermostate: TGP508 WiFi (6 Zeitperioden programmierbar)
+${heatingType === 'direct_electric' ? '- WICHTIG: Gib NUR Empfehlungen für direkte elektrische Heizung, KEINE Wärmepumpen-Tipps!' : ''}
+`;
 
       // Hotwater config
       const hotwaterEnabled = heatingSettings?.hotwater_enabled !== false;
@@ -516,6 +525,15 @@ ${heatingTypeRaw === 'direct_electric' ? '- Charakteristik: Direkte Stromumwandl
       const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
       const roomsList = rooms?.map((r: Record<string, unknown>) => `${r.name} (${r.heating_power_w || 800}W)`).join(', ') || 'Keine Räume';
       
+      // Heizungstyp ermitteln
+      const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
+      const heatingTypeLabels: Record<string, string> = {
+        'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
+        'heat_pump': 'Wärmepumpe',
+        'water': 'Wasserbasierte Heizung'
+      };
+      const heatingTypeLabel = heatingTypeLabels[heatingTypeRaw] || 'Stromdirektheizung';
+      
       let consumerActivity = '';
       if (consumerLogs && consumerLogs.length > 0) {
         consumerActivity = '\n**VERBRAUCHER:**\n';
@@ -528,6 +546,9 @@ ${heatingTypeRaw === 'direct_electric' ? '- Charakteristik: Direkte Stromumwandl
 
       prompt = `Analysiere Tagesenergieprofil:
 
+**HEIZUNGSANLAGE:** ${heatingTypeLabel}
+${heatingTypeRaw === 'direct_electric' ? '(Keine Wärmepumpe - nur Stromdirektheizung-relevante Tipps!)' : ''}
+
 **Bekannte Verbraucher:** Heizung ${totalHeatingPower}W (${roomsList}), Warmwasser ${heatingSettings?.hotwater_power_w || 6000}W
 ${consumerActivity}
 **Daten:**
@@ -537,10 +558,23 @@ Ordne Spitzen den bekannten Verbrauchern zu. Antworte auf Deutsch.`;
 
     } else if (type === 'weekly_comparison') {
       const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
+      
+      // Heizungstyp ermitteln
+      const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
+      const heatingTypeLabels: Record<string, string> = {
+        'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
+        'heat_pump': 'Wärmepumpe',
+        'water': 'Wasserbasierte Heizung'
+      };
+      const heatingTypeLabel = heatingTypeLabels[heatingTypeRaw] || 'Stromdirektheizung';
 
       prompt = `Wochenvergleich:
 
+**HEIZUNGSANLAGE:** ${heatingTypeLabel}
+${heatingTypeRaw === 'direct_electric' ? '(Keine Wärmepumpe - nur Stromdirektheizung-relevante Tipps!)' : ''}
+
 **Verbraucher:** Heizung ${totalHeatingPower}W, Warmwasser ${heatingSettings?.hotwater_power_w || 6000}W
+**Batterie:** ${heatingSettings?.battery_capacity_kwh || 13.8}kWh, Min-SoC ${heatingSettings?.min_battery_soc || 20}%
 
 **Daten:**
 ${readings.map((r: Record<string, unknown>) => `${r.date}: Peak ${r.peak_power}W, Avg ${r.avg_power}W, Import ${r.total_energy_in}kWh, Export ${r.total_energy_out}kWh`).join('\n')}
