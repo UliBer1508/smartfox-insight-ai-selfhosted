@@ -391,19 +391,55 @@ ${heatingType === 'direct_electric' ? '- WICHTIG: Gib NUR Empfehlungen für dire
 **Warmwasser:** ${hotwaterPower}W, ${hotwaterStart}-${hotwaterEnd}
 ` : '';
 
+      // PV-basierte Temperatur-Entscheidung
+      const pvThresholdForComfort = 800; // Mindest-PV in Watt für Komfort
+      const canUseComfort = currentPvPower >= pvThresholdForComfort || avgSoc > 80;
+      const shouldUseNight = avgSoc < 30 && currentPvPower === 0;
+      const currentTime = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+
+      const temperatureGuideline = canUseComfort 
+        ? `✅ PV-Überschuss vorhanden (${currentPvPower}W) - Komfort-Temperaturen ERLAUBT`
+        : shouldUseNight
+          ? `❌ KEIN PV und niedrige Batterie (${avgSoc.toFixed(0)}%) - NUR Nacht-Temperaturen!`
+          : `⚠️ Wenig PV (${currentPvPower}W) - NUR Eco-Temperaturen erlaubt`;
+
       prompt = `Erstelle RAUMSPEZIFISCHE Heizempfehlungen:
 ${heatingTypeInfo}
 **Anlage:** PV ${heatingSettings?.pv_capacity_kwp || 15.8}kWp, Batterie ${heatingSettings?.battery_capacity_kwh || 13.8}kWh, SOC ${avgSoc.toFixed(0)}%
-**Energie:** PV aktuell ${currentPvPower}W, Max ${maxPvPower}W, Durchschnitt ${avgPower.toFixed(0)}W
+**Energie AKTUELL:** PV ${currentPvPower}W, Max heute ${maxPvPower}W, Durchschnitt ${avgPower.toFixed(0)}W
+
+**🎯 AKTUELLE TEMPERATUR-REGEL: ${temperatureGuideline}**
+
+**⚠️ STRIKTE TEMPERATUR-REGELN (UNBEDINGT EINHALTEN!):**
+
+1. **Komfort-Temperatur** NUR erlaubt wenn:
+   - PV aktuell >= ${pvThresholdForComfort}W (ca. 1 Raum Heizleistung)
+   - ODER Batterie SOC > 80%
+   
+2. **Eco-Temperatur** als Standard wenn:
+   - PV < ${pvThresholdForComfort}W UND Batterie SOC zwischen 30-80%
+   
+3. **Nacht-Temperatur** PFLICHT wenn:
+   - PV = 0W UND Batterie SOC < 30%
+   - ODER Uhrzeit zwischen ${heatingSettings?.night_start_time || '22:00'} und ${heatingSettings?.night_end_time || '06:00'}
+
+4. **🚫 VERBOTEN: Komfort bei PV = 0W und SOC < 50%!**
 
 **Stündlich:** ${hourlyAvg.map(h => `${h.hour}h: ${h.avgPower.toFixed(0)}W`).join(', ')}
 ${hotwaterInfo}
 **Räume:**
 ${roomsList}
 
-**Uhrzeit:** ${new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}
+**Uhrzeit:** ${currentTime}
 
-Erstelle für JEDEN Raum eine Empfehlung.`;
+**Prioritäts-Zuordnung basierend auf ENERGIE:**
+- heat_now: PV >= Raumleistung, sofort auf Komfort heizen
+- preheat: PV-Prognose gut, auf Eco vorheizen  
+- hold: Eco halten (NUR bei SOC > 50%)
+- reduce: Auf Nacht-Temp senken (Energie sparen)
+- off: Heizung aus
+
+Erstelle für JEDEN Raum eine Empfehlung. BEACHTE DIE AKTUELLE ENERGIE-SITUATION!`;
 
       toolDefinition = {
         type: "function",
