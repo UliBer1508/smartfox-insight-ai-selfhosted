@@ -441,6 +441,15 @@ Erstelle für JEDEN Raum eine Empfehlung.`;
       useToolCalling = true;
       toolName = 'create_heating_plan';
       
+      // Heizungstyp ermitteln
+      const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
+      const heatingTypeLabels: Record<string, string> = {
+        'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
+        'heat_pump': 'Wärmepumpe',
+        'water': 'Wasserbasierte Heizung'
+      };
+      const heatingTypeLabel = heatingTypeLabels[heatingTypeRaw] || 'Stromdirektheizung';
+      
       const avgPower = readings.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.power_io as number) || 0), 0) / readings.length;
       const avgSoc = readings.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.battery_soc as number) || 50), 0) / readings.length;
       const maxPvPower = Math.max(...readings.map((r: Record<string, unknown>) => (r.pv_power as number) || 0));
@@ -458,6 +467,11 @@ Erstelle für JEDEN Raum eine Empfehlung.`;
       })).sort((a, b) => a.hour - b.hour);
 
       prompt = `Erstelle optimalen 6-Perioden-Heizplan für TGP508:
+
+**HEIZUNGSANLAGE:**
+- Typ: ${heatingTypeLabel}
+- Thermostate: TGP508 WiFi (6 Zeitperioden programmierbar)
+${heatingTypeRaw === 'direct_electric' ? '- Charakteristik: Direkte Stromumwandlung in Wärme, keine Wärmepumpe!\n- WICHTIG: Gib NUR Empfehlungen für direkte elektrische Heizung, KEINE Wärmepumpen-Tipps!' : ''}
 
 **Anlage:** PV ${heatingSettings?.pv_capacity_kwp || 15.8}kWp, Batterie ${heatingSettings?.battery_capacity_kwh || 13.8}kWh
 **Temps:** Komfort ${heatingSettings?.comfort_temp || 21}°C, Eco ${heatingSettings?.eco_temp || 19}°C, Nacht ${heatingSettings?.night_temp || 18}°C
