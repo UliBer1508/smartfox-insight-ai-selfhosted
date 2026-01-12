@@ -5,6 +5,18 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.2.1] - 2026-01-12
+
+### Fixed
+- **PV-abhängige Temperatur-Regeln** - Strikte Regeln für `room_heating_optimization`
+  - Komfort-Temp nur bei PV >= 800W oder SOC > 80%
+  - Eco-Temp bei PV < 800W und SOC 30-80%
+  - Nacht-Temp bei PV = 0W und SOC < 30%
+  - **VERBOTEN: Komfort bei PV = 0W und SOC < 50%**
+  - Korrigiert Bad Uli 22°C-Empfehlung ohne PV-Überschuss
+
+---
+
 ## [2.2.0] - 2026-01-12
 
 ### Fixed
