@@ -4,8 +4,8 @@
 > Architektur-Entscheidungen und die Änderungshistorie. Bei jeder Änderung MUSS 
 > das Changelog (Sektion 12) aktualisiert werden!
 
-**Letzte Aktualisierung:** 09.01.2026  
-**Version:** 2.0  
+**Letzte Aktualisierung:** 12.01.2026  
+**Version:** 2.2
 **Projekt-ID:** tvqmhdpcixkfsudxughs
 
 ---
@@ -443,6 +443,24 @@ https://api.forecast.solar/estimate/{lat}/{lon}/{dec}/{az}/{kwp}
 - Wiederkehrende Muster erkennen
 - Heizungsempfehlungen generieren
 
+**Analyse-Modi mit Heizungstyp-Unterstützung:**
+- `optimize_decision` - ML-basierte Entscheidungen mit Heizungstyp
+- `room_heating_optimization` - Raumspezifische Optimierung mit Heizungstyp
+- `heating_optimization` - 6-Perioden-Heizplan mit Heizungstyp
+- `daily_pattern` - Tagesanalyse mit Heizungstyp-Info
+- `weekly_comparison` - Wochenvergleich mit Heizungstyp-Info
+
+**Heizungstyp-Erkennung:**
+```typescript
+const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
+const heatingTypeLabels = {
+  'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
+  'heat_pump': 'Wärmepumpe',
+  'water': 'Wasserbasierte Heizung'
+};
+// Bei direct_electric: "KEINE Wärmepumpen-Tipps!"
+```
+
 ### 4.6 apply-recommendations
 
 **Zweck:** Wendet berechnete Empfehlungen auf Thermostate an
@@ -754,6 +772,11 @@ npm start
 
 ### Januar 2026
 
+#### 12.01.2026 - Heizungstyp-Konsistenz
+- **analyze-patterns erweitert** - Alle 5 Analyse-Modi übergeben jetzt `heating_type` an die KI
+- **Wärmepumpen-Tipps eliminiert** - Explizite Anweisung verhindert irrelevante Empfehlungen bei `direct_electric`
+- **Default-Settings erweitert** - `heating_type`, `total_heating_power_w`, `night_cycling_enabled`, `avg_night_cycles_per_room`
+
 #### 09.01.2026 - Sicherheitsimplementierung
 - **RLS aktiviert** auf allen 10 Tabellen die zuvor keine RLS hatten
 - **Alte Policies entfernt** (18 unsichere "Allow All" Policies)
@@ -851,6 +874,7 @@ WITH CHECK (true);
 
 | Entscheidung | Begründung | Datum |
 |--------------|------------|-------|
+| **Heizungstyp in KI-Prompts** | Verhindert irrelevante Wärmepumpen-Tipps; direkte elektrische Fußbodenheizung erfordert andere Optimierungsstrategien | 12.01.2026 |
 | **Fronius-Only Collector** | Smartfox liefert keine zuverlässigen kumulierten Energiewerte; Fronius P_Grid/P_PV/P_Load sind genauer | 01/2026 |
 | **Simple RLS statt User-ID-basiert** | Single-Household-App, keine Multi-Tenant-Anforderung, alle Familienmitglieder brauchen vollen Zugriff | 09.01.2026 |
 | **PV-Automatik mit Hysterese** | Zwei Schwellwerte (on/off) verhindern häufiges Schalten bei schwankender Solarproduktion | Initial |
