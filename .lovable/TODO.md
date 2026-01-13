@@ -74,6 +74,7 @@ Stand: 2026-01-12
 ### Offen
 - [ ] Thermostat-Sync zeigt manchmal alten Wert (Cache-Problem?)
 - [ ] Chart-Tooltip überlappt bei vielen Datenpunkten
+- ~~Heizhistorie zeigt keine Daten wenn duration_minutes NULL ist~~ (v2.2.2)
 
 ---
 
