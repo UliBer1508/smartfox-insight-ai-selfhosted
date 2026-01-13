@@ -379,16 +379,20 @@ Deno.serve(async (req) => {
               // Heating just stopped - calculate duration and power from consumption difference
               console.log(`[${room.name}] Heating stopped, consumption: ${currentConsumption}W`);
               
-              const { data: lastStart } = await supabase
+              const { data: lastStart, error: lastStartError } = await supabase
                 .from('room_heating_logs')
                 .select('*')
                 .eq('room_id', room.id)
                 .eq('event_type', 'heating_start')
                 .order('timestamp', { ascending: false })
                 .limit(1)
-                .single();
+                .maybeSingle();
 
-              let durationMinutes = 0;
+              if (lastStartError) {
+                console.error(`[${room.name}] Error finding heating_start:`, lastStartError);
+              }
+
+              let durationMinutes = 2; // Fallback: Minimum 2 Minuten (Sync-Intervall)
               let energyEstimateWh = 0;
               let consumptionDuringAvg = null;
 

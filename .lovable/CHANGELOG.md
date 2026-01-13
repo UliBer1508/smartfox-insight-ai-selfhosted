@@ -5,6 +5,17 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.2.2] - 2026-01-13
+
+### Fixed
+- **Heizhistorie-Anzeige repariert** - Chart zeigte keine Daten für heute
+  - `.single()` durch `.maybeSingle()` ersetzt in tuya-control
+  - Fallback-Duration von 2 Minuten wenn kein heating_start gefunden
+  - Filter-Korrektur: `duration_minutes != null && > 0`
+  - NULL-Einträge in der Datenbank repariert via Migration
+
+---
+
 ## [2.2.1] - 2026-01-12
 
 ### Fixed

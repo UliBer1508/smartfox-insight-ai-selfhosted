@@ -98,7 +98,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
       let totalCycles = 0;
 
       for (const log of data || []) {
-        if (log.event_type === 'heating_stop' && log.duration_minutes && log.timestamp) {
+        if (log.event_type === 'heating_stop' && log.duration_minutes != null && log.duration_minutes > 0 && log.timestamp) {
           const date = log.timestamp.split('T')[0];
           const roomName = roomMap.get(log.room_id);
           
