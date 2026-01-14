@@ -2,9 +2,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { BarChart3, Calendar, Flame } from 'lucide-react';
+import { BarChart3, Calendar, Flame, Zap, TrendingUp } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { Room } from '@/types/room';
+import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { getRoomAbbr } from '@/lib/roomUtils';
 import { format, subDays, startOfDay } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -34,12 +34,13 @@ const ROOM_COLORS = [
   '#facc15', // Gelb
 ];
 
+type ViewMode = 'energy' | 'efficiency';
 
 // Custom Label für Balken mit Raumkürzel - Factory-Funktion für Closure
 const createBarLabel = (roomName: string) => (props: any) => {
   const { x, y, width, height, value } = props;
   
-  if (!value || value < 30 || height < 18 || width < 20) return null;
+  if (!value || value < 0.05 || height < 18 || width < 20) return null;
   
   return (
     <text
@@ -59,16 +60,21 @@ const createBarLabel = (roomName: string) => (props: any) => {
 
 export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
   const [days, setDays] = useState(7);
+  const [viewMode, setViewMode] = useState<ViewMode>('energy');
   const [chartData, setChartData] = useState<DailyRoomData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [totals, setTotals] = useState({ minutes: 0, energy: 0, cycles: 0 });
+  const [totals, setTotals] = useState({ energy: 0, cycles: 0, avgDuration: 0 });
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+
+  // Create room area map for efficiency calculation
+  const roomAreaMap = new Map(rooms.map(r => [r.name, r.floor_area_m2 || 0]));
 
   const loadHistoryData = useCallback(async () => {
     setIsLoading(true);
     try {
       const startDate = startOfDay(subDays(new Date(), days - 1));
       
+      // Nur plausible Daten laden (max 4h = 240 Min pro Zyklus)
       const { data, error } = await supabase
         .from('room_heating_logs')
         .select('room_id, timestamp, event_type, duration_minutes, energy_estimate_wh')
@@ -78,35 +84,57 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
 
       if (error) throw error;
 
-      // Create a map of room IDs to names
+      // Create maps for room data
       const roomMap = new Map(rooms.map(r => [r.id, r.name]));
+      const roomPowerMap = new Map(rooms.map(r => [r.name, getEffectiveHeatingPower(r)]));
 
       // Initialize daily data for each day
-      const dailyData: Record<string, Record<string, number>> = {};
+      const dailyDataEnergy: Record<string, Record<string, number>> = {};
       for (let i = 0; i < days; i++) {
         const date = format(subDays(new Date(), days - 1 - i), 'yyyy-MM-dd');
-        dailyData[date] = {};
+        dailyDataEnergy[date] = {};
         rooms.forEach(room => {
           if (room.id) {
-            dailyData[date][room.name] = 0;
+            dailyDataEnergy[date][room.name] = 0;
           }
         });
       }
 
-      // Aggregate heating minutes per room per day
-      let totalMinutes = 0;
+      // Aggregate energy per room per day
       let totalEnergy = 0;
       let totalCycles = 0;
+      let totalDuration = 0;
+      let validCycles = 0;
 
       for (const log of data || []) {
-        if (log.event_type === 'heating_stop' && log.duration_minutes != null && log.duration_minutes > 0 && log.timestamp) {
+        // Plausibilitätsfilter: Nur Einträge mit realistischer Dauer (<= 240 Min)
+        if (
+          log.event_type === 'heating_stop' && 
+          log.duration_minutes != null && 
+          log.duration_minutes > 0 && 
+          log.duration_minutes <= 240 && // Max 4 Stunden
+          log.timestamp
+        ) {
           const date = format(new Date(log.timestamp), 'yyyy-MM-dd');
           const roomName = roomMap.get(log.room_id);
           
-          if (roomName && dailyData[date]) {
-            dailyData[date][roomName] = (dailyData[date][roomName] || 0) + log.duration_minutes;
-            totalMinutes += log.duration_minutes;
-            totalEnergy += log.energy_estimate_wh || 0;
+          if (roomName && dailyDataEnergy[date]) {
+            // Berechne Energie in kWh
+            let energyKwh = 0;
+            
+            if (log.energy_estimate_wh && log.energy_estimate_wh > 0) {
+              // Nutze gespeicherten Wert wenn vorhanden
+              energyKwh = log.energy_estimate_wh / 1000;
+            } else {
+              // Berechne aus Dauer und Heizleistung
+              const power = roomPowerMap.get(roomName) || 0;
+              energyKwh = (power * log.duration_minutes) / 60 / 1000;
+            }
+            
+            dailyDataEnergy[date][roomName] = (dailyDataEnergy[date][roomName] || 0) + energyKwh;
+            totalEnergy += energyKwh;
+            totalDuration += log.duration_minutes;
+            validCycles++;
           }
         }
         if (log.event_type === 'heating_start') {
@@ -114,27 +142,48 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
         }
       }
 
-      // Convert to chart format
-      const formattedData: DailyRoomData[] = Object.entries(dailyData).map(([date, roomData]) => ({
-        date,
-        displayDate: format(new Date(date), 'EEE, dd.MM.', { locale: de }),
-        ...roomData,
-      }));
+      // Convert to chart format based on view mode
+      const formattedData: DailyRoomData[] = Object.entries(dailyDataEnergy).map(([date, roomData]) => {
+        const result: DailyRoomData = {
+          date,
+          displayDate: format(new Date(date), 'EEE, dd.MM.', { locale: de }),
+        };
+        
+        Object.entries(roomData).forEach(([roomName, energyKwh]) => {
+          if (viewMode === 'efficiency') {
+            const area = roomAreaMap.get(roomName) || 1;
+            result[roomName] = area > 0 ? Number((energyKwh / area).toFixed(3)) : 0;
+          } else {
+            result[roomName] = Number(energyKwh.toFixed(2));
+          }
+        });
+        
+        return result;
+      });
 
       setChartData(formattedData);
-      setTotals({ minutes: totalMinutes, energy: totalEnergy, cycles: totalCycles });
+      setTotals({ 
+        energy: totalEnergy, 
+        cycles: validCycles,
+        avgDuration: validCycles > 0 ? totalDuration / validCycles : 0
+      });
     } catch (error) {
       console.error('Error loading heating history:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [days, rooms]);
+  }, [days, rooms, viewMode, roomAreaMap]);
 
   useEffect(() => {
     if (rooms.length > 0) {
       loadHistoryData();
     }
   }, [loadHistoryData, rooms.length]);
+
+  const formatEnergy = (kwh: number) => {
+    if (kwh < 1) return `${Math.round(kwh * 1000)} Wh`;
+    return `${kwh.toFixed(1)} kWh`;
+  };
 
   const formatMinutes = (minutes: number) => {
     if (minutes < 60) return `${Math.round(minutes)} Min`;
@@ -156,18 +205,42 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
           <BarChart3 className="h-4 w-4" />
           Heizhistorie
         </CardTitle>
-        <div className="flex gap-1">
-          {[7, 14, 30].map((d) => (
+        <div className="flex gap-2">
+          <div className="flex gap-1 border rounded-md p-0.5">
             <Button
-              key={d}
-              variant={days === d ? 'default' : 'outline'}
+              variant={viewMode === 'energy' ? 'default' : 'ghost'}
               size="sm"
-              onClick={() => setDays(d)}
-              className="h-7 px-2 text-xs"
+              onClick={() => setViewMode('energy')}
+              className="h-6 px-2 text-xs"
+              title="Energieverbrauch in kWh"
             >
-              {d}d
+              <Zap className="h-3 w-3 mr-1" />
+              kWh
             </Button>
-          ))}
+            <Button
+              variant={viewMode === 'efficiency' ? 'default' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('efficiency')}
+              className="h-6 px-2 text-xs"
+              title="Effizienz: kWh pro m²"
+            >
+              <TrendingUp className="h-3 w-3 mr-1" />
+              kWh/m²
+            </Button>
+          </div>
+          <div className="flex gap-1">
+            {[7, 14, 30].map((d) => (
+              <Button
+                key={d}
+                variant={days === d ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDays(d)}
+                className="h-7 px-2 text-xs"
+              >
+                {d}d
+              </Button>
+            ))}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
@@ -199,7 +272,13 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                     tick={{ fontSize: 11 }}
                     tickLine={false}
                     axisLine={false}
-                    tickFormatter={(value) => `${value}m`}
+                    tickFormatter={(value) => viewMode === 'efficiency' ? `${value}` : `${value}`}
+                    label={{ 
+                      value: viewMode === 'efficiency' ? 'kWh/m²' : 'kWh', 
+                      angle: -90, 
+                      position: 'insideLeft',
+                      style: { fontSize: 10, fill: 'hsl(var(--muted-foreground))' }
+                    }}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -213,10 +292,20 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                       const item = payload.find(p => p.dataKey === hoveredRoom);
                       if (!item || !item.value || (item.value as number) <= 0) return null;
                       
+                      const room = rooms.find(r => r.name === hoveredRoom);
+                      const area = room?.floor_area_m2;
+                      
                       return (
                         <div className="bg-card border border-border rounded-lg px-3 py-2">
                           <p style={{ color: String(item.color) }} className="font-medium">{item.name}</p>
-                          <p className="text-foreground">{formatMinutes(item.value as number)}</p>
+                          {viewMode === 'efficiency' ? (
+                            <>
+                              <p className="text-foreground">{(item.value as number).toFixed(3)} kWh/m²</p>
+                              {area && <p className="text-xs text-muted-foreground">{area} m² Fläche</p>}
+                            </>
+                          ) : (
+                            <p className="text-foreground">{formatEnergy(item.value as number)}</p>
+                          )}
                         </div>
                       );
                     }}
@@ -244,23 +333,25 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
 
             <div className="grid grid-cols-3 gap-4 pt-4 border-t">
               <div className="text-center">
-                <div className="text-2xl font-bold text-primary">
-                  {formatMinutes(totals.minutes / days)}
-                </div>
-                <div className="text-xs text-muted-foreground">Ø Heizdauer/Tag</div>
-              </div>
-              <div className="text-center">
                 <div className="text-2xl font-bold text-orange-500">
-                  {(totals.energy / 1000).toFixed(1)} kWh
+                  {formatEnergy(totals.energy)}
                 </div>
                 <div className="text-xs text-muted-foreground">Gesamt ({days} Tage)</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-primary">
+                  {formatEnergy(totals.energy / days)}
+                </div>
+                <div className="text-xs text-muted-foreground">Ø pro Tag</div>
               </div>
               <div className="text-center">
                 <div className="text-2xl font-bold flex items-center justify-center gap-1">
                   <Flame className="h-5 w-5 text-red-500" />
                   {totals.cycles}
                 </div>
-                <div className="text-xs text-muted-foreground">Heizzyklen</div>
+                <div className="text-xs text-muted-foreground">
+                  Zyklen (Ø {formatMinutes(totals.avgDuration)})
+                </div>
               </div>
             </div>
           </>
