@@ -351,6 +351,7 @@ Deno.serve(async (req) => {
 
         let action: 'activate' | 'deactivate' | 'keep' = 'keep';
         let targetTemp = room.target_temp || settings?.eco_temp || 19;
+        let solarLimitTemp: number | null = null; // Solar-Limit: erlaubte Max-Temp bei Sonneneinstrahlung
         let reasoning = '';
         let expectedEnergyWh: number | undefined;
         let confidence: number | undefined;
@@ -371,39 +372,55 @@ Deno.serve(async (req) => {
           const nightEnd = settings?.night_end_time || '06:00';
           const isNight = isNightTime(nightStart, nightEnd);
           
+          const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
+          const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
+          
           // 1. Night mode has highest priority
           if (isNight) {
             const nightTemp = room.night_temp || settings?.night_temp || 17;
-            if (room.target_temp !== nightTemp) {
+            if (room.target_temp !== nightTemp || room.pv_auto_active) {
               action = 'deactivate';
               targetTemp = nightTemp;
+              solarLimitTemp = null; // Kein Solar-Limit nachts
               reasoning = `Nachtmodus (${nightStart}-${nightEnd})`;
             }
           } 
           // 2. Battery protection
           else if (batterySoc < minBatterySoc && room.pv_auto_active) {
             action = 'deactivate';
-            targetTemp = room.eco_temp || settings?.eco_temp || 19;
+            targetTemp = ecoTemp;
+            solarLimitTemp = null;
             reasoning = `Batterie <${minBatterySoc}%`;
           } 
-          // 3. PV surplus -> Comfort mode
+          // 3. PV surplus/Solargewinn -> Solar-Limit aktivieren (NICHT auf Comfort heizen!)
+          // Das Thermostat bleibt auf Eco, aber der Raum darf sich durch Sonne bis Comfort erwärmen
           else if (surplus >= thresholdOn && !room.pv_auto_active) {
             action = 'activate';
-            targetTemp = room.comfort_temp || settings?.comfort_temp || 21;
-            reasoning = `PV-Überschuss ${surplus}W >= ${thresholdOn}W`;
+            targetTemp = ecoTemp; // Thermostat bleibt auf Eco - KEIN aktives Heizen auf Comfort!
+            solarLimitTemp = comfortTemp; // Solar-Limit: Raum darf sich bis hierhin erwärmen
+            reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
           } 
-          // 4. Low/no surplus -> Eco mode
+          // 4. Low/no surplus -> Solar-Limit deaktivieren
           else if (surplus < thresholdOff && room.pv_auto_active) {
             action = 'deactivate';
-            targetTemp = room.eco_temp || settings?.eco_temp || 19;
-            reasoning = `Eco-Modus (Überschuss ${surplus}W < ${thresholdOff}W)`;
+            targetTemp = ecoTemp;
+            solarLimitTemp = null;
+            reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
           } 
-          // 5. Daytime default: Ensure eco temp is set
+          // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
+          else if (room.pv_auto_active && surplus >= thresholdOff) {
+            // Solar-Limit weiterhin aktiv
+            targetTemp = ecoTemp;
+            solarLimitTemp = comfortTemp;
+            // Keep action = 'keep'
+          }
+          // 6. Daytime default: Ensure eco temp is set
           else if (!room.pv_auto_active) {
-            const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
-            if (room.target_temp !== ecoTemp) {
+            const currentTarget = room.target_temp || ecoTemp;
+            if (currentTarget !== ecoTemp) {
               action = 'deactivate';
               targetTemp = ecoTemp;
+              solarLimitTemp = null;
               reasoning = 'Eco-Modus (Standard tagsüber)';
             }
           }
@@ -471,12 +488,13 @@ Deno.serve(async (req) => {
             await supabase.from('rooms').update({
               pv_auto_active: true,
               pv_auto_last_change: now.toISOString(),
-              target_temp: targetTemp
+              target_temp: targetTemp,
+              solar_limit_temp: solarLimitTemp
             }).eq('id', room.id);
 
             await supabase.from('room_heating_logs').insert({
               room_id: room.id,
-              event_type: 'heating_start',
+              event_type: 'solar_limit_start',
               current_temp: room.current_temp,
               target_temp: targetTemp,
               pv_surplus_w: surplus,
@@ -497,12 +515,13 @@ Deno.serve(async (req) => {
             await supabase.from('rooms').update({
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
-              target_temp: ecoTemp
+              target_temp: ecoTemp,
+              solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
 
             await supabase.from('room_heating_logs').insert({
               room_id: room.id,
-              event_type: 'heating_stop',
+              event_type: 'solar_limit_stop',
               current_temp: room.current_temp,
               target_temp: ecoTemp,
               pv_surplus_w: surplus
@@ -517,6 +536,7 @@ Deno.serve(async (req) => {
           roomName: room.name,
           action,
           targetTemp,
+          solarLimitTemp,
           reasoning,
           mlBased: usedMlDecision && !!mlDecision,
           confidence,

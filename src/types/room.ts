@@ -41,6 +41,8 @@ export interface Room {
   last_solar_analysis?: string | null;
   // Manual Override - schützt manuelle Änderungen vor Automatik
   manual_override_until?: string | null;
+  // Solar-Limit - maximale erlaubte Temperatur bei Solargewinn (ohne aktives Heizen)
+  solar_limit_temp?: number | null;
   created_at?: string;
   updated_at?: string;
 }

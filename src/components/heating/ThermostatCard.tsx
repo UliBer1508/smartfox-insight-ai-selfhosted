@@ -252,6 +252,12 @@ export function ThermostatCard({
               <div className="text-center min-w-0 flex-1">
                 <p className="text-xl sm:text-3xl font-bold text-primary truncate">{localTemp}°C</p>
                 <p className="text-xs sm:text-sm text-muted-foreground">Ziel</p>
+                {/* Solar-Limit Anzeige wenn aktiv */}
+                {room.pv_auto_active && room.solar_limit_temp && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                    ☀️ max {room.solar_limit_temp}°C
+                  </p>
+                )}
               </div>
             </div>
 
@@ -318,7 +324,7 @@ export function ThermostatCard({
                       room.pv_auto_enabled ? "text-amber-600" : "text-blue-600"
                     )}>
                       <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                      {room.pv_auto_enabled && room.pv_auto_active && !isHeating ? 'Solar-Limit' : room.pv_auto_enabled ? 'PV' : 'KI'}
+                      {room.pv_auto_enabled && room.pv_auto_active ? 'Solar-Limit' : room.pv_auto_enabled ? 'PV' : 'KI'}
                     </span>
                   )
                 )}
