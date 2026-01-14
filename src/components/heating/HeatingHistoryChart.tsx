@@ -181,7 +181,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [days, viewMode, roomAreaMap, roomMap, roomPowerMap]);
+  }, [days, viewMode, rooms, roomAreaMap, roomMap, roomPowerMap]);
 
   // Stabiler Effect - nur bei echten Änderungen neu laden
   useEffect(() => {
