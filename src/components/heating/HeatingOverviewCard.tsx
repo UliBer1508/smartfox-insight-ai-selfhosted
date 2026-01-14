@@ -101,7 +101,7 @@ export function HeatingOverviewCard({ rooms }: HeatingOverviewCardProps) {
               </div>
             )}
 
-            {data.cycles === 0 && (
+            {data.cycles === 0 && data.energyWh === 0 && (
               <div className="text-center text-xs sm:text-sm text-muted-foreground py-1.5 sm:py-2">
                 Keine Heizaktivität im {PERIOD_LABELS[period]}
               </div>

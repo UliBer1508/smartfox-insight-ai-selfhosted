@@ -107,7 +107,9 @@ export function useHeatingConsumption(rooms: Room[]) {
         }
         const stats = roomStats.get(roomId)!;
 
-        if (log.event_type === 'heating_start') {
+        // Zähle Zyklen bei heating_stop statt heating_start, da heating_start
+        // oft durch Data Retention gelöscht wird bevor es verarbeitet werden kann
+        if (log.event_type === 'heating_stop') {
           stats.cycles += 1;
         }
         if (log.event_type === 'heating_stop' && log.duration_minutes && log.timestamp) {
