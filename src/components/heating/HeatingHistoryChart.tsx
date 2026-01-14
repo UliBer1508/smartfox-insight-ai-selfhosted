@@ -181,13 +181,15 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [days, rooms, viewMode, roomAreaMap, roomMap, roomPowerMap]);
+  }, [days, viewMode, roomAreaMap, roomMap, roomPowerMap]);
 
+  // Stabiler Effect - nur bei echten Änderungen neu laden
   useEffect(() => {
     if (rooms.length > 0) {
       loadHistoryData();
     }
-  }, [loadHistoryData, rooms.length]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [days, viewMode, rooms.length]);
 
   const formatEnergy = (kwh: number) => {
     if (kwh < 1) return `${Math.round(kwh * 1000)} Wh`;
