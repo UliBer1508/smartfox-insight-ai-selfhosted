@@ -151,24 +151,29 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
         }
       }
 
-      // Convert to chart format based on view mode
-      const formattedData: DailyRoomData[] = Object.entries(dailyDataEnergy).map(([date, roomData]) => {
-        const result: DailyRoomData = {
-          date,
-          displayDate: format(new Date(date), 'EEE, dd.MM.', { locale: de }),
-        };
-        
-        Object.entries(roomData).forEach(([roomName, energyKwh]) => {
-          if (viewMode === 'efficiency') {
-            const area = roomAreaMap.get(roomName) || 1;
-            result[roomName] = area > 0 ? Number((energyKwh / area).toFixed(3)) : 0;
-          } else {
-            result[roomName] = Number(energyKwh.toFixed(2));
-          }
+      // Debug-Logging
+      console.log('[HeatingHistoryChart] Loaded', data?.length, 'logs, dates:', Object.keys(dailyDataEnergy).sort());
+
+      // Convert to chart format based on view mode - EXPLIZIT chronologisch sortiert!
+      const formattedData: DailyRoomData[] = Object.entries(dailyDataEnergy)
+        .sort(([dateA], [dateB]) => dateA.localeCompare(dateB)) // Chronologische Sortierung
+        .map(([date, roomData]) => {
+          const result: DailyRoomData = {
+            date,
+            displayDate: format(new Date(date), 'EEE, dd.MM.', { locale: de }),
+          };
+          
+          Object.entries(roomData).forEach(([roomName, energyKwh]) => {
+            if (viewMode === 'efficiency') {
+              const area = roomAreaMap.get(roomName) || 1;
+              result[roomName] = area > 0 ? Number((energyKwh / area).toFixed(3)) : 0;
+            } else {
+              result[roomName] = Number(energyKwh.toFixed(2));
+            }
+          });
+          
+          return result;
         });
-        
-        return result;
-      });
 
       setChartData(formattedData);
       setTotals({ 
@@ -186,10 +191,29 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
   // Effect - lädt Daten wenn loadHistoryData sich ändert (enthält alle Dependencies)
   useEffect(() => {
     if (rooms.length > 0) {
-      console.log('[HeatingHistoryChart] Loading data - rooms:', rooms.length, 'roomMap:', roomMap.size);
       loadHistoryData();
     }
-  }, [loadHistoryData, rooms.length, roomMap.size]);
+  }, [loadHistoryData, rooms.length]);
+
+  // Realtime-Subscription für neue Heizungslog-Einträge
+  useEffect(() => {
+    const channel = supabase
+      .channel('heating_logs_realtime')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'room_heating_logs' },
+        (payload) => {
+          console.log('[HeatingHistoryChart] New heating log received:', payload.new);
+          // Daten neu laden wenn neuer Eintrag kommt
+          loadHistoryData();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadHistoryData]);
 
   const formatEnergy = (kwh: number) => {
     if (kwh < 1) return `${Math.round(kwh * 1000)} Wh`;
