@@ -52,6 +52,13 @@ export function ThermostatCard({
   const [isSetting, setIsSetting] = useState(false);
   const [overrideRemaining, setOverrideRemaining] = useState<string | null>(null);
 
+  // Synchronize localTemp when room.target_temp changes from database/automation
+  useEffect(() => {
+    if (room.target_temp !== undefined && room.target_temp !== null && !isSetting) {
+      setLocalTemp(room.target_temp);
+    }
+  }, [room.target_temp, isSetting]);
+
   // Calculate override remaining time
   const overrideUntil = useMemo(() => {
     if (!room.manual_override_until) return null;
