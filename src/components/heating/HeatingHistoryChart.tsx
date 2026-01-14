@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
@@ -66,10 +66,23 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
   const [totals, setTotals] = useState({ energy: 0, cycles: 0, avgDuration: 0 });
   const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
 
-  // Create room area map for efficiency calculation
-  const roomAreaMap = new Map(rooms.map(r => [r.name, r.floor_area_m2 || 0]));
+  // Memoized maps to prevent infinite re-renders
+  const roomAreaMap = useMemo(
+    () => new Map(rooms.map(r => [r.name, r.floor_area_m2 || 0])),
+    [rooms]
+  );
+  const roomMap = useMemo(
+    () => new Map(rooms.map(r => [r.id, r.name])),
+    [rooms]
+  );
+  const roomPowerMap = useMemo(
+    () => new Map(rooms.map(r => [r.name, getEffectiveHeatingPower(r)])),
+    [rooms]
+  );
 
   const loadHistoryData = useCallback(async () => {
+    if (rooms.length === 0) return;
+    
     setIsLoading(true);
     try {
       const startDate = startOfDay(subDays(new Date(), days - 1));
@@ -83,10 +96,6 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
         .limit(10000);
 
       if (error) throw error;
-
-      // Create maps for room data
-      const roomMap = new Map(rooms.map(r => [r.id, r.name]));
-      const roomPowerMap = new Map(rooms.map(r => [r.name, getEffectiveHeatingPower(r)]));
 
       // Initialize daily data for each day
       const dailyDataEnergy: Record<string, Record<string, number>> = {};
@@ -172,7 +181,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [days, rooms, viewMode, roomAreaMap]);
+  }, [days, rooms, viewMode, roomAreaMap, roomMap, roomPowerMap]);
 
   useEffect(() => {
     if (rooms.length > 0) {
