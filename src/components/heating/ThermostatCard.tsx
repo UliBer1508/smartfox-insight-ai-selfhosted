@@ -318,7 +318,7 @@ export function ThermostatCard({
                       room.pv_auto_enabled ? "text-amber-600" : "text-blue-600"
                     )}>
                       <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse" />
-                      {room.pv_auto_enabled ? 'PV' : 'KI'}
+                      {room.pv_auto_enabled && room.pv_auto_active && !isHeating ? 'Solar-Limit' : room.pv_auto_enabled ? 'PV' : 'KI'}
                     </span>
                   )
                 )}
