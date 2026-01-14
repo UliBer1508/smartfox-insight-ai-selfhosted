@@ -99,7 +99,8 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
 
       for (const log of data || []) {
         if (log.event_type === 'heating_stop' && log.duration_minutes != null && log.duration_minutes > 0 && log.timestamp) {
-          const date = log.timestamp.split('T')[0];
+          // Robust date parsing - handles both ISO format (T) and database format (space)
+          const date = format(new Date(log.timestamp), 'yyyy-MM-dd');
           const roomName = roomMap.get(log.room_id);
           
           if (roomName && dailyData[date]) {
