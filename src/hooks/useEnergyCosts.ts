@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { startOfMonth, startOfYear, format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { getLocalDateString } from '@/lib/dateUtils';
 
 export type CostPeriod = 'day' | 'month' | 'year';
 
@@ -74,7 +75,7 @@ export function useEnergyCosts(
 
   // Speichere aktuelle Tagesdaten
   const saveTodayCosts = useCallback(async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     const todayCosts = calculateTodayCosts();
 
     await supabase.from('energy_daily_costs').upsert({
@@ -97,9 +98,9 @@ export function useEnergyCosts(
     setIsLoading(true);
     
     const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    const monthStart = startOfMonth(today).toISOString().split('T')[0];
-    const yearStart = startOfYear(today).toISOString().split('T')[0];
+    const todayStr = getLocalDateString(today);
+    const monthStart = getLocalDateString(startOfMonth(today));
+    const yearStart = getLocalDateString(startOfYear(today));
 
     const { data } = await supabase
       .from('energy_daily_costs')

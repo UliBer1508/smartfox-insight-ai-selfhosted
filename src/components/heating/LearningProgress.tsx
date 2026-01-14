@@ -6,6 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Brain, TrendingUp, TrendingDown, Minus, RefreshCw, Loader2, ChevronDown, Sparkles, Flame, Snowflake, Zap, CheckCircle2, Droplets, Clock, Moon, Sun, Thermometer, AlertCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getLocalDateString, getLocalMidnightISO } from '@/lib/dateUtils';
 
 interface RoomMLFeatures {
   room_id: string;
@@ -101,7 +102,7 @@ export function LearningProgress() {
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       
       const [featuresResult, eventsResult, roomsResult, settingsResult] = await Promise.all([
         supabase
@@ -156,7 +157,8 @@ export function LearningProgress() {
   const runAnalysis = async () => {
     setIsAnalyzing(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
+      const todayStart = getLocalMidnightISO();
       
       // Fetch all required data including PV forecast and automation history
       const [readingsResult, settingsResult, mlFeaturesResult, rewardsResult, pvForecastResult, automationHistoryResult] = await Promise.all([
@@ -189,7 +191,7 @@ export function LearningProgress() {
         supabase
           .from('learning_events')
           .select('room_id, decision_type, action, context, timestamp')
-          .gte('timestamp', `${today}T00:00:00`)
+          .gte('timestamp', todayStart)
           .order('timestamp', { ascending: false })
       ]);
 
