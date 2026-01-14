@@ -395,22 +395,32 @@ Deno.serve(async (req) => {
               let durationMinutes = 2; // Fallback: Minimum 2 Minuten (Sync-Intervall)
               let energyEstimateWh = 0;
               let consumptionDuringAvg = null;
+              let deleteStartRecord = false;
 
               if (lastStart?.timestamp) {
                 const startTime = new Date(lastStart.timestamp).getTime();
                 const endTime = new Date(now).getTime();
-                durationMinutes = Math.round((endTime - startTime) / 60000);
+                const calculatedDuration = Math.round((endTime - startTime) / 60000);
                 
-                // Calculate average consumption during heating for power estimation
-                if (lastStart.consumption_at_start_w !== null) {
-                  // Simple approximation: current consumption was roughly the average during heating
-                  consumptionDuringAvg = currentConsumption;
-                }
-                
-                // Use calculated or estimated power for energy calculation
-                const effectivePower = room.calculated_power_w || room.heating_power_w || 0;
-                if (effectivePower) {
-                  energyEstimateWh = Math.round((effectivePower * durationMinutes) / 60);
+                // Plausibilitätsprüfung: Max 4 Stunden (240 Min) pro Heizzyklus
+                if (calculatedDuration > 0 && calculatedDuration <= 240) {
+                  durationMinutes = calculatedDuration;
+                  deleteStartRecord = true; // Markiere zum Löschen um Doppelverwendung zu verhindern
+                  
+                  // Calculate average consumption during heating for power estimation
+                  if (lastStart.consumption_at_start_w !== null) {
+                    consumptionDuringAvg = currentConsumption;
+                  }
+                  
+                  // Use calculated or estimated power for energy calculation
+                  const effectivePower = room.calculated_power_w || room.heating_power_w || 0;
+                  if (effectivePower) {
+                    energyEstimateWh = Math.round((effectivePower * durationMinutes) / 60);
+                  }
+                } else {
+                  console.warn(`[${room.name}] Implausible duration ${calculatedDuration}min (>4h), using fallback`);
+                  durationMinutes = 2;
+                  deleteStartRecord = true; // Lösche trotzdem den veralteten Start-Eintrag
                 }
               }
 
@@ -425,6 +435,14 @@ Deno.serve(async (req) => {
                 consumption_at_start_w: lastStart?.consumption_at_start_w || null,
                 consumption_during_avg_w: consumptionDuringAvg ? Math.round(consumptionDuringAvg) : null,
               });
+
+              // Lösche den verwendeten heating_start um Doppelverwendung zu verhindern
+              if (deleteStartRecord && lastStart?.id) {
+                await supabase
+                  .from('room_heating_logs')
+                  .delete()
+                  .eq('id', lastStart.id);
+              }
 
               // Update room stats
               await supabase
