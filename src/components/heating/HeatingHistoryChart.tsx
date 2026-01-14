@@ -71,9 +71,10 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
       
       const { data, error } = await supabase
         .from('room_heating_logs')
-        .select('*')
+        .select('room_id, timestamp, event_type, duration_minutes, energy_estimate_wh')
         .gte('timestamp', startDate.toISOString())
-        .order('timestamp', { ascending: true });
+        .order('timestamp', { ascending: true })
+        .limit(10000);
 
       if (error) throw error;
 
@@ -92,48 +93,26 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
         });
       }
 
-      const initializedDates = Object.keys(dailyData);
-      console.log('📊 [HeatingHistory] Query returned', data?.length || 0, 'records');
-      console.log('📊 [HeatingHistory] Initialized dates:', initializedDates);
-      console.log('📊 [HeatingHistory] Rooms:', rooms.map(r => ({ id: r.id, name: r.name })));
-
       // Aggregate heating minutes per room per day
       let totalMinutes = 0;
       let totalEnergy = 0;
       let totalCycles = 0;
-      let matchedLogs = 0;
-      let unmatchedLogs = 0;
 
       for (const log of data || []) {
         if (log.event_type === 'heating_stop' && log.duration_minutes != null && log.duration_minutes > 0 && log.timestamp) {
-          // Robust date parsing - handles both ISO format (T) and database format (space)
           const date = format(new Date(log.timestamp), 'yyyy-MM-dd');
           const roomName = roomMap.get(log.room_id);
           
           if (roomName && dailyData[date]) {
-            matchedLogs++;
             dailyData[date][roomName] = (dailyData[date][roomName] || 0) + log.duration_minutes;
             totalMinutes += log.duration_minutes;
             totalEnergy += log.energy_estimate_wh || 0;
-          } else {
-            unmatchedLogs++;
-            if (unmatchedLogs <= 5) {
-              console.log('📊 [HeatingHistory] Unmatched:', { 
-                timestamp: log.timestamp, 
-                parsedDate: date, 
-                roomId: log.room_id, 
-                roomName,
-                dateInData: !!dailyData[date]
-              });
-            }
           }
         }
         if (log.event_type === 'heating_start') {
           totalCycles++;
         }
       }
-      
-      console.log('📊 [HeatingHistory] Matched:', matchedLogs, '| Unmatched:', unmatchedLogs, '| Cycles:', totalCycles);
 
       // Convert to chart format
       const formattedData: DailyRoomData[] = Object.entries(dailyData).map(([date, roomData]) => ({
