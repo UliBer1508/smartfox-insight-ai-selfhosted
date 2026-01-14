@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
+import { getLocalMidnightISO } from '@/lib/dateUtils';
 
 interface RoomHeatingLogEntry {
   id: string;
@@ -30,13 +31,14 @@ export function useRoomHeatingLogs(roomId?: string) {
   const loadLogs = useCallback(async (targetRoomId?: string) => {
     setIsLoading(true);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // Verwende lokale Mitternacht für korrekte Zeitzone
+      const todayStart = getLocalMidnightISO();
       
       // Build query
       let query = supabase
         .from('room_heating_logs')
         .select('*')
-        .gte('timestamp', `${today}T00:00:00`)
+        .gte('timestamp', todayStart)
         .order('timestamp', { ascending: false });
       
       if (targetRoomId) {

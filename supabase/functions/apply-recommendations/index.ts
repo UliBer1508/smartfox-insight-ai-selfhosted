@@ -7,6 +7,13 @@ const corsHeaders = {
 
 const TUYA_API_BASE = 'https://openapi.tuyaeu.com';
 
+// Korrekte lokale Datumsberechnung für Europe/Berlin
+function getLocalDateInTimezone(timezone: string = 'Europe/Berlin'): string {
+  const now = new Date();
+  // sv-SE gibt YYYY-MM-DD Format
+  return now.toLocaleDateString('sv-SE', { timeZone: timezone });
+}
+
 interface TuyaToken {
   access_token: string;
   expire_time: number;
@@ -212,9 +219,16 @@ Deno.serve(async (req) => {
         .select('id, name, automation_enabled, last_auto_change, target_temp, tuya_device_id')
         .not('tuya_device_id', 'is', null);
 
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateInTimezone();
       const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 8);
+      // Aktuelle Zeit in lokaler Zeitzone
+      const currentTime = now.toLocaleTimeString('de-DE', { 
+        timeZone: 'Europe/Berlin', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit',
+        hour12: false 
+      });
 
       const { data: recommendations } = await supabase
         .from('room_recommendations')
@@ -235,9 +249,15 @@ Deno.serve(async (req) => {
 
     // POST /apply - Apply current recommendations
     if (req.method === 'POST' && (path === '/apply' || path === '')) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateInTimezone();
       const now = new Date();
-      const currentTime = now.toTimeString().slice(0, 8);
+      const currentTime = now.toLocaleTimeString('de-DE', { 
+        timeZone: 'Europe/Berlin', 
+        hour: '2-digit', 
+        minute: '2-digit', 
+        second: '2-digit',
+        hour12: false 
+      });
 
       console.log(`[apply-recommendations] Checking recommendations for ${today} at ${currentTime}`);
 

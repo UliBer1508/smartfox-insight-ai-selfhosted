@@ -6,6 +6,20 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Korrekte lokale Datumsberechnung für Europe/Berlin
+function getLocalDateInTimezone(date: Date = new Date(), timezone: string = 'Europe/Berlin'): string {
+  return date.toLocaleDateString('sv-SE', { timeZone: timezone });
+}
+
+// Lokale Mitternacht als ISO String für DB-Queries
+function getLocalMidnightISO(dateStr: string, timezone: string = 'Europe/Berlin'): string {
+  // Parse das Datum und setze auf Mitternacht in der Zielzeitzone
+  const [year, month, day] = dateStr.split('-').map(Number);
+  // Erstelle ein Date-Objekt für Mitternacht in lokaler Zeit
+  const localMidnight = new Date(year, month - 1, day, 0, 0, 0, 0);
+  return localMidnight.toISOString();
+}
+
 interface LearningEvent {
   id: string;
   timestamp: string;
@@ -115,7 +129,11 @@ async function evaluateEvent(
   const eventTime = new Date(event.timestamp);
   const evaluationWindow = 2 * 60 * 60 * 1000; // 2 Stunden
   const endTime = new Date(eventTime.getTime() + evaluationWindow);
-  const eventDate = event.timestamp.split('T')[0];
+  
+  // Korrektes lokales Datum aus dem Event-Timestamp
+  const eventDate = getLocalDateInTimezone(eventTime);
+  const eventDayStart = getLocalMidnightISO(eventDate);
+  const eventDayEnd = eventDate + 'T23:59:59';
 
   // Lade PV-Prognose für den Tag des Events
   const { data: forecast } = await supabase
@@ -128,8 +146,8 @@ async function evaluateEvent(
   const { data: actualPvReadings } = await supabase
     .from('energy_readings')
     .select('pv_power, timestamp')
-    .gte('timestamp', `${eventDate}T00:00:00`)
-    .lt('timestamp', `${eventDate}T23:59:59`)
+    .gte('timestamp', eventDayStart)
+    .lte('timestamp', eventDayEnd)
     .order('timestamp');
 
   // Berechne tatsächliche kWh aus Samples (30s Intervalle geschätzt)

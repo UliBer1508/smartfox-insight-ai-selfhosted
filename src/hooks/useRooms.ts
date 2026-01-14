@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Room, RoomRecommendation } from '@/types/room';
 import { toast } from 'sonner';
+import { getLocalDateString } from '@/lib/dateUtils';
 
 export function useRooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -42,7 +43,7 @@ export function useRooms() {
   }, []);
 
   const loadRecommendations = useCallback(async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     try {
       const { data, error } = await supabase
         .from('room_recommendations')
@@ -108,7 +109,7 @@ export function useRooms() {
   }, [loadRooms]);
 
   const saveRecommendations = useCallback(async (newRecommendations: RoomRecommendation[]) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString();
     try {
       // Delete existing recommendations for today
       await supabase
