@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, Leaf, Moon, X } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
@@ -254,9 +255,16 @@ export function ThermostatCard({
                 <p className="text-xs sm:text-sm text-muted-foreground">Ziel</p>
                 {/* Solar-Limit Anzeige wenn aktiv */}
                 {room.pv_auto_active && room.solar_limit_temp && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
-                    ☀️ max {room.solar_limit_temp}°C
-                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5 cursor-help">
+                        ☀️ max {room.solar_limit_temp}°C
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-[200px] text-center">
+                      <p>Der Raum darf sich durch Sonneneinstrahlung bis zu dieser Temperatur erwärmen - ohne aktives Heizen</p>
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
             </div>
