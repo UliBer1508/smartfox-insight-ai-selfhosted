@@ -56,8 +56,8 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
           dateMap[dateStr] = {};
         }
 
-        // Sammle Raumnamen und füge Daten ein
-        const roomSet = new Set<string>();
+        // Sammle Raumnamen und Gesamtverbrauch
+        const roomTotals: Record<string, number> = {};
         let total = 0;
         
         for (const row of data || []) {
@@ -65,10 +65,15 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
           if (dateMap[dateStr]) {
             const energyKwh = (row.total_energy_wh || 0) / 1000;
             dateMap[dateStr][row.room_name] = energyKwh;
-            roomSet.add(row.room_name);
+            roomTotals[row.room_name] = (roomTotals[row.room_name] || 0) + energyKwh;
             total += energyKwh;
           }
         }
+
+        // Sortiere Räume nach Gesamtverbrauch (höchster zuerst)
+        const sortedRoomNames = Object.entries(roomTotals)
+          .sort(([, a], [, b]) => b - a)
+          .map(([name]) => name);
 
         // Konvertiere zu Chart-Format
         const chartRows: ChartDataPoint[] = Object.entries(dateMap)
@@ -80,7 +85,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
           }));
 
         setChartData(chartRows);
-        setRoomNames(Array.from(roomSet).sort());
+        setRoomNames(sortedRoomNames);
         setTotalEnergy(total);
       } catch (err) {
         console.error('Error loading heating history:', err);
