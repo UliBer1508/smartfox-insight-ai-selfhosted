@@ -5,6 +5,46 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Hilfsfunktion: Prüft ob aktuell Nachtzeit ist basierend auf Benutzereinstellungen
+function isNightTimeFromSettings(
+  nightStart: string = '22:00', 
+  nightEnd: string = '08:00',
+  timezone: string = 'Europe/Berlin'
+): boolean {
+  const now = new Date();
+  const localTimeStr = now.toLocaleTimeString('de-DE', { 
+    timeZone: timezone, 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false 
+  });
+  const [currentH, currentM] = localTimeStr.split(':').map(Number);
+  const currentMinutes = currentH * 60 + currentM;
+  
+  const [startH, startM] = nightStart.split(':').map(Number);
+  const [endH, endM] = nightEnd.split(':').map(Number);
+  
+  const nightStartMinutes = startH * 60 + startM;
+  const nightEndMinutes = endH * 60 + endM;
+  
+  // Nacht über Mitternacht (z.B. 20:00-08:00)
+  if (nightStartMinutes > nightEndMinutes) {
+    return currentMinutes >= nightStartMinutes || currentMinutes < nightEndMinutes;
+  }
+  // Nacht am selben Tag
+  return currentMinutes >= nightStartMinutes && currentMinutes < nightEndMinutes;
+}
+
+// Hilfsfunktion: Lokale Stunde ermitteln
+function getLocalHour(timezone: string = 'Europe/Berlin'): number {
+  const now = new Date();
+  return parseInt(now.toLocaleTimeString('de-DE', { 
+    timeZone: timezone, 
+    hour: '2-digit',
+    hour12: false 
+  }));
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -47,11 +87,18 @@ serve(async (req) => {
       const pvPower = currentReading?.pv_power || 0;
       const consumption = currentReading?.consumption || 0;
       
-      const now = new Date();
-      const hour = now.getHours();
-      const isNight = hour < 6 || hour >= 22;
-      const isMorning = hour >= 6 && hour < 10;
-      const isPeakSolar = hour >= 10 && hour < 16;
+      // Nachtzeiten aus Benutzereinstellungen verwenden!
+      const nightStart = heatingSettings?.night_start_time || '22:00';
+      const nightEnd = heatingSettings?.night_end_time || '08:00';
+      const isNight = isNightTimeFromSettings(nightStart, nightEnd, 'Europe/Berlin');
+      const localHour = getLocalHour('Europe/Berlin');
+      
+      // Morgen beginnt nach Nachtende, nicht hart kodiert
+      const [nightEndH] = (nightEnd || '08:00').split(':').map(Number);
+      const isMorning = !isNight && localHour >= nightEndH && localHour < nightEndH + 2;
+      const isPeakSolar = !isNight && localHour >= 10 && localHour < 16;
+      
+      console.log(`Night check: nightStart=${nightStart}, nightEnd=${nightEnd}, localHour=${localHour}, isNight=${isNight}, isMorning=${isMorning}`);
       
       // Warmwasser-Einstellungen
       const hotwaterEnabled = heatingSettings?.hotwater_enabled !== false;
@@ -60,11 +107,9 @@ serve(async (req) => {
       const hotwaterEnd = heatingSettings?.hotwater_schedule_end || '16:00';
       const hotwaterMinSurplus = heatingSettings?.hotwater_min_surplus_w || 1000;
       
-      // Nachtzyklen-Einstellungen
+      // Nachtzyklen-Einstellungen (nightStart/nightEnd bereits oben definiert)
       const nightCyclingEnabled = heatingSettings?.night_cycling_enabled !== false;
       const avgNightCycles = heatingSettings?.avg_night_cycles_per_room || 3;
-      const nightStart = heatingSettings?.night_start_time || '22:00';
-      const nightEnd = heatingSettings?.night_end_time || '06:00';
       
       // Heizungstyp ermitteln
       const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
@@ -122,7 +167,7 @@ serve(async (req) => {
 - Thermostate: TGP508 WiFi (6 Zeitperioden programmierbar)
 - Charakteristik: Direkte Wärmeabgabe, geringe thermische Masse, schnelle Reaktion
 
-**ZEITPUNKT:** ${now.toLocaleString('de-DE')} (${isNight ? 'Nacht' : isMorning ? 'Morgen' : isPeakSolar ? 'Hauptsonnenzeit' : 'Nachmittag/Abend'})
+**ZEITPUNKT:** ${new Date().toLocaleString('de-DE', { timeZone: 'Europe/Berlin' })} (${isNight ? 'Nacht' : isMorning ? 'Morgen' : isPeakSolar ? 'Hauptsonnenzeit' : 'Nachmittag/Abend'})
 
 **ENERGIESITUATION:**
 - PV-Überschuss: ${surplus}W ${surplus > 500 ? '✅ gut' : surplus > 0 ? '➖ gering' : '❌ Netzbezug'}
