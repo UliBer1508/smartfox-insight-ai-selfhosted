@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { PvForecast } from '@/types/heating';
 import { toast } from 'sonner';
-import { format } from 'date-fns';
+import { getLocalDateString } from '@/lib/dateUtils';
 
 export function usePvForecast() {
   const [forecasts, setForecasts] = useState<PvForecast[]>([]);
@@ -12,7 +12,8 @@ export function usePvForecast() {
   const loadForecasts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const today = format(new Date(), 'yyyy-MM-dd');
+      // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
+      const today = getLocalDateString();
       const { data, error } = await supabase
         .from('pv_forecasts')
         .select('*')
@@ -65,11 +66,12 @@ export function usePvForecast() {
     }
   }, [loadForecasts]);
 
-  const todayForecast = forecasts.find(f => f.date === format(new Date(), 'yyyy-MM-dd'));
+  // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
+  const todayForecast = forecasts.find(f => f.date === getLocalDateString());
   const tomorrowForecast = forecasts.find(f => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    return f.date === format(tomorrow, 'yyyy-MM-dd');
+    return f.date === getLocalDateString(tomorrow);
   });
 
   return {

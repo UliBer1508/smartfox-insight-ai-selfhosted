@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading, DailyPattern } from '@/types/energy';
 import { toast } from 'sonner';
+import { getLocalDateString, getLocalMidnightISO } from '@/lib/dateUtils';
 
 export function usePatternAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -32,13 +33,14 @@ export function usePatternAnalysis() {
     setIsAnalyzing(true);
     try {
       // Lade Verbraucher-Kontext parallel
-      const todayStart = new Date().toISOString().split('T')[0];
+      // WICHTIG: Lokale Mitternacht für korrekte Zeitzonen-Behandlung
+      const todayMidnight = getLocalMidnightISO();
       const [settingsResult, roomsResult, logsResult] = await Promise.all([
         supabase.from('heating_settings').select('*').limit(1).single(),
         supabase.from('rooms').select('*'),
         supabase.from('consumer_logs')
           .select('*')
-          .gte('start_time', todayStart)
+          .gte('start_time', todayMidnight)
           .order('start_time', { ascending: false })
       ]);
 

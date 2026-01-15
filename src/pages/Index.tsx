@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { getLocalDateString } from '@/lib/dateUtils';
 import { Header } from '@/components/energy/Header';
 import { PowerGauge } from '@/components/energy/PowerGauge';
 import { EnergyStats } from '@/components/energy/EnergyStats';
@@ -114,7 +115,8 @@ const Index = () => {
         const plan = data.roomHeatingPlan;
         setRoomStrategy(plan.strategy || '');
         
-        const today = new Date().toISOString().split('T')[0];
+        // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
+        const today = getLocalDateString();
         const newRecommendations = plan.rooms.flatMap((roomPlan: any) => {
           const room = rooms.find(r => r.name === roomPlan.room_name);
           if (!room?.id) return [];

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
-import { subDays, startOfDay, format } from 'date-fns';
+import { getLocalMidnightDaysAgoISO } from '@/lib/dateUtils';
 
 export interface TemperatureSample {
   room_id: string;
@@ -42,13 +42,14 @@ export function useSolarGainChart(roomIds: string[], roomNames: Record<string, s
   return useQuery({
     queryKey: ['solar-gain-chart', roomIds, days],
     queryFn: async () => {
-      const startDate = startOfDay(subDays(new Date(), days - 1));
+      // WICHTIG: Lokale Mitternacht für korrekte Zeitzonen-Behandlung
+      const startTimestamp = getLocalMidnightDaysAgoISO(days - 1);
       
       const { data: samples, error } = await supabase
         .from('room_temperature_samples')
         .select('*')
         .in('room_id', roomIds)
-        .gte('timestamp', startDate.toISOString())
+        .gte('timestamp', startTimestamp)
         .order('timestamp', { ascending: true });
 
       if (error) throw error;
