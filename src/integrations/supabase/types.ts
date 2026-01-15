@@ -956,7 +956,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_heating_history: {
+        Args: { days_back?: number }
+        Returns: {
+          cycles: number
+          local_date: string
+          room_id: string
+          room_name: string
+          total_energy_wh: number
+          total_minutes: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
