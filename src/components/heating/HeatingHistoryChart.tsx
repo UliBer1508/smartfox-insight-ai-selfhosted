@@ -6,8 +6,9 @@ import { BarChart3, Calendar, Flame, Zap, TrendingUp } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { getRoomAbbr } from '@/lib/roomUtils';
-import { format, subDays, startOfDay } from 'date-fns';
+import { subDays, format } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { getLocalDateString, formatLocalDate, getLocalMidnightDaysAgoISO } from '@/lib/dateUtils';
 
 interface DailyRoomData {
   date: string;
@@ -85,22 +86,23 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
     
     setIsLoading(true);
     try {
-      const startDate = startOfDay(subDays(new Date(), days - 1));
+      // WICHTIG: Lokale Mitternacht für korrekte Zeitzonen-Behandlung
+      const startTimestamp = getLocalMidnightDaysAgoISO(days - 1);
       
       // Nur plausible Daten laden (max 4h = 240 Min pro Zyklus)
       const { data, error } = await supabase
         .from('room_heating_logs')
         .select('room_id, timestamp, event_type, duration_minutes, energy_estimate_wh')
-        .gte('timestamp', startDate.toISOString())
+        .gte('timestamp', startTimestamp)
         .order('timestamp', { ascending: true })
         .limit(10000);
 
       if (error) throw error;
 
-      // Initialize daily data for each day
+      // Initialize daily data for each day - LOKALE Zeitzone verwenden!
       const dailyDataEnergy: Record<string, Record<string, number>> = {};
       for (let i = 0; i < days; i++) {
-        const date = format(subDays(new Date(), days - 1 - i), 'yyyy-MM-dd');
+        const date = getLocalDateString(subDays(new Date(), days - 1 - i));
         dailyDataEnergy[date] = {};
         rooms.forEach(room => {
           if (room.id) {
@@ -124,7 +126,8 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
           log.duration_minutes <= 240 && // Max 4 Stunden
           log.timestamp
         ) {
-          const date = format(new Date(log.timestamp), 'yyyy-MM-dd');
+          // WICHTIG: formatLocalDate() verwendet lokale Zeitzone!
+          const date = formatLocalDate(log.timestamp);
           const roomName = roomMap.get(log.room_id);
           
           if (roomName && dailyDataEnergy[date]) {

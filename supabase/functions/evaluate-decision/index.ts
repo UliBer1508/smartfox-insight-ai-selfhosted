@@ -20,6 +20,13 @@ function getLocalMidnightISO(dateStr: string, timezone: string = 'Europe/Berlin'
   return localMidnight.toISOString();
 }
 
+// Lokales Tagesende (23:59:59.999) als ISO-String für DB-Queries
+function getLocalEndOfDayISO(dateStr: string): string {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const localEnd = new Date(year, month - 1, day, 23, 59, 59, 999);
+  return localEnd.toISOString();
+}
+
 interface LearningEvent {
   id: string;
   timestamp: string;
@@ -133,7 +140,8 @@ async function evaluateEvent(
   // Korrektes lokales Datum aus dem Event-Timestamp
   const eventDate = getLocalDateInTimezone(eventTime);
   const eventDayStart = getLocalMidnightISO(eventDate);
-  const eventDayEnd = eventDate + 'T23:59:59';
+  // WICHTIG: Korrektes lokales Tagesende statt hartkodiertem String
+  const eventDayEnd = getLocalEndOfDayISO(eventDate);
 
   // Lade PV-Prognose für den Tag des Events
   const { data: forecast } = await supabase

@@ -28,6 +28,7 @@ import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { getLocalDateString } from '@/lib/dateUtils';
 import { format } from 'date-fns';
 
 interface HeatingDashboardProps {
@@ -210,7 +211,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         setRoomStrategy(plan.strategy || '');
         
         // Map room names to room IDs and save recommendations
-        const today = new Date().toISOString().split('T')[0];
+        // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
+        const today = getLocalDateString();
         const newRecommendations = plan.rooms.flatMap((roomPlan: any) => {
           const room = rooms.find(r => r.name === roomPlan.room_name);
           if (!room?.id) return [];

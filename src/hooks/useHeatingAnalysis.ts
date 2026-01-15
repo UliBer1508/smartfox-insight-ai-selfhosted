@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading } from '@/types/energy';
 import { HeatingSettings, HeatingRecommendation, HeatingAnalysisResult } from '@/types/heating';
 import { toast } from 'sonner';
+import { getLocalDateString } from '@/lib/dateUtils';
 
 export function useHeatingAnalysis() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -10,7 +11,8 @@ export function useHeatingAnalysis() {
   const [recommendations, setRecommendations] = useState<HeatingRecommendation[]>([]);
 
   const loadRecommendations = useCallback(async () => {
-    const today = new Date().toISOString().split('T')[0];
+    // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
+    const today = getLocalDateString();
     
     const { data, error } = await supabase
       .from('heating_recommendations')
@@ -35,7 +37,7 @@ export function useHeatingAnalysis() {
     setIsAnalyzing(true);
     try {
       // Consumer-Logs für heute laden um Verbrauch korrekt zuzuordnen
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       const { data: consumerLogs } = await supabase
         .from('consumer_logs')
         .select('*')
@@ -57,12 +59,12 @@ export function useHeatingAnalysis() {
         setAnalysisResult(data.heatingPlan);
         
         // Save recommendations to database
-        const today = new Date().toISOString().split('T')[0];
+        const todaySave = getLocalDateString();
         for (const period of data.heatingPlan.periods) {
           await supabase
             .from('heating_recommendations')
             .upsert({
-              date: today,
+              date: todaySave,
               period_number: period.period,
               start_time: period.startTime,
               end_time: period.endTime,
