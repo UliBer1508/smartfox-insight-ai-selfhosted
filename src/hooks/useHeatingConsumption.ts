@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { startOfDay, startOfMonth, startOfYear } from 'date-fns';
 import { Room, getEffectiveHeatingPower } from '@/types/room';
+import { getLocalMidnightISO } from '@/lib/dateUtils';
 
 export type Period = 'day' | 'month' | 'year';
 
@@ -75,19 +75,33 @@ export function useHeatingConsumption(rooms: Room[]) {
     setIsLoading(true);
     try {
       const now = new Date();
-      const yearStart = startOfYear(now);
+      
+      // Berechne lokale Mitternacht für jede Periode
+      const dayStartISO = getLocalMidnightISO();
+      
+      // Monatsanfang in lokaler Zeit
+      const monthStartDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      const monthStartISO = getLocalMidnightISO(monthStartDate);
+      
+      // Jahresanfang in lokaler Zeit
+      const yearStartDate = new Date(now.getFullYear(), 0, 1);
+      const yearStartISO = getLocalMidnightISO(yearStartDate);
 
-      // Fetch all logs from start of year (includes month and day)
+      // Fetch all logs from start of year with explicit limit
+      // WICHTIG: order DESC um die NEUESTEN Daten zuerst zu bekommen
       const { data: logs, error } = await supabase
         .from('room_heating_logs')
         .select('*')
-        .gte('timestamp', yearStart.toISOString())
-        .order('timestamp', { ascending: true });
+        .gte('timestamp', yearStartISO)
+        .order('timestamp', { ascending: false })
+        .limit(50000);
 
       if (error) throw error;
 
-      const dayStart = startOfDay(now);
-      const monthStart = startOfMonth(now);
+      // Konvertiere zu Date-Objekten für Vergleiche
+      const dayStart = new Date(dayStartISO);
+      const monthStart = new Date(monthStartISO);
+      const yearStart = new Date(yearStartISO);
 
       // Aggregate for each period
       const aggregateForPeriod = (periodStart: Date): PeriodStats => {

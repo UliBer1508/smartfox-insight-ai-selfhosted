@@ -34,12 +34,13 @@ export function useRoomHeatingLogs(roomId?: string) {
       // Verwende lokale Mitternacht für korrekte Zeitzone
       const todayStart = getLocalMidnightISO();
       
-      // Build query
+      // Build query with explicit limit to avoid Supabase 1000-row default
       let query = supabase
         .from('room_heating_logs')
         .select('*')
         .gte('timestamp', todayStart)
-        .order('timestamp', { ascending: false });
+        .order('timestamp', { ascending: false })
+        .limit(5000);
       
       if (targetRoomId) {
         query = query.eq('room_id', targetRoomId);

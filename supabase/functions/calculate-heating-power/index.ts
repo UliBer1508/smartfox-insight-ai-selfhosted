@@ -57,7 +57,8 @@ Deno.serve(async (req) => {
       .from('room_heating_logs')
       .select('*')
       .gte('timestamp', sevenDaysAgo.toISOString())
-      .order('timestamp', { ascending: true });
+      .order('timestamp', { ascending: true })
+      .limit(10000);
 
     if (logsError) throw logsError;
     if (!logs || logs.length === 0) {
