@@ -30,6 +30,7 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [roomNames, setRoomNames] = useState<string[]>([]);
   const [totalEnergy, setTotalEnergy] = useState(0);
+  const [activeBar, setActiveBar] = useState<{name: string; value: number; color: string} | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -156,19 +157,17 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                 />
                 <Tooltip 
                   cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }}
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    const entry = payload[0];
-                    if (!entry || (entry.value as number) <= 0) return null;
+                  content={({ active }) => {
+                    if (!active || !activeBar || activeBar.value <= 0) return null;
                     return (
                       <div className="bg-card border border-border rounded-lg p-2 shadow-lg">
                         <div className="flex items-center gap-2 text-sm">
                           <div 
                             className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
-                            style={{ backgroundColor: entry.color }}
+                            style={{ backgroundColor: activeBar.color }}
                           />
-                          <span className="font-medium text-foreground">{entry.name}</span>
-                          <span className="text-muted-foreground">{(entry.value as number).toFixed(2)} kWh</span>
+                          <span className="font-medium text-foreground">{activeBar.name}</span>
+                          <span className="text-muted-foreground">{activeBar.value.toFixed(2)} kWh</span>
                         </div>
                       </div>
                     );
@@ -184,6 +183,16 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                     dataKey={name} 
                     fill={ROOM_COLORS[i % ROOM_COLORS.length]}
                     radius={[2, 2, 0, 0]}
+                    onMouseEnter={(data) => {
+                      if (data && data[name] !== undefined) {
+                        setActiveBar({
+                          name,
+                          value: data[name] as number,
+                          color: ROOM_COLORS[i % ROOM_COLORS.length]
+                        });
+                      }
+                    }}
+                    onMouseLeave={() => setActiveBar(null)}
                   />
                 ))}
               </BarChart>
