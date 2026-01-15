@@ -155,25 +155,21 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
                   className="text-muted-foreground"
                 />
                 <Tooltip 
-                  content={({ active, payload, label }) => {
+                  cursor={{ fill: 'hsl(var(--muted))', opacity: 0.3 }}
+                  content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
-                    const validEntries = payload.filter(p => (p.value as number) > 0);
-                    if (!validEntries.length) return null;
+                    const entry = payload[0];
+                    if (!entry || (entry.value as number) <= 0) return null;
                     return (
-                      <div className="bg-card border border-border rounded-lg p-3 shadow-lg">
-                        <p className="font-medium text-sm mb-2 text-foreground">{label}</p>
-                        {validEntries
-                          .sort((a, b) => (b.value as number) - (a.value as number))
-                          .map((entry, i) => (
-                            <div key={i} className="flex items-center gap-2 text-sm py-0.5">
-                              <div 
-                                className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
-                                style={{ backgroundColor: entry.color }}
-                              />
-                              <span className="text-muted-foreground">{entry.name}:</span>
-                              <span className="font-medium text-foreground">{(entry.value as number).toFixed(2)} kWh</span>
-                            </div>
-                          ))}
+                      <div className="bg-card border border-border rounded-lg p-2 shadow-lg">
+                        <div className="flex items-center gap-2 text-sm">
+                          <div 
+                            className="w-2.5 h-2.5 rounded-full flex-shrink-0" 
+                            style={{ backgroundColor: entry.color }}
+                          />
+                          <span className="font-medium text-foreground">{entry.name}</span>
+                          <span className="text-muted-foreground">{(entry.value as number).toFixed(2)} kWh</span>
+                        </div>
                       </div>
                     );
                   }}
