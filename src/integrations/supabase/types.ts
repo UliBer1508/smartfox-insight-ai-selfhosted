@@ -778,6 +778,7 @@ export type Database = {
           pv_auto_last_change: string | null
           solar_gain_confidence: number | null
           solar_gain_samples: number | null
+          solar_heating_temp: number | null
           solar_limit_temp: number | null
           target_temp: number | null
           thermostat_ip: string | null
@@ -818,6 +819,7 @@ export type Database = {
           pv_auto_last_change?: string | null
           solar_gain_confidence?: number | null
           solar_gain_samples?: number | null
+          solar_heating_temp?: number | null
           solar_limit_temp?: number | null
           target_temp?: number | null
           thermostat_ip?: string | null
@@ -858,6 +860,7 @@ export type Database = {
           pv_auto_last_change?: string | null
           solar_gain_confidence?: number | null
           solar_gain_samples?: number | null
+          solar_heating_temp?: number | null
           solar_limit_temp?: number | null
           target_temp?: number | null
           thermostat_ip?: string | null

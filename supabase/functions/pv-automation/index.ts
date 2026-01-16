@@ -392,13 +392,22 @@ Deno.serve(async (req) => {
             solarLimitTemp = null;
             reasoning = `Batterie <${minBatterySoc}%`;
           } 
-          // 3. PV surplus/Solargewinn -> Solar-Limit aktivieren (NICHT auf Comfort heizen!)
-          // Das Thermostat bleibt auf Eco, aber der Raum darf sich durch Sonne bis Comfort erwärmen
+          // 3. PV surplus/Solargewinn -> Solar-Modus aktivieren
+          // Bei Räumen mit Sonneneinstrahlung: Thermostat auf solar_heating_temp setzen (niedrig!)
+          // damit die Heizung AUS bleibt und der Raum sich nur durch die Sonne erwärmt
           else if (surplus >= thresholdOn && !room.pv_auto_active) {
             action = 'activate';
-            targetTemp = ecoTemp; // Thermostat bleibt auf Eco - KEIN aktives Heizen auf Comfort!
-            solarLimitTemp = comfortTemp; // Solar-Limit: Raum darf sich bis hierhin erwärmen
-            reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
+            
+            // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
+            if (room.has_solar_gain && room.solar_heating_temp) {
+              targetTemp = room.solar_heating_temp; // z.B. 18°C - Heizung bleibt aus!
+              solarLimitTemp = comfortTemp; // Raum darf sich durch Sonne bis hier erwärmen
+              reasoning = `Solar-Modus: Heizung ${targetTemp}°C, Sonne darf bis ${comfortTemp}°C erwärmen (${surplus}W Überschuss)`;
+            } else {
+              targetTemp = ecoTemp; // Normale Räume: Eco-Temperatur
+              solarLimitTemp = comfortTemp;
+              reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
+            }
           } 
           // 4. Low/no surplus -> Solar-Limit deaktivieren
           else if (surplus < thresholdOff && room.pv_auto_active) {
@@ -409,8 +418,12 @@ Deno.serve(async (req) => {
           } 
           // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
           else if (room.pv_auto_active && surplus >= thresholdOff) {
-            // Solar-Limit weiterhin aktiv
-            targetTemp = ecoTemp;
+            // Solar-Modus weiterhin aktiv - behalte die niedrige Temperatur bei
+            if (room.has_solar_gain && room.solar_heating_temp) {
+              targetTemp = room.solar_heating_temp;
+            } else {
+              targetTemp = ecoTemp;
+            }
             solarLimitTemp = comfortTemp;
             // Keep action = 'keep'
           }

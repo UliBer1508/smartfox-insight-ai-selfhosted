@@ -288,6 +288,32 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                       />
                     </div>
                   </div>
+                  
+                  {/* Solar-Heiztemperatur: Nur anzeigen wenn Solargewinn aktiviert ist */}
+                  {editingRoom.has_solar_gain && (
+                    <div className="mt-3 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Sun className="h-4 w-4 text-amber-500" />
+                        <Label htmlFor="solar_heating">Solar-Heiztemperatur °C</Label>
+                      </div>
+                      <Input
+                        id="solar_heating"
+                        type="number"
+                        step="0.5"
+                        value={editingRoom.solar_heating_temp ?? ''}
+                        onChange={e => setEditingRoom({ 
+                          ...editingRoom, 
+                          solar_heating_temp: e.target.value ? parseFloat(e.target.value) : null 
+                        })}
+                        placeholder="z.B. 18"
+                        className="max-w-24"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Bei Sonneneinstrahlung wird das Thermostat auf diese niedrige Temperatur gesetzt, 
+                        damit die Heizung AUS bleibt und der Raum sich nur durch die Sonne erwärmt.
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex gap-2 justify-end">
