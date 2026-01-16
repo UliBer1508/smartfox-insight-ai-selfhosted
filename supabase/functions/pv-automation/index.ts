@@ -532,13 +532,58 @@ Deno.serve(async (req) => {
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
 
+            // Calculate duration and energy for solar_limit_stop event
+            let durationMinutes = 2; // Default fallback
+            let energyEstimateWh = 0;
+
+            // Find the last solar_limit_start event for this room
+            const { data: lastStart } = await supabase
+              .from('room_heating_logs')
+              .select('timestamp, consumption_at_start_w')
+              .eq('room_id', room.id)
+              .eq('event_type', 'solar_limit_start')
+              .order('timestamp', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (lastStart?.timestamp) {
+              const startTime = new Date(lastStart.timestamp).getTime();
+              const endTime = now.getTime();
+              const calculatedDuration = Math.round((endTime - startTime) / 60000);
+              
+              // Plausibility check: Max 4 hours (240 min)
+              if (calculatedDuration > 0 && calculatedDuration <= 240) {
+                durationMinutes = calculatedDuration;
+              }
+            }
+
+            // Calculate energy based on room power
+            const effectivePower = room.calculated_power_w || room.heating_power_w || 
+              (room.floor_area_m2 ? room.floor_area_m2 * 60 : 800);
+            energyEstimateWh = Math.round((effectivePower * durationMinutes) / 60);
+
+            console.log(`[PV-Automation] ${room.name} solar_limit_stop: duration=${durationMinutes}min, energy=${energyEstimateWh}Wh`);
+
             await supabase.from('room_heating_logs').insert({
               room_id: room.id,
               event_type: 'solar_limit_stop',
               current_temp: room.current_temp,
               target_temp: ecoTemp,
-              pv_surplus_w: surplus
+              pv_surplus_w: surplus,
+              duration_minutes: durationMinutes,
+              energy_estimate_wh: energyEstimateWh,
+              consumption_at_start_w: lastStart?.consumption_at_start_w || null
             });
+
+            // Delete the used solar_limit_start to prevent reuse
+            if (lastStart) {
+              await supabase
+                .from('room_heating_logs')
+                .delete()
+                .eq('room_id', room.id)
+                .eq('event_type', 'solar_limit_start')
+                .eq('timestamp', lastStart.timestamp);
+            }
 
             success = true;
           }
