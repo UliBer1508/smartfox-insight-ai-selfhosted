@@ -7,6 +7,7 @@ import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
 import { RoomManager } from "@/components/heating/RoomManager";
 import { useHeatingSettings } from "@/hooks/useHeatingSettings";
 import { useRooms } from "@/hooks/useRooms";
+import { TuyaSubscriptionAlert } from "@/components/settings/TuyaSubscriptionAlert";
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -39,7 +40,8 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
               <span className="font-semibold">Anlagen-Konfiguration</span>
             </div>
           </AccordionTrigger>
-          <AccordionContent className="p-0">
+          <AccordionContent className="p-4 space-y-4">
+            <TuyaSubscriptionAlert />
             <HeatingSettingsForm
               settings={settings}
               onSave={saveSettings}
