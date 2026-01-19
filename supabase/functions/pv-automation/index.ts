@@ -539,17 +539,21 @@ Deno.serve(async (req) => {
           }
 
         } else if (action === 'deactivate') {
-          const ecoTemp = room.eco_temp || settings?.eco_temp || 18;
+          // Verwende die bereits berechnete targetTemp (kann nightTemp oder ecoTemp sein)
+          // Fallback auf eco_temp nur wenn targetTemp nicht gesetzt wurde
+          const finalTemp = targetTemp || room.eco_temp || settings?.eco_temp || 18;
+          
+          console.log(`[PV-Automation] ${room.name} deactivate: Setze ${finalTemp}°C (targetTemp=${targetTemp}, nightTemp=${room.night_temp || settings?.night_temp})`);
 
           if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
-            success = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, ecoTemp);
+            success = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, finalTemp);
           }
 
           if (success || !room.tuya_device_id) {
             await supabase.from('rooms').update({
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
-              target_temp: ecoTemp,
+              target_temp: finalTemp,
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
 
