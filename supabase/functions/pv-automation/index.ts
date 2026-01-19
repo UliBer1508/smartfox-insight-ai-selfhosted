@@ -384,7 +384,13 @@ Deno.serve(async (req) => {
 
         // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
         if (isNight) {
-          if (room.target_temp !== nightTemp || room.pv_auto_active) {
+          // Robuster Vergleich (beide als Number)
+          const currentTargetTemp = Number(room.target_temp) || 0;
+          const needsCorrection = currentTargetTemp !== nightTemp || room.pv_auto_active;
+          
+          console.log(`[PV-Automation] ${room.name} Nacht-Check: target=${currentTargetTemp}°C, nightTemp=${nightTemp}°C, pv_auto=${room.pv_auto_active}, needsCorrection=${needsCorrection}`);
+          
+          if (needsCorrection) {
             action = 'deactivate';
             targetTemp = nightTemp;
             solarLimitTemp = null; // Kein Solar-Limit nachts
