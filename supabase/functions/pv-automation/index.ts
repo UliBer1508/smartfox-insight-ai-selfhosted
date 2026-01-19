@@ -9,10 +9,20 @@ const DEFAULT_PV_SURPLUS_THRESHOLD_ON = 500;
 const DEFAULT_PV_SURPLUS_THRESHOLD_OFF = 200;
 const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 5;
 
-// Helper: Check if current time is within night hours
-function isNightTime(nightStartTime: string, nightEndTime: string): boolean {
+// Helper: Check if current time is within night hours (Europe/Vienna timezone!)
+function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: boolean; wienTime: string } {
   const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  
+  // WICHTIG: Wien-Zeit verwenden, nicht UTC!
+  const wienFormatter = new Intl.DateTimeFormat('de-AT', {
+    timeZone: 'Europe/Vienna',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  });
+  const wienTime = wienFormatter.format(now);
+  const [wienHour, wienMinute] = wienTime.split(':').map(Number);
+  const currentMinutes = wienHour * 60 + wienMinute;
   
   const [startH, startM] = (nightStartTime || '22:00').split(':').map(Number);
   const [endH, endM] = (nightEndTime || '06:00').split(':').map(Number);
@@ -20,12 +30,16 @@ function isNightTime(nightStartTime: string, nightEndTime: string): boolean {
   const nightStart = startH * 60 + startM;
   const nightEnd = endH * 60 + endM;
   
+  let isNight: boolean;
   // Case: Night spans midnight (e.g., 22:00-06:00)
   if (nightStart > nightEnd) {
-    return currentMinutes >= nightStart || currentMinutes < nightEnd;
+    isNight = currentMinutes >= nightStart || currentMinutes < nightEnd;
+  } else {
+    // Case: Night within same day (e.g., 00:00-06:00)
+    isNight = currentMinutes >= nightStart && currentMinutes < nightEnd;
   }
-  // Case: Night within same day (e.g., 00:00-06:00)
-  return currentMinutes >= nightStart && currentMinutes < nightEnd;
+  
+  return { isNight, wienTime };
 }
 
 interface MLDecision {
@@ -355,86 +369,93 @@ Deno.serve(async (req) => {
         let reasoning = '';
         let expectedEnergyWh: number | undefined;
         let confidence: number | undefined;
+        let mlDecision: MLDecision | null | undefined = null; // Außerhalb definiert für spätere Referenz
 
-        // ML decision ONLY if automation_enabled = true
-        const mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+        // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
+        const nightStart = settings?.night_start_time || '22:00';
+        const nightEnd = settings?.night_end_time || '08:00';
+        const { isNight, wienTime } = isNightTime(nightStart, nightEnd);
+        
+        const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
+        const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
+        const nightTemp = room.night_temp || settings?.night_temp || 17;
+        
+        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd})`);
 
-        if (mlDecision && usedMlDecision && useMLDecisions) {
-          // Use ML/AI recommendation
-          action = mlDecision.action;
-          targetTemp = mlDecision.target_temp;
-          reasoning = mlDecision.reasoning + ' (KI)';
-          expectedEnergyWh = mlDecision.expected_energy_wh;
-          confidence = mlDecision.confidence;
-        } else {
-          // Basis-Zeitschaltung: Always active regardless of automation_enabled
-          const nightStart = settings?.night_start_time || '22:00';
-          const nightEnd = settings?.night_end_time || '06:00';
-          const isNight = isNightTime(nightStart, nightEnd);
-          
-          const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
-          const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
-          
-          // 1. Night mode has highest priority
-          if (isNight) {
-            const nightTemp = room.night_temp || settings?.night_temp || 17;
-            if (room.target_temp !== nightTemp || room.pv_auto_active) {
-              action = 'deactivate';
-              targetTemp = nightTemp;
-              solarLimitTemp = null; // Kein Solar-Limit nachts
-              reasoning = `Nachtmodus (${nightStart}-${nightEnd})`;
-            }
-          } 
-          // 2. Battery protection
-          else if (batterySoc < minBatterySoc && room.pv_auto_active) {
+        // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
+        if (isNight) {
+          if (room.target_temp !== nightTemp || room.pv_auto_active) {
             action = 'deactivate';
-            targetTemp = ecoTemp;
-            solarLimitTemp = null;
-            reasoning = `Batterie <${minBatterySoc}%`;
-          } 
-          // 3. PV surplus/Solargewinn -> Solar-Modus aktivieren
-          // Bei Räumen mit Sonneneinstrahlung: Thermostat auf solar_heating_temp setzen (niedrig!)
-          // damit die Heizung AUS bleibt und der Raum sich nur durch die Sonne erwärmt
-          else if (surplus >= thresholdOn && !room.pv_auto_active) {
-            action = 'activate';
-            
-            // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
-            if (room.has_solar_gain && room.solar_heating_temp) {
-              targetTemp = room.solar_heating_temp; // z.B. 18°C - Heizung bleibt aus!
-              solarLimitTemp = comfortTemp; // Raum darf sich durch Sonne bis hier erwärmen
-              reasoning = `Solar-Modus: Heizung ${targetTemp}°C, Sonne darf bis ${comfortTemp}°C erwärmen (${surplus}W Überschuss)`;
-            } else {
-              targetTemp = ecoTemp; // Normale Räume: Eco-Temperatur
-              solarLimitTemp = comfortTemp;
-              reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
-            }
-          } 
-          // 4. Low/no surplus -> Solar-Limit deaktivieren
-          else if (surplus < thresholdOff && room.pv_auto_active) {
-            action = 'deactivate';
-            targetTemp = ecoTemp;
-            solarLimitTemp = null;
-            reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
-          } 
-          // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
-          else if (room.pv_auto_active && surplus >= thresholdOff) {
-            // Solar-Modus weiterhin aktiv - behalte die niedrige Temperatur bei
-            if (room.has_solar_gain && room.solar_heating_temp) {
-              targetTemp = room.solar_heating_temp;
-            } else {
-              targetTemp = ecoTemp;
-            }
-            solarLimitTemp = comfortTemp;
-            // Keep action = 'keep'
+            targetTemp = nightTemp;
+            solarLimitTemp = null; // Kein Solar-Limit nachts
+            reasoning = `Nachtmodus bis ${nightEnd} (Wien: ${wienTime})`;
           }
-          // 6. Daytime default: Ensure eco temp is set
-          else if (!room.pv_auto_active) {
-            const currentTarget = room.target_temp || ecoTemp;
-            if (currentTarget !== ecoTemp) {
+          // Skip ML and fallback logic during night
+        } else {
+          // TAGSÜBER: ML oder Fallback-Logik
+
+          // ML decision ONLY if automation_enabled = true AND it's daytime
+          mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+
+          if (mlDecision && usedMlDecision && useMLDecisions) {
+            // Use ML/AI recommendation (nur tagsüber!)
+            action = mlDecision.action;
+            targetTemp = mlDecision.target_temp;
+            reasoning = mlDecision.reasoning + ' (KI)';
+            expectedEnergyWh = mlDecision.expected_energy_wh;
+            confidence = mlDecision.confidence;
+          } else {
+            // Basis-Zeitschaltung / Fallback (nur tagsüber)
+            
+            // 2. Battery protection
+            if (batterySoc < minBatterySoc && room.pv_auto_active) {
               action = 'deactivate';
               targetTemp = ecoTemp;
               solarLimitTemp = null;
-              reasoning = 'Eco-Modus (Standard tagsüber)';
+              reasoning = `Batterie <${minBatterySoc}%`;
+            } 
+            // 3. PV surplus/Solargewinn -> Solar-Modus aktivieren
+            else if (surplus >= thresholdOn && !room.pv_auto_active) {
+              action = 'activate';
+              
+              // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
+              if (room.has_solar_gain && room.solar_heating_temp) {
+                targetTemp = room.solar_heating_temp; // z.B. 18°C - Heizung bleibt aus!
+                solarLimitTemp = comfortTemp; // Raum darf sich durch Sonne bis hier erwärmen
+                reasoning = `Solar-Modus: Heizung ${targetTemp}°C, Sonne darf bis ${comfortTemp}°C erwärmen (${surplus}W Überschuss)`;
+              } else {
+                targetTemp = ecoTemp; // Normale Räume: Eco-Temperatur
+                solarLimitTemp = comfortTemp;
+                reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
+              }
+            } 
+            // 4. Low/no surplus -> Solar-Limit deaktivieren
+            else if (surplus < thresholdOff && room.pv_auto_active) {
+              action = 'deactivate';
+              targetTemp = ecoTemp;
+              solarLimitTemp = null;
+              reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
+            } 
+            // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
+            else if (room.pv_auto_active && surplus >= thresholdOff) {
+              // Solar-Modus weiterhin aktiv - behalte die niedrige Temperatur bei
+              if (room.has_solar_gain && room.solar_heating_temp) {
+                targetTemp = room.solar_heating_temp;
+              } else {
+                targetTemp = ecoTemp;
+              }
+              solarLimitTemp = comfortTemp;
+              // Keep action = 'keep'
+            }
+            // 6. Daytime default: Ensure eco temp is set
+            else if (!room.pv_auto_active) {
+              const currentTarget = room.target_temp || ecoTemp;
+              if (currentTarget !== ecoTemp) {
+                action = 'deactivate';
+                targetTemp = ecoTemp;
+                solarLimitTemp = null;
+                reasoning = 'Eco-Modus (Standard tagsüber)';
+              }
             }
           }
         }
