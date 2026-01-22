@@ -9,6 +9,12 @@ const DEFAULT_PV_SURPLUS_THRESHOLD_ON = 500;
 const DEFAULT_PV_SURPLUS_THRESHOLD_OFF = 200;
 const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 5;
 
+// ============= TOKEN CACHING =============
+// Cache token in memory (reused across invocations within same instance)
+let cachedToken: string | null = null;
+let tokenExpiry: number = 0;
+const TOKEN_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 min before expiry
+
 // Helper: Check if current time is within night hours (Europe/Vienna timezone!)
 function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: boolean; wienTime: string } {
   const now = new Date();
@@ -83,8 +89,18 @@ async function sha256Hash(content: string): Promise<string> {
     .join('');
 }
 
+// ============= CACHED TOKEN FETCH =============
 async function getAccessToken(accessId: string, accessSecret: string): Promise<string> {
-  const timestamp = Date.now().toString();
+  const now = Date.now();
+  
+  // Return cached token if still valid (with 5 min buffer)
+  if (cachedToken && tokenExpiry > now + TOKEN_BUFFER_MS) {
+    console.log('[Tuya] Using cached token (expires in', Math.round((tokenExpiry - now) / 60000), 'min)');
+    return cachedToken;
+  }
+
+  console.log('[Tuya] Fetching new access token...');
+  const timestamp = now.toString();
   const path = '/v1.0/token?grant_type=1';
   const contentHash = await sha256Hash('');
   const stringToSign = ['GET', contentHash, '', path].join('\n');
@@ -103,7 +119,14 @@ async function getAccessToken(accessId: string, accessSecret: string): Promise<s
 
   const data = await response.json();
   if (!data.success) throw new Error(`Tuya token error: ${data.msg}`);
-  return data.result.access_token;
+  
+  // Cache the token (Tuya tokens are valid for ~2 hours = 7200 seconds)
+  cachedToken = data.result.access_token;
+  const expiresIn = (data.result.expire_time || 7200) * 1000; // Convert to ms
+  tokenExpiry = now + expiresIn;
+  
+  console.log('[Tuya] New token cached, expires in', Math.round(expiresIn / 60000), 'min');
+  return cachedToken!;
 }
 
 async function setDeviceTemperature(
@@ -137,10 +160,10 @@ async function setDeviceTemperature(
     });
 
     const result = await response.json();
-    console.log(`Tuya ${deviceId} -> ${temperature}°C: ${result.success}`);
+    console.log(`[Tuya] ${deviceId} -> ${temperature}°C: ${result.success}`);
     return result.success === true;
   } catch (error) {
-    console.error(`Tuya error for ${deviceId}:`, error);
+    console.error(`[Tuya] Error for ${deviceId}:`, error);
     return false;
   }
 }
@@ -202,7 +225,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    // POST /check - ML-based automation
+    // POST /check - ML-based automation with SKIP LOGIC
     if (path === '/check' && req.method === 'POST') {
       console.log('[PV-Automation] Starting ML-based check...');
 
@@ -323,6 +346,7 @@ Deno.serve(async (req) => {
       // 8. Process decisions
       const results: Record<string, unknown>[] = [];
       const now = new Date();
+      let tuyaApiCalls = 0; // Track API calls for logging
 
       for (const room of rooms) {
         // automation_enabled controls ONLY ML recommendations, not basic time-based logic
@@ -477,6 +501,26 @@ Deno.serve(async (req) => {
           continue;
         }
 
+        // ============= SKIP LOGIC: Check if Tuya API call is actually needed =============
+        const currentTargetTemp = Number(room.target_temp) || 0;
+        const newTargetTemp = Number(targetTemp) || 0;
+        const tempAlreadyCorrect = Math.abs(currentTargetTemp - newTargetTemp) < 0.5; // 0.5°C tolerance
+        const stateAlreadyCorrect = (action === 'activate' && room.pv_auto_active) || 
+                                     (action === 'deactivate' && !room.pv_auto_active);
+        
+        if (tempAlreadyCorrect && stateAlreadyCorrect) {
+          console.log(`[PV-Automation] ${room.name}: SKIP - already at ${currentTargetTemp}°C, state=${room.pv_auto_active ? 'active' : 'inactive'}`);
+          results.push({
+            roomId: room.id,
+            roomName: room.name,
+            action: 'skip',
+            message: `Bereits korrekt: ${currentTargetTemp}°C`,
+            mlBased: usedMlDecision && !!mlDecision,
+            skippedApiCall: true
+          });
+          continue;
+        }
+
         // Log learning event BEFORE executing
         const eventContext = {
           surplus,
@@ -522,6 +566,7 @@ Deno.serve(async (req) => {
         if (action === 'activate') {
           if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
             success = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, targetTemp);
+            tuyaApiCalls++;
           }
 
           if (success || !room.tuya_device_id) {
@@ -553,6 +598,7 @@ Deno.serve(async (req) => {
 
           if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
             success = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, finalTemp);
+            tuyaApiCalls++;
           }
 
           if (success || !room.tuya_device_id) {
@@ -653,6 +699,8 @@ Deno.serve(async (req) => {
         console.error('[PV-Automation] Evaluation trigger error:', evalError);
       }
 
+      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}`);
+
       return new Response(JSON.stringify({
         success: true,
         timestamp: now.toISOString(),
@@ -660,6 +708,7 @@ Deno.serve(async (req) => {
         batterySoc,
         usedMlDecision,
         results,
+        tuyaApiCalls,
         evaluatedEvents: evaluationResult?.evaluated || 0
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
