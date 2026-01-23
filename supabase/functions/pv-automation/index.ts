@@ -498,39 +498,53 @@ Deno.serve(async (req) => {
           // ML decision ONLY if automation_enabled = true AND it's daytime
           mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
 
-          // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
-          // Check if this room is currently gaining heat from the sun
-          const realtimeSolarGain = roomsWithSolarGain.get(room.id);
+          // ============= MORGEN-AUFWÄRMPHASE nach Nachtende =============
+          // Wenn Raum noch auf Nachttemperatur steht, automatisch auf Eco umstellen
+          const currentTargetTemp = Number(room.target_temp) || 0;
+          const isStillOnNightTemp = Math.abs(currentTargetTemp - nightTemp) < 0.5;
           
-          if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
-            // Room is actively being heated by the sun - reduce thermostat!
-            action = 'deactivate';
-            targetTemp = solarTemp;
-            solarLimitTemp = comfortTemp;
-            reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%)`;
+          if (isStillOnNightTemp) {
+            action = 'activate';
+            targetTemp = ecoTemp;
+            solarLimitTemp = null;
+            reasoning = `Morgen-Aufwärmen: Nacht beendet (${nightEnd}), ${nightTemp}°C → ${ecoTemp}°C`;
             console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
           }
-          // ============= MORGEN-SPERRE für Süd-Räume bei erwartetem Sonnentag =============
-          else if (room.has_solar_gain) {
-            const { shouldWait, reason } = isMorningWaitPeriod(
-              nightEnd,
-              wienHour,
-              expectedPvKwh,
-              pvPower
-            );
-            
-            if (shouldWait) {
-              // Solar-Passiv-Modus: Thermostat auf niedrige Temperatur setzen und warten
+          // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
+          // Check if this room is currently gaining heat from the sun
+          else {
+            const realtimeSolarGain = roomsWithSolarGain.get(room.id);
+          
+            if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
+              // Room is actively being heated by the sun - reduce thermostat!
               action = 'deactivate';
               targetTemp = solarTemp;
               solarLimitTemp = comfortTemp;
-              reasoning = reason;
+              reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%)`;
+              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+            }
+            // ============= MORGEN-SPERRE für Süd-Räume bei erwartetem Sonnentag =============
+            else if (room.has_solar_gain) {
+              const { shouldWait, reason } = isMorningWaitPeriod(
+                nightEnd,
+                wienHour,
+                expectedPvKwh,
+                pvPower
+              );
               
-              console.log(`[PV-Automation] ${room.name}: MORGEN-SPERRE - ${reason}, Thermostat auf ${solarTemp}°C`);
+              if (shouldWait) {
+                // Solar-Passiv-Modus: Thermostat auf niedrige Temperatur setzen und warten
+                action = 'deactivate';
+                targetTemp = solarTemp;
+                solarLimitTemp = comfortTemp;
+                reasoning = reason;
+                
+                console.log(`[PV-Automation] ${room.name}: MORGEN-SPERRE - ${reason}, Thermostat auf ${solarTemp}°C`);
+              }
             }
           }
 
-          // Only process ML/fallback if action is still 'keep' (not already set by morning wait)
+          // Only process ML/fallback if action is still 'keep' (not already set by morning wake-up or solar)
           if (action === 'keep') {
             if (mlDecision && usedMlDecision && useMLDecisions) {
               // Use ML/AI recommendation (nur tagsüber!)
@@ -592,15 +606,12 @@ Deno.serve(async (req) => {
                 solarLimitTemp = comfortTemp;
                 // Keep action = 'keep'
               }
-              // 6. Daytime default: Ensure eco temp is set
-              else if (!room.pv_auto_active) {
-                const currentTarget = room.target_temp || ecoTemp;
-                if (currentTarget !== ecoTemp) {
-                  action = 'deactivate';
-                  targetTemp = ecoTemp;
-                  solarLimitTemp = null;
-                  reasoning = 'Eco-Modus (Standard tagsüber)';
-                }
+              // 6. Daytime default: Ensure eco temp is set if still on night temp
+              else if (!room.pv_auto_active && currentTargetTemp < ecoTemp) {
+                action = 'activate';
+                targetTemp = ecoTemp;
+                solarLimitTemp = null;
+                reasoning = `Eco-Modus (Standard tagsüber): ${currentTargetTemp}°C → ${ecoTemp}°C`;
               }
               
               // ============= ÜBERSCHUSS-UMLEITUNG zu Nord-Räumen =============
