@@ -158,12 +158,18 @@ async function getAccessToken(accessId: string, accessSecret: string): Promise<s
   return cachedToken!;
 }
 
+interface TuyaResult {
+  success: boolean;
+  errorType?: string;
+  errorMessage?: string;
+}
+
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
   deviceId: string,
   temperature: number
-): Promise<boolean> {
+): Promise<TuyaResult> {
   try {
     const token = await getAccessToken(accessId, accessSecret);
     const timestamp = Date.now().toString();
@@ -189,11 +195,29 @@ async function setDeviceTemperature(
     });
 
     const result = await response.json();
-    console.log(`[Tuya] ${deviceId} -> ${temperature}°C: ${result.success}`);
-    return result.success === true;
+    console.log(`[Tuya] ${deviceId} -> ${temperature}°C: success=${result.success}, code=${result.code}`);
+    
+    if (result.success === true) {
+      return { success: true };
+    }
+    
+    // Determine error type from Tuya error codes
+    const errorType = result.code === 1010 ? 'token_expired'
+      : result.code === 2009 ? 'device_offline'
+      : 'tuya_api';
+    
+    return { 
+      success: false, 
+      errorType, 
+      errorMessage: result.msg || `Tuya error code: ${result.code}` 
+    };
   } catch (error) {
     console.error(`[Tuya] Error for ${deviceId}:`, error);
-    return false;
+    return { 
+      success: false, 
+      errorType: 'tuya_api', 
+      errorMessage: String(error) 
+    };
   }
 }
 
@@ -719,14 +743,26 @@ Deno.serve(async (req) => {
 
         // Execute action
         let success = false;
+        let tuyaError: { errorType?: string; errorMessage?: string } | null = null;
 
         if (action === 'activate') {
           if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
-            success = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, targetTemp);
+            const result = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, targetTemp);
+            success = result.success;
+            if (!result.success) {
+              tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
+            }
             tuyaApiCalls++;
           }
 
           if (success || !room.tuya_device_id) {
+            // Clear any existing errors for this room on success
+            await supabase
+              .from('api_errors')
+              .update({ resolved_at: now.toISOString() })
+              .eq('room_id', room.id)
+              .is('resolved_at', null);
+
             await supabase.from('rooms').update({
               pv_auto_active: true,
               pv_auto_last_change: now.toISOString(),
@@ -744,6 +780,17 @@ Deno.serve(async (req) => {
             });
 
             success = true;
+          } else if (tuyaError) {
+            // Log API error
+            await supabase.from('api_errors').insert({
+              source: 'pv-automation',
+              room_id: room.id,
+              room_name: room.name,
+              error_type: tuyaError.errorType || 'tuya_api',
+              error_message: tuyaError.errorMessage?.slice(0, 500),
+              device_id: room.tuya_device_id,
+            });
+            console.error(`[PV-Automation] Tuya API error for ${room.name}: ${tuyaError.errorMessage}`);
           }
 
         } else if (action === 'deactivate') {
@@ -754,11 +801,21 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name} deactivate: Setze ${finalTemp}°C (targetTemp=${targetTemp}, nightTemp=${room.night_temp || settings?.night_temp})`);
 
           if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
-            success = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, finalTemp);
+            const result = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, finalTemp);
+            success = result.success;
+            if (!result.success) {
+              tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
+            }
             tuyaApiCalls++;
           }
 
           if (success || !room.tuya_device_id) {
+            // Clear any existing errors for this room on success
+            await supabase
+              .from('api_errors')
+              .update({ resolved_at: now.toISOString() })
+              .eq('room_id', room.id)
+              .is('resolved_at', null);
             await supabase.from('rooms').update({
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
@@ -820,6 +877,17 @@ Deno.serve(async (req) => {
             }
 
             success = true;
+          } else if (tuyaError) {
+            // Log API error
+            await supabase.from('api_errors').insert({
+              source: 'pv-automation',
+              room_id: room.id,
+              room_name: room.name,
+              error_type: tuyaError.errorType || 'tuya_api',
+              error_message: tuyaError.errorMessage?.slice(0, 500),
+              device_id: room.tuya_device_id,
+            });
+            console.error(`[PV-Automation] Tuya API error for ${room.name}: ${tuyaError.errorMessage}`);
           }
         }
 

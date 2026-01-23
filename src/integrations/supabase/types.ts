@@ -14,6 +14,59 @@ export type Database = {
   }
   public: {
     Tables: {
+      api_errors: {
+        Row: {
+          created_at: string
+          device_id: string | null
+          error_code: string | null
+          error_message: string | null
+          error_type: string
+          id: string
+          is_acknowledged: boolean | null
+          resolved_at: string | null
+          retry_count: number | null
+          room_id: string | null
+          room_name: string | null
+          source: string
+        }
+        Insert: {
+          created_at?: string
+          device_id?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          error_type: string
+          id?: string
+          is_acknowledged?: boolean | null
+          resolved_at?: string | null
+          retry_count?: number | null
+          room_id?: string | null
+          room_name?: string | null
+          source: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string | null
+          error_code?: string | null
+          error_message?: string | null
+          error_type?: string
+          id?: string
+          is_acknowledged?: boolean | null
+          resolved_at?: string | null
+          retry_count?: number | null
+          room_id?: string | null
+          room_name?: string | null
+          source?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_errors_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       consumer_logs: {
         Row: {
           avg_power_w: number | null

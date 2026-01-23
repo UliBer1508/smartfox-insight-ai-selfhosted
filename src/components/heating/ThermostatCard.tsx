@@ -5,7 +5,7 @@ import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, Leaf, Moon, X } from 'lucide-react';
+import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot, Leaf, Moon, X, WifiOff } from 'lucide-react';
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -29,6 +29,7 @@ interface ThermostatCardProps {
   heatingStats?: HeatingStats;
   nightStartTime?: string;
   nightEndTime?: string;
+  hasApiError?: boolean;
 }
 
 // Helper to parse time string "HH:MM" to minutes since midnight
@@ -48,6 +49,7 @@ export function ThermostatCard({
   heatingStats,
   nightStartTime = '22:00',
   nightEndTime = '06:00',
+  hasApiError = false,
 }: ThermostatCardProps) {
   const [localTemp, setLocalTemp] = useState(room.target_temp ?? room.comfort_temp);
   const [isSetting, setIsSetting] = useState(false);
@@ -185,7 +187,12 @@ export function ThermostatCard({
             {room.name}
           </CardTitle>
           <div className="flex items-center gap-2 min-w-[60px] justify-end">
-            {isHeating ? (
+            {hasApiError ? (
+              <Badge variant="outline" className="gap-1 border-destructive text-destructive bg-destructive/10">
+                <WifiOff className="h-3 w-3" />
+                Offline
+              </Badge>
+            ) : isHeating ? (
               <Badge variant="destructive" className="gap-1">
                 <Flame className="h-3 w-3" />
                 Heizt

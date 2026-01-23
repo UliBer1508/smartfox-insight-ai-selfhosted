@@ -12,6 +12,7 @@ import { useRooms } from '@/hooks/useRooms';
 import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
 import { useAutomation } from '@/hooks/useAutomation';
+import { useApiErrors } from '@/hooks/useApiErrors';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
 import { PvForecastCard } from './PvForecastCard';
@@ -22,6 +23,7 @@ import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { AIStatusWidget } from './AIStatusWidget';
+import { ApiErrorBanner } from './ApiErrorBanner';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
@@ -86,6 +88,11 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     applyRecommendations,
     isApplying,
   } = useAutomation();
+
+  const {
+    hasRoomError,
+    refetch: refetchErrors,
+  } = useApiErrors();
 
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
@@ -257,6 +264,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
 
   return (
     <div className="space-y-6">
+      {/* API Error Banner */}
+      <ApiErrorBanner onRetry={() => { syncAllStatus(); refetchErrors(); }} />
+      
       {/* Current Status Cards */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 w-full min-w-0">
         <BatteryStatus 
@@ -396,6 +406,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                   heatingStats={room.id ? getRoomStats(room.id) : undefined}
                   nightStartTime={settings.night_start_time ?? '22:00'}
                   nightEndTime={settings.night_end_time ?? '06:00'}
+                  hasApiError={room.id ? hasRoomError(room.id) : false}
                 />
               ))}
             </div>
