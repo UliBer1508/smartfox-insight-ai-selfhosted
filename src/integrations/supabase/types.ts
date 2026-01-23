@@ -906,6 +906,54 @@ export type Database = {
         }
         Relationships: []
       }
+      solar_heating_events: {
+        Row: {
+          confidence: number | null
+          created_at: string | null
+          duration_minutes: number | null
+          heat_source: string | null
+          id: string
+          is_heating: boolean | null
+          pv_power_w: number | null
+          room_id: string
+          solar_gain_detected: boolean | null
+          temp_change_per_hour: number | null
+          temp_current: number
+          temp_start: number
+          timestamp: string | null
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string | null
+          duration_minutes?: number | null
+          heat_source?: string | null
+          id?: string
+          is_heating?: boolean | null
+          pv_power_w?: number | null
+          room_id: string
+          solar_gain_detected?: boolean | null
+          temp_change_per_hour?: number | null
+          temp_current: number
+          temp_start: number
+          timestamp?: string | null
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string | null
+          duration_minutes?: number | null
+          heat_source?: string | null
+          id?: string
+          is_heating?: boolean | null
+          pv_power_w?: number | null
+          room_id?: string
+          solar_gain_detected?: boolean | null
+          temp_change_per_hour?: number | null
+          temp_current?: number
+          temp_start?: number
+          timestamp?: string | null
+        }
+        Relationships: []
+      }
       system_settings: {
         Row: {
           created_at: string
