@@ -499,15 +499,17 @@ Deno.serve(async (req) => {
           mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
 
           // ============= MORGEN-AUFWÄRMPHASE nach Nachtende =============
-          // Wenn Raum noch auf Nachttemperatur steht, automatisch auf Eco umstellen
+          // Wenn Raum unter eco_temp steht, automatisch auf Eco umstellen
+          // WICHTIG: Auch wenn eco_temp == night_temp, muss ein Tuya-Sync erfolgen!
           const currentTargetTemp = Number(room.target_temp) || 0;
-          const isStillOnNightTemp = Math.abs(currentTargetTemp - nightTemp) < 0.5;
+          const needsMorningWakeup = currentTargetTemp < ecoTemp || 
+            (Math.abs(currentTargetTemp - nightTemp) < 0.5 && !room.pv_auto_active);
           
-          if (isStillOnNightTemp) {
-            action = 'activate';
+          if (needsMorningWakeup) {
+            action = 'activate';  // activate erzwingt Tuya-Sync
             targetTemp = ecoTemp;
             solarLimitTemp = null;
-            reasoning = `Morgen-Aufwärmen: Nacht beendet (${nightEnd}), ${nightTemp}°C → ${ecoTemp}°C`;
+            reasoning = `Morgen-Aufwärmen: Nacht beendet (${nightEnd}), ${currentTargetTemp}°C → ${ecoTemp}°C`;
             console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
           }
           // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
