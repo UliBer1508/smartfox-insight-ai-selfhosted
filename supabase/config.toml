@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.fetch-weather]
 verify_jwt = false
+
+[functions.monitor-solar-heating]
+verify_jwt = false

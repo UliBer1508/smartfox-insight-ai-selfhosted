@@ -343,7 +343,36 @@ Deno.serve(async (req) => {
       const expectedPvKwh = pvForecast?.expected_kwh || 0;
       const pvPower = reading.pv_power || 0;
 
-      console.log(`[PV-Automation] Surplus: ${surplus}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
+      // 8. Load recent solar heating events (last 60 min) for real-time solar gain detection
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const { data: solarEvents } = await supabase
+        .from('solar_heating_events')
+        .select('room_id, temp_change_per_hour, solar_gain_detected, heat_source, confidence')
+        .gte('timestamp', oneHourAgo)
+        .eq('solar_gain_detected', true)
+        .order('timestamp', { ascending: false });
+
+      // Create lookup for rooms with active solar gain
+      const roomsWithSolarGain = new Map<string, { tempChangePerHour: number; confidence: number }>();
+      for (const event of solarEvents || []) {
+        if (!roomsWithSolarGain.has(event.room_id)) {
+          roomsWithSolarGain.set(event.room_id, {
+            tempChangePerHour: event.temp_change_per_hour || 0,
+            confidence: event.confidence || 0
+          });
+        }
+      }
+
+      // Calculate grid export (negative power_io means export)
+      const gridExport = reading.power_io < 0 ? -reading.power_io : 0;
+      
+      // Identify north-facing rooms that could use surplus
+      const northOrientations = ['nord', 'north', 'n', 'nordost', 'nordwest', 'no', 'nw'];
+      const northRooms = rooms.filter(r => 
+        r.orientation && northOrientations.some(o => r.orientation!.toLowerCase().includes(o))
+      );
+
+      console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}, SolarGain-Räume: ${roomsWithSolarGain.size}, Nord-Räume: ${northRooms.length}`);
 
       // 7. Call analyze-patterns with optimize_decision
       let mlDecisions: MLDecision[] = [];
@@ -469,8 +498,20 @@ Deno.serve(async (req) => {
           // ML decision ONLY if automation_enabled = true AND it's daytime
           mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
 
-          // MORGENSTUNDEN-SPERRE für Süd-Räume bei erwartetem Sonnentag
-          if (room.has_solar_gain) {
+          // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
+          // Check if this room is currently gaining heat from the sun
+          const realtimeSolarGain = roomsWithSolarGain.get(room.id);
+          
+          if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
+            // Room is actively being heated by the sun - reduce thermostat!
+            action = 'deactivate';
+            targetTemp = solarTemp;
+            solarLimitTemp = comfortTemp;
+            reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%)`;
+            console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+          }
+          // ============= MORGEN-SPERRE für Süd-Räume bei erwartetem Sonnentag =============
+          else if (room.has_solar_gain) {
             const { shouldWait, reason } = isMorningWaitPeriod(
               nightEnd,
               wienHour,
@@ -559,6 +600,34 @@ Deno.serve(async (req) => {
                   targetTemp = ecoTemp;
                   solarLimitTemp = null;
                   reasoning = 'Eco-Modus (Standard tagsüber)';
+                }
+              }
+              
+              // ============= ÜBERSCHUSS-UMLEITUNG zu Nord-Räumen =============
+              // If we have significant grid export and this is a north room, use the surplus for heating
+              const isNorthRoom = room.orientation && northOrientations.some(o => room.orientation!.toLowerCase().includes(o));
+              
+              if (action === 'keep' && isNorthRoom && gridExport > 500 && !room.pv_auto_active) {
+                // Check if room is below target and could use heating
+                const currentRoomTemp = room.current_temp || 0;
+                const roomNeedsHeating = currentRoomTemp < (ecoTemp - 0.5);
+                
+                // Check if south rooms are being heated by sun (don't need heating power)
+                const southRoomsHeatedBySun = Array.from(roomsWithSolarGain.keys()).length > 0;
+                
+                if (roomNeedsHeating && southRoomsHeatedBySun) {
+                  action = 'activate';
+                  targetTemp = ecoTemp;
+                  solarLimitTemp = comfortTemp;
+                  reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Nord-Raum heizen statt einspeisen (Süd-Räume durch Sonne erwärmt)`;
+                  console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+                } else if (roomNeedsHeating && gridExport > 1000) {
+                  // Even without detected solar gain, use significant surplus
+                  action = 'activate';
+                  targetTemp = ecoTemp;
+                  solarLimitTemp = comfortTemp;
+                  reasoning = `⚡ Hoher Überschuss: ${gridExport}W Export → Nord-Raum heizen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
+                  console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
                 }
               }
             }
