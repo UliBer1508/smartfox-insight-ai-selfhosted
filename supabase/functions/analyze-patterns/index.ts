@@ -5,6 +5,207 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// ===========================================
+// AI PROVIDER ABSTRACTION (Google AI + Fallback)
+// ===========================================
+
+interface AIRequestBody {
+  model?: string;
+  messages: Array<{ role: string; content: string }>;
+  tools?: unknown[];
+  tool_choice?: unknown;
+}
+
+interface AIResponse {
+  ok: boolean;
+  status: number;
+  data?: unknown;
+  error?: string;
+}
+
+// Google AI API Call (kostenlos)
+async function callGoogleAI(requestBody: AIRequestBody): Promise<AIResponse> {
+  const GOOGLE_AI_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
+  if (!GOOGLE_AI_KEY) {
+    return { ok: false, status: 0, error: 'GOOGLE_AI_API_KEY not configured' };
+  }
+
+  try {
+    // Convert OpenAI-style messages to Google Gemini format
+    const contents = requestBody.messages
+      .filter(m => m.role !== 'system')
+      .map(m => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.content }]
+      }));
+
+    // System prompt als erstes Teil der ersten User-Nachricht
+    const systemPrompt = requestBody.messages.find(m => m.role === 'system')?.content;
+    if (systemPrompt && contents.length > 0 && contents[0].role === 'user') {
+      contents[0].parts.unshift({ text: `[System]: ${systemPrompt}\n\n` });
+    }
+
+    // Tool definitions für Google Format konvertieren
+    let tools: unknown[] | undefined;
+    if (requestBody.tools && Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
+      tools = [{
+        functionDeclarations: requestBody.tools.map((t: any) => ({
+          name: t.function?.name || t.name,
+          description: t.function?.description || t.description,
+          parameters: t.function?.parameters || t.parameters
+        }))
+      }];
+    }
+
+    const googleBody: Record<string, unknown> = {
+      contents,
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 4096
+      }
+    };
+
+    if (tools) {
+      googleBody.tools = tools;
+      // Force tool call if specified
+      if (requestBody.tool_choice && typeof requestBody.tool_choice === 'object') {
+        const toolChoice = requestBody.tool_choice as { function?: { name: string } };
+        if (toolChoice.function?.name) {
+          googleBody.toolConfig = {
+            functionCallingConfig: {
+              mode: 'ANY',
+              allowedFunctionNames: [toolChoice.function.name]
+            }
+          };
+        }
+      }
+    }
+
+    console.log('Calling Google AI (gemini-1.5-flash)...');
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GOOGLE_AI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(googleBody)
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Google AI error:', response.status, errorText);
+      return { ok: false, status: response.status, error: errorText };
+    }
+
+    const googleData = await response.json();
+    console.log('Google AI response received');
+
+    // Convert Google response to OpenAI-compatible format
+    const candidate = googleData.candidates?.[0];
+    const content = candidate?.content;
+
+    if (content?.parts?.[0]?.functionCall) {
+      // Tool call response
+      const functionCall = content.parts[0].functionCall;
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          choices: [{
+            message: {
+              tool_calls: [{
+                function: {
+                  name: functionCall.name,
+                  arguments: JSON.stringify(functionCall.args)
+                }
+              }]
+            }
+          }]
+        }
+      };
+    } else {
+      // Text response
+      const textContent = content?.parts?.map((p: { text?: string }) => p.text || '').join('') || '';
+      return {
+        ok: true,
+        status: 200,
+        data: {
+          choices: [{
+            message: {
+              content: textContent
+            }
+          }]
+        }
+      };
+    }
+  } catch (err) {
+    console.error('Google AI exception:', err);
+    return { ok: false, status: 0, error: String(err) };
+  }
+}
+
+// Lovable AI Gateway Call (Fallback)
+async function callLovableAI(requestBody: AIRequestBody): Promise<AIResponse> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    return { ok: false, status: 0, error: 'LOVABLE_API_KEY not configured' };
+  }
+
+  try {
+    console.log('Calling Lovable AI Gateway (fallback)...');
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: requestBody.model || 'google/gemini-2.5-flash',
+        ...requestBody
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Lovable AI error:', response.status, errorText);
+      return { ok: false, status: response.status, error: errorText };
+    }
+
+    const data = await response.json();
+    console.log('Lovable AI response received');
+    return { ok: true, status: 200, data };
+  } catch (err) {
+    console.error('Lovable AI exception:', err);
+    return { ok: false, status: 0, error: String(err) };
+  }
+}
+
+// Unified AI call with fallback
+async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
+  // 1. Try Google AI first (free)
+  const googleResponse = await callGoogleAI(requestBody);
+  
+  if (googleResponse.ok) {
+    console.log('✅ Using Google AI (free)');
+    return googleResponse;
+  }
+  
+  // 2. If Google AI fails (rate limit, quota, error), fallback to Lovable AI
+  console.log(`⚠️ Google AI failed (${googleResponse.status}): ${googleResponse.error}`);
+  console.log('🔄 Falling back to Lovable AI...');
+  
+  const lovableResponse = await callLovableAI(requestBody);
+  
+  if (lovableResponse.ok) {
+    console.log('✅ Using Lovable AI (fallback)');
+    return lovableResponse;
+  }
+  
+  // Both failed
+  console.error('❌ Both AI providers failed');
+  return lovableResponse; // Return Lovable error for better error handling
+}
+
 // Hilfsfunktion: Prüft ob aktuell Nachtzeit ist basierend auf Benutzereinstellungen
 function isNightTimeFromSettings(
   nightStart: string = '22:00', 
@@ -66,10 +267,7 @@ serve(async (req) => {
     
     console.log(`Analyzing type: ${type}, readings: ${readings?.length || 0}, rooms: ${rooms?.length || 0}, automationHistory: ${automationHistory?.length || 0}`);
     
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-    if (!LOVABLE_API_KEY) {
-      throw new Error('LOVABLE_API_KEY is not configured');
-    }
+    // API keys werden in callAI geprüft - kein früher Abbruch mehr nötig
 
     let prompt = '';
     let useToolCalling = false;
@@ -668,7 +866,7 @@ Leistung: ${readings?.power_io}W, Import: ${readings?.energy_in}kWh, Export: ${r
 Kurze Einschätzung auf Deutsch.`;
     }
 
-    const requestBody: Record<string, unknown> = {
+    const aiRequestBody: AIRequestBody = {
       model: 'google/gemini-2.5-flash',
       messages: [
         { role: 'system', content: 'Du bist ein Experte für Energiemanagement und Heizungsoptimierung. Antworte auf Deutsch.' },
@@ -677,40 +875,33 @@ Kurze Einschätzung auf Deutsch.`;
     };
 
     if (useToolCalling && toolDefinition) {
-      requestBody.tools = [toolDefinition];
-      requestBody.tool_choice = { type: "function", function: { name: toolName } };
+      aiRequestBody.tools = [toolDefinition];
+      aiRequestBody.tool_choice = { type: "function", function: { name: toolName } };
     }
 
-    console.log('Calling AI Gateway...');
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
+    // Use unified AI call with Google AI (free) + Lovable AI (fallback)
+    const aiResponse = await callAI(aiRequestBody);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('AI Gateway error:', response.status, errorText);
+    if (!aiResponse.ok) {
+      console.error('AI error:', aiResponse.status, aiResponse.error);
       
-      if (response.status === 429) {
+      if (aiResponse.status === 429) {
         return new Response(JSON.stringify({ error: 'Rate limit', decisions: [] }), {
           status: 429,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       
-      throw new Error(`AI Gateway error: ${response.status}`);
+      throw new Error(`AI error: ${aiResponse.status} - ${aiResponse.error}`);
     }
 
-    const data = await response.json();
-    console.log('AI response received');
+    const data = aiResponse.data as Record<string, unknown>;
+    console.log('AI response processed');
 
     // Handle tool calling response
-    if (useToolCalling && data.choices?.[0]?.message?.tool_calls) {
-      const toolCall = data.choices[0].message.tool_calls[0];
+    const choices = data?.choices as Array<{ message?: { tool_calls?: Array<{ function?: { name: string; arguments: string } }>; content?: string } }>;
+    if (useToolCalling && choices?.[0]?.message?.tool_calls) {
+      const toolCall = choices[0].message.tool_calls[0];
       if (toolCall?.function?.name === toolName) {
         try {
           const result = JSON.parse(toolCall.function.arguments);
@@ -735,7 +926,7 @@ Kurze Einschätzung auf Deutsch.`;
       }
     }
 
-    const analysis = data.choices?.[0]?.message?.content || 'Keine Analyse verfügbar.';
+    const analysis = choices?.[0]?.message?.content || 'Keine Analyse verfügbar.';
     return new Response(JSON.stringify({ analysis }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
