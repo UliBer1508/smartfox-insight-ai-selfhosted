@@ -16,7 +16,7 @@ let tokenExpiry: number = 0;
 const TOKEN_BUFFER_MS = 5 * 60 * 1000; // Refresh 5 min before expiry
 
 // Helper: Check if current time is within night hours (Europe/Vienna timezone!)
-function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: boolean; wienTime: string } {
+function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: boolean; wienTime: string; wienHour: number } {
   const now = new Date();
   
   // WICHTIG: Wien-Zeit verwenden, nicht UTC!
@@ -45,7 +45,36 @@ function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: b
     isNight = currentMinutes >= nightStart && currentMinutes < nightEnd;
   }
   
-  return { isNight, wienTime };
+  return { isNight, wienTime, wienHour };
+}
+
+// Helper: Check if it's morning wait period (waiting for PV to become available)
+function isMorningWaitPeriod(
+  nightEndTime: string,
+  wienHour: number,
+  expectedPvKwh: number,
+  pvPower: number,
+  minPvPowerForStart: number = 1000
+): { shouldWait: boolean; reason: string } {
+  const [endH] = (nightEndTime || '08:00').split(':').map(Number);
+  
+  // Morning period: between night end and 2 hours after
+  const morningEnd = endH + 2;
+  const isMorning = wienHour >= endH && wienHour < morningEnd;
+  
+  if (!isMorning) {
+    return { shouldWait: false, reason: '' };
+  }
+  
+  // Good sunny day expected (>15 kWh) but PV power still low
+  if (expectedPvKwh > 15 && pvPower < minPvPowerForStart) {
+    return { 
+      shouldWait: true, 
+      reason: `Sonnentag erwartet (${expectedPvKwh.toFixed(1)} kWh) - warte auf PV (aktuell ${pvPower}W < ${minPvPowerForStart}W)`
+    };
+  }
+  
+  return { shouldWait: false, reason: '' };
 }
 
 interface MLDecision {
@@ -303,7 +332,18 @@ Deno.serve(async (req) => {
         .order('timestamp', { ascending: false })
         .limit(10);
 
-      console.log(`[PV-Automation] Surplus: ${surplus}W, SOC: ${batterySoc}%, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
+      // 7. Load PV forecast for today
+      const today = new Date().toISOString().split('T')[0];
+      const { data: pvForecast } = await supabase
+        .from('pv_forecasts')
+        .select('expected_kwh')
+        .eq('date', today)
+        .single();
+
+      const expectedPvKwh = pvForecast?.expected_kwh || 0;
+      const pvPower = reading.pv_power || 0;
+
+      console.log(`[PV-Automation] Surplus: ${surplus}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
 
       // 7. Call analyze-patterns with optimize_decision
       let mlDecisions: MLDecision[] = [];
@@ -398,13 +438,15 @@ Deno.serve(async (req) => {
         // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
         const nightStart = settings?.night_start_time || '22:00';
         const nightEnd = settings?.night_end_time || '08:00';
-        const { isNight, wienTime } = isNightTime(nightStart, nightEnd);
+        const { isNight, wienTime, wienHour } = isNightTime(nightStart, nightEnd);
         
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const nightTemp = room.night_temp || settings?.night_temp || 17;
+        // Solar-Heiztemperatur: Priorität solar_heating_temp → night_temp → 17°C
+        const solarTemp = room.solar_heating_temp || room.night_temp || 17;
         
-        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd})`);
+        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd}), has_solar_gain=${room.has_solar_gain}, solar_heating_temp=${room.solar_heating_temp}`);
 
         // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
         if (isNight) {
@@ -427,64 +469,97 @@ Deno.serve(async (req) => {
           // ML decision ONLY if automation_enabled = true AND it's daytime
           mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
 
-          if (mlDecision && usedMlDecision && useMLDecisions) {
-            // Use ML/AI recommendation (nur tagsüber!)
-            action = mlDecision.action;
-            targetTemp = mlDecision.target_temp;
-            reasoning = mlDecision.reasoning + ' (KI)';
-            expectedEnergyWh = mlDecision.expected_energy_wh;
-            confidence = mlDecision.confidence;
-          } else {
-            // Basis-Zeitschaltung / Fallback (nur tagsüber)
+          // MORGENSTUNDEN-SPERRE für Süd-Räume bei erwartetem Sonnentag
+          if (room.has_solar_gain) {
+            const { shouldWait, reason } = isMorningWaitPeriod(
+              nightEnd,
+              wienHour,
+              expectedPvKwh,
+              pvPower
+            );
             
-            // 2. Battery protection
-            if (batterySoc < minBatterySoc && room.pv_auto_active) {
+            if (shouldWait) {
+              // Solar-Passiv-Modus: Thermostat auf niedrige Temperatur setzen und warten
               action = 'deactivate';
-              targetTemp = ecoTemp;
-              solarLimitTemp = null;
-              reasoning = `Batterie <${minBatterySoc}%`;
-            } 
-            // 3. PV surplus/Solargewinn -> Solar-Modus aktivieren
-            else if (surplus >= thresholdOn && !room.pv_auto_active) {
-              action = 'activate';
-              
-              // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
-              if (room.has_solar_gain && room.solar_heating_temp) {
-                targetTemp = room.solar_heating_temp; // z.B. 18°C - Heizung bleibt aus!
-                solarLimitTemp = comfortTemp; // Raum darf sich durch Sonne bis hier erwärmen
-                reasoning = `Solar-Modus: Heizung ${targetTemp}°C, Sonne darf bis ${comfortTemp}°C erwärmen (${surplus}W Überschuss)`;
-              } else {
-                targetTemp = ecoTemp; // Normale Räume: Eco-Temperatur
-                solarLimitTemp = comfortTemp;
-                reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
-              }
-            } 
-            // 4. Low/no surplus -> Solar-Limit deaktivieren
-            else if (surplus < thresholdOff && room.pv_auto_active) {
-              action = 'deactivate';
-              targetTemp = ecoTemp;
-              solarLimitTemp = null;
-              reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
-            } 
-            // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
-            else if (room.pv_auto_active && surplus >= thresholdOff) {
-              // Solar-Modus weiterhin aktiv - behalte die niedrige Temperatur bei
-              if (room.has_solar_gain && room.solar_heating_temp) {
-                targetTemp = room.solar_heating_temp;
-              } else {
-                targetTemp = ecoTemp;
-              }
+              targetTemp = solarTemp;
               solarLimitTemp = comfortTemp;
-              // Keep action = 'keep'
+              reasoning = reason;
+              
+              console.log(`[PV-Automation] ${room.name}: MORGEN-SPERRE - ${reason}, Thermostat auf ${solarTemp}°C`);
             }
-            // 6. Daytime default: Ensure eco temp is set
-            else if (!room.pv_auto_active) {
-              const currentTarget = room.target_temp || ecoTemp;
-              if (currentTarget !== ecoTemp) {
+          }
+
+          // Only process ML/fallback if action is still 'keep' (not already set by morning wait)
+          if (action === 'keep') {
+            if (mlDecision && usedMlDecision && useMLDecisions) {
+              // Use ML/AI recommendation (nur tagsüber!)
+              action = mlDecision.action;
+              targetTemp = mlDecision.target_temp;
+              reasoning = mlDecision.reasoning + ' (KI)';
+              expectedEnergyWh = mlDecision.expected_energy_wh;
+              confidence = mlDecision.confidence;
+            } else {
+              // Basis-Zeitschaltung / Fallback (nur tagsüber)
+              
+              // 2. Battery protection
+              if (batterySoc < minBatterySoc && room.pv_auto_active) {
                 action = 'deactivate';
                 targetTemp = ecoTemp;
                 solarLimitTemp = null;
-                reasoning = 'Eco-Modus (Standard tagsüber)';
+                reasoning = `Batterie <${minBatterySoc}%`;
+              } 
+              // 3. PV surplus/Solargewinn -> Solar-Modus aktivieren
+              // ABER: Nur wenn tatsächlich genug PV-Leistung vorhanden!
+              else if (surplus >= thresholdOn && !room.pv_auto_active && pvPower >= 1000) {
+                action = 'activate';
+                
+                // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
+                if (room.has_solar_gain) {
+                  targetTemp = solarTemp; // z.B. 17-18°C - Heizung bleibt aus!
+                  solarLimitTemp = comfortTemp; // Raum darf sich durch Sonne bis hier erwärmen
+                  reasoning = `Solar-Passiv-Modus: Thermostat ${targetTemp}°C, Sonne darf bis ${comfortTemp}°C erwärmen (${surplus}W Überschuss, ${pvPower}W PV)`;
+                } else {
+                  targetTemp = ecoTemp; // Normale Räume: Eco-Temperatur
+                  solarLimitTemp = comfortTemp;
+                  reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
+                }
+              }
+              // 3b. Überschuss vorhanden, aber PV-Leistung noch zu gering - warten
+              else if (surplus >= thresholdOn && !room.pv_auto_active && pvPower < 1000 && room.has_solar_gain) {
+                // Noch nicht aktivieren - warten auf mehr PV
+                action = 'deactivate';
+                targetTemp = solarTemp;
+                solarLimitTemp = null;
+                reasoning = `Warte auf PV: Überschuss ${surplus}W vorhanden aber PV-Leistung noch gering (${pvPower}W < 1000W)`;
+                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+              }
+              // 4. Low/no surplus -> Solar-Limit deaktivieren
+              else if (surplus < thresholdOff && room.pv_auto_active) {
+                action = 'deactivate';
+                targetTemp = ecoTemp;
+                solarLimitTemp = null;
+                reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
+              } 
+              // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
+              else if (room.pv_auto_active && surplus >= thresholdOff) {
+                // Solar-Modus weiterhin aktiv - behalte die niedrige Temperatur bei
+                if (room.has_solar_gain) {
+                  targetTemp = solarTemp;
+                } else {
+                  targetTemp = ecoTemp;
+                }
+                solarLimitTemp = comfortTemp;
+                // Keep action = 'keep'
+              }
+              // 6. Daytime default: Ensure eco temp is set
+              else if (!room.pv_auto_active) {
+                const currentTarget = room.target_temp || ecoTemp;
+                if (currentTarget !== ecoTemp) {
+                  action = 'deactivate';
+                  targetTemp = ecoTemp;
+                  solarLimitTemp = null;
+                  reasoning = 'Eco-Modus (Standard tagsüber)';
+                }
               }
             }
           }
