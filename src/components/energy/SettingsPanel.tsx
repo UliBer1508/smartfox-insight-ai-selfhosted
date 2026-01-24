@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Server, CheckCircle, AlertCircle, Settings, Home, Database } from 'lucide-react';
+import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
 import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
@@ -8,6 +8,7 @@ import { RoomManager } from "@/components/heating/RoomManager";
 import { useHeatingSettings } from "@/hooks/useHeatingSettings";
 import { useRooms } from "@/hooks/useRooms";
 import { TuyaSubscriptionAlert } from "@/components/settings/TuyaSubscriptionAlert";
+import { TuyaConnectionTest } from "@/components/settings/TuyaConnectionTest";
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -31,7 +32,21 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
 
   return (
     <div className="space-y-6">
-      <Accordion type="multiple" defaultValue={["anlage", "raeume", "daten"]} className="space-y-4">
+      <Accordion type="multiple" defaultValue={["tuya", "anlage", "raeume", "daten"]} className="space-y-4">
+        {/* Tuya API-Verbindung */}
+        <AccordionItem value="tuya" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+            <div className="flex items-center gap-2">
+              <Plug className="h-5 w-5 text-primary" />
+              <span className="font-semibold">Tuya API-Verbindung</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="p-4 space-y-4">
+            <TuyaConnectionTest />
+            <TuyaSubscriptionAlert />
+          </AccordionContent>
+        </AccordionItem>
+
         {/* Anlagen-Konfiguration */}
         <AccordionItem value="anlage" className="border rounded-lg overflow-hidden">
           <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
@@ -41,7 +56,6 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="p-4 space-y-4">
-            <TuyaSubscriptionAlert />
             <HeatingSettingsForm
               settings={settings}
               onSave={saveSettings}

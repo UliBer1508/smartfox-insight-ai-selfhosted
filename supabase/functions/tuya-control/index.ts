@@ -498,6 +498,92 @@ Deno.serve(async (req) => {
       });
     }
 
+    // POST /test - Connection test with detailed diagnostics
+    if (req.method === 'POST' && path === '/test') {
+      const testResult = {
+        credentials_configured: !!accessId && !!accessSecret,
+        token_valid: false,
+        token_error: null as string | null,
+        api_accessible: false,
+        api_error: null as string | null,
+        quota_exhausted: false,
+        error_code: null as string | null,
+        error_message: null as string | null,
+        devices_count: 0,
+        tested_at: new Date().toISOString(),
+      };
+
+      // Step 1: Check credentials (already done above, would have thrown)
+      if (!testResult.credentials_configured) {
+        return new Response(JSON.stringify({ success: true, ...testResult }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Step 2: Test token retrieval
+      try {
+        // Clear cached token to force a fresh request
+        cachedToken = null;
+        tokenExpiry = 0;
+        await getAccessToken(accessId, accessSecret);
+        testResult.token_valid = true;
+      } catch (error) {
+        const errorStr = String(error);
+        testResult.token_error = errorStr;
+        
+        // Check for quota error in token request
+        const codeMatch = errorStr.match(/code:\s*(\d+)/);
+        if (codeMatch) {
+          testResult.error_code = codeMatch[1];
+          if (codeMatch[1] === '28841004') {
+            testResult.quota_exhausted = true;
+            testResult.error_message = 'Trial Edition quota exhausted';
+          }
+        }
+        
+        return new Response(JSON.stringify({ success: true, ...testResult }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      // Step 3: Test device API access
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('tuya_device_id, name')
+        .not('tuya_device_id', 'is', null);
+
+      testResult.devices_count = rooms?.length || 0;
+
+      if (rooms && rooms.length > 0) {
+        try {
+          // Try to access the first device
+          await getDeviceStatus(accessId, accessSecret, rooms[0].tuya_device_id);
+          testResult.api_accessible = true;
+        } catch (error) {
+          const errorStr = String(error);
+          testResult.api_error = errorStr;
+          
+          // Check for quota error
+          const codeMatch = errorStr.match(/code:\s*(\d+)/);
+          if (codeMatch) {
+            testResult.error_code = codeMatch[1];
+            if (codeMatch[1] === '28841004') {
+              testResult.quota_exhausted = true;
+              testResult.error_message = 'Trial Edition quota exhausted';
+            } else if (codeMatch[1] === '1004') {
+              testResult.error_message = 'Invalid signature - check credentials';
+            } else if (codeMatch[1] === '2017') {
+              testResult.error_message = 'Device offline';
+            }
+          }
+        }
+      }
+
+      return new Response(JSON.stringify({ success: true, ...testResult }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
