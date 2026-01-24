@@ -5,7 +5,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-const TUYA_API_BASE = 'https://openapi.tuyaeu.com';
+// All Tuya Data Centers for multi-region support
+const DATA_CENTERS = [
+  { name: 'Central Europe', url: 'https://openapi.tuyaeu.com', region: 'eu' },
+  { name: 'Western Europe', url: 'https://openapi-weaz.tuyaeu.com', region: 'we' },
+  { name: 'Western America', url: 'https://openapi.tuyaus.com', region: 'us' },
+  { name: 'Eastern America', url: 'https://openapi-ueaz.tuyaus.com', region: 'ue' },
+  { name: 'India', url: 'https://openapi.tuyain.com', region: 'in' },
+  { name: 'China', url: 'https://openapi.tuyacn.com', region: 'cn' },
+];
+
+// Default to Central Europe
+let TUYA_API_BASE = 'https://openapi.tuyaeu.com';
 
 interface TuyaToken {
   access_token: string;
@@ -60,31 +71,19 @@ async function buildStringToSign(method: string, path: string, body: string = ''
   return `${method}\n${contentHash}\n${headers}\n${path}`;
 }
 
-// Get Tuya access token
-async function getAccessToken(accessId: string, accessSecret: string): Promise<string> {
-  const now = Date.now();
-  
-  if (cachedToken && tokenExpiry > now + 60000) {
-    console.log('Using cached token');
-    return cachedToken.access_token;
-  }
-
-  const timestamp = now.toString();
-  const nonce = ''; // Optional, can be empty
+// Get Tuya access token with configurable base URL
+async function getAccessTokenWithUrl(baseUrl: string, accessId: string, accessSecret: string): Promise<{ token: string; raw: unknown }> {
+  const timestamp = Date.now().toString();
+  const nonce = '';
   const path = '/v1.0/token?grant_type=1';
   
-  // For token request: str = client_id + t + nonce + stringToSign
-  // sign = HMAC-SHA256(str, secret).toUpperCase()
   const stringToSign = await buildStringToSign('GET', path, '');
   const str = accessId + timestamp + nonce + stringToSign;
   const sign = await hmacSha256(accessSecret, str);
 
-  console.log('Token request - path:', path);
-  console.log('Token request - stringToSign:', JSON.stringify(stringToSign));
-  console.log('Token request - str:', JSON.stringify(str));
-  console.log('Token request - sign:', sign);
+  console.log('Token request - url:', baseUrl, 'path:', path);
 
-  const response = await fetch(`${TUYA_API_BASE}${path}`, {
+  const response = await fetch(`${baseUrl}${path}`, {
     method: 'GET',
     headers: {
       'client_id': accessId,
@@ -101,9 +100,22 @@ async function getAccessToken(accessId: string, accessSecret: string): Promise<s
     throw new Error(`Failed to get token: ${data.msg} (code: ${data.code})`);
   }
 
-  cachedToken = data.result;
-  tokenExpiry = now + (data.result.expire_time * 1000);
-  return data.result.access_token;
+  return { token: data.result.access_token, raw: data.result };
+}
+
+// Get Tuya access token using the current API base
+async function getAccessToken(accessId: string, accessSecret: string): Promise<string> {
+  const now = Date.now();
+  
+  if (cachedToken && tokenExpiry > now + 60000) {
+    console.log('Using cached token');
+    return cachedToken.access_token;
+  }
+
+  const { token, raw } = await getAccessTokenWithUrl(TUYA_API_BASE, accessId, accessSecret);
+  cachedToken = raw as TuyaToken;
+  tokenExpiry = now + ((raw as TuyaToken).expire_time * 1000);
+  return token;
 }
 
 // Make authenticated Tuya API request
@@ -239,6 +251,18 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Load configured API URL from system_settings
+    const { data: apiUrlSetting } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'tuya_api_url')
+      .maybeSingle();
+    
+    if (apiUrlSetting?.value?.url) {
+      TUYA_API_BASE = apiUrlSetting.value.url;
+      console.log('Using configured Tuya API URL:', TUYA_API_BASE);
+    }
 
     // GET /devices - Not available with Basic Services, return empty
     if (req.method === 'GET' && path === '/devices') {
@@ -498,8 +522,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    // POST /test - Connection test with detailed diagnostics
+    // POST /test - Connection test with detailed diagnostics and multi-region support
     if (req.method === 'POST' && path === '/test') {
+      interface RegionResult {
+        name: string;
+        url: string;
+        region: string;
+        success: boolean;
+        error?: string;
+        error_code?: string;
+        quota_exhausted?: boolean;
+      }
+
       const testResult = {
         credentials_configured: !!accessId && !!accessSecret,
         token_valid: false,
@@ -511,18 +545,51 @@ Deno.serve(async (req) => {
         error_message: null as string | null,
         devices_count: 0,
         tested_at: new Date().toISOString(),
+        current_region: TUYA_API_BASE,
+        region_results: [] as RegionResult[],
+        working_regions: [] as string[],
       };
 
-      // Step 1: Check credentials (already done above, would have thrown)
+      // Step 1: Check credentials
       if (!testResult.credentials_configured) {
         return new Response(JSON.stringify({ success: true, ...testResult }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      // Step 2: Test token retrieval
+      // Step 2: Test all regions in parallel
+      console.log('Testing all Tuya data centers...');
+      const regionPromises = DATA_CENTERS.map(async (dc) => {
+        try {
+          await getAccessTokenWithUrl(dc.url, accessId, accessSecret);
+          return { 
+            name: dc.name, 
+            url: dc.url, 
+            region: dc.region, 
+            success: true 
+          };
+        } catch (error) {
+          const errorStr = String(error);
+          const codeMatch = errorStr.match(/code:\s*(\d+)/);
+          return { 
+            name: dc.name, 
+            url: dc.url, 
+            region: dc.region, 
+            success: false, 
+            error: errorStr.substring(0, 100),
+            error_code: codeMatch?.[1] || undefined,
+            quota_exhausted: codeMatch?.[1] === '28841004',
+          };
+        }
+      });
+
+      testResult.region_results = await Promise.all(regionPromises);
+      testResult.working_regions = testResult.region_results
+        .filter(r => r.success)
+        .map(r => r.name);
+
+      // Step 3: Test current region token
       try {
-        // Clear cached token to force a fresh request
         cachedToken = null;
         tokenExpiry = 0;
         await getAccessToken(accessId, accessSecret);
@@ -531,7 +598,6 @@ Deno.serve(async (req) => {
         const errorStr = String(error);
         testResult.token_error = errorStr;
         
-        // Check for quota error in token request
         const codeMatch = errorStr.match(/code:\s*(\d+)/);
         if (codeMatch) {
           testResult.error_code = codeMatch[1];
@@ -541,12 +607,13 @@ Deno.serve(async (req) => {
           }
         }
         
+        // Return early but include region results
         return new Response(JSON.stringify({ success: true, ...testResult }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
 
-      // Step 3: Test device API access
+      // Step 4: Test device API access
       const { data: rooms } = await supabase
         .from('rooms')
         .select('tuya_device_id, name')
@@ -556,14 +623,12 @@ Deno.serve(async (req) => {
 
       if (rooms && rooms.length > 0) {
         try {
-          // Try to access the first device
           await getDeviceStatus(accessId, accessSecret, rooms[0].tuya_device_id);
           testResult.api_accessible = true;
         } catch (error) {
           const errorStr = String(error);
           testResult.api_error = errorStr;
           
-          // Check for quota error
           const codeMatch = errorStr.match(/code:\s*(\d+)/);
           if (codeMatch) {
             testResult.error_code = codeMatch[1];
@@ -580,6 +645,38 @@ Deno.serve(async (req) => {
       }
 
       return new Response(JSON.stringify({ success: true, ...testResult }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // POST /set-region - Set the Tuya API region
+    if (req.method === 'POST' && path === '/set-region') {
+      const { url, region } = await req.json();
+      
+      if (!url) {
+        throw new Error('url is required');
+      }
+
+      // Validate URL is a known data center
+      const validDc = DATA_CENTERS.find(dc => dc.url === url);
+      if (!validDc) {
+        throw new Error('Invalid data center URL');
+      }
+
+      // Save to system_settings
+      await supabase
+        .from('system_settings')
+        .upsert({
+          key: 'tuya_api_url',
+          value: { url, region: region || validDc.region, name: validDc.name },
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' });
+
+      // Clear token cache to use new region
+      cachedToken = null;
+      tokenExpiry = 0;
+
+      return new Response(JSON.stringify({ success: true, url, region: validDc.name }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }

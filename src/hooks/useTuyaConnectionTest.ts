@@ -1,6 +1,16 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 
+export interface RegionResult {
+  name: string;
+  url: string;
+  region: string;
+  success: boolean;
+  error?: string;
+  error_code?: string;
+  quota_exhausted?: boolean;
+}
+
 export interface TuyaTestResult {
   credentials_configured: boolean;
   token_valid: boolean;
@@ -12,12 +22,16 @@ export interface TuyaTestResult {
   error_message: string | null;
   devices_count: number;
   tested_at: string;
+  current_region: string;
+  region_results: RegionResult[];
+  working_regions: string[];
 }
 
 export function useTuyaConnectionTest() {
   const [result, setResult] = useState<TuyaTestResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSettingRegion, setIsSettingRegion] = useState(false);
 
   const runTest = useCallback(async () => {
     setIsLoading(true);
@@ -42,6 +56,30 @@ export function useTuyaConnectionTest() {
     }
   }, []);
 
+  const setRegion = useCallback(async (url: string, region: string) => {
+    setIsSettingRegion(true);
+    setError(null);
+    
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('tuya-control/set-region', {
+        body: { url, region },
+      });
+
+      if (invokeError) {
+        throw new Error(invokeError.message);
+      }
+
+      // Re-run test after changing region
+      await runTest();
+      return data;
+    } catch (err) {
+      setError(String(err));
+      throw err;
+    } finally {
+      setIsSettingRegion(false);
+    }
+  }, [runTest]);
+
   const getTimeSinceTest = useCallback(() => {
     if (!result?.tested_at) return null;
     
@@ -59,6 +97,8 @@ export function useTuyaConnectionTest() {
     isLoading,
     error,
     runTest,
+    setRegion,
+    isSettingRegion,
     getTimeSinceTest,
   };
 }
