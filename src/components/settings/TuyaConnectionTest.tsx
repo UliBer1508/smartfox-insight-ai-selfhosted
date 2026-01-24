@@ -3,8 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Skeleton } from '@/components/ui/skeleton';
-import { useTuyaConnectionTest } from '@/hooks/useTuyaConnectionTest';
+import { useTuyaConnectionTest, RegionResult } from '@/hooks/useTuyaConnectionTest';
 import { 
   CheckCircle, 
   XCircle, 
@@ -14,7 +13,9 @@ import {
   RefreshCw,
   Key,
   Wifi,
-  Server
+  Server,
+  Globe,
+  MapPin
 } from 'lucide-react';
 
 interface TestStepProps {
@@ -75,8 +76,53 @@ function TestStep({ label, status, detail, icon }: TestStepProps) {
   );
 }
 
+interface RegionRowProps {
+  region: RegionResult;
+  isCurrent: boolean;
+  onSelect: () => void;
+  isLoading: boolean;
+}
+
+function RegionRow({ region, isCurrent, onSelect, isLoading }: RegionRowProps) {
+  return (
+    <div className={`flex items-center gap-2 p-2 rounded-md text-sm ${
+      isCurrent ? 'bg-primary/10 border border-primary/30' : 
+      region.success ? 'bg-green-500/10' : 'bg-muted/50'
+    }`}>
+      <MapPin className="h-3 w-3 flex-shrink-0" />
+      <span className="flex-1 font-medium">{region.name}</span>
+      {region.success ? (
+        <>
+          <CheckCircle className="h-3 w-3 text-green-600" />
+          {!isCurrent && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-6 text-xs px-2"
+              onClick={onSelect}
+              disabled={isLoading}
+            >
+              {isLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Verwenden'}
+            </Button>
+          )}
+          {isCurrent && (
+            <Badge variant="outline" className="text-xs bg-primary/20">Aktiv</Badge>
+          )}
+        </>
+      ) : (
+        <>
+          <XCircle className="h-3 w-3 text-destructive" />
+          {region.quota_exhausted && (
+            <span className="text-xs text-destructive">Quota</span>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 export function TuyaConnectionTest() {
-  const { result, isLoading, error, runTest, getTimeSinceTest } = useTuyaConnectionTest();
+  const { result, isLoading, error, runTest, setRegion, isSettingRegion, getTimeSinceTest } = useTuyaConnectionTest();
 
   // Auto-run test on mount
   useEffect(() => {
@@ -118,10 +164,21 @@ export function TuyaConnectionTest() {
     return undefined;
   };
 
+  const handleSelectRegion = async (region: RegionResult) => {
+    try {
+      await setRegion(region.url, region.region);
+    } catch (err) {
+      console.error('Failed to set region:', err);
+    }
+  };
+
   const overallStatus = result?.api_accessible ? 'success' : 
     (result?.quota_exhausted ? 'quota_exhausted' : 
     (result?.token_valid === false ? 'token_error' : 
     (error ? 'error' : 'unknown')));
+
+  const workingRegionsCount = result?.region_results?.filter(r => r.success).length || 0;
+  const hasAlternativeRegions = workingRegionsCount > 0 && result?.quota_exhausted;
 
   return (
     <Card>
@@ -135,7 +192,7 @@ export function TuyaConnectionTest() {
             variant="outline" 
             size="sm" 
             onClick={runTest}
-            disabled={isLoading}
+            disabled={isLoading || isSettingRegion}
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -169,8 +226,45 @@ export function TuyaConnectionTest() {
           />
         </div>
 
+        {/* Multi-Region Results */}
+        {result?.region_results && result.region_results.length > 0 && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Globe className="h-4 w-4" />
+              Data Center Verfügbarkeit
+              {workingRegionsCount > 0 && (
+                <Badge variant="outline" className="text-xs">
+                  {workingRegionsCount}/{result.region_results.length} verfügbar
+                </Badge>
+              )}
+            </div>
+            <div className="grid gap-1">
+              {result.region_results.map((region) => (
+                <RegionRow
+                  key={region.url}
+                  region={region}
+                  isCurrent={result.current_region === region.url}
+                  onSelect={() => handleSelectRegion(region)}
+                  isLoading={isSettingRegion}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Alternative Region Available Alert */}
+        {hasAlternativeRegions && (
+          <Alert className="border-green-500/50 bg-green-500/10">
+            <CheckCircle className="h-4 w-4 text-green-600" />
+            <AlertTitle className="text-green-700">Alternative Region verfügbar!</AlertTitle>
+            <AlertDescription className="text-green-600">
+              Ein anderes Data Center funktioniert. Klicken Sie auf "Verwenden" um die Region zu wechseln.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Error Details */}
-        {result?.quota_exhausted && (
+        {result?.quota_exhausted && !hasAlternativeRegions && (
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>IoT Core Trial Edition aufgebraucht</AlertTitle>
@@ -180,9 +274,12 @@ export function TuyaConnectionTest() {
                 Die Thermostat-Steuerung ist nicht verfügbar, bis Sie das Kontingent verlängern.
               </p>
               <div className="text-sm text-muted-foreground">
-                <strong>Lösung:</strong> Verlängern Sie den "IoT Core Service" im Tuya IoT Portal unter:
-                <br />
-                Cloud → My Services → IoT Core → Extend Trial
+                <strong>Mögliche Lösungen:</strong>
+                <ul className="list-disc list-inside mt-1 space-y-1">
+                  <li>Warten Sie bis zu 24 Stunden nach der Verlängerung</li>
+                  <li>Klicken Sie im Tuya Portal auf "Activate" beim IoT Core Service</li>
+                  <li>Prüfen Sie die API-Nutzungsstatistik im Portal</li>
+                </ul>
               </div>
             </AlertDescription>
           </Alert>
