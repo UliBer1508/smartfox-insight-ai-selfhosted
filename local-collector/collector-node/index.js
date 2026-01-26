@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+/**
+ * Fronius + Tuya Local Collector v3.0
+ * 
+ * Sammelt Energiedaten von Fronius und steuert Thermostate lokal über TuyAPI
+ */
+
 const { createClient } = require('@supabase/supabase-js');
 const http = require('http');
 const fs = require('fs');
@@ -22,6 +28,21 @@ try {
 
 // Initialize Supabase client
 const supabase = createClient(config.supabase.url, config.supabase.anon_key);
+
+// Initialize Thermostat Controller (wenn aktiviert)
+let thermostatCtrl = null;
+if (config.tuya?.enabled) {
+  try {
+    const ThermostatController = require('./tuya-thermostat');
+    thermostatCtrl = new ThermostatController();
+    console.log('[Init] TuyAPI Thermostat-Controller geladen');
+  } catch (error) {
+    console.error('[Init] TuyAPI nicht verfuegbar:', error.message);
+    console.error('   Installiere mit: npm install tuyapi');
+  }
+}
+
+let lastThermostatSync = 0;
 
 // HTTP GET request helper
 function httpGet(url, timeout = 5000) {
@@ -49,7 +70,6 @@ function httpGet(url, timeout = 5000) {
 async function fetchFroniusData() {
   try {
     const url = `http://${config.fronius.ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
-    console.log(`Fetching Fronius: ${url}`);
     const data = await httpGet(url);
     
     const site = data?.Body?.Data?.Site || {};
@@ -72,7 +92,7 @@ async function fetchFroniusData() {
       battery_power: site.P_Akku !== undefined ? site.P_Akku : null
     };
   } catch (error) {
-    console.error('Fronius Fehler:', error.message);
+    console.error('[Fronius] Fehler:', error.message);
     return null;
   }
 }
@@ -80,7 +100,6 @@ async function fetchFroniusData() {
 // Save reading to database
 async function saveReading(froniusData) {
   if (!froniusData) {
-    console.log('Keine Fronius-Daten zum Speichern');
     return false;
   }
 
@@ -101,28 +120,172 @@ async function saveReading(froniusData) {
       .insert(reading);
     
     if (error) {
-      console.error('Datenbank Fehler:', error.message);
+      console.error('[DB] Fehler:', error.message);
       return false;
     }
     
-    console.log(`Gespeichert: Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%, BattPower=${reading.battery_power}W`);
+    console.log(`[Fronius] Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%`);
     return true;
   } catch (error) {
-    console.error('Speichern fehlgeschlagen:', error.message);
+    console.error('[DB] Speichern fehlgeschlagen:', error.message);
     return false;
+  }
+}
+
+// Sync all thermostats and update database
+async function syncThermostats() {
+  if (!thermostatCtrl || !config.tuya?.devices?.length) return;
+  
+  console.log('[Tuya] Thermostate synchronisieren...');
+  
+  for (const deviceConfig of config.tuya.devices) {
+    const status = await thermostatCtrl.getStatus(deviceConfig);
+    
+    if (status.success) {
+      // Update room in database
+      const { error } = await supabase.from('rooms').update({
+        current_temp: status.current_temp,
+        target_temp: status.target_temp,
+        is_heating: status.is_heating,
+        last_thermostat_sync: new Date().toISOString()
+      }).eq('id', deviceConfig.room_id);
+      
+      if (!error) {
+        console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
+      } else {
+        console.error(`[Tuya] ${deviceConfig.name} DB-Update Fehler:`, error.message);
+      }
+    } else {
+      console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
+      
+      // Log error to api_errors table
+      await supabase.from('api_errors').insert({
+        source: 'tuya-local',
+        error_type: 'connection_error',
+        error_message: status.error,
+        device_id: deviceConfig.device_id,
+        room_name: deviceConfig.name
+      });
+    }
+  }
+}
+
+// Process pending commands from PWA
+async function processCommands() {
+  if (!thermostatCtrl || !config.tuya?.devices?.length) return;
+  
+  // Fetch pending commands with room info
+  const { data: commands, error } = await supabase
+    .from('thermostat_commands')
+    .select('*, rooms(tuya_device_id, name)')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true });
+  
+  if (error) {
+    console.error('[Commands] Fehler beim Laden:', error.message);
+    return;
+  }
+  
+  if (!commands?.length) return;
+  
+  console.log(`[Commands] ${commands.length} Befehle verarbeiten...`);
+  
+  for (const cmd of commands) {
+    // Find device config by tuya_device_id from rooms table
+    const deviceConfig = config.tuya.devices.find(
+      d => d.device_id === cmd.rooms?.tuya_device_id
+    );
+    
+    if (!deviceConfig) {
+      // Try to find by room_id directly from config
+      const altDeviceConfig = config.tuya.devices.find(
+        d => d.room_id === cmd.room_id
+      );
+      
+      if (!altDeviceConfig) {
+        await supabase.from('thermostat_commands').update({
+          status: 'failed',
+          error_message: 'Device nicht in config.json konfiguriert',
+          executed_at: new Date().toISOString()
+        }).eq('id', cmd.id);
+        console.error(`[Commands] Device fuer Room ${cmd.room_id} nicht gefunden`);
+        continue;
+      }
+      
+      // Use alt config
+      Object.assign(deviceConfig || {}, altDeviceConfig);
+    }
+    
+    const targetDevice = deviceConfig || config.tuya.devices.find(d => d.room_id === cmd.room_id);
+    
+    if (!targetDevice) {
+      await supabase.from('thermostat_commands').update({
+        status: 'failed',
+        error_message: 'Device nicht konfiguriert',
+        executed_at: new Date().toISOString()
+      }).eq('id', cmd.id);
+      continue;
+    }
+    
+    // Mark as executing
+    await supabase.from('thermostat_commands').update({
+      status: 'executing'
+    }).eq('id', cmd.id);
+    
+    let result = { success: false, error: 'Unknown command' };
+    
+    // Execute command
+    switch (cmd.command) {
+      case 'set_temp':
+        result = await thermostatCtrl.setTemperature(targetDevice, cmd.value);
+        break;
+      case 'set_mode':
+        result = await thermostatCtrl.setMode(targetDevice, cmd.value);
+        break;
+      default:
+        result = { success: false, error: `Unbekannter Befehl: ${cmd.command}` };
+    }
+    
+    // Update command status
+    await supabase.from('thermostat_commands').update({
+      status: result.success ? 'executed' : 'failed',
+      error_message: result.error || null,
+      executed_at: new Date().toISOString()
+    }).eq('id', cmd.id);
+    
+    if (result.success) {
+      console.log(`[Commands] Ausgefuehrt: ${targetDevice.name} -> ${cmd.command}=${cmd.value}`);
+      
+      // Resolve any existing errors for this device
+      await supabase.from('api_errors').update({
+        resolved_at: new Date().toISOString()
+      }).eq('device_id', targetDevice.device_id).is('resolved_at', null);
+    } else {
+      console.error(`[Commands] Fehlgeschlagen: ${targetDevice.name} -> ${result.error}`);
+    }
   }
 }
 
 // Main polling loop
 async function poll() {
-  console.log(`\n${new Date().toLocaleTimeString()} - Fronius-Daten abrufen...`);
+  const now = Date.now();
   
+  console.log(`\n${new Date().toLocaleTimeString()} - Polling...`);
+  
+  // Fronius-Daten abrufen (jedes Mal)
   const froniusData = await fetchFroniusData();
-  
   if (froniusData) {
     await saveReading(froniusData);
-  } else {
-    console.log('Keine Daten von Fronius erhalten');
+  }
+  
+  // Thermostat-Befehle verarbeiten (jedes Mal, für schnelle Reaktion)
+  await processCommands();
+  
+  // Thermostate synchronisieren (alle X Sekunden)
+  const syncInterval = (config.tuya?.sync_interval_seconds || 60) * 1000;
+  if (now - lastThermostatSync >= syncInterval) {
+    await syncThermostats();
+    lastThermostatSync = now;
   }
 }
 
@@ -136,7 +299,6 @@ async function getPollingInterval() {
       .single();
     
     if (error || !data) {
-      console.log('Polling-Intervall aus config.json verwenden');
       return config.polling_interval_seconds;
     }
     
@@ -146,13 +308,36 @@ async function getPollingInterval() {
   }
 }
 
+// Graceful shutdown
+async function shutdown() {
+  console.log('\n[Shutdown] Beende Collector...');
+  
+  if (thermostatCtrl) {
+    await thermostatCtrl.disconnectAll();
+  }
+  
+  process.exit(0);
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
+
 // Startup
 async function main() {
   console.log('========================================');
-  console.log('   Fronius Collector v2.0              ');
+  console.log('   Fronius + Tuya Collector v3.0       ');
   console.log('========================================');
   console.log('');
   console.log(`Fronius: ${config.fronius.ip}`);
+  
+  if (config.tuya?.enabled && thermostatCtrl) {
+    console.log(`Tuya: ${config.tuya.devices?.length || 0} Thermostate konfiguriert (lokal)`);
+  } else if (config.tuya?.enabled) {
+    console.log('Tuya: Aktiviert aber TuyAPI nicht installiert');
+  } else {
+    console.log('Tuya: Deaktiviert');
+  }
+  
   console.log('');
   console.log('Druecke Strg+C zum Beenden');
   console.log('----------------------------------------');
@@ -161,16 +346,20 @@ async function main() {
   try {
     const { error } = await supabase.from('energy_readings').select('id').limit(1);
     if (error) throw error;
-    console.log('Datenbank-Verbindung erfolgreich');
+    console.log('[DB] Verbindung erfolgreich');
   } catch (error) {
-    console.error('Datenbank-Verbindung fehlgeschlagen:', error.message);
+    console.error('[DB] Verbindung fehlgeschlagen:', error.message);
     console.error('   Bitte ueberpruefe die Supabase-Konfiguration in config.json');
     process.exit(1);
   }
   
   // Get polling interval from database or config
   const pollingInterval = await getPollingInterval();
-  console.log(`Intervall: ${pollingInterval} Sekunden`);
+  console.log(`[Config] Polling-Intervall: ${pollingInterval} Sekunden`);
+  
+  if (config.tuya?.enabled) {
+    console.log(`[Config] Thermostat-Sync: alle ${config.tuya.sync_interval_seconds || 60} Sekunden`);
+  }
   
   // Initial poll
   await poll();
@@ -182,7 +371,7 @@ async function main() {
   setInterval(async () => {
     const newInterval = await getPollingInterval();
     if (newInterval !== pollingInterval) {
-      console.log(`\nPolling-Intervall geaendert auf ${newInterval}s. Bitte Collector neu starten.`);
+      console.log(`\n[Config] Polling-Intervall geaendert auf ${newInterval}s. Bitte Collector neu starten.`);
     }
   }, 5 * 60 * 1000);
 }

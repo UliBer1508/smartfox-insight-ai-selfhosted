@@ -819,6 +819,7 @@ export type Database = {
           last_power_calculation: string | null
           last_solar_analysis: string | null
           last_thermostat_sync: string | null
+          local_key: string | null
           manual_override_until: string | null
           name: string
           night_temp: number | null
@@ -835,6 +836,7 @@ export type Database = {
           solar_limit_temp: number | null
           target_temp: number | null
           thermostat_ip: string | null
+          thermostat_local_ip: string | null
           thermostat_type: string | null
           tuya_device_id: string | null
           updated_at: string | null
@@ -860,6 +862,7 @@ export type Database = {
           last_power_calculation?: string | null
           last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
+          local_key?: string | null
           manual_override_until?: string | null
           name: string
           night_temp?: number | null
@@ -876,6 +879,7 @@ export type Database = {
           solar_limit_temp?: number | null
           target_temp?: number | null
           thermostat_ip?: string | null
+          thermostat_local_ip?: string | null
           thermostat_type?: string | null
           tuya_device_id?: string | null
           updated_at?: string | null
@@ -901,6 +905,7 @@ export type Database = {
           last_power_calculation?: string | null
           last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
+          local_key?: string | null
           manual_override_until?: string | null
           name?: string
           night_temp?: number | null
@@ -917,6 +922,7 @@ export type Database = {
           solar_limit_temp?: number | null
           target_temp?: number | null
           thermostat_ip?: string | null
+          thermostat_local_ip?: string | null
           thermostat_type?: string | null
           tuya_device_id?: string | null
           updated_at?: string | null
@@ -1030,6 +1036,47 @@ export type Database = {
           value?: Json
         }
         Relationships: []
+      }
+      thermostat_commands: {
+        Row: {
+          command: string
+          created_at: string | null
+          error_message: string | null
+          executed_at: string | null
+          id: string
+          room_id: string
+          status: string | null
+          value: number | null
+        }
+        Insert: {
+          command: string
+          created_at?: string | null
+          error_message?: string | null
+          executed_at?: string | null
+          id?: string
+          room_id: string
+          status?: string | null
+          value?: number | null
+        }
+        Update: {
+          command?: string
+          created_at?: string | null
+          error_message?: string | null
+          executed_at?: string | null
+          id?: string
+          room_id?: string
+          status?: string | null
+          value?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "thermostat_commands_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       weather_data: {
         Row: {

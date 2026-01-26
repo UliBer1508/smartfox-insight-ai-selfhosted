@@ -84,22 +84,30 @@ export function useTuyaControl() {
   }, []);
 
   const setTemperature = useCallback(async (deviceId: string, temperature: number, roomId?: string): Promise<boolean> => {
+    if (!roomId) {
+      toast.error('Room ID fehlt');
+      return false;
+    }
+
     try {
-      const { data, error } = await supabase.functions.invoke('tuya-control/set-temp', {
-        body: { deviceId, temperature, roomId },
+      // Befehl in Command-Queue schreiben (wird vom lokalen Collector verarbeitet)
+      const { error: cmdError } = await supabase.from('thermostat_commands').insert({
+        room_id: roomId,
+        command: 'set_temp',
+        value: temperature,
+        status: 'pending'
       });
 
-      if (error) throw error;
-      if (!data.success) throw new Error(data.error);
+      if (cmdError) throw cmdError;
 
       // Set manual override for 2 hours to protect from automation
-      if (roomId) {
-        const overrideUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
-        await supabase.from('rooms').update({
-          manual_override_until: overrideUntil
-        }).eq('id', roomId);
-        console.log(`[useTuyaControl] Manual override set until ${overrideUntil} for room ${roomId}`);
-      }
+      const overrideUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+      await supabase.from('rooms').update({
+        manual_override_until: overrideUntil,
+        target_temp: temperature // Optimistic update
+      }).eq('id', roomId);
+      
+      console.log(`[useTuyaControl] Command queued, manual override set until ${overrideUntil} for room ${roomId}`);
 
       toast.success(`Temperatur auf ${temperature}°C gesetzt`);
       return true;
