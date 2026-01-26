@@ -13,6 +13,8 @@ export interface Room {
   // Tuya thermostat fields
   tuya_device_id?: string | null;
   thermostat_ip?: string | null;
+  local_key?: string | null;
+  thermostat_local_ip?: string | null;
   current_temp?: number | null;
   target_temp?: number | null;
   is_heating?: boolean | null;

@@ -1,11 +1,19 @@
 {
-  "smartfox": {
-    "ip": "192.168.1.100",
-    "enabled": true
-  },
   "fronius": {
-    "ip": "192.168.1.101",
-    "enabled": true
+    "ip": "192.168.1.101"
+  },
+  "tuya": {
+    "enabled": false,
+    "sync_interval_seconds": 60,
+    "devices": [
+      {
+        "name": "Beispiel Thermostat",
+        "room_id": "UUID_AUS_ROOMS_TABELLE",
+        "device_id": "TUYA_DEVICE_ID",
+        "local_key": "16_ZEICHEN_KEY",
+        "ip": "192.168.1.XXX"
+      }
+    ]
   },
   "polling_interval_seconds": 30,
   "supabase": {
