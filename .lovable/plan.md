@@ -1,49 +1,39 @@
 
+# Plan: Dialog scrollbar machen
 
-# Plan: Local Key Eingabefeld hinzufuegen
+## Problem
 
-## Uebersicht
+Das Raum-Bearbeitungsfenster hat nach dem Hinzufuegen des Local Key Feldes zu viele Eingabefelder. Auf kleineren Bildschirmen oder Mobilgeraeten ist der "Speichern"-Button abgeschnitten und nicht mehr erreichbar.
 
-Das Raum-Bearbeitungsformular hat Felder fuer "Tuya Device ID" und "Thermostat IP-Adresse", aber es fehlt das Eingabefeld fuer den **Local Key** - obwohl die Datenbank das Feld `local_key` bereits unterstuetzt.
+## Loesung
+
+Den Dialog-Inhalt scrollbar machen, sodass alle Felder erreichbar sind und die Buttons immer sichtbar bleiben.
 
 ## Aenderungen
 
-### 1. RoomManager.tsx - Local Key Feld hinzufuegen
+### 1. DialogContent mit maximaler Hoehe und Scrollbereich
 
-**Datei:** `src/components/heating/RoomManager.tsx`
+**Datei:** `src/components/heating/RoomManager.tsx` (Zeile 107)
 
-Zwischen dem "Tuya Device ID" Feld und dem "PV-Ueberschuss Automatik" Toggle ein neues Eingabefeld einfuegen:
-
-```text
-Neues Feld nach Zeile 224:
-+--------------------------------------------+
-| Local Key                                  |
-| [________________________________]         |
-| 16-Zeichen Schluessel aus Tuya API         |
-+--------------------------------------------+
+Aktuelle Klasse:
+```
+className="max-w-md"
 ```
 
-**Technische Details:**
-- Feldname: `local_key`
-- Input-Typ: Text (password-style optional fuer Sicherheit)
-- Placeholder: "16-Zeichen Key aus API Explorer"
-- Hilfetext erklaert woher der Key kommt
+Neue Klasse:
+```
+className="max-w-md max-h-[85vh] overflow-y-auto"
+```
 
-### 2. Default Room erweitern
+Dies begrenzt die Dialoghoehe auf 85% der Bildschirmhoehe und macht den Inhalt scrollbar.
 
-In `defaultRoom` (Zeile 24-38) das Feld `local_key: null` hinzufuegen, damit neue Raeume korrekt initialisiert werden.
+### 2. Alternative: Nur Formular-Bereich scrollbar, Buttons fixiert
+
+Falls gewuenscht, kann auch nur der Formular-Bereich scrollbar gemacht werden, waehrend die "Abbrechen" und "Speichern" Buttons immer sichtbar am unteren Rand fixiert bleiben.
 
 ## Ergebnis
 
-Nach der Aenderung kannst du:
-1. Einen Raum bearbeiten (z.B. "Zimmer Uli")
-2. Den Local Key `uaD>qJ|v/-P:MqE}` ins neue Feld eingeben
-3. Die lokale IP-Adresse eintragen (z.B. `192.168.1.xxx`)
-4. Speichern - und der Local Collector kann das Thermostat lokal steuern
-
-## Aufwand
-
-- Minimale Aenderung: ~15 Zeilen Code
-- Keine Datenbank-Migration noetig (Spalte existiert bereits)
-- Keine neuen Abhaengigkeiten
-
+- Dialog passt sich der Bildschirmhoehe an
+- Alle Felder sind durch Scrollen erreichbar  
+- "Speichern"-Button ist immer sichtbar
+- Funktioniert auf Desktop und Mobilgeraeten
