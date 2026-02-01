@@ -1,149 +1,127 @@
 
-# Port-Test-Skript fuer Tuya Thermostate
+# Plan: Tuya API-Zugriffe auf Trial-Limits optimieren
 
-## Uebersicht
+## Zusammenfassung
+Die Tuya Cloud API wird aktuell viel zu häufig aufgerufen (ca. 95.000 Calls/Monat bei 10 Thermostaten). Das Trial-Edition-Limit liegt bei ca. 500-1000 Calls/Monat. Wir müssen die Zugriffe drastisch reduzieren, bis der lokale Node.js Collector mit Local Keys einsatzbereit ist.
 
-Ein standalone Node.js-Skript das prueft, ob die 11 identifizierten Thermostate ueber Port 6668 (TuyAPI LAN-Port) erreichbar sind. Das Skript benoetigt KEINE Local Keys und KEINE Tuya Cloud API - es testet nur die Netzwerk-Erreichbarkeit.
+---
 
-## Bekannte Thermostat-IPs
+## Aktueller API-Verbrauch
 
-Aus den Router-Screenshots identifiziert (MAC-Praefix 3C:0B:59 = Tuya/Hangzhou):
+| Szenario | Calls pro 5 Min | Pro Tag | Pro Monat |
+|----------|-----------------|---------|-----------|
+| Aktuell (10 Geräte, 5-Min-Intervall) | 11 | ~3.168 | ~95.000 |
+| **Limit Trial Edition** | - | - | ~500-1000 |
 
-| IP | MAC |
-|----|-----|
-| 192.168.188.42 | 3C:0B:59:BD:8D:07 |
-| 192.168.188.43 | 3C:0B:59:BD:8C:61 |
-| 192.168.188.68 | 3C:0B:59:BD:73:F0 |
-| 192.168.188.78 | 3C:0B:59:BD:83:E1 |
-| 192.168.188.79 | 3C:0B:59:BD:B6:17 |
-| 192.168.188.107 | 3C:0B:59:BD:81:F1 |
-| 192.168.188.114 | 3C:0B:59:BD:80:66 |
-| 192.168.188.171 | 3C:0B:59:BD:89:89 |
-| 192.168.188.173 | 3C:0B:59:BD:81:96 |
-| 192.168.188.186 | 3C:0B:59:BD:79:90 |
-| 192.168.188.197 | 3C:0B:59:BD:B2:E0 |
+### Ursache des hohen Verbrauchs
+- `/sync-all` Endpoint ruft für **jedes der 10 Geräte** einzeln die Tuya API auf
+- Token wird zwar gecached (2h), aber Geräte-Status-Abfragen nicht
+- Automatisierung läuft alle 5 Minuten
 
-## Funktionen des Skripts
+---
 
-### 1. Port-Test (Hauptfunktion)
-```text
-node test-tuya.js
+## Optimierungsplan
+
+### Schritt 1: Sync-Intervall drastisch erhöhen
+**Ziel**: Von 5 Minuten auf 15-30 Minuten erhöhen
+
+- In `data_retention_settings` den Wert `polling_interval_seconds` auf 1800 (30 Min) setzen
+- Das reduziert Calls auf ~1.584/Monat (noch zu viel!)
+
+### Schritt 2: Batch-API für Geräte-Status nutzen
+**Ziel**: Statt 10 einzelner Calls nur 1 Call für alle Geräte
+
+Tuya bietet einen Batch-Status-Endpoint:
 ```
-- Testet alle 11 IPs auf Port 6668 (TCP)
-- Zeigt Ergebnis fuer jedes Geraet
-- Gibt Zusammenfassung aus
-
-### 2. Einzelner IP-Test
-```text
-node test-tuya.js 192.168.188.42
+GET /v1.0/devices/status?device_ids=id1,id2,id3,...
 ```
-- Testet nur eine spezifische IP
+Das reduziert 10 Calls auf 1 Call = **90% Einsparung**
 
-### 3. UDP Discovery (Optional)
-```text
-node test-tuya.js scan
-```
-- UDP Broadcast auf Ports 6666/6667
-- Findet Tuya-Geraete die aktiv antworten
+### Schritt 3: Intelligente Sync-Logik
+**Ziel**: Nur bei Bedarf synchronisieren
 
-## Technische Details
+- **Nur synchronisieren wenn Automation aktiv** (tagsüber mit PV-Überschuss)
+- **Nachts keine Cloud-Calls** (22:00-08:00 = 10h ohne Calls)
+- **Bei manueller Änderung sofort** (on-demand statt Polling)
 
-```text
-+------------------------------------------+
-|           test-tuya.js                   |
-+------------------------------------------+
-|                                          |
-|  KEINE DEPENDENCIES ausser native Node   |
-|  - net (TCP Sockets)                     |
-|  - dgram (UDP fuer Scan)                 |
-|                                          |
-|  Ablauf Port-Test:                       |
-|  1. TCP Socket erstellen                 |
-|  2. Connect zu IP:6668                   |
-|  3. Timeout nach 3 Sekunden              |
-|  4. Ergebnis: OFFEN oder GESCHLOSSEN     |
-|                                          |
-+------------------------------------------+
-```
+### Schritt 4: Temperatur-Befehle über Command-Queue
+**Status**: Bereits implementiert in `useTuyaControl.ts`
 
-## Erwartete Ausgabe
+Temperatur-Änderungen werden bereits in die `thermostat_commands` Tabelle geschrieben, statt direkt die API aufzurufen. Das funktioniert aber nur wenn der lokale Collector läuft.
 
-### Erfolgreich (Lokale API verfuegbar):
-```text
-========================================
-   Tuya Port-Test v1.0
-========================================
+---
 
-Teste 11 Thermostat-IPs auf Port 6668...
+## Empfohlene Sofort-Maßnahmen
 
-  192.168.188.42:6668   [OFFEN]   Lokale API verfuegbar
-  192.168.188.43:6668   [OFFEN]   Lokale API verfuegbar
-  192.168.188.68:6668   [OFFEN]   Lokale API verfuegbar
-  192.168.188.78:6668   [OFFEN]   Lokale API verfuegbar
-  192.168.188.79:6668   [OFFEN]   Lokale API verfuegbar
-  192.168.188.107:6668  [OFFEN]   Lokale API verfuegbar
-  192.168.188.114:6668  [OFFEN]   Lokale API verfuegbar
-  192.168.188.171:6668  [OFFEN]   Lokale API verfuegbar
-  192.168.188.173:6668  [OFFEN]   Lokale API verfuegbar
-  192.168.188.186:6668  [OFFEN]   Lokale API verfuegbar
-  192.168.188.197:6668  [OFFEN]   Lokale API verfuegbar
+### A) Automatische Syncs deaktivieren (temporär)
+Da die Quota wieder aktiv ist, sollten wir:
+1. **Sync-Intervall auf 60 Minuten** setzen (1800s → 3600s)
+2. **Nachts komplett pausieren** (kein Sync zwischen 22:00-08:00)
 
-========================================
-Ergebnis: 11/11 Geraete erreichbar
+**Neuer Verbrauch pro Monat**:
+- 16 Stunden/Tag aktiv × 1 Sync/Stunde × 30 Tage = 480 Syncs
+- Mit Batch-API: 480 Calls + 480 Token-Checks = **~960 Calls/Monat** ✅
 
-Die Thermostate unterstuetzen lokale LAN-Steuerung!
-Naechster Schritt: Local Keys mit TinyTuya abrufen
-========================================
+### B) Local Keys abrufen (jetzt!)
+Mit der aktiven Quota sollten wir sofort:
+1. **Im API Explorer** → `Device Management` → `Query Device Details`
+2. Für jede Device ID den `local_key` abrufen
+3. In die `rooms` Tabelle speichern (Spalte `local_key`)
+
+---
+
+## Technische Änderungen
+
+### 1. Datenbank: Sync-Intervall erhöhen
+```sql
+UPDATE data_retention_settings 
+SET polling_interval_seconds = 3600; -- 60 Minuten statt 5
 ```
 
-### Nicht erfolgreich:
-```text
-========================================
-Ergebnis: 0/11 Geraete erreichbar
+### 2. Edge Function: Batch-API implementieren
+Änderung in `tuya-control/index.ts`:
+```typescript
+// ALT: 10 einzelne Calls
+for (const room of rooms) {
+  await getDeviceStatus(accessId, accessSecret, room.tuya_device_id);
+}
 
-Die Thermostate unterstuetzen KEINE lokale API.
-Nur Cloud-Steuerung moeglich.
-========================================
+// NEU: 1 Batch-Call
+const deviceIds = rooms.map(r => r.tuya_device_id).join(',');
+const allStatus = await tuyaRequest(accessId, accessSecret, 'GET', 
+  `/v1.0/devices/status?device_ids=${deviceIds}`);
 ```
 
-## Neue Datei
-
-### local-collector/collector-node/test-tuya.js
-
-Eigenstaendiges Skript mit:
-
-1. **Hardcodierte IP-Liste** - Die 11 bekannten Thermostat-IPs
-2. **testPort()** - TCP-Verbindungstest mit Timeout
-3. **testAllPorts()** - Paralleler Test aller IPs
-4. **udpScan()** - UDP Broadcast Discovery
-5. **Farbige Ausgabe** - Gruene/rote Markierung fuer Ergebnisse
-
-## Verwendung
-
-```bash
-cd local-collector/collector-node
-
-# Alle Thermostate testen
-node test-tuya.js
-
-# Einzelne IP testen
-node test-tuya.js 192.168.188.42
-
-# UDP Discovery
-node test-tuya.js scan
+### 3. Edge Function: Nacht-Pause einbauen
+In `pv-automation/index.ts`:
+```typescript
+// Nachts keine Tuya-Calls (lokaler Collector übernimmt)
+const { isNight } = isNightTime(settings.night_start_time, settings.night_end_time);
+if (isNight && !forceSync) {
+  return { message: 'Night mode - no cloud sync' };
+}
 ```
 
-## Was der Test zeigt
+---
 
-| Ergebnis | Bedeutung | Naechster Schritt |
-|----------|-----------|-------------------|
-| Port OFFEN | Hardware unterstuetzt lokale API | TinyTuya Wizard fuer Local Keys |
-| Port GESCHLOSSEN | Keine LAN-Unterstuetzung | Cloud API ist einzige Option |
-| Timeout | Geraet nicht erreichbar | IP-Adresse/Netzwerk pruefen |
+## Reihenfolge der Umsetzung
 
-## Wichtig
+1. **Sofort**: Sync-Intervall in DB auf 60 Min erhöhen
+2. **Sofort**: Local Keys im API Explorer abrufen und notieren
+3. **Dann**: Batch-API in tuya-control implementieren
+4. **Dann**: Nacht-Pause Logik einbauen
+5. **Langfristig**: Lokaler Node.js Collector mit Local Keys → 0 Cloud-Calls
 
-- Das Skript benoetigt **keine Installation** (nur native Node.js Module)
-- Muss im **gleichen Netzwerk** wie die Thermostate laufen
-- Benoetigt **keinen Local Key** - testet nur Erreichbarkeit
-- Kann **sofort ausgefuehrt** werden ohne auf Tuya API Quota zu warten
+---
+
+## Erwartetes Ergebnis
+
+| Optimierung | Calls/Monat |
+|-------------|-------------|
+| Aktuell | ~95.000 |
+| Nach Intervall-Erhöhung (60 Min) | ~8.640 |
+| Mit Batch-API | ~1.440 |
+| Mit Nacht-Pause | **~960** ✅ |
+| Mit lokalem Collector | **0** 🎯 |
+
+Nach Umsetzung bleiben wir deutlich unter dem Trial-Limit von ~1.000 Calls/Monat.
