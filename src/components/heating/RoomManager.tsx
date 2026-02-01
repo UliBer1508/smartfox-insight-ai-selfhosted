@@ -104,7 +104,7 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                 <span className="hidden sm:inline">Raum hinzufügen</span>
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>
                 {editingRoom?.id ? 'Raum bearbeiten' : 'Neuer Raum'}
