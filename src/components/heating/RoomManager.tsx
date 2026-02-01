@@ -34,6 +34,7 @@ const defaultRoom: Partial<Room> = {
   heating_power_w: null,
   tuya_device_id: null,
   thermostat_ip: null,
+  local_key: null,
   pv_auto_enabled: false,
 };
 
@@ -220,6 +221,22 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                     />
                     <p className="text-xs text-muted-foreground mt-1">
                       Device ID aus der Tuya IoT Platform
+                    </p>
+                  </div>
+
+                  <div className="col-span-2">
+                    <Label htmlFor="local_key">Local Key</Label>
+                    <Input
+                      id="local_key"
+                      value={editingRoom.local_key || ''}
+                      onChange={e => setEditingRoom({ 
+                        ...editingRoom, 
+                        local_key: e.target.value || null 
+                      })}
+                      placeholder="16-Zeichen Key aus API Explorer"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Aus Tuya IoT → Cloud → API Explorer → Query Device Details
                     </p>
                   </div>
 
