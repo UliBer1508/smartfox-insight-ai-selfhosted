@@ -106,11 +106,11 @@ if (isNight && !forceSync) {
 
 ## Reihenfolge der Umsetzung
 
-1. **Sofort**: Sync-Intervall in DB auf 60 Min erhöhen
-2. **Sofort**: Local Keys im API Explorer abrufen und notieren
-3. **Dann**: Batch-API in tuya-control implementieren
-4. **Dann**: Nacht-Pause Logik einbauen
-5. **Langfristig**: Lokaler Node.js Collector mit Local Keys → 0 Cloud-Calls
+1. ✅ **Erledigt**: Sync-Intervall in DB auf 60 Min erhöht
+2. ✅ **Erledigt**: Batch-API in tuya-control implementiert (1 Call statt 10)
+3. ✅ **Erledigt**: Nacht-Pause Logik in pv-automation eingebaut
+4. 🔲 **Noch offen**: Local Keys im API Explorer abrufen und in rooms-Tabelle speichern
+5. 🔲 **Langfristig**: Lokaler Node.js Collector mit Local Keys → 0 Cloud-Calls
 
 ---
 

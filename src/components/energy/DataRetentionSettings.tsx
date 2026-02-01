@@ -62,8 +62,10 @@ export const DataRetentionSettings: React.FC = () => {
               <SelectContent>
                 <SelectItem value="60">60 Sekunden (höchste Auflösung)</SelectItem>
                 <SelectItem value="120">2 Minuten</SelectItem>
-                <SelectItem value="300">5 Minuten (empfohlen)</SelectItem>
-                <SelectItem value="600">10 Minuten (sparsam)</SelectItem>
+                <SelectItem value="300">5 Minuten</SelectItem>
+                <SelectItem value="600">10 Minuten</SelectItem>
+                <SelectItem value="1800">30 Minuten (Tuya-sparend)</SelectItem>
+                <SelectItem value="3600">60 Minuten (Tuya Trial-Limit)</SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
