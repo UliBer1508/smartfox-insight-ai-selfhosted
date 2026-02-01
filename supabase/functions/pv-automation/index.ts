@@ -278,9 +278,33 @@ Deno.serve(async (req) => {
       });
     }
 
-    // POST /check - ML-based automation with SKIP LOGIC
+    // POST /check - ML-based automation with SKIP LOGIC and NIGHT PAUSE
     if (path === '/check' && req.method === 'POST') {
       console.log('[PV-Automation] Starting ML-based check...');
+
+      // 2. Load settings FIRST (needed for night check)
+      const { data: settings } = await supabase
+        .from('heating_settings')
+        .select('*')
+        .limit(1)
+        .single();
+
+      // NIGHT PAUSE: Skip Tuya cloud calls during night hours to save API quota
+      const nightStartTime = settings?.night_start_time || '22:00';
+      const nightEndTime = settings?.night_end_time || '06:00';
+      const { isNight, wienTime } = isNightTime(nightStartTime, nightEndTime);
+      
+      if (isNight) {
+        console.log(`[PV-Automation] Night mode active (${wienTime}) - skipping cloud sync to save API quota`);
+        return new Response(JSON.stringify({ 
+          success: true, 
+          message: `Nachtmodus aktiv (${wienTime}) - Cloud-Sync pausiert um API-Quota zu sparen`,
+          nightMode: true,
+          results: [] 
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        });
+      }
 
       // 1. Load latest energy reading
       const { data: reading, error: readingError } = await supabase
@@ -298,13 +322,6 @@ Deno.serve(async (req) => {
 
       const surplus = -reading.power_io;
       const batterySoc = reading.battery_soc || 0;
-
-      // 2. Load settings
-      const { data: settings } = await supabase
-        .from('heating_settings')
-        .select('*')
-        .limit(1)
-        .single();
 
       const minBatterySoc = settings?.min_battery_soc || 20;
       const thresholdOn = settings?.pv_surplus_threshold_on || DEFAULT_PV_SURPLUS_THRESHOLD_ON;

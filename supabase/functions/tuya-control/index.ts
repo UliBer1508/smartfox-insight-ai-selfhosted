@@ -168,10 +168,41 @@ async function tuyaRequest(
   return data.result;
 }
 
-
-// Get device status
+// Get device status (single device)
 async function getDeviceStatus(accessId: string, accessSecret: string, deviceId: string): Promise<unknown> {
   return await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/devices/${deviceId}/status`);
+}
+
+// Get batch device status (multiple devices in ONE API call - 90% quota savings!)
+async function getBatchDeviceStatus(
+  accessId: string, 
+  accessSecret: string, 
+  deviceIds: string[]
+): Promise<Map<string, unknown[]>> {
+  const result = new Map<string, unknown[]>();
+  
+  if (deviceIds.length === 0) return result;
+  
+  // Tuya batch endpoint: /v1.0/devices/status?device_ids=id1,id2,id3
+  const idsParam = deviceIds.join(',');
+  const path = `/v1.0/devices/status?device_ids=${idsParam}`;
+  
+  console.log(`[Tuya] Batch status request for ${deviceIds.length} devices`);
+  
+  const response = await tuyaRequest(accessId, accessSecret, 'GET', path) as unknown[];
+  
+  // Response is array of { id: deviceId, status: [...] }
+  if (Array.isArray(response)) {
+    for (const device of response) {
+      const d = device as { id: string; status: unknown[] };
+      if (d.id && d.status) {
+        result.set(d.id, d.status);
+      }
+    }
+  }
+  
+  console.log(`[Tuya] Batch status received for ${result.size}/${deviceIds.length} devices`);
+  return result;
 }
 
 // Set device temperature
@@ -350,12 +381,18 @@ Deno.serve(async (req) => {
       });
     }
 
-    // POST /sync-all - Sync all thermostat statuses
+    // POST /sync-all - Sync all thermostat statuses using BATCH API (90% quota savings!)
     if (req.method === 'POST' && path === '/sync-all') {
       const { data: rooms } = await supabase
         .from('rooms')
         .select('*')
         .not('tuya_device_id', 'is', null);
+
+      if (!rooms || rooms.length === 0) {
+        return new Response(JSON.stringify({ success: true, results: [], message: 'No rooms configured' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
 
       // Get current total consumption and PV power for analysis
       const { data: latestReading } = await supabase
@@ -368,10 +405,35 @@ Deno.serve(async (req) => {
       const currentConsumption = latestReading?.consumption || 0;
       const currentPvPower = latestReading?.pv_power || 0;
 
+      // BATCH API: Get all device statuses in ONE API call instead of 10 separate calls!
+      const deviceIds = rooms.map(r => r.tuya_device_id).filter(Boolean) as string[];
+      let batchStatus: Map<string, unknown[]>;
+      
+      try {
+        batchStatus = await getBatchDeviceStatus(accessId, accessSecret, deviceIds);
+        console.log(`[sync-all] Batch API: 1 call for ${deviceIds.length} devices (saved ${deviceIds.length - 1} API calls)`);
+      } catch (batchError) {
+        console.error('[sync-all] Batch API failed:', batchError);
+        return new Response(JSON.stringify({ 
+          success: false, 
+          error: String(batchError),
+          message: 'Batch API failed - check Tuya quota'
+        }), {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const results = [];
-      for (const room of rooms || []) {
+      for (const room of rooms) {
         try {
-          const status = await getDeviceStatus(accessId, accessSecret, room.tuya_device_id);
+          // Use cached batch result instead of individual API call
+          const status = batchStatus.get(room.tuya_device_id);
+          if (!status) {
+            console.warn(`[${room.name}] No status in batch response for device ${room.tuya_device_id}`);
+            results.push({ roomId: room.id, name: room.name, error: 'No status in batch response', synced: false });
+            continue;
+          }
           const parsed = parseThermostatStatus(status as unknown[]);
           
           const previousIsHeating = room.is_heating;
