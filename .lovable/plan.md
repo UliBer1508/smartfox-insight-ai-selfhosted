@@ -1,39 +1,121 @@
 
-# Plan: Dialog scrollbar machen
+# Problem-Analyse und Loesung: Thermostat-Steuerung
 
-## Problem
+## Identifiziertes Problem
 
-Das Raum-Bearbeitungsfenster hat nach dem Hinzufuegen des Local Key Feldes zu viele Eingabefelder. Auf kleineren Bildschirmen oder Mobilgeraeten ist der "Speichern"-Button abgeschnitten und nicht mehr erreichbar.
+Die Thermostat-Steuerung funktioniert nicht, weil ein **Zwischen-Glied fehlt**:
 
-## Loesung
-
-Den Dialog-Inhalt scrollbar machen, sodass alle Felder erreichbar sind und die Buttons immer sichtbar bleiben.
-
-## Aenderungen
-
-### 1. DialogContent mit maximaler Hoehe und Scrollbereich
-
-**Datei:** `src/components/heating/RoomManager.tsx` (Zeile 107)
-
-Aktuelle Klasse:
-```
-className="max-w-md"
+```text
+PWA (Frontend)
+    │
+    ▼
+thermostat_commands Tabelle (16 pending Befehle!)
+    │
+    ✖ HIER FEHLT DIE VERBINDUNG
+    │
+    ▼
+Physische Thermostate (TGP508)
 ```
 
-Neue Klasse:
+### Warum?
+
+1. **useTuyaControl.setTemperature()** schreibt Befehle nur in die Datenbank
+2. **pv-automation** Edge Function nutzt Tuya Cloud API, aber:
+   - Macht 0 API Calls wegen Skip-Logic (Temperaturen "schon korrekt")
+   - Daten sind 4 Tage alt (kein Sync seit 01.02.2026)
+   - Tuya Cloud Quota war erschoepft
+3. **Local Collector** (collector-node) ist nicht eingerichtet/laeuft nicht
+
+---
+
+## Loesungs-Optionen
+
+### Option A: Direkte Cloud-API (Schnellste Loesung)
+
+**Aenderung:** `useTuyaControl.setTemperature()` ruft direkt die `tuya-control/set-temp` Edge Function auf, anstatt nur in die Command-Queue zu schreiben.
+
+**Vorteile:**
+- Sofort funktionsfaehig
+- Keine lokale Installation noetig
+
+**Nachteile:**
+- Verbraucht Tuya API Quota (begrenzt)
+- Abhaengig von Cloud-Verfuegbarkeit
+
+**Technische Aenderung in `src/hooks/useTuyaControl.ts`:**
+```typescript
+const setTemperature = async (deviceId, temperature, roomId) => {
+  // VORHER: Nur Command-Queue (wird nie ausgefuehrt)
+  // NACHHER: Direkt Edge Function aufrufen
+  const { data, error } = await supabase.functions.invoke('tuya-control/set-temp', {
+    body: { deviceId, temperature, roomId }
+  });
+  // ... Fehlerbehandlung + manual_override setzen
+};
 ```
-className="max-w-md max-h-[85vh] overflow-y-auto"
+
+---
+
+### Option B: Local Collector aktivieren (Langfristig besser)
+
+**Voraussetzungen:**
+1. Node.js auf lokalem PC/Raspberry Pi
+2. config.json mit allen 10 Geraeten (Device IDs, Local Keys, IPs)
+3. Port 6668 zu Thermostaten erreichbar
+
+**Vorteile:**
+- Keine API-Quota
+- Schnellere Reaktion (20-50ms vs 200-500ms)
+- Unabhaengig von Cloud
+
+**Was fehlt:**
+- Thermostat IP-Adressen (noch nicht in DB)
+- config.json fuer Collector
+
+---
+
+## Empfohlene Vorgehensweise
+
+**Phase 1 (Sofort):** Option A implementieren - Cloud-API direkt nutzen
+**Phase 2 (Spaeter):** Local Collector einrichten wenn IPs bekannt
+
+---
+
+## Technische Aenderungen fuer Phase 1
+
+### Datei: `src/hooks/useTuyaControl.ts`
+
+**setTemperature Funktion umbauen (Zeile 86-119):**
+
+```text
+VORHER:
+1. Befehl in thermostat_commands schreiben (pending)
+2. manual_override setzen
+3. Toast anzeigen
+→ Befehl wird NIE ausgefuehrt!
+
+NACHHER:
+1. Edge Function tuya-control/set-temp aufrufen
+2. Bei Erfolg: manual_override setzen
+3. Toast anzeigen
+4. Optional: Befehl in Command-Queue loggen (fuer Audit)
 ```
 
-Dies begrenzt die Dialoghoehe auf 85% der Bildschirmhoehe und macht den Inhalt scrollbar.
+### Zusaetzlich: Pending Commands aufraeumen
 
-### 2. Alternative: Nur Formular-Bereich scrollbar, Buttons fixiert
+SQL-Migration um alte pending Befehle zu loeschen:
+```sql
+DELETE FROM thermostat_commands WHERE status = 'pending';
+```
 
-Falls gewuenscht, kann auch nur der Formular-Bereich scrollbar gemacht werden, waehrend die "Abbrechen" und "Speichern" Buttons immer sichtbar am unteren Rand fixiert bleiben.
+---
 
-## Ergebnis
+## Zusammenfassung
 
-- Dialog passt sich der Bildschirmhoehe an
-- Alle Felder sind durch Scrollen erreichbar  
-- "Speichern"-Button ist immer sichtbar
-- Funktioniert auf Desktop und Mobilgeraeten
+| Komponente | Status | Aktion |
+|------------|--------|--------|
+| thermostat_commands Tabelle | 16 pending Befehle | Aufraeumen |
+| useTuyaControl Hook | Schreibt nur in Queue | Direkt API aufrufen |
+| tuya-control Edge Function | Funktioniert | Bereits vorhanden |
+| pv-automation | Skip-Logic blockiert | Wird nach Sync funktionieren |
+| Local Collector | Nicht eingerichtet | Spaeter (Phase 2) |
