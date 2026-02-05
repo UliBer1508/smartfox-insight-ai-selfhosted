@@ -90,30 +90,35 @@ export function useTuyaControl() {
     }
 
     try {
-      // Befehl in Command-Queue schreiben (wird vom lokalen Collector verarbeitet)
-      const { error: cmdError } = await supabase.from('thermostat_commands').insert({
-        room_id: roomId,
-        command: 'set_temp',
-        value: temperature,
-        status: 'pending'
+      // Direkt Tuya Cloud API aufrufen via Edge Function
+      const { data, error } = await supabase.functions.invoke('tuya-control/set-temp', {
+        body: { deviceId, temperature, roomId }
       });
 
-      if (cmdError) throw cmdError;
+      if (error) {
+        console.error('[useTuyaControl] Edge function error:', error);
+        throw new Error(error.message || 'Edge Function Fehler');
+      }
+
+      if (!data?.success) {
+        throw new Error(data?.error || 'Tuya API Fehler');
+      }
 
       // Set manual override for 2 hours to protect from automation
       const overrideUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
       await supabase.from('rooms').update({
         manual_override_until: overrideUntil,
-        target_temp: temperature // Optimistic update
+        target_temp: temperature
       }).eq('id', roomId);
       
-      console.log(`[useTuyaControl] Command queued, manual override set until ${overrideUntil} for room ${roomId}`);
+      console.log(`[useTuyaControl] Temperature set via Cloud API, manual override until ${overrideUntil}`);
 
       toast.success(`Temperatur auf ${temperature}°C gesetzt`);
       return true;
     } catch (error) {
       console.error('Error setting temperature:', error);
-      toast.error('Fehler beim Setzen der Temperatur');
+      const errorMsg = error instanceof Error ? error.message : 'Unbekannter Fehler';
+      toast.error(`Fehler: ${errorMsg}`);
       return false;
     }
   }, []);
