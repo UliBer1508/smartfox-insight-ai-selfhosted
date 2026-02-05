@@ -189,14 +189,27 @@ async function getBatchDeviceStatus(
   
   console.log(`[Tuya] Batch status request for ${deviceIds.length} devices`);
   
-  const response = await tuyaRequest(accessId, accessSecret, 'GET', path) as unknown[];
+  const response = await tuyaRequest(accessId, accessSecret, 'GET', path);
   
-  // Response is array of { id: deviceId, status: [...] }
-  if (Array.isArray(response)) {
-    for (const device of response) {
-      const d = device as { id: string; status: unknown[] };
-      if (d.id && d.status) {
-        result.set(d.id, d.status);
+  // Response can be either:
+  // 1. Object with device_id as keys: { "deviceId1": [{code, value}...], "deviceId2": [...] }
+  // 2. Array of { id: deviceId, status: [...] }
+  if (response && typeof response === 'object') {
+    if (Array.isArray(response)) {
+      // Array format: [{ id: deviceId, status: [...] }]
+      for (const device of response) {
+        const d = device as { id: string; status: unknown[] };
+        if (d.id && d.status) {
+          result.set(d.id, d.status);
+        }
+      }
+    } else {
+      // Object format: { "deviceId1": [{code, value}...], "deviceId2": [...] }
+      const responseObj = response as Record<string, unknown[]>;
+      for (const [deviceId, statusArray] of Object.entries(responseObj)) {
+        if (Array.isArray(statusArray)) {
+          result.set(deviceId, statusArray);
+        }
       }
     }
   }
