@@ -235,12 +235,13 @@ async function setDeviceTemperature(
   });
 }
 
-// Parse thermostat status from Tuya response
-function parseThermostatStatus(status: unknown[]): { currentTemp: number; targetTemp: number; isHeating: boolean } {
+// Parse thermostat status from Tuya response (extended with mode)
+function parseThermostatStatus(status: unknown[]): { currentTemp: number; targetTemp: number; isHeating: boolean; mode?: string } {
   let currentTemp = 0;
   let targetTemp = 0;
   let switchOn = false;
   let workStateHeating = false;
+  let mode: string | undefined;
 
   if (Array.isArray(status)) {
     for (const item of status) {
@@ -258,6 +259,9 @@ function parseThermostatStatus(status: unknown[]): { currentTemp: number; target
         case 'work_state':
           workStateHeating = s.value === 'heating';
           break;
+        case 'mode':
+          mode = String(s.value);
+          break;
       }
     }
   }
@@ -268,7 +272,7 @@ function parseThermostatStatus(status: unknown[]): { currentTemp: number; target
   // - ODER work_state explizit "heating" meldet
   const isHeating = switchOn && (workStateHeating || currentTemp < targetTemp);
 
-  return { currentTemp, targetTemp, isHeating };
+  return { currentTemp, targetTemp, isHeating, mode };
 }
 
 Deno.serve(async (req) => {
