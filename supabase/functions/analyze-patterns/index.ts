@@ -900,12 +900,17 @@ Kurze Einschätzung auf Deutsch.`;
 
     // Handle tool calling response
     const choices = data?.choices as Array<{ message?: { tool_calls?: Array<{ function?: { name: string; arguments: string } }>; content?: string } }>;
+    
+    console.log(`Tool calling mode: ${useToolCalling}, toolName: ${toolName}, has tool_calls: ${!!choices?.[0]?.message?.tool_calls}`);
+    
     if (useToolCalling && choices?.[0]?.message?.tool_calls) {
       const toolCall = choices[0].message.tool_calls[0];
+      console.log(`Tool call received: name=${toolCall?.function?.name}, args length=${toolCall?.function?.arguments?.length || 0}`);
+      
       if (toolCall?.function?.name === toolName) {
         try {
           const result = JSON.parse(toolCall.function.arguments);
-          console.log(`${toolName} parsed successfully`);
+          console.log(`${toolName} parsed successfully, decisions: ${result.decisions?.length || 0}`);
           
           if (toolName === 'make_heating_decision') {
             return new Response(JSON.stringify(result), {
@@ -921,12 +926,28 @@ Kurze Einschätzung auf Deutsch.`;
             });
           }
         } catch (parseError) {
-          console.error('Error parsing result:', parseError);
+          console.error('Error parsing result:', parseError, 'Args:', toolCall.function.arguments?.substring(0, 200));
         }
       }
+    } else if (useToolCalling) {
+      // Tool calling expected but no tool_calls in response - log the content
+      const contentPreview = choices?.[0]?.message?.content?.substring(0, 200) || 'no content';
+      console.warn(`Expected tool call for ${toolName} but got text response: ${contentPreview}`);
     }
 
     const analysis = choices?.[0]?.message?.content || 'Keine Analyse verfügbar.';
+    
+    // Bei Tool-Calling Modus immer auch ein leeres decisions Array zurückgeben
+    if (useToolCalling && toolName === 'make_heating_decision') {
+      return new Response(JSON.stringify({ 
+        analysis,
+        decisions: [],
+        error: 'Tool calling failed - AI returned text instead of structured response'
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    
     return new Response(JSON.stringify({ analysis }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
