@@ -9,6 +9,7 @@ import { Flame, Hand, Minus, Plus, RefreshCw, Thermometer, Sun, Clock, Zap, Bot,
 import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { getViennaMinutesSinceMidnight } from '@/lib/dateUtils';
 
 interface HeatingStats {
   todayCycles: number;
@@ -108,10 +109,10 @@ export function ThermostatCard({
 
   // Determine active automatic mode (what automation would choose)
   const activeMode = useMemo((): ActiveMode => {
-    const now = new Date();
-    const currentMinutes = now.getHours() * 60 + now.getMinutes();
-    const nightStart = parseTimeToMinutes(nightStartTime);
-    const nightEnd = parseTimeToMinutes(nightEndTime);
+    // Explizit Wiener Zeit verwenden
+    const currentMinutes = getViennaMinutesSinceMidnight();
+    const nightStart = parseTimeToMinutes(nightStartTime.substring(0, 5));
+    const nightEnd = parseTimeToMinutes(nightEndTime.substring(0, 5));
     
     // Check if current time is in night period (handles overnight)
     const isNight = nightStart > nightEnd 

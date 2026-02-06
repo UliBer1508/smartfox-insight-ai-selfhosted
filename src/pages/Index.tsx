@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
 import { Header } from '@/components/energy/Header';
 import { PowerGauge } from '@/components/energy/PowerGauge';
 import { EnergyStats } from '@/components/energy/EnergyStats';
@@ -121,8 +121,8 @@ const Index = () => {
           const room = rooms.find(r => r.name === roomPlan.room_name);
           if (!room?.id) return [];
           
-          const now = new Date();
-          const currentHour = now.getHours();
+          // Explizit Wiener Zeit verwenden
+          const currentHour = getViennaHour();
           const currentPeriod = roomPlan.periods?.find((p: any) => {
             const startHour = parseInt(p.start_time.split(':')[0]);
             const endHour = parseInt(p.end_time.split(':')[0]);
