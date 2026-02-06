@@ -295,12 +295,98 @@ Deno.serve(async (req) => {
       const { isNight, wienTime } = isNightTime(nightStartTime, nightEndTime);
       
       if (isNight) {
-        console.log(`[PV-Automation] Night mode active (${wienTime}) - skipping cloud sync to save API quota`);
+        console.log(`[PV-Automation] Night mode active (${wienTime}) - checking if thermostats need adjustment...`);
+        
+        // Load all rooms with Tuya devices to check night temp
+        const { data: allRooms } = await supabase
+          .from('rooms')
+          .select('id, name, tuya_device_id, target_temp, night_temp, pv_auto_active')
+          .not('tuya_device_id', 'is', null);
+        
+        if (!allRooms || allRooms.length === 0) {
+          return new Response(JSON.stringify({ 
+            success: true, 
+            message: `Nachtmodus aktiv (${wienTime}) - keine Thermostate konfiguriert`,
+            nightMode: true,
+            results: [] 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Filter rooms that need night temp adjustment
+        const globalNightTemp = settings?.night_temp || 17;
+        const roomsNeedingAdjustment = allRooms.filter(r => {
+          const currentTarget = Number(r.target_temp) || 0;
+          const nightTarget = r.night_temp || globalNightTemp;
+          // Need adjustment if difference >= 0.5°C
+          return Math.abs(currentTarget - nightTarget) >= 0.5;
+        });
+
+        if (roomsNeedingAdjustment.length === 0) {
+          console.log(`[PV-Automation] Night mode: all ${allRooms.length} thermostats already at night temp`);
+          return new Response(JSON.stringify({ 
+            success: true, 
+            message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
+            nightMode: true,
+            thermostatsChecked: allRooms.length,
+            results: [] 
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
+        // Set night temp for rooms that need it
+        console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment to night temp`);
+        const nightResults: { roomId: string; roomName: string; success: boolean; nightTemp: number; error?: string }[] = [];
+
+        if (tuyaAccessId && tuyaAccessSecret) {
+          for (const room of roomsNeedingAdjustment) {
+            const nightTarget = room.night_temp || globalNightTemp;
+            console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)`);
+            
+            const result = await setDeviceTemperature(
+              tuyaAccessId,
+              tuyaAccessSecret,
+              room.tuya_device_id!,
+              nightTarget
+            );
+
+            if (result.success) {
+              // Update database
+              await supabase.from('rooms').update({
+                target_temp: nightTarget,
+                pv_auto_active: false,
+                updated_at: new Date().toISOString()
+              }).eq('id', room.id);
+              
+              nightResults.push({
+                roomId: room.id,
+                roomName: room.name,
+                success: true,
+                nightTemp: nightTarget
+              });
+            } else {
+              console.error(`[PV-Automation] Night: Failed to set ${room.name}: ${result.errorMessage}`);
+              nightResults.push({
+                roomId: room.id,
+                roomName: room.name,
+                success: false,
+                nightTemp: nightTarget,
+                error: result.errorMessage
+              });
+            }
+          }
+        }
+
+        const successCount = nightResults.filter(r => r.success).length;
         return new Response(JSON.stringify({ 
           success: true, 
-          message: `Nachtmodus aktiv (${wienTime}) - Cloud-Sync pausiert um API-Quota zu sparen`,
+          message: `Nachtmodus aktiv (${wienTime}) - ${successCount}/${roomsNeedingAdjustment.length} Thermostate auf Nachttemperatur gesetzt`,
           nightMode: true,
-          results: [] 
+          adjusted: successCount,
+          total: allRooms.length,
+          results: nightResults 
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
