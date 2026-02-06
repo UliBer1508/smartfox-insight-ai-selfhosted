@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { HeatingSettings } from '@/types/heating';
-import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { Droplet, Flame, HelpCircle, LucideIcon } from 'lucide-react';
 import { getViennaTimeString } from '@/lib/dateUtils';
+import { useActiveHeatingRooms, ActiveHeatingRoom } from './useActiveHeatingRooms';
 
 export interface ActiveConsumer {
   name: string;
@@ -11,6 +11,14 @@ export interface ActiveConsumer {
   power: number;
   reason: string;
   color: string;
+  details?: {
+    rooms: {
+      room_id: string;
+      room_name: string;
+      power: number;
+      duration_min: number;
+    }[];
+  };
 }
 
 interface ConsumptionAnalysis {
@@ -21,64 +29,53 @@ interface ConsumptionAnalysis {
 
 export function useConsumptionAnalysis(currentConsumption: number | null): ConsumptionAnalysis {
   const [heatingSettings, setHeatingSettings] = useState<HeatingSettings | null>(null);
-  const [activeRooms, setActiveRooms] = useState<Room[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { activeRooms, totalHeatingPower, isLoading: roomsLoading } = useActiveHeatingRooms();
+  const [settingsLoading, setSettingsLoading] = useState(true);
 
   useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
+    const loadSettings = async () => {
+      setSettingsLoading(true);
       
-      // Load heating settings and active rooms in parallel
-      const [settingsResult, roomsResult] = await Promise.all([
-        supabase.from('heating_settings').select('*').limit(1).single(),
-        supabase.from('rooms').select('*').eq('is_heating', true)
-      ]);
+      const settingsResult = await supabase
+        .from('heating_settings')
+        .select('*')
+        .limit(1)
+        .single();
 
       if (settingsResult.data) {
         setHeatingSettings(settingsResult.data as HeatingSettings);
       }
       
-      if (roomsResult.data) {
-        setActiveRooms(roomsResult.data as Room[]);
-      }
-      
-      setIsLoading(false);
+      setSettingsLoading(false);
     };
 
-    loadData();
-
-    // Subscribe to room changes for real-time updates
-    const channel = supabase
-      .channel('consumption-analysis')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'rooms' }, () => {
-        loadData();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    loadSettings();
   }, []);
+
+  const isLoading = roomsLoading || settingsLoading;
 
   const activeConsumers = useMemo(() => {
     const consumers: ActiveConsumer[] = [];
-    // Explizit Wiener Zeit verwenden
     const currentTime = getViennaTimeString();
 
-    // 1. Erst alle Heizungsräume erfassen
-    activeRooms.forEach(room => {
-      const power = getEffectiveHeatingPower(room);
+    // 1. Heizung als aggregierter Verbraucher mit Raumdetails
+    if (activeRooms.length > 0) {
       consumers.push({
-        name: room.name,
+        name: activeRooms.length === 1 ? activeRooms[0].room_name : 'Heizung',
         icon: Flame,
-        power: power,
-        reason: 'Heizung aktiv',
-        color: '#F97316'
+        power: totalHeatingPower,
+        reason: activeRooms.length === 1 ? 'Heizung aktiv' : `${activeRooms.length} Räume`,
+        color: '#F97316',
+        details: activeRooms.length > 1 ? {
+          rooms: activeRooms.map(room => ({
+            room_id: room.room_id,
+            room_name: room.room_name,
+            power: room.power,
+            duration_min: room.duration_min
+          }))
+        } : undefined
       });
-    });
-
-    // Berechne bereits erklärten Verbrauch (Heizung)
-    const explainedByHeating = consumers.reduce((sum, c) => sum + c.power, 0);
+    }
 
     // 2. Warmwasser - berechnet als Differenz (geschätzt)
     if (heatingSettings?.hotwater_enabled && currentConsumption) {
@@ -86,14 +83,14 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
       const end = heatingSettings.hotwater_schedule_end || '16:00';
       const minHotwaterPower = heatingSettings.hotwater_min_surplus_w || 1000;
       
-      const unexplained = currentConsumption - explainedByHeating;
+      const unexplained = currentConsumption - totalHeatingPower;
       
       // Nur anzeigen wenn im Zeitplan UND Mindestleistung erreicht
       if (currentTime >= start && currentTime <= end && unexplained >= minHotwaterPower) {
         consumers.push({
           name: 'Warmwasser',
           icon: Droplet,
-          power: unexplained,  // Berechnete Differenz statt statischem Wert
+          power: unexplained,
           reason: '~geschätzt',
           color: '#3B82F6'
         });
@@ -118,7 +115,7 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
     }
 
     return consumers;
-  }, [heatingSettings, activeRooms, currentConsumption]);
+  }, [heatingSettings, activeRooms, totalHeatingPower, currentConsumption]);
 
   const totalExplainedPower = useMemo(() => {
     return activeConsumers.reduce((sum, c) => sum + c.power, 0);
