@@ -1,92 +1,163 @@
 
 
-# Bug-Fix: UI zeigt falschen Heizmodus an
+# Analyse: Zeitzonen-Konsistenz im Frontend
 
-## Problem
+## Zusammenfassung
 
-Die UI zeigt "Eco" statt "Nacht", obwohl die aktuelle Zeit (07:51 Wien) innerhalb des Nachtmodus-Fensters liegt (20:00-08:00).
+Die Untersuchung zeigt, dass **mehrere kritische Stellen** im Frontend die Browser-Zeitzone statt der expliziten Wiener/Berliner Zeit verwenden. Dies kann zu Fehlern fuehren, wenn der Browser in einer anderen Zeitzone laeuft.
 
-## Analyse
+## Problemstellen
 
-Die `isNightTime()` Funktion in `DailyHeatingSchedule.tsx` berechnet korrekt:
-- Bei 07:51 (471 Minuten) mit Nacht von 20:00-08:00
-- `startMinutes=1200 > endMinutes=480` -> Mitternachtslogik aktiv
-- `471 >= 1200 || 471 < 480` = `false || true` = **true**
+### KRITISCH: Zeitzonen-Fehler bei Logik-Entscheidungen
 
-**Moegliche Ursachen:**
+| Datei | Funktion | Problem |
+|-------|----------|---------|
+| `src/components/heating/ThermostatCard.tsx` | `activeMode` (Zeile 110-124) | `now.getHours()` ohne Zeitzone |
+| `src/hooks/useRooms.ts` | `getCurrentRecommendation` (Zeile 135-144) | `now.getHours()` ohne Zeitzone |
+| `src/hooks/useConsumptionAnalysis.ts` | `activeConsumers` (Zeile 64-65) | `now.getHours()` ohne Zeitzone |
+| `src/pages/Index.tsx` | `currentHour` (Zeile 124-125) | `now.getHours()` ohne Zeitzone |
+| `src/components/heating/HeatingDashboard.tsx` | `currentHour` (Zeile 228-229) | `now.getHours()` ohne Zeitzone |
+| `src/lib/dateUtils.ts` | Alle Funktionen | Browser-Zeitzone statt explizit |
 
-1. **Browser-Zeitzone anders als Europe/Vienna** - Die Funktion nutzt `new Date()` (lokale Browser-Zeit)
-2. **Settings werden nicht geladen** - Default-Werte (22:00-06:00) werden verwendet
-3. **Timing-Problem** - Die Settings werden nach dem ersten Render geladen
+### OK: Bereits korrekt implementiert
+
+| Datei | Verwendung |
+|-------|------------|
+| `src/components/heating/DailyHeatingSchedule.tsx` | `Europe/Vienna` explizit |
+| `src/components/energy/BatteryHistoryChart.tsx` | `Europe/Berlin` fuer Anzeige |
+| `src/components/energy/EnergyChart.tsx` | `Europe/Berlin` fuer Anzeige |
+| Backend Edge Functions | `Europe/Vienna` oder `Europe/Berlin` explizit |
+
+### Inkonsistenz: Berlin vs Vienna
+
+- Frontend: Meist `Europe/Berlin`
+- Backend (`pv-automation`): `Europe/Vienna`
+- Technisch identisch, aber verwirrend
 
 ## Loesung
 
-### Schritt 1: Debug-Logging hinzufuegen (temporaer)
-
-Datei: `src/components/heating/DailyHeatingSchedule.tsx`
-
-```text
-// Nach Zeile 80, vor currentMode useMemo:
-console.log('[DailyHeatingSchedule] Settings check:', {
-  nightStart,
-  nightEnd,
-  settingsNightStart: settings.night_start_time,
-  settingsNightEnd: settings.night_end_time,
-  browserTime: new Date().toLocaleTimeString('de-AT'),
-  browserTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-});
-```
-
-### Schritt 2: Explizite Zeitzone verwenden
-
-Datei: `src/components/heating/DailyHeatingSchedule.tsx`
-
-Die `isNightTime()` Funktion aendern, um explizit die Wiener Zeitzone zu verwenden:
+### Schritt 1: Zentrale Hilfsfunktion in dateUtils.ts erweitern
 
 ```typescript
-function isNightTime(nightStart: string, nightEnd: string): boolean {
-  // Explizit Wiener Zeit verwenden
-  const viennaTime = new Date().toLocaleString('en-US', { 
-    timeZone: 'Europe/Vienna',
-    hour: 'numeric',
+// src/lib/dateUtils.ts
+
+const TIMEZONE = 'Europe/Vienna';
+
+/**
+ * Aktuelle Wiener Zeit als Stunde (0-23)
+ */
+export function getViennaHour(): number {
+  return parseInt(new Date().toLocaleTimeString('de-AT', { 
+    timeZone: TIMEZONE, 
+    hour: '2-digit', 
+    hour12: false 
+  }));
+}
+
+/**
+ * Aktuelle Wiener Zeit als HH:MM String
+ */
+export function getViennaTimeString(): string {
+  return new Date().toLocaleTimeString('de-AT', { 
+    timeZone: TIMEZONE, 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false 
+  });
+}
+
+/**
+ * Aktuelle Wiener Zeit als Minuten seit Mitternacht
+ */
+export function getViennaMinutesSinceMidnight(): number {
+  const time = new Date().toLocaleTimeString('en-US', { 
+    timeZone: TIMEZONE, 
+    hour: 'numeric', 
     minute: 'numeric',
     hour12: false 
   });
-  const [hours, minutes] = viennaTime.split(':').map(Number);
-  const currentMinutes = hours * 60 + minutes;
-  
-  const [startH, startM] = nightStart.split(':').map(Number);
-  const [endH, endM] = nightEnd.split(':').map(Number);
-  const startMinutes = startH * 60 + startM;
-  const endMinutes = endH * 60 + endM;
-  
-  if (startMinutes > endMinutes) {
-    return currentMinutes >= startMinutes || currentMinutes < endMinutes;
-  }
-  return currentMinutes >= startMinutes && currentMinutes < endMinutes;
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+/**
+ * Lokales Datum (Vienna) als String (YYYY-MM-DD)
+ */
+export function getLocalDateString(date: Date = new Date()): string {
+  return date.toLocaleDateString('sv-SE', { timeZone: TIMEZONE });
 }
 ```
 
-### Schritt 3: Fallback fuer Settings verbessern
-
-Das Zeitformat aus der Datenbank (`20:00:00`) muss auf `HH:MM` normalisiert werden:
+### Schritt 2: ThermostatCard.tsx korrigieren
 
 ```typescript
-// Zeile 75-76: Zeit-String normalisieren
-const nightStart = (settings.night_start_time || '22:00').substring(0, 5);
-const nightEnd = (settings.night_end_time || '06:00').substring(0, 5);
+// Zeile 110-124 ersetzen mit:
+import { getViennaMinutesSinceMidnight } from '@/lib/dateUtils';
+
+const activeMode = useMemo((): ActiveMode => {
+  const currentMinutes = getViennaMinutesSinceMidnight();
+  const nightStart = parseTimeToMinutes(nightStartTime);
+  const nightEnd = parseTimeToMinutes(nightEndTime);
+  
+  const isNight = nightStart > nightEnd 
+    ? (currentMinutes >= nightStart || currentMinutes < nightEnd)
+    : (currentMinutes >= nightStart && currentMinutes < nightEnd);
+  
+  if (isNight) return 'night';
+  if (room.pv_auto_active) return 'comfort';
+  return 'eco';
+}, [nightStartTime, nightEndTime, room.pv_auto_active]);
+```
+
+### Schritt 3: useRooms.ts korrigieren
+
+```typescript
+// Zeile 135-144 ersetzen mit:
+import { getViennaTimeString } from '@/lib/dateUtils';
+
+const getCurrentRecommendation = useCallback((roomId: string): RoomRecommendation | undefined => {
+  const currentTime = getViennaTimeString();
+  
+  return recommendations.find(rec => 
+    rec.room_id === roomId && 
+    rec.start_time <= currentTime && 
+    rec.end_time > currentTime
+  );
+}, [recommendations]);
+```
+
+### Schritt 4: useConsumptionAnalysis.ts korrigieren
+
+```typescript
+// Zeile 64-65 ersetzen mit:
+import { getViennaTimeString } from '@/lib/dateUtils';
+
+const currentTime = getViennaTimeString();
+```
+
+### Schritt 5: Index.tsx und HeatingDashboard.tsx korrigieren
+
+```typescript
+// Beide Dateien: currentHour-Berechnung ersetzen mit:
+import { getViennaHour } from '@/lib/dateUtils';
+
+const currentHour = getViennaHour();
 ```
 
 ## Zusammenfassung der Aenderungen
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/components/heating/DailyHeatingSchedule.tsx` | `isNightTime()` auf Europe/Vienna Zeitzone umstellen |
-| `src/components/heating/DailyHeatingSchedule.tsx` | Zeit-Strings auf HH:MM normalisieren (substring 0-5) |
+| `src/lib/dateUtils.ts` | Neue Funktionen: `getViennaHour`, `getViennaTimeString`, `getViennaMinutesSinceMidnight` |
+| `src/components/heating/ThermostatCard.tsx` | Import + Verwendung von `getViennaMinutesSinceMidnight` |
+| `src/hooks/useRooms.ts` | Import + Verwendung von `getViennaTimeString` |
+| `src/hooks/useConsumptionAnalysis.ts` | Import + Verwendung von `getViennaTimeString` |
+| `src/pages/Index.tsx` | Import + Verwendung von `getViennaHour` |
+| `src/components/heating/HeatingDashboard.tsx` | Import + Verwendung von `getViennaHour` |
 
 ## Erwartetes Ergebnis
 
-- Die UI zeigt korrekt "Nacht" an, solange die Wiener Zeit zwischen 20:00 und 08:00 liegt
-- Unabhaengig von der Browser-Zeitzone wird die korrekte Ortszeit verwendet
-- Das Zeitformat aus der DB (HH:MM:SS) wird korrekt verarbeitet
+- Alle zeit-basierten Logik-Entscheidungen verwenden konsistent die Wiener Zeitzone
+- Unabhaengig von der Browser-Zeitzone des Benutzers wird die korrekte Ortszeit verwendet
+- Nachtmodus, Empfehlungen und Verbrauchsanalyse zeigen korrekte Daten
 
