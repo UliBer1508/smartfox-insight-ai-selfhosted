@@ -980,6 +980,7 @@ Deno.serve(async (req) => {
                   reasoning = `⚡ Hoher Überschuss: ${gridExport}W Export → Nord-Raum heizen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
                   console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
                 }
+              }
             }
           }
         }
