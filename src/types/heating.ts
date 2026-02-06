@@ -55,6 +55,12 @@ export interface HeatingSettings {
   // Nacht-Zeiten
   night_start_time?: string;
   night_end_time?: string;
+  // Leistungsbudget-Management
+  power_budget_enabled?: boolean;
+  max_grid_heating_power_w?: number;
+  power_budget_tolerance_w?: number;
+  room_rotation_minutes?: number;
+  min_room_pause_minutes?: number;
   created_at?: string;
   updated_at?: string;
 }

@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets, Euro, Moon } from 'lucide-react';
+import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets, Euro, Moon, Gauge } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
@@ -173,6 +173,82 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             <p className="text-xs text-muted-foreground mt-2">
               Während dieser Zeit wird automatisch die Nacht-Temperatur verwendet
             </p>
+          </div>
+
+          {/* Leistungsbudget-Management */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Gauge className="w-4 h-4" />
+              Leistungsbudget-Management
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="power_budget"
+                  checked={formData.power_budget_enabled !== false}
+                  onCheckedChange={(checked) => handleChange('power_budget_enabled', checked)}
+                />
+                <Label htmlFor="power_budget" className="text-sm">
+                  Sequenzielles Heizen aktivieren
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Begrenzt die gleichzeitige Heizleistung um Netzspitzen zu vermeiden und PV optimal zu nutzen
+              </p>
+              
+              {formData.power_budget_enabled !== false && (
+                <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="max_grid_power">Max. Netz-Heizleistung (W)</Label>
+                    <Input
+                      id="max_grid_power"
+                      type="number"
+                      min="500"
+                      step="100"
+                      value={formData.max_grid_heating_power_w || 2000}
+                      onChange={(e) => handleChange('max_grid_heating_power_w', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Bei Nacht/Wolken</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="budget_tolerance">PV-Toleranz (W)</Label>
+                    <Input
+                      id="budget_tolerance"
+                      type="number"
+                      min="0"
+                      step="50"
+                      value={formData.power_budget_tolerance_w || 200}
+                      onChange={(e) => handleChange('power_budget_tolerance_w', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Erlaubter Netzbezug</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="rotation_minutes">Rotation (Min)</Label>
+                    <Input
+                      id="rotation_minutes"
+                      type="number"
+                      min="10"
+                      max="120"
+                      value={formData.room_rotation_minutes || 30}
+                      onChange={(e) => handleChange('room_rotation_minutes', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Heizzeit pro Raum</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pause_minutes">Mindest-Pause (Min)</Label>
+                    <Input
+                      id="pause_minutes"
+                      type="number"
+                      min="5"
+                      max="60"
+                      value={formData.min_room_pause_minutes || 15}
+                      onChange={(e) => handleChange('min_room_pause_minutes', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Zwischen Rotationen</p>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* PV-Automatik Schwellwerte */}

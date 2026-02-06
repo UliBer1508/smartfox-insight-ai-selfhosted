@@ -370,18 +370,23 @@ export type Database = {
           id: string
           latitude: number | null
           longitude: number | null
+          max_grid_heating_power_w: number | null
           min_battery_soc: number
+          min_room_pause_minutes: number | null
           min_switch_interval_min: number | null
           night_cycling_enabled: boolean | null
           night_end_time: string | null
           night_start_time: string | null
           night_temp: number
+          power_budget_enabled: boolean | null
+          power_budget_tolerance_w: number | null
           preheat_hours: number
           pv_capacity_kwp: number
           pv_surplus_threshold_off: number | null
           pv_surplus_threshold_on: number | null
           roof_azimuth: number | null
           roof_declination: number | null
+          room_rotation_minutes: number | null
           target_battery_soc: number
           total_heating_power_w: number | null
           updated_at: string
@@ -409,18 +414,23 @@ export type Database = {
           id?: string
           latitude?: number | null
           longitude?: number | null
+          max_grid_heating_power_w?: number | null
           min_battery_soc?: number
+          min_room_pause_minutes?: number | null
           min_switch_interval_min?: number | null
           night_cycling_enabled?: boolean | null
           night_end_time?: string | null
           night_start_time?: string | null
           night_temp?: number
+          power_budget_enabled?: boolean | null
+          power_budget_tolerance_w?: number | null
           preheat_hours?: number
           pv_capacity_kwp?: number
           pv_surplus_threshold_off?: number | null
           pv_surplus_threshold_on?: number | null
           roof_azimuth?: number | null
           roof_declination?: number | null
+          room_rotation_minutes?: number | null
           target_battery_soc?: number
           total_heating_power_w?: number | null
           updated_at?: string
@@ -448,18 +458,23 @@ export type Database = {
           id?: string
           latitude?: number | null
           longitude?: number | null
+          max_grid_heating_power_w?: number | null
           min_battery_soc?: number
+          min_room_pause_minutes?: number | null
           min_switch_interval_min?: number | null
           night_cycling_enabled?: boolean | null
           night_end_time?: string | null
           night_start_time?: string | null
           night_temp?: number
+          power_budget_enabled?: boolean | null
+          power_budget_tolerance_w?: number | null
           preheat_hours?: number
           pv_capacity_kwp?: number
           pv_surplus_threshold_off?: number | null
           pv_surplus_threshold_on?: number | null
           roof_azimuth?: number | null
           roof_declination?: number | null
+          room_rotation_minutes?: number | null
           target_battery_soc?: number
           total_heating_power_w?: number | null
           updated_at?: string
@@ -811,11 +826,14 @@ export type Database = {
           estimated_kwh_per_degree: number | null
           floor_area_m2: number | null
           has_solar_gain: boolean | null
+          heating_paused_reason: string | null
           heating_power_w: number | null
           id: string
           is_heating: boolean | null
           last_auto_change: string | null
           last_heating_duration_min: number | null
+          last_heating_end: string | null
+          last_heating_start: string | null
           last_power_calculation: string | null
           last_solar_analysis: string | null
           last_thermostat_sync: string | null
@@ -854,11 +872,14 @@ export type Database = {
           estimated_kwh_per_degree?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
+          heating_paused_reason?: string | null
           heating_power_w?: number | null
           id?: string
           is_heating?: boolean | null
           last_auto_change?: string | null
           last_heating_duration_min?: number | null
+          last_heating_end?: string | null
+          last_heating_start?: string | null
           last_power_calculation?: string | null
           last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
@@ -897,11 +918,14 @@ export type Database = {
           estimated_kwh_per_degree?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
+          heating_paused_reason?: string | null
           heating_power_w?: number | null
           id?: string
           is_heating?: boolean | null
           last_auto_change?: string | null
           last_heating_duration_min?: number | null
+          last_heating_end?: string | null
+          last_heating_start?: string | null
           last_power_calculation?: string | null
           last_solar_analysis?: string | null
           last_thermostat_sync?: string | null
