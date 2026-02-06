@@ -219,18 +219,38 @@ async function getBatchDeviceStatus(
 }
 
 // Set device temperature
+// NOTE: Mode cannot be changed via Cloud API for TGP508 - only 'auto' is supported
+// Thermostats in 'home' mode (non-programmable) accept temp_set directly
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
   deviceId: string,
   temperature: number
 ): Promise<unknown> {
-  // Temperature is usually in 0.1°C units for Tuya thermostats (e.g., 200 = 20.0°C)
+  // Temperature is in 0.1°C units for Tuya thermostats (e.g., 190 = 19.0°C)
   const tempValue = Math.round(temperature * 10);
+  
+  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue})`);
   
   return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
     commands: [
       { code: 'temp_set', value: tempValue }
+    ]
+  });
+}
+
+// Set device mode - NOTE: TGP508 only supports 'auto' via Cloud API
+// 'home' mode must be set directly on the device
+async function setDeviceMode(
+  accessId: string,
+  accessSecret: string,
+  deviceId: string,
+  mode: string
+): Promise<unknown> {
+  console.log(`[Tuya] Setting device ${deviceId} to mode: ${mode}`);
+  return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
+    commands: [
+      { code: 'mode', value: mode }
     ]
   });
 }
@@ -756,6 +776,62 @@ Deno.serve(async (req) => {
       tokenExpiry = 0;
 
       return new Response(JSON.stringify({ success: true, url, region: validDc.name }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // POST /device-spec - Get device specifications to understand available values
+    if (req.method === 'POST' && path === '/device-spec') {
+      const { deviceId } = await req.json();
+      
+      if (!deviceId) {
+        throw new Error('deviceId is required');
+      }
+
+      // Get device specifications from Tuya
+      const spec = await tuyaRequest(accessId, accessSecret, 'GET', `/v1.0/devices/${deviceId}/specifications`);
+      
+      return new Response(JSON.stringify({ success: true, spec }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // POST /set-mode-all - Set thermostats to Cloud-controllable mode
+    // NOTE: For TGP508: 'home' = non-programmable (manual), 'auto' = programmable
+    // When in 'home' mode, thermostats obey Cloud temp_set commands directly!
+    if (req.method === 'POST' && path === '/set-mode-all') {
+      const { mode } = await req.json().catch(() => ({}));
+      const targetMode = mode || 'home'; // Default to 'home' (non-programmable, direct control)
+      
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('*')
+        .not('tuya_device_id', 'is', null);
+
+      if (!rooms || rooms.length === 0) {
+        return new Response(JSON.stringify({ success: true, results: [], message: 'No rooms configured' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[set-mode-all] Setting ${rooms.length} thermostats to mode: ${targetMode}`);
+
+      const results = [];
+      for (const room of rooms) {
+        try {
+          await setDeviceMode(accessId, accessSecret, room.tuya_device_id, targetMode);
+          results.push({ roomId: room.id, name: room.name, success: true, mode: targetMode });
+          console.log(`[${room.name}] Mode set to ${targetMode}`);
+        } catch (error) {
+          console.error(`Error setting mode for room ${room.name}:`, error);
+          results.push({ roomId: room.id, name: room.name, success: false, error: String(error) });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      console.log(`[set-mode-all] Complete: ${successCount}/${rooms.length} successful`);
+
+      return new Response(JSON.stringify({ success: true, results, summary: `${successCount}/${rooms.length} set to ${targetMode}` }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
