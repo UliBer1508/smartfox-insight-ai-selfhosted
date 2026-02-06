@@ -1,6 +1,20 @@
 
 # Sequenzielles Heizen mit Leistungsbudget-Management
 
+## Status: 🔧 TEILWEISE IMPLEMENTIERT
+
+### Erledigt:
+- ✅ DB-Migration: Neue Spalten in heating_settings und rooms
+- ✅ Types in src/types/heating.ts erweitert
+- ✅ Hooks in useHeatingSettings.ts mit Defaults
+- ✅ UI in HeatingSettingsForm.tsx hinzugefügt
+- ⚠️ Edge Function pv-automation: Code eingefügt, aber Deployment hat Syntax-Problem
+
+### Nächster Schritt:
+Edge Function Syntax-Fehler debuggen und deployen.
+
+---
+
 ## Problemstellung
 
 Aktuell heizen bis zu 5 Raeume gleichzeitig (5.2+ kW), was bei nur 1.3 kW PV-Produktion zu 5.5 kW Netzbezug fuehrt. Auch nachts/bei Bewoelkung ist simultanes Heizen suboptimal.

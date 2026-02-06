@@ -499,6 +499,147 @@ Deno.serve(async (req) => {
         r.orientation && northOrientations.some(o => r.orientation!.toLowerCase().includes(o))
       );
 
+      // ============= LEISTUNGSBUDGET-MANAGEMENT =============
+      // Berechne verfügbares Budget basierend auf PV-Leistung oder Netz-Maximum
+      const powerBudgetEnabled = settings?.power_budget_enabled !== false;
+      const maxGridHeatingPower = settings?.max_grid_heating_power_w || 2000;
+      const powerBudgetTolerance = settings?.power_budget_tolerance_w || 200;
+      const roomRotationMinutes = settings?.room_rotation_minutes || 30;
+      const minRoomPauseMinutes = settings?.min_room_pause_minutes || 15;
+      
+      // Grundlast schätzen (Verbrauch ohne Heizung, typisch 400-600W)
+      const baseLoad = 500; // TODO: könnte aus Verbrauchs-Analyse kommen
+      
+      // Budget-Modus bestimmen
+      let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
+      let availableBudget = 999999; // Unlimited default
+      
+      if (powerBudgetEnabled) {
+        if (pvPower > 500) {
+          // PV-Optimiert: Nur so viel heizen wie PV produziert
+          budgetMode = 'pv_optimized';
+          availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
+        } else {
+          // Netz-Sequenziell: Budget auf Maximum begrenzen
+          budgetMode = 'grid_sequential';
+          availableBudget = maxGridHeatingPower;
+        }
+      }
+      
+      // Räume nach Priorität und Temperatur-Defizit sortieren
+      // Typen inline für Deno Kompatibilität
+      const now = new Date();
+      const roomsWithPriority = rooms.map(room => {
+        const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
+        const currentTemp = room.current_temp || ecoTemp;
+        const tempDeficit = ecoTemp - currentTemp;
+        const heatingPower = room.calculated_power_w || room.heating_power_w || 800;
+        
+        // Wartezeit seit letzter Heizung
+        const lastEnd = room.last_heating_end ? new Date(room.last_heating_end) : null;
+        const waitTimeMinutes = lastEnd ? (now.getTime() - lastEnd.getTime()) / (1000 * 60) : 999;
+        
+        // Aktuelle Heizdauer
+        const lastStart = room.last_heating_start ? new Date(room.last_heating_start) : null;
+        const isCurrentlyHeating = room.is_heating === true;
+        const heatingDurationMinutes = isCurrentlyHeating && lastStart ? 
+          (now.getTime() - lastStart.getTime()) / (1000 * 60) : 0;
+        
+        return {
+          room,
+          priority: room.priority || 2,
+          tempDeficit,
+          heatingPower,
+          waitTimeMinutes,
+          isCurrentlyHeating,
+          heatingDurationMinutes
+        };
+      });
+      
+      // Sortierung: 1. Priorität (aufsteigend: 1 vor 2 vor 3), 2. Temperatur-Defizit (größter zuerst), 3. Wartezeit (längste zuerst)
+      roomsWithPriority.sort((a, b) => {
+        if (a.priority !== b.priority) return a.priority - b.priority;
+        if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
+        return b.waitTimeMinutes - a.waitTimeMinutes;
+      });
+      
+      // Tracking für Budget-Verbrauch
+      let usedBudget = 0;
+      const roomBudgetStatus = new Map<string, { 
+        allowedToHeat: boolean; 
+        reason: string; 
+        shouldRotate: boolean;
+      }>();
+      
+      // Erste Runde: Bereits heizende Räume prüfen auf Rotation
+      for (const rp of roomsWithPriority) {
+        if (!rp.isCurrentlyHeating) continue;
+        
+        // Rotation: Hat dieser Raum zu lange geheizt?
+        const shouldRotate = rp.heatingDurationMinutes >= roomRotationMinutes && 
+          roomsWithPriority.some(other => 
+            !other.isCurrentlyHeating && 
+            other.tempDeficit > 0.5 && 
+            other.waitTimeMinutes >= minRoomPauseMinutes &&
+            other.priority <= rp.priority
+          );
+        
+        if (shouldRotate) {
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: false,
+            reason: `Rotation nach ${Math.round(rp.heatingDurationMinutes)} Min`,
+            shouldRotate: true
+          });
+        } else if (usedBudget + rp.heatingPower <= availableBudget) {
+          // Weiter heizen erlaubt
+          usedBudget += rp.heatingPower;
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: true,
+            reason: `Weiter heizen (${usedBudget}/${availableBudget}W)`,
+            shouldRotate: false
+          });
+        } else {
+          // Budget erschöpft
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: false,
+            reason: `Budget erschöpft (${usedBudget}/${availableBudget}W)`,
+            shouldRotate: false
+          });
+        }
+      }
+      
+      // Zweite Runde: Nicht-heizende Räume nach Priorität aktivieren
+      for (const rp of roomsWithPriority) {
+        if (rp.isCurrentlyHeating) continue;
+        
+        // Mindest-Pause prüfen
+        if (rp.waitTimeMinutes < minRoomPauseMinutes && rp.room.last_heating_end) {
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: false,
+            reason: `Pause: noch ${Math.ceil(minRoomPauseMinutes - rp.waitTimeMinutes)} Min`,
+            shouldRotate: false
+          });
+          continue;
+        }
+        
+        // Budget-Check
+        if (usedBudget + rp.heatingPower <= availableBudget) {
+          usedBudget += rp.heatingPower;
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: true,
+            reason: `Aktiviert (${usedBudget}/${availableBudget}W)`,
+            shouldRotate: false
+          });
+        } else {
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: false,
+            reason: `Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
+            shouldRotate: false
+          });
+        }
+      }
+      
+      console.log(`[PV-Automation] Budget-Modus: ${budgetMode}, Budget: ${availableBudget}W, Verwendet: ${usedBudget}W`);
       console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}, SolarGain-Räume: ${roomsWithSolarGain.size}, Nord-Räume: ${northRooms.length}`);
 
       // 7. Call analyze-patterns with optimize_decision
@@ -611,7 +752,7 @@ Deno.serve(async (req) => {
 
       // 8. Process decisions
       const results: Record<string, unknown>[] = [];
-      const now = new Date();
+      // now ist bereits oben im Budget-Code definiert
       let tuyaApiCalls = 0; // Track API calls for logging
 
       for (const room of rooms) {
@@ -839,7 +980,54 @@ Deno.serve(async (req) => {
                   reasoning = `⚡ Hoher Überschuss: ${gridExport}W Export → Nord-Raum heizen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
                   console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
                 }
-              }
+            }
+          }
+        }
+
+        // ============= LEISTUNGSBUDGET-OVERRIDE =============
+        // Überschreibe Entscheidung basierend auf Budget (nur wenn Budget-Management aktiv)
+        if (powerBudgetEnabled && !isNight && action !== 'deactivate') {
+          const budgetStatus = roomBudgetStatus.get(room.id);
+          
+          if (budgetStatus) {
+            if (budgetStatus.shouldRotate) {
+              // Rotation: Raum hat zu lange geheizt, pausieren für andere
+              action = 'deactivate';
+              targetTemp = ecoTemp;
+              solarLimitTemp = null;
+              reasoning = `🔄 ${budgetStatus.reason} → Pause für andere Räume`;
+              console.log(`[PV-Automation] ${room.name}: ROTATION - ${reasoning}`);
+              
+              // Tracking aktualisieren
+              await supabase
+                .from('rooms')
+                .update({ 
+                  last_heating_end: now.toISOString(),
+                  heating_paused_reason: 'rotation'
+                })
+                .eq('id', room.id);
+            } else if (!budgetStatus.allowedToHeat && action === 'activate') {
+              // Budget reicht nicht - auf eco setzen und warten
+              action = 'deactivate';
+              targetTemp = ecoTemp;
+              solarLimitTemp = null;
+              reasoning = `⏸️ ${budgetStatus.reason}`;
+              console.log(`[PV-Automation] ${room.name}: BUDGET-PAUSE - ${reasoning}`);
+              
+              // Tracking aktualisieren
+              await supabase
+                .from('rooms')
+                .update({ heating_paused_reason: 'budget' })
+                .eq('id', room.id);
+            } else if (budgetStatus.allowedToHeat && action === 'activate') {
+              // Heizen erlaubt - Tracking starten
+              await supabase
+                .from('rooms')
+                .update({ 
+                  last_heating_start: room.is_heating ? room.last_heating_start : now.toISOString(),
+                  heating_paused_reason: null
+                })
+                .eq('id', room.id);
             }
           }
         }

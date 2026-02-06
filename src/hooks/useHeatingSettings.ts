@@ -42,6 +42,12 @@ const defaultSettings: HeatingSettings = {
   // Nacht-Zeiten
   night_start_time: '22:00',
   night_end_time: '06:00',
+  // Leistungsbudget-Management
+  power_budget_enabled: true,
+  max_grid_heating_power_w: 2000,
+  power_budget_tolerance_w: 200,
+  room_rotation_minutes: 30,
+  min_room_pause_minutes: 15,
 };
 
 export function useHeatingSettings() {
