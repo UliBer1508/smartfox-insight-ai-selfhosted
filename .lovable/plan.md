@@ -1,121 +1,95 @@
 
-# Problem-Analyse und Loesung: Thermostat-Steuerung
+# Problem: Nachtmodus wird nie auf Thermostate uebertragen
 
-## Identifiziertes Problem
+## Analyse
 
-Die Thermostat-Steuerung funktioniert nicht, weil ein **Zwischen-Glied fehlt**:
-
-```text
-PWA (Frontend)
-    │
-    ▼
-thermostat_commands Tabelle (16 pending Befehle!)
-    │
-    ✖ HIER FEHLT DIE VERBINDUNG
-    │
-    ▼
-Physische Thermostate (TGP508)
-```
-
-### Warum?
-
-1. **useTuyaControl.setTemperature()** schreibt Befehle nur in die Datenbank
-2. **pv-automation** Edge Function nutzt Tuya Cloud API, aber:
-   - Macht 0 API Calls wegen Skip-Logic (Temperaturen "schon korrekt")
-   - Daten sind 4 Tage alt (kein Sync seit 01.02.2026)
-   - Tuya Cloud Quota war erschoepft
-3. **Local Collector** (collector-node) ist nicht eingerichtet/laeuft nicht
-
----
-
-## Loesungs-Optionen
-
-### Option A: Direkte Cloud-API (Schnellste Loesung)
-
-**Aenderung:** `useTuyaControl.setTemperature()` ruft direkt die `tuya-control/set-temp` Edge Function auf, anstatt nur in die Command-Queue zu schreiben.
-
-**Vorteile:**
-- Sofort funktionsfaehig
-- Keine lokale Installation noetig
-
-**Nachteile:**
-- Verbraucht Tuya API Quota (begrenzt)
-- Abhaengig von Cloud-Verfuegbarkeit
-
-**Technische Aenderung in `src/hooks/useTuyaControl.ts`:**
-```typescript
-const setTemperature = async (deviceId, temperature, roomId) => {
-  // VORHER: Nur Command-Queue (wird nie ausgefuehrt)
-  // NACHHER: Direkt Edge Function aufrufen
-  const { data, error } = await supabase.functions.invoke('tuya-control/set-temp', {
-    body: { deviceId, temperature, roomId }
-  });
-  // ... Fehlerbehandlung + manual_override setzen
-};
-```
-
----
-
-### Option B: Local Collector aktivieren (Langfristig besser)
-
-**Voraussetzungen:**
-1. Node.js auf lokalem PC/Raspberry Pi
-2. config.json mit allen 10 Geraeten (Device IDs, Local Keys, IPs)
-3. Port 6668 zu Thermostaten erreichbar
-
-**Vorteile:**
-- Keine API-Quota
-- Schnellere Reaktion (20-50ms vs 200-500ms)
-- Unabhaengig von Cloud
-
-**Was fehlt:**
-- Thermostat IP-Adressen (noch nicht in DB)
-- config.json fuer Collector
-
----
-
-## Empfohlene Vorgehensweise
-
-**Phase 1 (Sofort):** Option A implementieren - Cloud-API direkt nutzen
-**Phase 2 (Spaeter):** Local Collector einrichten wenn IPs bekannt
-
----
-
-## Technische Aenderungen fuer Phase 1
-
-### Datei: `src/hooks/useTuyaControl.ts`
-
-**setTemperature Funktion umbauen (Zeile 86-119):**
+Das Problem liegt in der `pv-automation` Edge Function:
 
 ```text
-VORHER:
-1. Befehl in thermostat_commands schreiben (pending)
-2. manual_override setzen
-3. Toast anzeigen
-→ Befehl wird NIE ausgefuehrt!
+Zeile 297-307:
+if (isNight) {
+  console.log("Night mode active - skipping cloud sync...")
+  return { success: true, nightMode: true }  // <-- FRUEHE RUECKGABE!
+}
+```
+
+**Aktueller Ablauf:**
+1. Um 22:00 beginnt Nachtmodus
+2. pv-automation prueft: `isNight = true`
+3. Sofortige Rueckgabe - KEIN Code danach wird ausgefuehrt
+4. Thermostate bleiben auf ihrer letzten Temperatur (19-20°C)
+5. Thermostate heizen weiter, weil target > current
+
+**Beweis (Live-Sync gerade eben):**
+
+| Raum | Tuya target | DB night_temp | Differenz |
+|------|-------------|---------------|-----------|
+| Bad Uli | 20°C | 18°C | +2°C |
+| Zimmer Uli | 20°C | 18°C | +2°C |
+| Buero | 19°C | 18°C | +1°C |
+| Wohnzimmer | 19°C | 18°C | +1°C |
+| alle anderen | 19°C | 18°C | +1°C |
+
+Die Thermostate sind tatsaechlich NICHT auf night_temp!
+
+---
+
+## Loesung
+
+### Ansatz: Nachtmodus EINMAL zu Beginn setzen
+
+Statt die pv-automation komplett zu ueberspringen, soll sie:
+1. Beim Start der Nacht alle Thermostate auf night_temp setzen
+2. Danach keine weiteren API-Calls machen (Quota sparen)
+
+**Aenderung in `supabase/functions/pv-automation/index.ts`:**
+
+```text
+VORHER (Zeile 297-307):
+if (isNight) {
+  return { nightMode: true, results: [] }  // Kompletter Skip
+}
 
 NACHHER:
-1. Edge Function tuya-control/set-temp aufrufen
-2. Bei Erfolg: manual_override setzen
-3. Toast anzeigen
-4. Optional: Befehl in Command-Queue loggen (fuer Audit)
-```
-
-### Zusaetzlich: Pending Commands aufraeumen
-
-SQL-Migration um alte pending Befehle zu loeschen:
-```sql
-DELETE FROM thermostat_commands WHERE status = 'pending';
+if (isNight) {
+  // Pruefe ob Thermostate schon auf night_temp stehen
+  const roomsNeedingNightAdjustment = rooms.filter(r => {
+    const currentTarget = Number(r.target_temp) || 0;
+    const nightTarget = r.night_temp || settings?.night_temp || 17;
+    return Math.abs(currentTarget - nightTarget) >= 0.5;
+  });
+  
+  if (roomsNeedingNightAdjustment.length === 0) {
+    return { nightMode: true, message: "Alle Thermostate bereits auf Nachttemperatur" };
+  }
+  
+  // Nur die fehlenden Raeume auf night_temp setzen
+  for (const room of roomsNeedingNightAdjustment) {
+    await setDeviceTemperature(room.tuya_device_id, room.night_temp);
+    await supabase.from('rooms').update({ 
+      target_temp: room.night_temp,
+      pv_auto_active: false 
+    }).eq('id', room.id);
+  }
+  
+  return { nightMode: true, adjusted: roomsNeedingNightAdjustment.length };
+}
 ```
 
 ---
 
-## Zusammenfassung
+## Zusammenfassung der Aenderungen
 
-| Komponente | Status | Aktion |
-|------------|--------|--------|
-| thermostat_commands Tabelle | 16 pending Befehle | Aufraeumen |
-| useTuyaControl Hook | Schreibt nur in Queue | Direkt API aufrufen |
-| tuya-control Edge Function | Funktioniert | Bereits vorhanden |
-| pv-automation | Skip-Logic blockiert | Wird nach Sync funktionieren |
-| Local Collector | Nicht eingerichtet | Spaeter (Phase 2) |
+| Datei | Aenderung |
+|-------|-----------|
+| `supabase/functions/pv-automation/index.ts` | Nachtmodus-Logik: Thermostate aktiv auf night_temp setzen statt komplett ueberspringen |
+
+### Erwartetes Ergebnis
+
+- Um 22:00: Alle Thermostate werden auf 18°C (night_temp) gesetzt
+- 22:01-07:59: Keine weiteren API-Calls (Quota wird gespart)
+- Thermostate heizen nicht mehr ueber Nacht, weil target = night_temp
+
+### Sofort-Workaround
+
+Alternativ kann ich jetzt alle Thermostate manuell auf 18°C setzen, um das Problem fuer heute Nacht zu loesen, waehrend die Code-Aenderung implementiert wird.
