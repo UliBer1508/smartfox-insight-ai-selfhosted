@@ -524,18 +524,88 @@ Deno.serve(async (req) => {
             })
           });
 
+          console.log(`[PV-Automation] ML Response status: ${mlResponse.status}, ok: ${mlResponse.ok}`);
+          
           if (mlResponse.ok) {
             const mlResult: MLDecisionResponse = await mlResponse.json();
+            console.log(`[PV-Automation] ML Result received, decisions: ${mlResult.decisions?.length || 0}, error: ${mlResult.error || 'none'}`);
+            
             if (mlResult.decisions && mlResult.decisions.length > 0) {
               mlDecisions = mlResult.decisions;
               usedMlDecision = true;
-              console.log(`[PV-Automation] ML decisions: ${mlDecisions.length}, Strategy: ${mlResult.overall_strategy}`);
+              console.log(`[PV-Automation] ✅ ML decisions: ${mlDecisions.length}, Strategy: ${mlResult.overall_strategy?.substring(0, 100)}...`);
+            } else {
+              console.warn(`[PV-Automation] ⚠️ ML returned empty decisions array, overall_strategy: ${mlResult.overall_strategy?.substring(0, 50) || 'none'}`);
             }
           } else {
-            console.warn('[PV-Automation] ML decision failed, using fallback');
+            const errorText = await mlResponse.text();
+            console.warn(`[PV-Automation] ❌ ML decision failed (${mlResponse.status}): ${errorText.substring(0, 200)}`);
           }
         } catch (mlError) {
-          console.error('[PV-Automation] ML error:', mlError);
+          console.error('[PV-Automation] ❌ ML error:', mlError);
+        }
+
+        // ============= PERSISTIERE ML-ENTSCHEIDUNGEN IN DATENBANK =============
+        // Damit das Frontend die Empfehlungen anzeigen kann (useRooms, RoomRecommendations)
+        if (mlDecisions && mlDecisions.length > 0) {
+          try {
+            // WICHTIG: Wien-Zeit für korrektes Datum (nicht UTC!)
+            const persistNow = new Date(); // Eigene Date-Instanz für Persistierung
+            const wienDateFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Vienna' });
+            const wienTimeFormatter = new Intl.DateTimeFormat('de-AT', {
+              timeZone: 'Europe/Vienna',
+              hour: '2-digit',
+              minute: '2-digit',
+              hour12: false
+            });
+            
+            const todayLocal = wienDateFormatter.format(persistNow); // YYYY-MM-DD in Wien-Zeit
+            const wienTimeStr = wienTimeFormatter.format(persistNow);
+            const [wienHourStr] = wienTimeStr.split(':');
+            const currentHour = parseInt(wienHourStr, 10);
+            
+            // 8 Tagesperioden à 3 Stunden (0-3, 3-6, 6-9, ...)
+            const periodNumber = Math.floor(currentHour / 3);
+            const startHour = periodNumber * 3;
+            const endHour = Math.min((periodNumber + 1) * 3, 24);
+            const startTime = `${String(startHour).padStart(2, '0')}:00`;
+            const endTime = `${String(endHour).padStart(2, '0')}:00`;
+            
+            console.log(`[PV-Automation] Persistiere ${mlDecisions.length} ML-Entscheidungen für ${todayLocal}, Periode ${periodNumber} (${startTime}-${endTime})`);
+            
+            for (const decision of mlDecisions) {
+              // Map ML action to priority string
+              const priorityMap: Record<string, string> = {
+                'activate': 'heat_now',
+                'deactivate': 'reduce',
+                'keep': 'hold'
+              };
+              const priority = priorityMap[decision.action] || 'hold';
+              
+              const { error: upsertError } = await supabase
+                .from('room_recommendations')
+                .upsert({
+                  room_id: decision.room_id,
+                  date: todayLocal,
+                  period_number: periodNumber,
+                  start_time: startTime,
+                  end_time: endTime,
+                  recommended_temp: decision.target_temp,
+                  reason: decision.reasoning || `ML: ${decision.action}`,
+                  priority: priority,
+                }, {
+                  onConflict: 'room_id,date,period_number'
+                });
+              
+              if (upsertError) {
+                console.error(`[PV-Automation] Fehler beim Speichern für ${decision.room_name}:`, upsertError.message);
+              }
+            }
+            
+            console.log(`[PV-Automation] ✅ ${mlDecisions.length} ML-Entscheidungen in room_recommendations gespeichert`);
+          } catch (persistError) {
+            console.error('[PV-Automation] Fehler beim Persistieren der ML-Entscheidungen:', persistError);
+          }
         }
       }
 
