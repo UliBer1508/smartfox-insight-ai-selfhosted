@@ -15,8 +15,15 @@ interface DailyHeatingScheduleProps {
 type HeatingMode = 'night' | 'eco' | 'comfort' | 'battery_protect';
 
 function isNightTime(nightStart: string, nightEnd: string): boolean {
-  const now = new Date();
-  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  // Explizit Wiener Zeit verwenden (unabhängig von Browser-Zeitzone)
+  const viennaTime = new Date().toLocaleString('en-US', { 
+    timeZone: 'Europe/Vienna',
+    hour: 'numeric',
+    minute: 'numeric',
+    hour12: false 
+  });
+  const [hours, minutes] = viennaTime.split(':').map(Number);
+  const currentMinutes = hours * 60 + minutes;
   
   const [startH, startM] = nightStart.split(':').map(Number);
   const [endH, endM] = nightEnd.split(':').map(Number);
@@ -72,8 +79,9 @@ const MODE_CONFIG: Record<HeatingMode, { label: string; icon: React.ReactNode; c
 };
 
 export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batterySoc }: DailyHeatingScheduleProps) {
-  const nightStart = settings.night_start_time || '22:00';
-  const nightEnd = settings.night_end_time || '06:00';
+  // Zeit-Strings normalisieren (DB liefert HH:MM:SS, wir brauchen HH:MM)
+  const nightStart = (settings.night_start_time || '22:00').substring(0, 5);
+  const nightEnd = (settings.night_end_time || '06:00').substring(0, 5);
   const thresholdOn = settings.pv_surplus_threshold_on || 500;
   const thresholdOff = settings.pv_surplus_threshold_off || 200;
   const minBatterySoc = settings.min_battery_soc || 20;
