@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { HeatingSettings } from '@/types/heating';
 import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { Droplet, Flame, HelpCircle, LucideIcon } from 'lucide-react';
+import { getViennaTimeString } from '@/lib/dateUtils';
 
 export interface ActiveConsumer {
   name: string;
@@ -61,8 +62,8 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
 
   const activeConsumers = useMemo(() => {
     const consumers: ActiveConsumer[] = [];
-    const now = new Date();
-    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    // Explizit Wiener Zeit verwenden
+    const currentTime = getViennaTimeString();
 
     // 1. Erst alle Heizungsräume erfassen
     activeRooms.forEach(room => {

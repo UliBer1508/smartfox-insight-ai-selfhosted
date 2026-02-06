@@ -3,18 +3,56 @@
  * 
  * WICHTIG: Verwende diese Funktionen statt toISOString().split('T')[0]!
  * toISOString() konvertiert zu UTC, was um Mitternacht das falsche Datum liefert.
+ * 
+ * Alle Funktionen nutzen explizit Europe/Vienna als Zeitzone.
  */
 
+const TIMEZONE = 'Europe/Vienna';
+
 /**
- * Lokales Datum als String (YYYY-MM-DD) - KORREKT für lokale Zeitzone
+ * Aktuelle Wiener Zeit als Stunde (0-23)
+ */
+export function getViennaHour(): number {
+  return parseInt(new Date().toLocaleTimeString('de-AT', { 
+    timeZone: TIMEZONE, 
+    hour: '2-digit', 
+    hour12: false 
+  }));
+}
+
+/**
+ * Aktuelle Wiener Zeit als HH:MM String
+ */
+export function getViennaTimeString(): string {
+  return new Date().toLocaleTimeString('de-AT', { 
+    timeZone: TIMEZONE, 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false 
+  });
+}
+
+/**
+ * Aktuelle Wiener Zeit als Minuten seit Mitternacht
+ */
+export function getViennaMinutesSinceMidnight(): number {
+  const time = new Date().toLocaleTimeString('en-US', { 
+    timeZone: TIMEZONE, 
+    hour: 'numeric', 
+    minute: 'numeric',
+    hour12: false 
+  });
+  const [hours, minutes] = time.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+/**
+ * Lokales Datum (Vienna) als String (YYYY-MM-DD) - KORREKT für Wiener Zeitzone
  * Beispiel: Am 14.01.2026 um 00:30 MEZ gibt dies "2026-01-14" zurück
  * (nicht "2026-01-13" wie toISOString().split('T')[0])
  */
 export function getLocalDateString(date: Date = new Date()): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return date.toLocaleDateString('sv-SE', { timeZone: TIMEZONE });
 }
 
 /**

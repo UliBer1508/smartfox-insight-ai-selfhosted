@@ -30,7 +30,7 @@ import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
 import { format } from 'date-fns';
 
 interface HeatingDashboardProps {
@@ -225,8 +225,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           if (!room?.id) return [];
           
           // Create current period recommendation
-          const now = new Date();
-          const currentHour = now.getHours();
+          // Explizit Wiener Zeit verwenden
+          const currentHour = getViennaHour();
           const currentPeriod = roomPlan.periods?.find((p: any) => {
             const startHour = parseInt(p.start_time.split(':')[0]);
             const endHour = parseInt(p.end_time.split(':')[0]);

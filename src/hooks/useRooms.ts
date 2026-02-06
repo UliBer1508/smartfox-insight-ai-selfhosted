@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Room, RoomRecommendation } from '@/types/room';
 import { toast } from 'sonner';
-import { getLocalDateString } from '@/lib/dateUtils';
+import { getLocalDateString, getViennaTimeString } from '@/lib/dateUtils';
 
 export function useRooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -133,13 +133,13 @@ export function useRooms() {
   }, [loadRecommendations]);
 
   const getCurrentRecommendation = useCallback((roomId: string): RoomRecommendation | undefined => {
-    const now = new Date();
-    const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+    // Explizit Wiener Zeit verwenden
+    const currentTime = getViennaTimeString();
     
     return recommendations.find(rec => 
       rec.room_id === roomId && 
-      rec.start_time <= currentTime && 
-      rec.end_time > currentTime
+      rec.start_time.substring(0, 5) <= currentTime && 
+      rec.end_time.substring(0, 5) > currentTime
     );
   }, [recommendations]);
 
