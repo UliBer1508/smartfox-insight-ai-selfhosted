@@ -40,6 +40,36 @@ function getSeasonalFactor(month: number): number {
   return factors[month] || 1.0;
 }
 
+// Sunrise/Sunset aus hourly_watts extrahieren
+// Da die kostenlose Forecast.Solar API keine Sonnenzeiten liefert,
+// leiten wir sie aus den Stunden mit Leistung > 0 ab
+function extractSunTimes(hourlyWatts: Record<string, number>): { sunrise: string | null, sunset: string | null } {
+  const sorted = Object.entries(hourlyWatts)
+    .filter(([_, w]) => w > 0)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  
+  if (sorted.length === 0) {
+    return { sunrise: null, sunset: null };
+  }
+  
+  // Erste Zeit mit Watt > 0 = Sunrise
+  const sunriseEntry = sorted[0];
+  // Letzte Zeit mit Watt > 0 = Sunset
+  const sunsetEntry = sorted[sorted.length - 1];
+  
+  // Zeit extrahieren: "2026-02-07 08:00:00" → "08:00"
+  const extractTime = (datetime: string): string | null => {
+    const parts = datetime.split(' ');
+    if (parts.length < 2) return null;
+    return parts[1].substring(0, 5);
+  };
+  
+  return {
+    sunrise: extractTime(sunriseEntry[0]),
+    sunset: extractTime(sunsetEntry[0])
+  };
+}
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -129,14 +159,17 @@ serve(async (req) => {
       const seasonalFactor = getSeasonalFactor(month);
       const adjustedKwh = rawKwh * seasonalFactor;
       
-      console.log(`[Forecast] ${date}: ${rawKwh.toFixed(1)} kWh × ${seasonalFactor} = ${adjustedKwh.toFixed(1)} kWh (Monat ${month})`);
+      // Sunrise/Sunset aus hourly_watts extrahieren
+      const sunTimes = extractSunTimes(hourlyWatts);
+      
+      console.log(`[Forecast] ${date}: ${rawKwh.toFixed(1)} kWh × ${seasonalFactor} = ${adjustedKwh.toFixed(1)} kWh (Monat ${month}), Sunrise: ${sunTimes.sunrise}, Sunset: ${sunTimes.sunset}`);
 
       forecasts.push({
         date,
         expected_kwh: Math.round(adjustedKwh * 10) / 10,
         hourly_watts: hourlyWatts,
-        sunrise: sunrise || null,
-        sunset: sunset || null,
+        sunrise: sunTimes.sunrise,
+        sunset: sunTimes.sunset,
         fetched_at: new Date().toISOString(),
       });
     }
