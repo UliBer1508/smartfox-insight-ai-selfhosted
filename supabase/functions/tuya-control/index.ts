@@ -218,24 +218,32 @@ async function getBatchDeviceStatus(
   return result;
 }
 
-// Set device temperature
-// NOTE: Mode cannot be changed via Cloud API for TGP508 - only 'auto' is supported
-// Thermostats in 'home' mode (non-programmable) accept temp_set directly
+// Set device temperature with optional mode switch
+// Mode 'home' ensures thermostat follows Cloud/API commands instead of internal schedule
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
   deviceId: string,
-  temperature: number
+  temperature: number,
+  forceHomeMode: boolean = false
 ): Promise<unknown> {
   // Temperature is in 0.1°C units for Tuya thermostats (e.g., 190 = 19.0°C)
   const tempValue = Math.round(temperature * 10);
   
-  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue})`);
+  // Build commands - optionally include mode switch to 'home' first
+  const commands: { code: string; value: unknown }[] = [];
+  
+  if (forceHomeMode) {
+    commands.push({ code: 'mode', value: 'home' });
+    console.log(`[Tuya] Device ${deviceId}: Setting mode to 'home' to ensure API control`);
+  }
+  
+  commands.push({ code: 'temp_set', value: tempValue });
+  
+  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue}, forceHomeMode: ${forceHomeMode})`);
   
   return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
-    commands: [
-      { code: 'temp_set', value: tempValue }
-    ]
+    commands
   });
 }
 
