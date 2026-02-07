@@ -245,22 +245,36 @@ interface TuyaResult {
   errorMessage?: string;
 }
 
-async function setDeviceTemperature(
+// Set device temperature with mode switch to 'home' for API control
+// forceHomeMode: ensures thermostat follows Cloud/API commands instead of internal schedule
+async function setDeviceModeAndTemperature(
   accessId: string,
   accessSecret: string,
   deviceId: string,
-  temperature: number
+  temperature: number,
+  forceHomeMode: boolean = true
 ): Promise<TuyaResult> {
   try {
     const token = await getAccessToken(accessId, accessSecret);
     const timestamp = Date.now().toString();
     const path = `/v1.0/devices/${deviceId}/commands`;
-    const body = { commands: [{ code: 'temp_set', value: Math.round(temperature * 10) }] };
+    
+    // Build commands - include mode switch to 'home' BEFORE temp_set
+    const commands: { code: string; value: unknown }[] = [];
+    
+    if (forceHomeMode) {
+      commands.push({ code: 'mode', value: 'home' });
+    }
+    commands.push({ code: 'temp_set', value: Math.round(temperature * 10) });
+    
+    const body = { commands };
     const bodyStr = JSON.stringify(body);
     const contentHash = await sha256Hash(bodyStr);
     const stringToSign = ['POST', contentHash, '', path].join('\n');
     const signStr = accessId + token + timestamp + stringToSign;
     const sign = await hmacSha256(accessSecret, signStr);
+
+    console.log(`[Tuya] ${deviceId} -> ${temperature}°C (mode: ${forceHomeMode ? 'home' : 'keep'}, commands: ${commands.length})`);
 
     const response = await fetch(`https://openapi.tuyaeu.com${path}`, {
       method: 'POST',
@@ -300,6 +314,16 @@ async function setDeviceTemperature(
       errorMessage: String(error) 
     };
   }
+}
+
+// Legacy wrapper for backwards compatibility
+async function setDeviceTemperature(
+  accessId: string,
+  accessSecret: string,
+  deviceId: string,
+  temperature: number
+): Promise<TuyaResult> {
+  return setDeviceModeAndTemperature(accessId, accessSecret, deviceId, temperature, true);
 }
 
 Deno.serve(async (req) => {
@@ -1096,17 +1120,19 @@ Deno.serve(async (req) => {
         }
 
         // ============= LEISTUNGSBUDGET-OVERRIDE =============
-        // Überschreibe Entscheidung basierend auf Budget (nur wenn Budget-Management aktiv)
-        if (powerBudgetEnabled && !isNight && action !== 'deactivate') {
+        // Sequenzielles Heizen: Aktive Räume auf Comfort, Wartende auf Night-Temp
+        // Das verhindert dass wartende Thermostate autonom heizen
+        if (powerBudgetEnabled && !isNight) {
           const budgetStatus = roomBudgetStatus.get(room.id);
           
           if (budgetStatus) {
             if (budgetStatus.shouldRotate) {
               // Rotation: Raum hat zu lange geheizt, pausieren für andere
+              // WICHTIG: nightTemp statt ecoTemp damit Thermostat NICHT heizt!
               action = 'deactivate';
-              targetTemp = ecoTemp;
+              targetTemp = nightTemp;  // 18°C statt 19-20°C
               solarLimitTemp = null;
-              reasoning = `🔄 ${budgetStatus.reason} → Pause für andere Räume`;
+              reasoning = `🔄 ${budgetStatus.reason} → ${nightTemp}°C (Pause für andere Räume)`;
               console.log(`[PV-Automation] ${room.name}: ROTATION - ${reasoning}`);
               
               // Tracking aktualisieren
@@ -1117,12 +1143,12 @@ Deno.serve(async (req) => {
                   heating_paused_reason: 'rotation'
                 })
                 .eq('id', room.id);
-            } else if (!budgetStatus.allowedToHeat && action === 'activate') {
-              // Budget reicht nicht - auf eco setzen und warten
+            } else if (!budgetStatus.allowedToHeat) {
+              // Budget reicht nicht - auf nightTemp setzen damit Thermostat NICHT autonom heizt
               action = 'deactivate';
-              targetTemp = ecoTemp;
+              targetTemp = nightTemp;  // 18°C - niedrig genug um Heizen zu verhindern
               solarLimitTemp = null;
-              reasoning = `⏸️ ${budgetStatus.reason}`;
+              reasoning = `⏸️ ${budgetStatus.reason} → ${nightTemp}°C (warten)`;
               console.log(`[PV-Automation] ${room.name}: BUDGET-PAUSE - ${reasoning}`);
               
               // Tracking aktualisieren
@@ -1130,8 +1156,15 @@ Deno.serve(async (req) => {
                 .from('rooms')
                 .update({ heating_paused_reason: 'budget' })
                 .eq('id', room.id);
-            } else if (budgetStatus.allowedToHeat && action === 'activate') {
-              // Heizen erlaubt - Tracking starten
+            } else if (budgetStatus.allowedToHeat) {
+              // Heizen erlaubt - auf comfortTemp setzen für optimale PV-Nutzung!
+              action = 'activate';
+              targetTemp = comfortTemp;  // 21°C - nutze PV voll aus
+              solarLimitTemp = null;
+              reasoning = `☀️ PV-Heizen: ${comfortTemp}°C (Budget: ${budgetStatus.reason})`;
+              console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
+              
+              // Tracking starten
               await supabase
                 .from('rooms')
                 .update({ 
@@ -1161,7 +1194,12 @@ Deno.serve(async (req) => {
         const stateAlreadyCorrect = (action === 'activate' && room.pv_auto_active) || 
                                      (action === 'deactivate' && !room.pv_auto_active);
         
-        if (tempAlreadyCorrect && stateAlreadyCorrect) {
+        // WICHTIG: Bei Temperatur-Reduktion IMMER API aufrufen (für sequenzielles Heizen)
+        // Wenn Thermostat auf höherer Temp läuft und wir reduzieren wollen, MUSS der Befehl durch!
+        const needsToReduceTemp = action === 'deactivate' && newTargetTemp < currentTargetTemp - 0.5;
+        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp;
+        
+        if (shouldSkip) {
           console.log(`[PV-Automation] ${room.name}: SKIP - already at ${currentTargetTemp}°C, state=${room.pv_auto_active ? 'active' : 'inactive'}`);
           results.push({
             roomId: room.id,
@@ -1172,6 +1210,11 @@ Deno.serve(async (req) => {
             skippedApiCall: true
           });
           continue;
+        }
+        
+        // Log wenn wir einen Force-Push machen
+        if (needsToReduceTemp) {
+          console.log(`[PV-Automation] ${room.name}: FORCE-PUSH - reducing from ${currentTargetTemp}°C to ${newTargetTemp}°C (action: ${action})`);
         }
 
         // Log learning event BEFORE executing
