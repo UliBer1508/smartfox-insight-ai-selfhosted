@@ -1,48 +1,97 @@
 
-# Plan: Fix ML-Feature-Extraction Edge Function Deployment
+# Plan: PV-Prognose Reparatur
 
-## Problem-Analyse
+## Identifizierte Probleme
 
-Die Edge Function `ml-feature-extraction` existiert im Code-Repository (`supabase/functions/ml-feature-extraction/index.ts`), ist aber **nicht auf der Lovable Cloud deployed**:
+### Problem 1: Edge Function nicht deployed
+Die `fetch-pv-forecast` Edge Function existiert im Code, ist aber **nicht auf der Cloud deployed**:
+- Direkter Aufruf ergibt: `404 NOT_FOUND - Requested function was not found`
+- Der Refresh-Button im Dashboard ruft diese Funktion auf und scheitert
 
-- **Fehler im Frontend**: `FunctionsFetchError: Failed to send a request to the Edge Function`
-- **Ursache**: HTTP 404 - "Requested function was not found"
-- **Test-Ergebnis**: Direkter Aufruf der Funktion gibt 404 zurueck
+### Problem 2: Sunrise/Sunset-Zeiten fehlen
+Die Sunrise/Sunset-Zeiten in der Datenbank sind alle `NULL`:
+- Die Forecast.Solar **kostenlose API** liefert diese Werte nur im **kostenpflichtigen Plan**
+- Die aktuelle Implementierung versucht `message.info.sunrise/sunset` zu lesen, aber das Feld existiert nicht
 
-Die Funktion ist in `config.toml` korrekt konfiguriert (`verify_jwt = false`), aber wurde offenbar bei einem frueheren Deployment uebersprungen oder nie initial deployed.
+### Problem 3: Veraltete Prognose-Daten
+Die letzte Prognose in der Datenbank ist vom 06.02 (Anzeige) / 09.01 (tatsaechliche Daten):
+- Der taegliche Cron-Job (06:00) funktioniert nicht, weil die Funktion nicht deployed ist
+- Das Frontend zeigt Daten aus dem Cache, aber sie sind nicht aktuell
 
 ## Loesung
 
 ### Schritt 1: Edge Function deployen
+```
+Deploy: fetch-pv-forecast
+```
 
-Die `ml-feature-extraction` Funktion muss auf der Lovable Cloud deployed werden. Dies geschieht automatisch durch das Deploy-Tool.
+### Schritt 2: Sunrise/Sunset aus anderen Quellen holen
+Da die kostenlose Forecast.Solar API keine Sunrise/Sunset liefert, nutze ich die **bereits vorhandene Open-Meteo Wetterdaten** oder berechne Sunrise/Sunset basierend auf den PV-Daten selbst:
 
-### Schritt 2: Funktionalitaet testen
+**Loesung A (empfohlen)**: Sunrise/Sunset aus den hourly_watts Daten extrahieren
+- Die erste Stunde mit > 0 Watt = Sunrise-Zeit
+- Die letzte Stunde mit > 0 Watt = Sunset-Zeit
+- Diese Information ist bereits in den Daten vorhanden!
 
-Nach dem Deployment wird die Funktion getestet, um sicherzustellen, dass:
-- Sie erreichbar ist (kein 404 mehr)
-- Sie korrekt Features fuer Raeume berechnet
-- Die Ergebnisse in `room_ml_features` gespeichert werden
+**Beispiel aus Datenbank:**
+```
+2026-01-09 07:56:05 → 0W (vor Sonnenaufgang)
+2026-01-09 08:00:00 → 420W (nach Sonnenaufgang)
+→ Sunrise ca. 07:56
+```
 
-### Schritt 3: Frontend-Fehler loesen
+### Schritt 3: Edge Function Code anpassen
+```typescript
+// Sunrise/Sunset aus hourly_watts extrahieren
+function extractSunTimes(hourlyWatts: Record<string, number>): { sunrise: string, sunset: string } {
+  const sorted = Object.entries(hourlyWatts)
+    .sort((a, b) => a[0].localeCompare(b[0]));
+  
+  // Erste Zeit mit Watt > 0 = Sunrise
+  const sunriseEntry = sorted.find(([_, w]) => w > 0);
+  // Letzte Zeit mit Watt > 0 = Sunset
+  const sunsetEntry = [...sorted].reverse().find(([_, w]) => w > 0);
+  
+  return {
+    sunrise: sunriseEntry ? sunriseEntry[0].split(' ')[1].substring(0, 5) : null,
+    sunset: sunsetEntry ? sunsetEntry[0].split(' ')[1].substring(0, 5) : null
+  };
+}
+```
 
-Sobald die Funktion deployed ist, sollte der "Fehler bei Feature-Berechnung" Toast nicht mehr erscheinen und der Refresh-Button im ML-Status Widget funktioniert.
+## Aenderungen
 
-## Technische Details
+| Datei | Aenderung |
+|-------|-----------|
+| `supabase/functions/fetch-pv-forecast/index.ts` | Sunrise/Sunset aus hourly_watts ableiten statt aus API-Response |
 
-Die Edge Function `ml-feature-extraction`:
-- Laedt Heizungs-Logs und Temperatur-Samples der letzten 7 Tage
-- Berechnet ML-Features wie:
-  - `heat_loss_rate_deg_per_hour` - Abkuehlrate
-  - `heating_rate_deg_per_hour` - Aufheizrate
-  - `energy_per_degree_wh` - Energiebedarf pro Grad
-  - `solar_gain_factor` - Solargewinn-Faktor
-  - `optimal_solar_hours` - Optimale Heizzeiten
-- Speichert Ergebnisse in `room_ml_features` Tabelle
+## Deployments
+
+1. `fetch-pv-forecast` Edge Function deployen
+2. Funktion testen um sicherzustellen, dass neue Prognosen abgerufen werden
 
 ## Erwartetes Ergebnis
 
 Nach Implementierung:
-- ML-Status Widget zeigt aktuelle Features
-- Refresh-Button laedt neue Features ohne Fehler
-- KI-Analyse kann auf aktuelle ML-Daten zugreifen
+- Refresh-Button funktioniert (keine 404-Fehler mehr)
+- Sunrise/Sunset-Zeiten werden korrekt angezeigt (z.B. 07:56 / 16:40)
+- Aktuelle 7-Tage-Prognose wird geladen und angezeigt
+- Taeglicher Cron-Job um 06:00 funktioniert wieder
+
+## Ablauf
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  1. Edge Function deployen                              │
+│     └── fetch-pv-forecast                               │
+├─────────────────────────────────────────────────────────┤
+│  2. Code anpassen                                       │
+│     └── Sunrise/Sunset aus hourly_watts berechnen       │
+├─────────────────────────────────────────────────────────┤
+│  3. Erneut deployen + testen                            │
+│     └── curl POST /fetch-pv-forecast                    │
+├─────────────────────────────────────────────────────────┤
+│  4. Pruefen ob Daten in DB korrekt sind                 │
+│     └── SELECT * FROM pv_forecasts                      │
+└─────────────────────────────────────────────────────────┘
+```
