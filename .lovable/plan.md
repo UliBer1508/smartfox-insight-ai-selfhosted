@@ -1,99 +1,153 @@
 
-# Plan: Tuya Mode-Befehl entfernen - Sequenzielles Heizen aktivieren
+
+# Plan: Sequenzielles Heizen reparieren
 
 ## Problem-Zusammenfassung
 
 ### Aktuelle Situation
+| Raum | Ziel-Temp | Heizt? | Power | Problem |
+|------|-----------|--------|-------|---------|
+| Wohnzimmer | 22°C | JA | 2400W | OK - hat Budget |
+| Bad Uli | 22°C | JA | 600W | Nie pausiert! |
+| Büro | 22°C | JA | 900W | Nie pausiert! |
+| Wirtschaftsraum | 20°C | JA | 700W | Falsche Temp! |
+| Zimmer Luca | 18°C | **JA** | 1000W | Heizt bei 18°C! |
+| Zimmer Luis | 18°C | **JA** | 1000W | Heizt bei 18°C! |
+| Kinder Bad | 18°C | **JA** | 500W | Heizt bei 18°C! |
+| Waschraum | 18°C | **JA** | 600W | Heizt bei 18°C! |
 
-| Raum | Aktuell | Ziel | Heizt? | Problem |
-|------|---------|------|--------|---------|
-| Wohnzimmer | 19.4°C | 18°C | JA | Sollte AUS sein! |
-| Büro | 19.0°C | 18°C | JA | Sollte AUS sein! |
-| Zimmer Luca | 18.8°C | 18°C | JA | Sollte AUS sein! |
-| Bad Uli | 19.8°C | 18°C | JA | Sollte AUS sein! |
+**Geschätzte Heizleistung: ~7.7 kW** - erklärt die 2.3 kW Netzbezug bei 2.85 kW PV!
 
-### Root-Cause: `mode: 'home'` Befehl schlägt fehl
+### Root-Causes
 
-Die Tuya API zeigt: **TGP508 unterstützt NUR `mode: 'auto'` über Cloud!**
+| # | Problem | Ursache |
+|---|---------|---------|
+| 1 | **Thermostate heizen bei 18°C** | Die Hysterese der TGP508 ist ~0.5°C. Bei Raumtemp 18.6°C und Ziel 18°C läuft die Heizung weiter! |
+| 2 | **Einige Räume nie pausiert** | Bad Uli, Büro, Wirtschaftsraum haben `heating_paused_reason: null` - sie wurden nie in die Budget-Logik einbezogen |
+| 3 | **SKIP verhindert API-Calls** | `[PV-Automation] Zimmer Luca: SKIP - already at 18°C` - wenn target_temp bereits 18°C ist, wird kein neuer Befehl gesendet |
 
-```json
-"mode": { "range": ["auto"] }  // Kein "home" verfügbar!
-```
+## Lösung: 3 Schritte
 
-Wir senden:
-```
-commands: [
-  { code: 'mode', value: 'home' },  // ERROR 2008!
-  { code: 'temp_set', value: 180 }   // Wird NICHT ausgeführt!
-]
-```
+### Schritt 1: Niedrigere "Stopp-Temperatur" (15°C statt 18°C)
 
-**Der fehlgeschlagene Mode-Befehl blockiert den gesamten API-Call!**
+Um die Thermostat-Hysterese zu überwinden, muss die Pause-Temperatur **unter** der aktuellen Raumtemperatur liegen:
 
-## Lösung
-
-### Schritt 1: Mode-Befehl komplett entfernen
-
-In beiden Edge Functions den `mode: 'home'` Befehl entfernen:
-
-**`supabase/functions/pv-automation/index.ts`** (Zeile 265-267):
 ```typescript
-// VORHER:
-if (forceHomeMode) {
-  commands.push({ code: 'mode', value: 'home' });
-}
-
-// NACHHER:
-// Mode-Befehl entfernt - TGP508 unterstützt nur 'auto' über Cloud API
-// Thermostate im "Programmiermodus" folgen temp_set Befehlen
+// pv-automation/index.ts - Zeilen 1131-1136
+if (!budgetStatus.allowedToHeat) {
+  action = 'deactivate';
+  targetTemp = 15;  // ÄNDERUNG: 15°C statt nightTemp (18°C)
+  solarLimitTemp = null;
+  reasoning = `⏸️ ${budgetStatus.reason} → 15°C (Stopp-Temp)`;
 ```
 
-**`supabase/functions/tuya-control/index.ts`** (Zeile 236-239):
+**Warum 15°C?**
+- Aktuelle Raumtemperaturen: 18.3-19.4°C
+- Mit 15°C als Ziel stoppt die Heizung GARANTIERT
+- Fußbodenheizung kühlt langsam (~0.5°C/h), bei 30 Min Rotation bleibt der Raum über 17°C
+
+### Schritt 2: Rooms ohne Pause-Reason pausieren
+
+Bad Uli, Büro, Wirtschaftsraum haben `heating_paused_reason: null` - sie wurden nie vom Budget-System erfasst.
+
+**Prüfen warum:**
+- Möglicherweise `pv_auto_enabled: false` oder
+- Sie wurden vor Aktivierung des Budget-Systems auf 22°C gesetzt
+
+**Fix:** Beim nächsten Durchlauf ALLE Räume durch Budget-Logik prüfen, nicht nur die mit `heating_paused_reason`.
+
+### Schritt 3: SKIP-Logik für Temperatur-Reduktion anpassen
+
+Aktuell wird geskippt wenn `target_temp` bereits korrekt ist:
+
 ```typescript
-// VORHER:
-if (forceHomeMode) {
-  commands.push({ code: 'mode', value: 'home' });
-}
+// Aktuell (Problem):
+const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp;
 
-// NACHHER:
-// Mode-Befehl entfernt - TGP508 unterstützt nur 'auto' über Cloud API
+// needsToReduceTemp prüft:
+const needsToReduceTemp = action === 'deactivate' && newTargetTemp < currentTargetTemp - 0.5;
 ```
 
-### Schritt 2: Memory aktualisieren
+**Problem:** Wenn `target_temp: 18` und wir auf 15°C reduzieren wollen, ist `18 < 18 - 0.5` = FALSE!
 
-Die falsche Annahme korrigieren:
+**Fix:** Die Reduktions-Erkennung korrigieren:
 
-**Bisherige Memory (falsch):**
-> `home` mode = manual control, `auto` mode = internal schedules
-
-**Neue Memory (korrekt):**
-> TGP508 über Cloud-API: Nur `auto` Modus verfügbar. Im "Programmiermodus" am Gerät folgen die Thermostate den Cloud `temp_set` Befehlen. Der Mode-Befehl `home` existiert nicht in der Cloud-API.
-
-### Erwartetes Ergebnis nach Fix
-
-1. **API-Calls werden erfolgreich:**
-   ```
-   [Tuya] bf82... -> 22°C: success=true (statt code=2008)
-   ```
-
-2. **Thermostate folgen den Befehlen:**
-   - Zimmer Luca → 22°C (aktiv heizen mit PV)
-   - Alle anderen → 18°C (Pause, kein Heizen)
-
-3. **Verbrauch sinkt:**
-   - Vorher: 4.1 kW (alle heizen autonom)
-   - Nachher: ~1 kW (nur 1 Raum heizt)
+```typescript
+// NEU: Prüfe ob neue Temp niedriger ist als aktuelle
+const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
+```
 
 ## Dateiänderungen
 
-| Datei | Änderung |
-|-------|----------|
-| `supabase/functions/pv-automation/index.ts` | `forceHomeMode` Logik entfernen (Zeilen 265-267) |
-| `supabase/functions/tuya-control/index.ts` | `forceHomeMode` Parameter und Logik entfernen |
+### 1. `supabase/functions/pv-automation/index.ts`
 
-## Test nach Deployment
+**Zeilen 1131-1143 (Budget-Pause):**
+```typescript
+} else if (!budgetStatus.allowedToHeat) {
+  // Budget reicht nicht - auf 15°C setzen damit Thermostat GARANTIERT stoppt
+  action = 'deactivate';
+  targetTemp = 15;  // 15°C - deutlich unter Raumtemperatur
+  solarLimitTemp = null;
+  reasoning = `⏸️ ${budgetStatus.reason} → 15°C (Stopp)`;
+  console.log(`[PV-Automation] ${room.name}: BUDGET-PAUSE - ${reasoning}`);
+```
 
-1. pv-automation manuell triggern
-2. Logs prüfen: `success=true` für alle temp_set Befehle
-3. Nach 2-3 Minuten Raumstatus prüfen: nur 1 Raum sollte heizen
-4. Dashboard prüfen: Netzbezug sollte auf ~0W sinken
+**Zeilen 1114-1121 (Rotation):**
+```typescript
+if (budgetStatus.shouldRotate) {
+  // Rotation: Raum hat zu lange geheizt, pausieren für andere
+  action = 'deactivate';
+  targetTemp = 15;  // 15°C statt nightTemp
+  solarLimitTemp = null;
+  reasoning = `🔄 ${budgetStatus.reason} → 15°C (Rotation)`;
+```
+
+**Zeilen 1182-1185 (SKIP-Logik korrigieren):**
+```typescript
+// WICHTIG: Bei jeder Temperatur-Reduktion API aufrufen
+const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
+const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp;
+```
+
+## Erwartetes Ergebnis nach Fix
+
+### Berechneter Ablauf:
+```text
+PV: 2.85 kW
+Budget: ~2.55 kW (PV - Grundlast + Toleranz)
+
+1. Wohnzimmer (2400W) → 22°C (nutzt Budget)
+   Verbleibendes Budget: ~150W
+
+2. Alle anderen → 15°C (Stopp-Temperatur)
+   - Zimmer Luca: 18.8°C → Thermostat auf 15°C → STOPPT
+   - Zimmer Luis: 18.8°C → Thermostat auf 15°C → STOPPT
+   - Bad Uli: 19.8°C → Thermostat auf 15°C → STOPPT
+   - etc.
+
+Ergebnis:
+- Aktiv: Wohnzimmer (2400W)
+- Grundlast: ~500W
+- Gesamt: ~2.9 kW
+- PV: 2.85 kW
+- Netzbezug: ~50W (statt 2.3 kW!)
+```
+
+### Rotation nach 30 Minuten:
+```text
+Wohnzimmer erreicht 22°C → 15°C (Pause)
+Nächster Raum (z.B. Büro 900W) → 22°C (aktiv)
+```
+
+## Test-Plan
+
+1. Edge Function deployen
+2. pv-automation manuell triggern
+3. Logs prüfen:
+   - Alle Budget-Pausen sollten `→ 15°C` zeigen
+   - Kein `SKIP` für Räume die pausiert werden sollen
+4. Nach 5 Minuten Datenbank prüfen:
+   - `is_heating: false` für alle Räume mit `target_temp: 15`
+5. Dashboard prüfen:
+   - Netzbezug sollte auf ~0W fallen
+
