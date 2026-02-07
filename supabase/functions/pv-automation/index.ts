@@ -245,27 +245,22 @@ interface TuyaResult {
   errorMessage?: string;
 }
 
-// Set device temperature with mode switch to 'home' for API control
-// forceHomeMode: ensures thermostat follows Cloud/API commands instead of internal schedule
-async function setDeviceModeAndTemperature(
+// Set device temperature - TGP508 only supports temp_set via Cloud API
+// NOTE: Mode command ('home') removed - causes Error 2008 on TGP508 thermostats
+// Thermostats in "Programmiermodus" (auto) follow Cloud temp_set commands
+async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
   deviceId: string,
-  temperature: number,
-  forceHomeMode: boolean = true
+  temperature: number
 ): Promise<TuyaResult> {
   try {
     const token = await getAccessToken(accessId, accessSecret);
     const timestamp = Date.now().toString();
     const path = `/v1.0/devices/${deviceId}/commands`;
     
-    // Build commands - include mode switch to 'home' BEFORE temp_set
-    const commands: { code: string; value: unknown }[] = [];
-    
-    if (forceHomeMode) {
-      commands.push({ code: 'mode', value: 'home' });
-    }
-    commands.push({ code: 'temp_set', value: Math.round(temperature * 10) });
+    // Only send temp_set - mode command not supported by TGP508 Cloud API
+    const commands = [{ code: 'temp_set', value: Math.round(temperature * 10) }];
     
     const body = { commands };
     const bodyStr = JSON.stringify(body);
@@ -274,7 +269,7 @@ async function setDeviceModeAndTemperature(
     const signStr = accessId + token + timestamp + stringToSign;
     const sign = await hmacSha256(accessSecret, signStr);
 
-    console.log(`[Tuya] ${deviceId} -> ${temperature}°C (mode: ${forceHomeMode ? 'home' : 'keep'}, commands: ${commands.length})`);
+    console.log(`[Tuya] ${deviceId} -> ${temperature}°C`);
 
     const response = await fetch(`https://openapi.tuyaeu.com${path}`, {
       method: 'POST',
@@ -314,16 +309,6 @@ async function setDeviceModeAndTemperature(
       errorMessage: String(error) 
     };
   }
-}
-
-// Legacy wrapper for backwards compatibility
-async function setDeviceTemperature(
-  accessId: string,
-  accessSecret: string,
-  deviceId: string,
-  temperature: number
-): Promise<TuyaResult> {
-  return setDeviceModeAndTemperature(accessId, accessSecret, deviceId, temperature, true);
 }
 
 Deno.serve(async (req) => {
