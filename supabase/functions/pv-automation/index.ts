@@ -1113,11 +1113,11 @@ Deno.serve(async (req) => {
           if (budgetStatus) {
             if (budgetStatus.shouldRotate) {
               // Rotation: Raum hat zu lange geheizt, pausieren für andere
-              // WICHTIG: nightTemp statt ecoTemp damit Thermostat NICHT heizt!
+              // WICHTIG: 15°C - deutlich unter Raumtemperatur damit Thermostat GARANTIERT stoppt
               action = 'deactivate';
-              targetTemp = nightTemp;  // 18°C statt 19-20°C
+              targetTemp = 15;  // 15°C - überwindet Thermostat-Hysterese (~0.5°C)
               solarLimitTemp = null;
-              reasoning = `🔄 ${budgetStatus.reason} → ${nightTemp}°C (Pause für andere Räume)`;
+              reasoning = `🔄 ${budgetStatus.reason} → 15°C (Rotation-Stopp)`;
               console.log(`[PV-Automation] ${room.name}: ROTATION - ${reasoning}`);
               
               // Tracking aktualisieren
@@ -1129,11 +1129,12 @@ Deno.serve(async (req) => {
                 })
                 .eq('id', room.id);
             } else if (!budgetStatus.allowedToHeat) {
-              // Budget reicht nicht - auf nightTemp setzen damit Thermostat NICHT autonom heizt
+              // Budget reicht nicht - auf 15°C setzen damit Thermostat GARANTIERT stoppt
+              // 15°C ist deutlich unter den aktuellen Raumtemperaturen (18-20°C)
               action = 'deactivate';
-              targetTemp = nightTemp;  // 18°C - niedrig genug um Heizen zu verhindern
+              targetTemp = 15;  // 15°C - überwindet Thermostat-Hysterese
               solarLimitTemp = null;
-              reasoning = `⏸️ ${budgetStatus.reason} → ${nightTemp}°C (warten)`;
+              reasoning = `⏸️ ${budgetStatus.reason} → 15°C (Budget-Stopp)`;
               console.log(`[PV-Automation] ${room.name}: BUDGET-PAUSE - ${reasoning}`);
               
               // Tracking aktualisieren
@@ -1179,9 +1180,10 @@ Deno.serve(async (req) => {
         const stateAlreadyCorrect = (action === 'activate' && room.pv_auto_active) || 
                                      (action === 'deactivate' && !room.pv_auto_active);
         
-        // WICHTIG: Bei Temperatur-Reduktion IMMER API aufrufen (für sequenzielles Heizen)
-        // Wenn Thermostat auf höherer Temp läuft und wir reduzieren wollen, MUSS der Befehl durch!
-        const needsToReduceTemp = action === 'deactivate' && newTargetTemp < currentTargetTemp - 0.5;
+        // WICHTIG: Bei JEDER Temperatur-Reduktion API aufrufen (für sequenzielles Heizen)
+        // Prüfe nur ob neue Temp niedriger ist - unabhängig von action!
+        // Das behebt das Problem: 18°C -> 15°C wurde geskippt weil 18 < 18-0.5 = false
+        const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
         const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp;
         
         if (shouldSkip) {
