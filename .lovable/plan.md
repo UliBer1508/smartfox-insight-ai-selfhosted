@@ -1,159 +1,99 @@
 
-# Plan: Sequenzielles PV-Heizen implementieren
+# Plan: Tuya Mode-Befehl entfernen - Sequenzielles Heizen aktivieren
 
-## Problem-Analyse
+## Problem-Zusammenfassung
 
-### Aktuelle Situation (08:29 Uhr)
-| Metrik | Wert |
-|--------|------|
-| PV-Leistung | 1.3 kW |
-| Netzbezug | 2.8 kW |
-| Verbrauch | 4.1 kW |
-| Batterie SOC | 5% |
-| Budget | 1044W |
-| Thermostat-Ziel | 18C (alle Raume) |
-| Raumtemperaturen | 18.3-19.8C |
+### Aktuelle Situation
 
-### Root-Cause: Thermostate ignorieren Cloud-Befehle
+| Raum | Aktuell | Ziel | Heizt? | Problem |
+|------|---------|------|--------|---------|
+| Wohnzimmer | 19.4°C | 18°C | JA | Sollte AUS sein! |
+| Büro | 19.0°C | 18°C | JA | Sollte AUS sein! |
+| Zimmer Luca | 18.8°C | 18°C | JA | Sollte AUS sein! |
+| Bad Uli | 19.8°C | 18°C | JA | Sollte AUS sein! |
 
-Die TGP508 Thermostate haben **zwei Betriebsmodi**:
-- `auto`: Folgt internem 6-Perioden-Programm (Hardware)
-- `home`: Folgt Cloud/API-Befehlen
+### Root-Cause: `mode: 'home'` Befehl schlägt fehl
 
-**Problem:** Die Thermostate laufen vermutlich im `auto`-Modus und ignorieren die 18C-Cloud-Befehle. Das interne Programm sagt "heize auf 20C" und ueberschreibt alles.
+Die Tuya API zeigt: **TGP508 unterstützt NUR `mode: 'auto'` über Cloud!**
 
-### Beweisfuehrung aus Logs
+```json
+"mode": { "range": ["auto"] }  // Kein "home" verfügbar!
 ```
-[PV-Automation] Buero deactivate: Setze 18C (targetTemp=18, nightTemp=18)
-[Tuya] bf82... -> 18C: success=true
+
+Wir senden:
 ```
-- API meldet Erfolg, ABER Thermostat heizt trotzdem (`is_heating = true`)
-- Datenbank zeigt `heating_paused_reason: budget` - bedeutet System WILL pausieren, kann aber nicht
+commands: [
+  { code: 'mode', value: 'home' },  // ERROR 2008!
+  { code: 'temp_set', value: 180 }   // Wird NICHT ausgeführt!
+]
+```
 
-## Loesung: Modus-Umschaltung + Sequenzielles Heizen
+**Der fehlgeschlagene Mode-Befehl blockiert den gesamten API-Call!**
 
-### Schritt 1: Thermostat-Modus auf `home` setzen
+## Lösung
 
-Bevor Temperatur-Befehle funktionieren, muss der Modus umgeschaltet werden:
+### Schritt 1: Mode-Befehl komplett entfernen
 
+In beiden Edge Functions den `mode: 'home'` Befehl entfernen:
+
+**`supabase/functions/pv-automation/index.ts`** (Zeile 265-267):
 ```typescript
-// NEUER BEFEHL vor temp_set:
-const modeCommands = [
-  { code: 'mode', value: 'home' },  // Auf manuellen Modus umschalten
-  { code: 'temp_set', value: tempValue }
-];
-```
-
-### Schritt 2: Budget-basiertes sequenzielles Heizen
-
-Die aktuelle Logik berechnet das Budget korrekt (1044W), aber aktiviert dann keinen Raum zum Heizen. Das muss geaendert werden:
-
-**Aktuelle Logik:**
-```
-Budget: 1044W
-- Kein Raum braucht Heizung (alle auf 18C, Temp bereits 18-19C)
-- Ergebnis: Heizung aus
-```
-
-**Neue Logik:**
-```
-Budget: 1044W = 1 Raum a 1000W
-1. Waehle Raum mit hoechster Prioritaet + niedrigster Temperatur
-2. Setze NUR diesen Raum auf Comfort-Temp (21C)
-3. Alle anderen Raeume auf 15C (Frostschutz)
-4. Nach 30 Min: Rotation zum naechsten Raum
-```
-
-### Dateiaenderungen
-
-| Datei | Aenderung |
-|-------|-----------|
-| `supabase/functions/pv-automation/index.ts` | 1. Modus-Umschaltung vor temp_set hinzufuegen 2. Sequenzielles Heizen mit Frostschutz fuer nicht-aktive Raeume |
-| `supabase/functions/tuya-control/index.ts` | Modus-Befehl als Option hinzufuegen |
-
-### Implementierungs-Details
-
-#### 1. Neue Funktion: setDeviceModeAndTemperature
-
-```typescript
-async function setDeviceModeAndTemperature(
-  accessId: string,
-  accessSecret: string,
-  deviceId: string,
-  mode: 'home' | 'auto',
-  temperature: number
-): Promise<TuyaResult> {
-  const commands = [
-    { code: 'mode', value: mode },
-    { code: 'temp_set', value: Math.round(temperature * 10) }
-  ];
-  
-  return await tuyaRequest(accessId, accessSecret, 
-    'POST', `/v1.0/devices/${deviceId}/commands`, 
-    { commands });
+// VORHER:
+if (forceHomeMode) {
+  commands.push({ code: 'mode', value: 'home' });
 }
+
+// NACHHER:
+// Mode-Befehl entfernt - TGP508 unterstützt nur 'auto' über Cloud API
+// Thermostate im "Programmiermodus" folgen temp_set Befehlen
 ```
 
-#### 2. Sequenzielles Heizen mit Frostschutz
-
+**`supabase/functions/tuya-control/index.ts`** (Zeile 236-239):
 ```typescript
-// Im Budget-Management Abschnitt:
-const frostProtectionTemp = 15; // Minimum um Frostschaeden zu vermeiden
-
-// Fuer jeden Raum:
-if (roomBudgetStatus.get(room.id)?.allowedToHeat) {
-  // Dieser Raum darf heizen -> Comfort-Temp
-  targetTemp = comfortTemp;
-  mode = 'home';
-} else {
-  // Raum wartet -> Frostschutz um autonomes Heizen zu verhindern
-  targetTemp = frostProtectionTemp;
-  mode = 'home';  // WICHTIG: Auch auf home setzen!
+// VORHER:
+if (forceHomeMode) {
+  commands.push({ code: 'mode', value: 'home' });
 }
+
+// NACHHER:
+// Mode-Befehl entfernt - TGP508 unterstützt nur 'auto' über Cloud API
 ```
 
-### Ablauf nach Implementierung
+### Schritt 2: Memory aktualisieren
 
-```
-08:30 - PV: 1.3 kW, Budget: 1044W
+Die falsche Annahme korrigieren:
 
-Raum-Auswahl nach Prioritaet + Temp-Defizit:
-1. Wohnzimmer (2.4 kW) - SKIP (uebersteigt Budget)
-2. Buero (0.9 kW) - AKTIVIERT (passt in 1044W)
-   -> Setze auf 21C, Modus: home
-3. Alle anderen Raeume:
-   -> Setze auf 15C, Modus: home
+**Bisherige Memory (falsch):**
+> `home` mode = manual control, `auto` mode = internal schedules
 
-Ergebnis:
-- Buero heizt mit 900W
-- Alle anderen Thermostate auf 15C = heizen NICHT
-- Netzbezug: ~100W (statt 2.8 kW!)
-- PV-Ueberschuss wird genutzt
+**Neue Memory (korrekt):**
+> TGP508 über Cloud-API: Nur `auto` Modus verfügbar. Im "Programmiermodus" am Gerät folgen die Thermostate den Cloud `temp_set` Befehlen. Der Mode-Befehl `home` existiert nicht in der Cloud-API.
 
-09:00 - Rotation:
-- Buero -> 15C (Pause)
-- Zimmer Luis (1 kW) -> 21C (naechster im Budget)
-```
+### Erwartetes Ergebnis nach Fix
 
-### Erwartetes Ergebnis
+1. **API-Calls werden erfolgreich:**
+   ```
+   [Tuya] bf82... -> 22°C: success=true (statt code=2008)
+   ```
 
-| Vorher | Nachher |
-|--------|---------|
-| 8 Raeume heizen autonom | 1 Raum heizt gezielt |
-| 4.1 kW Verbrauch | ~1.3 kW Verbrauch |
-| 2.8 kW Netzbezug | 0 W Netzbezug |
-| Batterie wird entladen | Batterie bleibt stabil |
+2. **Thermostate folgen den Befehlen:**
+   - Zimmer Luca → 22°C (aktiv heizen mit PV)
+   - Alle anderen → 18°C (Pause, kein Heizen)
 
-### Risiken und Mitigationen
+3. **Verbrauch sinkt:**
+   - Vorher: 4.1 kW (alle heizen autonom)
+   - Nachher: ~1 kW (nur 1 Raum heizt)
 
-1. **Frostgefahr bei 15C?**
-   - 15C ist sicher, Frostschaeden erst unter 5C
-   - Raeume kuehlen in 30 Min nur um ~0.5C ab (Fussbodenheizung = Traegheit)
+## Dateiänderungen
 
-2. **Nutzer-Komfort?**
-   - Alle Raeume werden rotierend geheizt
-   - Kein Raum bleibt laenger als ~2h unter Comfort
+| Datei | Änderung |
+|-------|----------|
+| `supabase/functions/pv-automation/index.ts` | `forceHomeMode` Logik entfernen (Zeilen 265-267) |
+| `supabase/functions/tuya-control/index.ts` | `forceHomeMode` Parameter und Logik entfernen |
 
-3. **API-Limit?**
-   - Mehr Befehle (mode + temp) = doppelte API-Calls
-   - Mitigation: Nur mode setzen wenn noch nicht auf 'home'
+## Test nach Deployment
+
+1. pv-automation manuell triggern
+2. Logs prüfen: `success=true` für alle temp_set Befehle
+3. Nach 2-3 Minuten Raumstatus prüfen: nur 1 Raum sollte heizen
+4. Dashboard prüfen: Netzbezug sollte auf ~0W sinken
