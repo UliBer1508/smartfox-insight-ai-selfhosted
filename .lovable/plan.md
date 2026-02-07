@@ -1,97 +1,159 @@
 
-# Plan: PV-Prognose Reparatur
+# Plan: Sequenzielles PV-Heizen implementieren
 
-## Identifizierte Probleme
+## Problem-Analyse
 
-### Problem 1: Edge Function nicht deployed
-Die `fetch-pv-forecast` Edge Function existiert im Code, ist aber **nicht auf der Cloud deployed**:
-- Direkter Aufruf ergibt: `404 NOT_FOUND - Requested function was not found`
-- Der Refresh-Button im Dashboard ruft diese Funktion auf und scheitert
+### Aktuelle Situation (08:29 Uhr)
+| Metrik | Wert |
+|--------|------|
+| PV-Leistung | 1.3 kW |
+| Netzbezug | 2.8 kW |
+| Verbrauch | 4.1 kW |
+| Batterie SOC | 5% |
+| Budget | 1044W |
+| Thermostat-Ziel | 18C (alle Raume) |
+| Raumtemperaturen | 18.3-19.8C |
 
-### Problem 2: Sunrise/Sunset-Zeiten fehlen
-Die Sunrise/Sunset-Zeiten in der Datenbank sind alle `NULL`:
-- Die Forecast.Solar **kostenlose API** liefert diese Werte nur im **kostenpflichtigen Plan**
-- Die aktuelle Implementierung versucht `message.info.sunrise/sunset` zu lesen, aber das Feld existiert nicht
+### Root-Cause: Thermostate ignorieren Cloud-Befehle
 
-### Problem 3: Veraltete Prognose-Daten
-Die letzte Prognose in der Datenbank ist vom 06.02 (Anzeige) / 09.01 (tatsaechliche Daten):
-- Der taegliche Cron-Job (06:00) funktioniert nicht, weil die Funktion nicht deployed ist
-- Das Frontend zeigt Daten aus dem Cache, aber sie sind nicht aktuell
+Die TGP508 Thermostate haben **zwei Betriebsmodi**:
+- `auto`: Folgt internem 6-Perioden-Programm (Hardware)
+- `home`: Folgt Cloud/API-Befehlen
 
-## Loesung
+**Problem:** Die Thermostate laufen vermutlich im `auto`-Modus und ignorieren die 18C-Cloud-Befehle. Das interne Programm sagt "heize auf 20C" und ueberschreibt alles.
 
-### Schritt 1: Edge Function deployen
+### Beweisfuehrung aus Logs
 ```
-Deploy: fetch-pv-forecast
+[PV-Automation] Buero deactivate: Setze 18C (targetTemp=18, nightTemp=18)
+[Tuya] bf82... -> 18C: success=true
 ```
+- API meldet Erfolg, ABER Thermostat heizt trotzdem (`is_heating = true`)
+- Datenbank zeigt `heating_paused_reason: budget` - bedeutet System WILL pausieren, kann aber nicht
 
-### Schritt 2: Sunrise/Sunset aus anderen Quellen holen
-Da die kostenlose Forecast.Solar API keine Sunrise/Sunset liefert, nutze ich die **bereits vorhandene Open-Meteo Wetterdaten** oder berechne Sunrise/Sunset basierend auf den PV-Daten selbst:
+## Loesung: Modus-Umschaltung + Sequenzielles Heizen
 
-**Loesung A (empfohlen)**: Sunrise/Sunset aus den hourly_watts Daten extrahieren
-- Die erste Stunde mit > 0 Watt = Sunrise-Zeit
-- Die letzte Stunde mit > 0 Watt = Sunset-Zeit
-- Diese Information ist bereits in den Daten vorhanden!
+### Schritt 1: Thermostat-Modus auf `home` setzen
 
-**Beispiel aus Datenbank:**
-```
-2026-01-09 07:56:05 → 0W (vor Sonnenaufgang)
-2026-01-09 08:00:00 → 420W (nach Sonnenaufgang)
-→ Sunrise ca. 07:56
-```
+Bevor Temperatur-Befehle funktionieren, muss der Modus umgeschaltet werden:
 
-### Schritt 3: Edge Function Code anpassen
 ```typescript
-// Sunrise/Sunset aus hourly_watts extrahieren
-function extractSunTimes(hourlyWatts: Record<string, number>): { sunrise: string, sunset: string } {
-  const sorted = Object.entries(hourlyWatts)
-    .sort((a, b) => a[0].localeCompare(b[0]));
-  
-  // Erste Zeit mit Watt > 0 = Sunrise
-  const sunriseEntry = sorted.find(([_, w]) => w > 0);
-  // Letzte Zeit mit Watt > 0 = Sunset
-  const sunsetEntry = [...sorted].reverse().find(([_, w]) => w > 0);
-  
-  return {
-    sunrise: sunriseEntry ? sunriseEntry[0].split(' ')[1].substring(0, 5) : null,
-    sunset: sunsetEntry ? sunsetEntry[0].split(' ')[1].substring(0, 5) : null
-  };
-}
+// NEUER BEFEHL vor temp_set:
+const modeCommands = [
+  { code: 'mode', value: 'home' },  // Auf manuellen Modus umschalten
+  { code: 'temp_set', value: tempValue }
+];
 ```
 
-## Aenderungen
+### Schritt 2: Budget-basiertes sequenzielles Heizen
+
+Die aktuelle Logik berechnet das Budget korrekt (1044W), aber aktiviert dann keinen Raum zum Heizen. Das muss geaendert werden:
+
+**Aktuelle Logik:**
+```
+Budget: 1044W
+- Kein Raum braucht Heizung (alle auf 18C, Temp bereits 18-19C)
+- Ergebnis: Heizung aus
+```
+
+**Neue Logik:**
+```
+Budget: 1044W = 1 Raum a 1000W
+1. Waehle Raum mit hoechster Prioritaet + niedrigster Temperatur
+2. Setze NUR diesen Raum auf Comfort-Temp (21C)
+3. Alle anderen Raeume auf 15C (Frostschutz)
+4. Nach 30 Min: Rotation zum naechsten Raum
+```
+
+### Dateiaenderungen
 
 | Datei | Aenderung |
 |-------|-----------|
-| `supabase/functions/fetch-pv-forecast/index.ts` | Sunrise/Sunset aus hourly_watts ableiten statt aus API-Response |
+| `supabase/functions/pv-automation/index.ts` | 1. Modus-Umschaltung vor temp_set hinzufuegen 2. Sequenzielles Heizen mit Frostschutz fuer nicht-aktive Raeume |
+| `supabase/functions/tuya-control/index.ts` | Modus-Befehl als Option hinzufuegen |
 
-## Deployments
+### Implementierungs-Details
 
-1. `fetch-pv-forecast` Edge Function deployen
-2. Funktion testen um sicherzustellen, dass neue Prognosen abgerufen werden
+#### 1. Neue Funktion: setDeviceModeAndTemperature
 
-## Erwartetes Ergebnis
+```typescript
+async function setDeviceModeAndTemperature(
+  accessId: string,
+  accessSecret: string,
+  deviceId: string,
+  mode: 'home' | 'auto',
+  temperature: number
+): Promise<TuyaResult> {
+  const commands = [
+    { code: 'mode', value: mode },
+    { code: 'temp_set', value: Math.round(temperature * 10) }
+  ];
+  
+  return await tuyaRequest(accessId, accessSecret, 
+    'POST', `/v1.0/devices/${deviceId}/commands`, 
+    { commands });
+}
+```
 
-Nach Implementierung:
-- Refresh-Button funktioniert (keine 404-Fehler mehr)
-- Sunrise/Sunset-Zeiten werden korrekt angezeigt (z.B. 07:56 / 16:40)
-- Aktuelle 7-Tage-Prognose wird geladen und angezeigt
-- Taeglicher Cron-Job um 06:00 funktioniert wieder
+#### 2. Sequenzielles Heizen mit Frostschutz
 
-## Ablauf
+```typescript
+// Im Budget-Management Abschnitt:
+const frostProtectionTemp = 15; // Minimum um Frostschaeden zu vermeiden
+
+// Fuer jeden Raum:
+if (roomBudgetStatus.get(room.id)?.allowedToHeat) {
+  // Dieser Raum darf heizen -> Comfort-Temp
+  targetTemp = comfortTemp;
+  mode = 'home';
+} else {
+  // Raum wartet -> Frostschutz um autonomes Heizen zu verhindern
+  targetTemp = frostProtectionTemp;
+  mode = 'home';  // WICHTIG: Auch auf home setzen!
+}
+```
+
+### Ablauf nach Implementierung
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  1. Edge Function deployen                              │
-│     └── fetch-pv-forecast                               │
-├─────────────────────────────────────────────────────────┤
-│  2. Code anpassen                                       │
-│     └── Sunrise/Sunset aus hourly_watts berechnen       │
-├─────────────────────────────────────────────────────────┤
-│  3. Erneut deployen + testen                            │
-│     └── curl POST /fetch-pv-forecast                    │
-├─────────────────────────────────────────────────────────┤
-│  4. Pruefen ob Daten in DB korrekt sind                 │
-│     └── SELECT * FROM pv_forecasts                      │
-└─────────────────────────────────────────────────────────┘
+08:30 - PV: 1.3 kW, Budget: 1044W
+
+Raum-Auswahl nach Prioritaet + Temp-Defizit:
+1. Wohnzimmer (2.4 kW) - SKIP (uebersteigt Budget)
+2. Buero (0.9 kW) - AKTIVIERT (passt in 1044W)
+   -> Setze auf 21C, Modus: home
+3. Alle anderen Raeume:
+   -> Setze auf 15C, Modus: home
+
+Ergebnis:
+- Buero heizt mit 900W
+- Alle anderen Thermostate auf 15C = heizen NICHT
+- Netzbezug: ~100W (statt 2.8 kW!)
+- PV-Ueberschuss wird genutzt
+
+09:00 - Rotation:
+- Buero -> 15C (Pause)
+- Zimmer Luis (1 kW) -> 21C (naechster im Budget)
 ```
+
+### Erwartetes Ergebnis
+
+| Vorher | Nachher |
+|--------|---------|
+| 8 Raeume heizen autonom | 1 Raum heizt gezielt |
+| 4.1 kW Verbrauch | ~1.3 kW Verbrauch |
+| 2.8 kW Netzbezug | 0 W Netzbezug |
+| Batterie wird entladen | Batterie bleibt stabil |
+
+### Risiken und Mitigationen
+
+1. **Frostgefahr bei 15C?**
+   - 15C ist sicher, Frostschaeden erst unter 5C
+   - Raeume kuehlen in 30 Min nur um ~0.5C ab (Fussbodenheizung = Traegheit)
+
+2. **Nutzer-Komfort?**
+   - Alle Raeume werden rotierend geheizt
+   - Kein Raum bleibt laenger als ~2h unter Comfort
+
+3. **API-Limit?**
+   - Mehr Befehle (mode + temp) = doppelte API-Calls
+   - Mitigation: Nur mode setzen wenn noch nicht auf 'home'
