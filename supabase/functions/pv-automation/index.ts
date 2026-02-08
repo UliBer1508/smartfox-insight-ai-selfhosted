@@ -504,11 +504,16 @@ Deno.serve(async (req) => {
       const thresholdOff = settings?.pv_surplus_threshold_off || DEFAULT_PV_SURPLUS_THRESHOLD_OFF;
       const minSwitchIntervalMs = (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN) * 60 * 1000;
 
-      // 3. Load rooms with PV automation
+      // 3. Load ALL automated rooms - not just those with PV heating
+      // This ensures rooms with pv_auto_enabled=false still get:
+      // - Night mode (night_temp)
+      // - Budget pause (15°C when PV is low)
+      // - But NO active PV heating to comfort temp
       const { data: rooms, error: roomsError } = await supabase
         .from('rooms')
         .select('*')
-        .eq('pv_auto_enabled', true);
+        .eq('automation_enabled', true)
+        .not('tuya_device_id', 'is', null);
 
       if (roomsError || !rooms || rooms.length === 0) {
         return new Response(JSON.stringify({ success: true, message: 'No rooms with PV automation', results: [] }), {
