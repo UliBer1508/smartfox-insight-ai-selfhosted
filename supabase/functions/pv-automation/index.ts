@@ -610,9 +610,11 @@ Deno.serve(async (req) => {
           budgetMode = 'pv_optimized';
           availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
         } else {
-          // Netz-Sequenziell: Budget auf Maximum begrenzen
+          // Zu wenig PV: KEIN aktives Heizen erlaubt
+          // Alle Räume gehen auf Stopp-Temperatur (15°C)
           budgetMode = 'grid_sequential';
-          availableBudget = maxGridHeatingPower;
+          availableBudget = 0;
+          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - kein Budget für aktives Heizen`);
         }
       }
       
