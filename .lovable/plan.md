@@ -1,172 +1,131 @@
 
-
-# Plan: Budget-Logik korrigieren - Kein Netzheizen bei wenig PV
+# Plan: Alle automatisierten Räume in pv-automation einbeziehen
 
 ## Problem-Zusammenfassung
 
-### Aktuelle Situation (Screenshot)
-| Raum | Aktuell | Ziel | PV-Automatik | Problem |
-|------|---------|------|--------------|---------|
-| Zimmer Uli | 22.7°C | 22°C | "Komfort" | Wird geheizt obwohl PV nur 430W! |
+### Aktuelle Situation
+4 Räume (Bad Uli, Büro, Waschraum, Wirtschaftsraum) haben:
+- `pv_auto_enabled: false`
+- `automation_enabled: true`
 
-### Energie-Daten jetzt
-- PV-Leistung: **430W**
-- Netzverbrauch: **~2.6 kW** (Heizungen laufen!)
-- Batterie: **4.6%** (leer)
+Diese Räume werden **NICHT** von der `pv-automation` geladen und daher:
+- Bekommen keinen Nachtmodus (bleiben auf 20°C statt 18°C)
+- Werden nicht vom Budget-System pausiert
+- Heizen autonom mit Netzstrom
 
-### Root-Cause: Fehlerhafte Budget-Logik
-
-Zeilen 607-616 in `pv-automation/index.ts`:
-
-```typescript
-if (powerBudgetEnabled) {
-  if (pvPower > 500) {
-    // PV-Optimiert
-    budgetMode = 'pv_optimized';
-    availableBudget = pvPower - baseLoad + tolerance;  // OK
-  } else {
-    // Netz-Sequenziell: erlaubt 2000W aus dem NETZ!
-    budgetMode = 'grid_sequential';
-    availableBudget = maxGridHeatingPower;  // = 2000W ← PROBLEM!
-  }
-}
+### Beweis
+```
+Büro       | 20°C | heizt | pv_auto_enabled: false → nicht in Budget-Logik!
+Bad Uli    | 20°C | aus   | pv_auto_enabled: false → nicht pausiert!
 ```
 
-**Interpretation:** Bei wenig PV (< 500W) schaltet das System auf "Netz-Heizen" mit 2000W Budget.
+Keine Logs für diese Räume in der pv-automation.
 
-**Ergebnis:**
-- PV = 430W → Budget = 2000W
-- Zimmer Uli (1200W) + Flur (700W) = 1900W < 2000W → "Aktiviert"
-- Heizungen laufen mit **Netzstrom**!
+## Die Lösung
 
----
+### Schritt 1: Query erweitern - Alle automatisierten Räume laden
 
-## Die richtige Logik
-
-### Was der Benutzer will
-1. **Bei PV-Überschuss**: Mit PV heizen, Budget = PV-Leistung
-2. **Bei wenig/kein PV**: NICHT heizen, nur Grundtemperatur halten
-
-### Was die Logik macht
-1. **PV > 500W**: "pv_optimized" → Budget = PV (korrekt)
-2. **PV < 500W**: "grid_sequential" → Budget = 2000W (FALSCH!)
-
----
-
-## Lösung
-
-### Option A: Bei wenig PV auf Nacht-/Eco-Temperatur (empfohlen)
-
-Wenn kein ausreichender PV-Überschuss vorhanden ist, sollte das System:
-- Keine aktiven Heizzyklen starten
-- Thermostate auf Eco-Temperatur (19°C) oder niedriger halten
-- Nicht mit Netzstrom heizen
+Zeile 508-511 in `pv-automation/index.ts`:
 
 ```typescript
-// VORHER (Zeilen 607-616):
-if (powerBudgetEnabled) {
-  if (pvPower > 500) {
-    budgetMode = 'pv_optimized';
-    availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
-  } else {
-    budgetMode = 'grid_sequential';
-    availableBudget = maxGridHeatingPower;  // 2000W aus Netz erlaubt!
-  }
-}
+// VORHER:
+const { data: rooms, error: roomsError } = await supabase
+  .from('rooms')
+  .select('*')
+  .eq('pv_auto_enabled', true);
 
 // NACHHER:
-if (powerBudgetEnabled) {
-  if (pvPower > 500) {
-    // PV-Optimiert: Mit PV heizen
-    budgetMode = 'pv_optimized';
-    availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
-  } else {
-    // Zu wenig PV: KEIN aktives Heizen, nur Grundtemperatur halten
-    budgetMode = 'grid_sequential';
-    availableBudget = 0;  // KEIN Budget für aktives Heizen!
-    console.log(`[PV-Automation] Wenig PV (${pvPower}W) - kein aktives Heizen`);
-  }
-}
+const { data: rooms, error: roomsError } = await supabase
+  .from('rooms')
+  .select('*')
+  .eq('automation_enabled', true)
+  .not('tuya_device_id', 'is', null);
 ```
 
-### Option B: Minimales Budget für Frostschutz
+### Schritt 2: Unterschiedliche Behandlung je nach pv_auto_enabled
 
-Falls zumindest ein Raum auf Mindesttemperatur gehalten werden soll:
+Räume mit `pv_auto_enabled: false` sollten:
+- Nachtmodus bekommen (18°C nachts)
+- Budget-Pause bekommen (15°C wenn wenig PV)
+- NICHT aktiv auf Komfort geheizt werden (nur Eco/Night)
 
-```typescript
-} else {
-  budgetMode = 'grid_sequential';
-  // Nur 500W Budget für Frostschutz, nicht 2000W für Komfort!
-  availableBudget = 500;
-}
-```
-
----
+Die bestehende Logik prüft bereits `room.pv_auto_enabled` für PV-Heizen - diese Räume würden also automatisch nur Eco-Temperatur oder Budget-Pause bekommen.
 
 ## Dateiänderungen
 
-| Datei | Änderung |
-|-------|----------|
-| `supabase/functions/pv-automation/index.ts` | Zeilen 612-616: `availableBudget = maxGridHeatingPower` auf `availableBudget = 0` ändern |
+| Datei | Zeilen | Änderung |
+|-------|--------|----------|
+| `supabase/functions/pv-automation/index.ts` | 508-511 | Query von `pv_auto_enabled` auf `automation_enabled` ändern |
 
----
-
-## Erwartetes Ergebnis nach Fix
-
-### Bei PV = 430W (aktuell):
-```text
-VORHER:
-- budgetMode: grid_sequential
-- availableBudget: 2000W
-- Zimmer Uli: 22°C (heizt mit Netzstrom!)
-- Flur: 20°C (heizt mit Netzstrom!)
-- Netzbezug: ~2.6 kW
-
-NACHHER:
-- budgetMode: grid_sequential
-- availableBudget: 0W
-- Zimmer Uli: Budget-Pause → 15°C (stoppt!)
-- Flur: Budget-Pause → 15°C (stoppt!)
-- Netzbezug: ~360W (nur Grundlast)
-```
-
-### Bei PV = 3000W (Sonnenschein):
-```text
-- budgetMode: pv_optimized
-- availableBudget: 3000 - 500 + 200 = 2700W
-- Zimmer Uli: Aktiviert (1200W)
-- Wohnzimmer: Aktiviert (2400W) → 1200+2400 > 2700 → Rotation
-- Netzbezug: ~0W
-```
-
----
-
-## Alternative: `max_grid_heating_power_w` nur für Nacht nutzen
-
-Falls du manchmal absichtlich mit Netzstrom heizen möchtest (z.B. wenn Batterie voll und Tarif günstig), könnte die Logik erweitert werden:
+## Code-Änderung
 
 ```typescript
-if (pvPower > 500) {
-  budgetMode = 'pv_optimized';
-  availableBudget = pvPower - baseLoad + tolerance;
-} else if (batterySoc > 80 && localHour >= 22) {
-  // Nacht-Modus: Nutze Batterie/Netz
-  budgetMode = 'grid_sequential';
-  availableBudget = maxGridHeatingPower;
-} else {
-  // Tagsüber ohne PV: Nicht heizen
-  budgetMode = 'grid_sequential';
-  availableBudget = 0;
-}
+// supabase/functions/pv-automation/index.ts - Zeilen 508-511
+
+// VORHER:
+const { data: rooms, error: roomsError } = await supabase
+  .from('rooms')
+  .select('*')
+  .eq('pv_auto_enabled', true);
+
+// NACHHER:
+// Alle automatisierten Räume laden - nicht nur die mit PV-Heizen
+// Dadurch bekommen auch Räume mit pv_auto_enabled=false:
+// - Nachtmodus (night_temp)
+// - Budget-Pause (15°C wenn PV niedrig)
+// - Aber KEIN aktives PV-Heizen auf Komfort
+const { data: rooms, error: roomsError } = await supabase
+  .from('rooms')
+  .select('*')
+  .eq('automation_enabled', true)
+  .not('tuya_device_id', 'is', null);
 ```
 
-Aber für jetzt ist die einfache Lösung am besten: **Kein Budget bei wenig PV.**
+## Erwartetes Ergebnis
 
----
+### Jetzt (PV = 450W, Budget = 0W):
+```text
+Alle 10 Räume:
+  → target_temp: 15°C (Budget-Stopp)
+  → is_heating: false
+  → Netzbezug: ~360W (nur Grundlast)
+```
 
-## Zusammenfassung
+### Bei PV = 3000W (Budget = 2500W):
+```text
+Räume mit pv_auto_enabled=true:
+  → Können auf Komfort (22°C) heizen, Budget-kontrolliert
 
-Die aktuelle Logik interpretiert "grid_sequential" als Erlaubnis, mit 2000W aus dem Netz zu heizen. Das führt dazu, dass Räume wie "Zimmer Uli" auf 22°C geheizt werden, obwohl nur 430W PV verfügbar sind.
+Räume mit pv_auto_enabled=false (Büro, Bad Uli, etc.):
+  → Bleiben auf Eco (19-20°C), kein aktives PV-Heizen
+  → Werden aber trotzdem pausiert wenn Budget erschöpft
+```
 
-**Fix:** Bei PV < 500W das Budget auf 0 setzen, damit alle Räume auf die Stopp-Temperatur (15°C) gehen und nicht autonom heizen.
+### Nachts (22:00-08:00):
+```text
+Alle 10 Räume:
+  → target_temp: 18°C (Nachtmodus)
+  → Kein Heizen mit Netzstrom mehr!
+```
 
+## Risiken und Abwägungen
+
+### Risiko: Mehr Tuya API-Calls
+- Jetzt: 6 Räume werden verarbeitet
+- Nachher: 10 Räume werden verarbeitet
+- Lösung: Die SKIP-Logik verhindert unnötige API-Calls wenn Temperatur bereits korrekt ist
+
+### Alternative: pv_auto_enabled für alle Räume aktivieren
+Statt Code-Änderung könnte man auch einfach in der Datenbank setzen:
+```sql
+UPDATE rooms SET pv_auto_enabled = true WHERE tuya_device_id IS NOT NULL;
+```
+Aber das würde auch PV-Heizen für diese Räume aktivieren, was möglicherweise nicht gewünscht ist.
+
+## Test-Plan
+
+1. Edge Function deployen
+2. pv-automation triggern
+3. Logs prüfen: Alle 10 Räume sollten erscheinen
+4. Bad Uli, Büro sollten auf 15°C (Budget-Pause) gehen
+5. Netzbezug prüfen: Sollte auf ~360W fallen
