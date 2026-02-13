@@ -139,11 +139,14 @@ serve(async (req) => {
         ? bestData.pvRatios.reduce((a: number, b: number) => a + b, 0) / bestData.pvRatios.length
         : 0;
 
-      // Determine action type from key
-      const actionParts = bestAction.split('_');
-      const recommendedAction = actionParts[0] === 'night' ? 'deactivate' 
-        : actionParts[0] === 'pv' ? 'activate'
-        : actionParts[0] === 'budget' ? 'activate'
+      // Determine action type from decision_type prefix
+      const decisionType = bestAction.split('_')[0];
+      const recommendedAction = 
+        decisionType === 'night' ? 'deactivate'
+        : decisionType === 'solar' ? (bestAction.includes('start') || bestAction.includes('heating') ? 'activate' : 'deactivate')
+        : decisionType === 'pv' ? (bestAction.includes('limit') || bestAction.includes('stop') ? 'deactivate' : 'activate')
+        : decisionType === 'grid' ? 'activate'
+        : decisionType === 'budget' ? 'activate'
         : 'keep';
 
       const { error: upsertError } = await supabase
