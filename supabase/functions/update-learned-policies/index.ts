@@ -50,8 +50,6 @@ serve(async (req) => {
     
     const events = allEvents;
 
-    if (eventsError) throw eventsError;
-
     if (!events || events.length === 0) {
       console.log('[Learned Policies] No evaluated events found');
       return new Response(JSON.stringify({ success: true, message: 'No events to process', policiesUpdated: 0 }), {
