@@ -221,8 +221,8 @@ function calculateEnergyPerDegree(
   samples: TemperatureSample[]
 ): number | null {
   // Korreliere Heizzyklen mit Energieverbrauch
-  const heatingStarts = logs.filter(l => l.event_type === 'heating_start');
-  const heatingStops = logs.filter(l => l.event_type === 'heating_stop');
+  const heatingStarts = logs.filter(l => l.event_type === 'heating_start' || l.event_type === 'solar_limit_start');
+  const heatingStops = logs.filter(l => l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop');
 
   const cycles: { energy: number; tempGain: number }[] = [];
 
@@ -291,7 +291,9 @@ function calculateHeatingBehavior(logs: RoomHeatingLog[]): {
   avgDuration: number | null;
   avgCycles: number | null;
 } {
-  const heatingStops = logs.filter(l => l.event_type === 'heating_stop' && l.duration_minutes);
+  const heatingStops = logs.filter(l => 
+    (l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop') && l.duration_minutes
+  );
   
   if (heatingStops.length === 0) {
     return { avgDuration: null, avgCycles: null };
@@ -301,7 +303,7 @@ function calculateHeatingBehavior(logs: RoomHeatingLog[]): {
 
   // Zyklen pro Tag
   const dayMap = new Map<string, number>();
-  for (const log of logs.filter(l => l.event_type === 'heating_start')) {
+  for (const log of logs.filter(l => l.event_type === 'heating_start' || l.event_type === 'solar_limit_start')) {
     const day = log.timestamp.split('T')[0];
     dayMap.set(day, (dayMap.get(day) || 0) + 1);
   }
@@ -362,10 +364,10 @@ function calculateEfficiencyMetrics(
 
 function getHeatingPeriods(logs: RoomHeatingLog[]): { start: number; end: number }[] {
   const periods: { start: number; end: number }[] = [];
-  const starts = logs.filter(l => l.event_type === 'heating_start').sort((a, b) => 
+  const starts = logs.filter(l => l.event_type === 'heating_start' || l.event_type === 'solar_limit_start').sort((a, b) => 
     new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
-  const stops = logs.filter(l => l.event_type === 'heating_stop').sort((a, b) => 
+  const stops = logs.filter(l => l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop').sort((a, b) => 
     new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
   );
 

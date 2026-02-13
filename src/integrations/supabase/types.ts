@@ -517,6 +517,62 @@ export type Database = {
         }
         Relationships: []
       }
+      learned_policies: {
+        Row: {
+          avg_grid_import_wh: number | null
+          avg_pv_usage_ratio: number | null
+          avg_reward: number | null
+          conditions: Json | null
+          created_at: string | null
+          hour_of_day: number
+          id: string
+          recommended_action: string
+          recommended_temp: number | null
+          room_id: string
+          sample_count: number | null
+          success_rate: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          avg_grid_import_wh?: number | null
+          avg_pv_usage_ratio?: number | null
+          avg_reward?: number | null
+          conditions?: Json | null
+          created_at?: string | null
+          hour_of_day: number
+          id?: string
+          recommended_action?: string
+          recommended_temp?: number | null
+          room_id: string
+          sample_count?: number | null
+          success_rate?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          avg_grid_import_wh?: number | null
+          avg_pv_usage_ratio?: number | null
+          avg_reward?: number | null
+          conditions?: Json | null
+          created_at?: string | null
+          hour_of_day?: number
+          id?: string
+          recommended_action?: string
+          recommended_temp?: number | null
+          room_id?: string
+          sample_count?: number | null
+          success_rate?: number | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "learned_policies_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       learning_events: {
         Row: {
           action: Json
