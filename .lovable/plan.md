@@ -1,131 +1,103 @@
 
-# Plan: Alle automatisierten Räume in pv-automation einbeziehen
 
-## Problem-Zusammenfassung
+# Batterie-Schutz und PV-gesteuertes sequenzielles Heizen
 
-### Aktuelle Situation
-4 Räume (Bad Uli, Büro, Waschraum, Wirtschaftsraum) haben:
-- `pv_auto_enabled: false`
-- `automation_enabled: true`
+## Problem JETZT
 
-Diese Räume werden **NICHT** von der `pv-automation` geladen und daher:
-- Bekommen keinen Nachtmodus (bleiben auf 20°C statt 18°C)
-- Werden nicht vom Budget-System pausiert
-- Heizen autonom mit Netzstrom
+| Wert | Status |
+|------|--------|
+| Batterie | 5.1% SOC - praktisch leer |
+| PV | 75W - noch kein nennenswerter Ertrag |
+| Verbrauch | 2.358W - davon ~1.500W Heizung |
+| Heizende Raeume | 4 von 10 (Buero, Wirtschaftsraum, Wohnzimmer, Zimmer Luis) |
+| Alle target_temp | 18 Grad (Nachtmodus) |
 
-### Beweis
-```
-Büro       | 20°C | heizt | pv_auto_enabled: false → nicht in Budget-Logik!
-Bad Uli    | 20°C | aus   | pv_auto_enabled: false → nicht pausiert!
-```
+Die Thermostate heizen autonom auf 18 Grad weil die Budget-Logik (`!isNight`) nachts deaktiviert ist.
 
-Keine Logs für diese Räume in der pv-automation.
+## Ursache
 
-## Die Lösung
+Zeile 1117 in `pv-automation/index.ts`:
 
-### Schritt 1: Query erweitern - Alle automatisierten Räume laden
-
-Zeile 508-511 in `pv-automation/index.ts`:
-
-```typescript
-// VORHER:
-const { data: rooms, error: roomsError } = await supabase
-  .from('rooms')
-  .select('*')
-  .eq('pv_auto_enabled', true);
-
-// NACHHER:
-const { data: rooms, error: roomsError } = await supabase
-  .from('rooms')
-  .select('*')
-  .eq('automation_enabled', true)
-  .not('tuya_device_id', 'is', null);
+```text
+if (powerBudgetEnabled && !isNight) {
+    // Budget-Logik nur tagsueber aktiv
+}
 ```
 
-### Schritt 2: Unterschiedliche Behandlung je nach pv_auto_enabled
+Nachts gibt es KEINEN Mechanismus der das Heizen stoppt wenn die Batterie leer ist.
 
-Räume mit `pv_auto_enabled: false` sollten:
-- Nachtmodus bekommen (18°C nachts)
-- Budget-Pause bekommen (15°C wenn wenig PV)
-- NICHT aktiv auf Komfort geheizt werden (nur Eco/Night)
+## Loesung: Batterie-Schutz in den Nachtmodus integrieren
 
-Die bestehende Logik prüft bereits `room.pv_auto_enabled` für PV-Heizen - diese Räume würden also automatisch nur Eco-Temperatur oder Budget-Pause bekommen.
+### Aenderung 1: Nachtmodus mit Batterie-Check (Zeilen 915-928)
+
+```text
+VORHER:
+  Nacht → target_temp = night_temp (18 Grad) — immer
+
+NACHHER:
+  Nacht + Batterie >= 30% → target_temp = night_temp (18 Grad)
+  Nacht + Batterie < 30%  → target_temp = 15 Grad (Heizung stoppt)
+```
+
+Die Thermostate werden auf 15 Grad gesetzt — da alle Raeume ueber 17 Grad sind, stoppt das Heizen sofort.
+
+### Aenderung 2: Budget-Logik auch nachts bei leerem Akku (Zeile 1117)
+
+```text
+VORHER:
+  if (powerBudgetEnabled && !isNight) { ... }
+
+NACHHER:
+  if (powerBudgetEnabled && (!isNight || batterySoc < 30)) { ... }
+```
+
+Bei leerem Akku greift die Budget-Logik auch nachts und setzt nicht-erlaubte Raeume auf 15 Grad.
+
+### Aenderung 3: Uebergang Nacht → Tag verbessern
+
+Sobald die Nacht endet (09:00) und PV verfuegbar ist, uebernimmt die bestehende sequenzielle Heizlogik:
+- Budget wird aus verfuegbarer PV berechnet
+- Raeume werden nach Prioritaet und Temperatur-Defizit sortiert
+- Ein Raum heizt 30 Minuten, dann Rotation
+
+Hier ist keine Aenderung noetig — die bestehende Logik funktioniert bereits korrekt.
 
 ## Dateiänderungen
 
-| Datei | Zeilen | Änderung |
-|-------|--------|----------|
-| `supabase/functions/pv-automation/index.ts` | 508-511 | Query von `pv_auto_enabled` auf `automation_enabled` ändern |
+| Datei | Stelle | Aenderung |
+|-------|--------|-----------|
+| `supabase/functions/pv-automation/index.ts` | Zeilen 915-928 | Nachtmodus: Batterie-Check einbauen, 15 Grad bei SOC < 30% |
+| `supabase/functions/pv-automation/index.ts` | Zeile 1117 | Budget-Logik: Auch nachts bei leerem Akku aktiv |
 
-## Code-Änderung
+## Erwarteter Effekt
 
-```typescript
-// supabase/functions/pv-automation/index.ts - Zeilen 508-511
-
-// VORHER:
-const { data: rooms, error: roomsError } = await supabase
-  .from('rooms')
-  .select('*')
-  .eq('pv_auto_enabled', true);
-
-// NACHHER:
-// Alle automatisierten Räume laden - nicht nur die mit PV-Heizen
-// Dadurch bekommen auch Räume mit pv_auto_enabled=false:
-// - Nachtmodus (night_temp)
-// - Budget-Pause (15°C wenn PV niedrig)
-// - Aber KEIN aktives PV-Heizen auf Komfort
-const { data: rooms, error: roomsError } = await supabase
-  .from('rooms')
-  .select('*')
-  .eq('automation_enabled', true)
-  .not('tuya_device_id', 'is', null);
-```
-
-## Erwartetes Ergebnis
-
-### Jetzt (PV = 450W, Budget = 0W):
+### Sofort nach Deploy:
 ```text
-Alle 10 Räume:
-  → target_temp: 15°C (Budget-Stopp)
-  → is_heating: false
-  → Netzbezug: ~360W (nur Grundlast)
+Alle 10 Raeume → 15 Grad (Batterie 5.1% < 30%)
+Heizung stoppt komplett
+Verbrauch sinkt von 2.358W auf ~400W Grundlast
+Batterie haelt laenger
 ```
 
-### Bei PV = 3000W (Budget = 2500W):
+### Ab ca. 09:00-10:00 (PV steigt):
 ```text
-Räume mit pv_auto_enabled=true:
-  → Können auf Komfort (22°C) heizen, Budget-kontrolliert
-
-Räume mit pv_auto_enabled=false (Büro, Bad Uli, etc.):
-  → Bleiben auf Eco (19-20°C), kein aktives PV-Heizen
-  → Werden aber trotzdem pausiert wenn Budget erschöpft
+Nacht endet → Budget-Logik uebernimmt
+PV 500W+ → Budget berechnet → Raum 1 heizt auf Komfort (21 Grad)
+Nach 30 Min → Rotation → Raum 2 heizt
+Sequenzielles Heizen mit PV-Strom
 ```
 
-### Nachts (22:00-08:00):
+### Naechste Nacht mit voller Batterie (SOC > 30%):
 ```text
-Alle 10 Räume:
-  → target_temp: 18°C (Nachtmodus)
-  → Kein Heizen mit Netzstrom mehr!
+Normaler Nachtmodus → 18 Grad
+Batterie hat genuegend Kapazitaet
 ```
 
-## Risiken und Abwägungen
+## Risiko
 
-### Risiko: Mehr Tuya API-Calls
-- Jetzt: 6 Räume werden verarbeitet
-- Nachher: 10 Räume werden verarbeitet
-- Lösung: Die SKIP-Logik verhindert unnötige API-Calls wenn Temperatur bereits korrekt ist
+| Risiko | Bewertung |
+|--------|-----------|
+| Raeume kuehlen auf 16-17 Grad | Akzeptabel — Fussbodenheizung kuehlt langsam, PV startet in 1-2h |
+| 15 Grad Thermostat-Ziel | Kein Frostrisiko — Raeume sind aktuell 17-19 Grad |
+| SOC-Schwelle 30% | Konservativ — bei 13.8 kWh Batterie sind 30% = 4.14 kWh, genug fuer ~2h Grundlast |
 
-### Alternative: pv_auto_enabled für alle Räume aktivieren
-Statt Code-Änderung könnte man auch einfach in der Datenbank setzen:
-```sql
-UPDATE rooms SET pv_auto_enabled = true WHERE tuya_device_id IS NOT NULL;
-```
-Aber das würde auch PV-Heizen für diese Räume aktivieren, was möglicherweise nicht gewünscht ist.
-
-## Test-Plan
-
-1. Edge Function deployen
-2. pv-automation triggern
-3. Logs prüfen: Alle 10 Räume sollten erscheinen
-4. Bad Uli, Büro sollten auf 15°C (Budget-Pause) gehen
-5. Netzbezug prüfen: Sollte auf ~360W fallen
