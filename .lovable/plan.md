@@ -1,103 +1,60 @@
 
+# Cron-Job für update-learned-policies implementieren
 
-# Batterie-Schutz und PV-gesteuertes sequenzielles Heizen
+## Status
+Die Edge Function `update-learned-policies` ist bereits implementiert und konfiguriert (in `supabase/config.toml` unter `[functions.update-learned-policies]`). Sie ist einsatzbereit und kann manuell aufgerufen werden.
 
-## Problem JETZT
+Was noch fehlt: Ein **automatisiertes tägliches Trigger-System** um die Funktion regelmäßig aufzurufen.
 
-| Wert | Status |
-|------|--------|
-| Batterie | 5.1% SOC - praktisch leer |
-| PV | 75W - noch kein nennenswerter Ertrag |
-| Verbrauch | 2.358W - davon ~1.500W Heizung |
-| Heizende Raeume | 4 von 10 (Buero, Wirtschaftsraum, Wohnzimmer, Zimmer Luis) |
-| Alle target_temp | 18 Grad (Nachtmodus) |
+## Plan
 
-Die Thermostate heizen autonom auf 18 Grad weil die Budget-Logik (`!isNight`) nachts deaktiviert ist.
+### Schritt 1: SQL-Migration für pg_cron
+Die `pg_cron` Extension muss in der Datenbank aktiviert sein, um Cron-Jobs zu erstellen. Dies wird über eine SQL-Migration durchgeführt:
 
-## Ursache
+```sql
+-- Enable pg_cron extension
+CREATE EXTENSION IF NOT EXISTS pg_cron;
 
-Zeile 1117 in `pv-automation/index.ts`:
-
-```text
-if (powerBudgetEnabled && !isNight) {
-    // Budget-Logik nur tagsueber aktiv
-}
+-- Schedule update-learned-policies to run daily at 19:30 UTC
+-- (Das ist 20:30 oder 21:30 Vienna Zeit, je nach Sommerzeit)
+SELECT cron.schedule(
+  'update-learned-policies-daily',
+  '30 19 * * *',  -- Every day at 19:30 UTC
+  $$
+    SELECT net.http_post(
+      url := 'https://tvqmhdpcixkfsudxughs.supabase.co/functions/v1/update-learned-policies',
+      headers := '{"Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2cW1oZHBjaXhrZnN1ZHh1Z2hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3NjAxODQsImV4cCI6MjA4MTMzNjE4NH0.3WDZXuxGECexP_wjvmK5QTFvJakMW2-SLs7FRzxoFKI", "Content-Type": "application/json"}'::jsonb,
+      body := '{}'::jsonb
+    ) as request_id;
+  $$
+);
 ```
 
-Nachts gibt es KEINEN Mechanismus der das Heizen stoppt wenn die Batterie leer ist.
+### Schritt 2: Ausführungsablauf
+1. **19:30 UTC täglich**: Der Cron-Job wird ausgelöst
+2. **HTTP POST Request**: Ruft die `update-learned-policies` Edge Function auf
+3. **Datenbankupdate**: Die Funktion aggregiert alle `learning_events` aus den letzten 30 Tagen
+4. **Policies aktualisieren**: Upserts die `learned_policies` Tabelle mit aktuellen Best-Actions und Reward-Statistiken
+5. **pv-automation nutzt Policies**: Im nächsten Automation-Run greift die `pv-automation` Funktion auf die aktualisierten Policies zu
 
-## Loesung: Batterie-Schutz in den Nachtmodus integrieren
+### Schritt 3: Zeitzone und Timing
+- **19:30 UTC** = **20:30 Wien** (Winter, UTC+1) oder **21:30 Wien** (Sommer, UTC+2)
+- Timing ist bewusst gewählt: Nach Sonnenuntergang (~17:00 Wien), genug Zeit um die letzten Learning Events zu evaluieren, aber vor der Nacht-Heizphase
+- Falls optimal, kann die Zeit später angepasst werden (z.B. 18:00 UTC für 19:00/20:00 Wien)
 
-### Aenderung 1: Nachtmodus mit Batterie-Check (Zeilen 915-928)
-
-```text
-VORHER:
-  Nacht → target_temp = night_temp (18 Grad) — immer
-
-NACHHER:
-  Nacht + Batterie >= 30% → target_temp = night_temp (18 Grad)
-  Nacht + Batterie < 30%  → target_temp = 15 Grad (Heizung stoppt)
-```
-
-Die Thermostate werden auf 15 Grad gesetzt — da alle Raeume ueber 17 Grad sind, stoppt das Heizen sofort.
-
-### Aenderung 2: Budget-Logik auch nachts bei leerem Akku (Zeile 1117)
-
-```text
-VORHER:
-  if (powerBudgetEnabled && !isNight) { ... }
-
-NACHHER:
-  if (powerBudgetEnabled && (!isNight || batterySoc < 30)) { ... }
-```
-
-Bei leerem Akku greift die Budget-Logik auch nachts und setzt nicht-erlaubte Raeume auf 15 Grad.
-
-### Aenderung 3: Uebergang Nacht → Tag verbessern
-
-Sobald die Nacht endet (09:00) und PV verfuegbar ist, uebernimmt die bestehende sequenzielle Heizlogik:
-- Budget wird aus verfuegbarer PV berechnet
-- Raeume werden nach Prioritaet und Temperatur-Defizit sortiert
-- Ein Raum heizt 30 Minuten, dann Rotation
-
-Hier ist keine Aenderung noetig — die bestehende Logik funktioniert bereits korrekt.
+### Schritt 4: Monitoring
+Nach Implementierung können die Cron-Job-Runs überwacht werden via:
+- Edge Function Logs: Jeder Ausführung wird geloggt
+- `learned_policies` Tabelle: `updated_at` Spalte zeigt wann Policies zuletzt aktualisiert wurden
+- `learning_events` Tabelle: Neue Events werden fortlaufend eingetragen
 
 ## Dateiänderungen
+1. **Neue Migration**: Erstelle SQL-Datei mit `CREATE EXTENSION pg_cron` und `cron.schedule()` Call
+2. **Keine Code-Änderungen**: Die Edge Function und die pv-automation Integration sind bereits implementiert
 
-| Datei | Stelle | Aenderung |
-|-------|--------|-----------|
-| `supabase/functions/pv-automation/index.ts` | Zeilen 915-928 | Nachtmodus: Batterie-Check einbauen, 15 Grad bei SOC < 30% |
-| `supabase/functions/pv-automation/index.ts` | Zeile 1117 | Budget-Logik: Auch nachts bei leerem Akku aktiv |
-
-## Erwarteter Effekt
-
-### Sofort nach Deploy:
-```text
-Alle 10 Raeume → 15 Grad (Batterie 5.1% < 30%)
-Heizung stoppt komplett
-Verbrauch sinkt von 2.358W auf ~400W Grundlast
-Batterie haelt laenger
-```
-
-### Ab ca. 09:00-10:00 (PV steigt):
-```text
-Nacht endet → Budget-Logik uebernimmt
-PV 500W+ → Budget berechnet → Raum 1 heizt auf Komfort (21 Grad)
-Nach 30 Min → Rotation → Raum 2 heizt
-Sequenzielles Heizen mit PV-Strom
-```
-
-### Naechste Nacht mit voller Batterie (SOC > 30%):
-```text
-Normaler Nachtmodus → 18 Grad
-Batterie hat genuegend Kapazitaet
-```
-
-## Risiko
-
-| Risiko | Bewertung |
-|--------|-----------|
-| Raeume kuehlen auf 16-17 Grad | Akzeptabel — Fussbodenheizung kuehlt langsam, PV startet in 1-2h |
-| 15 Grad Thermostat-Ziel | Kein Frostrisiko — Raeume sind aktuell 17-19 Grad |
-| SOC-Schwelle 30% | Konservativ — bei 13.8 kWh Batterie sind 30% = 4.14 kWh, genug fuer ~2h Grundlast |
-
+## Wartezeit
+Nach dem Deployment:
+- Cron-Job ist sofort aktiv
+- Erste Ausführung: Heute um 19:30 UTC
+- Danach täglich um 19:30 UTC
+- Die ersten Policies werden sichtbar in der `learned_policies` Tabelle (frühestens morgen nach dem ersten Cron-Run)
