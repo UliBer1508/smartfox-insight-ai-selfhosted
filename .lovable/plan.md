@@ -1,109 +1,85 @@
 
-# Reward-Funktion in evaluate-decision ueberarbeiten
 
-## Problemanalyse (aus den Daten)
+# 3 ML-Probleme lösen
 
-Die aktuellen Durchschnittswerte pro Reward-Komponente zeigen klare Verzerrungen:
+## Problem 1: 88.313 alte Events mit biased Reward
 
-| Komponente | activate | deactivate |
-|---|---|---|
-| energy_cost | -0.317 | **-0.873** |
-| pv_usage_bonus | 0.260 | **0.064** |
-| comfort_bonus | **-0.455** | **0.000** |
-| battery_efficiency | -0.075 | -0.031 |
-| efficiency_bonus | -0.003 | -0.005 |
-| forecast_quality | -0.038 | -0.042 |
-| **GESAMT** | **-0.628** | **-0.887** |
+Die alte Reward-Funktion ist deployed, aber alle historischen Events haben noch den falschen Reward (avg -0.839).
 
-### Problem 1: `deactivate` bekommt hohe `energy_cost` Strafe
-- Bei `deactivate` wird die Heizung abgeschaltet, aber der `energy_cost` misst den **gesamten Hausverbrauch** im 2-Stunden-Fenster (Kueche, Licht, etc.)
-- Das bestraft `deactivate` fuer Energieverbrauch, der nichts mit der Heizentscheidung zu tun hat
-- **Fix:** Bei `deactivate`-Entscheidungen nur den heizungsbezogenen Anteil des Netzimports beruecksichtigen, oder einen Energiespar-Bonus geben
+**Lösung:** SQL-Reset aller Events auf `is_evaluated = false`, dann `evaluate-decision` mit `evaluate_all: true` aufrufen (in Batches von 50, daher mehrfach).
 
-### Problem 2: `deactivate` bekommt keinen Komfort-Bonus (immer 0)
-- Zeile 322: `else { breakdown.comfort_bonus = 0; }` -- alle nicht-activate Entscheidungen bekommen 0
-- Ein erfolgreiches `deactivate` (Temperatur bleibt ueber Minimum) sollte belohnt werden
-- Ein schlechtes `deactivate` (Temperatur faellt unter night_temp) sollte bestraft werden
+**Schritte:**
+- SQL ausführen: `UPDATE learning_events SET is_evaluated = false, reward = null, reward_breakdown = null, evaluated_at = null`
+- `evaluate-decision` Edge Function mehrfach mit `{ "evaluate_all": true }` aufrufen bis alle Events verarbeitet sind
+- Ergebnis prüfen: Durchschnitts-Reward sollte für deactivate deutlich besser sein
 
-### Problem 3: Kein Energiespar-Bonus fuer `deactivate`
-- Wenn die Heizung erfolgreich pausiert wird, spart das Energie
-- Diese Einsparung wird nie als positiver Reward erfasst
-- **Fix:** Geschaetzte eingesparte Wh basierend auf Raumleistung und Dauer berechnen
+---
 
-## Loesung: Ueberarbeitete calculateReward Funktion
+## Problem 2: Alle 240 Policies zeigen 'keep'
 
-### Aenderung 1: Energiekosten-Komponente differenzieren (Zeilen 292-294)
-```typescript
-// 1. Energiekosten-Komponente
-const gridCostEur = (outcome.grid_import_wh / 1000) * (electricityPrice / 100);
-if (event.decision_type === 'deactivate') {
-  // Bei deactivate: Netzimport ist nicht durch diese Entscheidung verursacht
-  // Nur leicht negativ bewerten (Grundlast des Hauses)
-  breakdown.energy_cost = -gridCostEur * 0.1;
-} else {
-  // Bei activate: Voller Netzimport ist relevant
-  breakdown.energy_cost = -gridCostEur;
-}
+Die `update-learned-policies` Funktion wurde mit dem neuen Action-Mapping deployed, aber noch nie ausgeführt.
+
+**Lösung:** Nach der Re-Evaluation (Problem 1) die Funktion manuell aufrufen.
+
+**Schritte:**
+- `update-learned-policies` Edge Function aufrufen
+- Ergebnis prüfen: Policies sollten jetzt activate/deactivate/keep verteilt sein
+
+---
+
+## Problem 3: Wochenvergleich sagt "nicht genügend Daten"
+
+**Ursache:** Die `daily_patterns` Tabelle ist komplett leer (0 Zeilen). Das `aggregate-energy-data` Script erstellt daily_patterns erst, wenn hourly_aggregates älter als 90 Tage sind -- und die gibt es auch nicht (0 Zeilen). Die Funktion wurde nie erfolgreich ausgeführt (`last_cleanup_at: null`).
+
+Dabei haben wir 103.409 energy_readings seit dem 5. Januar -- genug Daten für 5+ Wochen.
+
+**Lösung:** Die `aggregate-energy-data` Funktion so überarbeiten, dass `daily_patterns` **täglich** aus `energy_readings` erstellt werden, unabhängig von der Retention-Logik. Zusätzlich einmalig die historischen Tage nachfüllen.
+
+**Technische Änderungen in `aggregate-energy-data/index.ts`:**
+
+1. Neuen Step 0 einfügen: **Daily Patterns direkt aus energy_readings erstellen**
+   - Für jeden Tag mit energy_readings (gruppiert nach lokalem Datum)
+   - Peak Power, Avg Power, Total Energy In/Out berechnen
+   - In `daily_patterns` upserten
+   - Das passiert **vor** der Retention-Cleanup-Logik, also unabhängig davon
+
+2. Den bestehenden Step 2 (daily_patterns aus hourly_aggregates) als Fallback beibehalten
+
+```text
+Neuer Ablauf:
++----------------------------------+
+| Step 0: Daily Patterns erstellen |
+| (aus energy_readings, alle Tage) |
++----------------------------------+
+           |
++----------------------------------+
+| Step 1: Raw -> Hourly Aggregates |
+| (bestehende Logik)               |
++----------------------------------+
+           |
++----------------------------------+
+| Step 2: Hourly -> Daily Patterns |
+| (Fallback, bestehende Logik)     |
++----------------------------------+
 ```
 
-### Aenderung 2: Komfort-Komponente fuer `deactivate` erweitern (Zeilen 313-324)
-```typescript
-// 4. Komfort-Komponente
-if (event.decision_type === 'activate' || event.decision_type === 'heating_on' 
-    || event.decision_type === 'preheat') {
-  // ... bestehende Logik bleibt ...
-} else if (event.decision_type === 'deactivate') {
-  // Deactivate-Komfort: Temperatur sollte nicht unter Minimum fallen
-  const minTemp = event.context?.night_temp || event.context?.min_temp || 16;
-  if (outcome.temp_end !== null) {
-    if (outcome.temp_end >= minTemp) {
-      // Temperatur ueber Minimum gehalten = gute Entscheidung
-      breakdown.comfort_bonus = 0.3;
-    } else if (outcome.temp_end >= minTemp - 1) {
-      // Knapp unter Minimum = leicht negativ
-      breakdown.comfort_bonus = -0.2;
-    } else {
-      // Deutlich unter Minimum = schlecht
-      breakdown.comfort_bonus = -0.8;
-    }
-  } else {
-    breakdown.comfort_bonus = 0;
-  }
-} else {
-  breakdown.comfort_bonus = 0;
-}
-```
+3. Historische Daten: Beim ersten Lauf werden alle Tage seit 5. Januar automatisch befüllt, da Step 0 über alle vorhandenen energy_readings iteriert.
 
-### Aenderung 3: Neuer Energiespar-Bonus fuer `deactivate` (nach Zeile 335)
-```typescript
-// 5b. Energiespar-Bonus (nur fuer deactivate)
-if (event.decision_type === 'deactivate') {
-  // Schaetze eingesparte Energie: Raumleistung * 2h Fenster
-  const roomPowerW = event.context?.room_power_w || 800;
-  const savedKwh = (roomPowerW * 2) / 1000; // 2h Evaluierungsfenster
-  const savedEur = savedKwh * (electricityPrice / 100);
-  // Bonus proportional zur Einsparung, max 0.5
-  breakdown.energy_saving_bonus = Math.min(0.5, savedEur * 0.5);
-} else {
-  breakdown.energy_saving_bonus = 0;
-}
-```
+**Zusätzlich:** Einen Cron-Job für `aggregate-energy-data` einrichten (falls noch nicht vorhanden), damit die Funktion täglich läuft.
 
-### Aenderung 4: Context muss room_power_w und night_temp enthalten
-In `pv-automation/index.ts` muessen beim Erstellen von `learning_events` die Felder `room_power_w` und `night_temp` im `context` Objekt gesetzt werden. Das ist wahrscheinlich schon der Fall -- pruefe und ergaenze wenn noetig.
+---
 
-## Erwartete Auswirkung
+## Zusammenfassung der Dateien
 
-Nach diesen Aenderungen:
-- **deactivate avg reward:** von -0.887 auf ca. +0.1 bis +0.3 (Energiespar-Bonus + reduzierte energy_cost + Komfort-Bonus)
-- **activate avg reward:** von -0.628 auf ca. -0.3 bis +0.2 (energy_cost bleibt, aber weniger Verzerrung)
-- **Policies lernen korrekt:** `deactivate` nachts wird als positiv bewertet, `activate` bei PV-Ueberschuss ebenso
-
-## Dateien zu aendern
-
-1. `supabase/functions/evaluate-decision/index.ts` -- calculateReward ueberarbeiten (Zeilen 290-355)
-2. `supabase/functions/pv-automation/index.ts` -- pruefen ob `context` bei learning_event Erstellung `room_power_w` und `night_temp` enthaelt
+| Datei | Änderung |
+|---|---|
+| `supabase/functions/aggregate-energy-data/index.ts` | Neuer Step 0: daily_patterns direkt aus energy_readings erstellen |
+| SQL (Insert Tool) | Reset learning_events: `is_evaluated = false` |
+| SQL (Insert Tool) | Cron-Job für aggregate-energy-data (falls nötig) |
+| Edge Function Calls | evaluate-decision, update-learned-policies, aggregate-energy-data manuell aufrufen |
 
 ## Risiken
-- Bestehende evaluierte Events behalten ihren alten Reward -- nur neue Events profitieren
-- Optional: Re-Evaluation aller Events auslösen nach Deploy (via `evaluate_all: true` mit `is_evaluated` Reset)
+
+- Die Re-Evaluation von 88k Events dauert in 50er-Batches ca. 1.700 Aufrufe -- das ist nicht praktikabel über die Edge Function. Alternativ: Batch-Größe im Code auf 500 erhöhen, oder die Re-Evaluation in einem einzigen Lauf mit größerem Limit durchführen.
+- Die daily_patterns Berechnung aus 103k Readings braucht Paginierung (1000er Limit bei Supabase-Queries).
+
