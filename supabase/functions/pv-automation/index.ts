@@ -871,6 +871,25 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ============= LEARNED POLICIES LADEN =============
+      // Epsilon-Greedy: Nutze gelernte Policies wenn genügend Daten vorhanden
+      let learnedPolicies: Map<string, any> = new Map();
+      try {
+        const { data: policies } = await supabase
+          .from('learned_policies')
+          .select('*')
+          .eq('hour_of_day', wienHour);
+        
+        if (policies && policies.length > 0) {
+          for (const p of policies) {
+            learnedPolicies.set(p.room_id, p);
+          }
+          console.log(`[PV-Automation] Loaded ${policies.length} learned policies for hour ${wienHour}`);
+        }
+      } catch (policyError) {
+        console.warn('[PV-Automation] Could not load learned policies:', policyError);
+      }
+
       // 8. Process decisions
       const results: Record<string, unknown>[] = [];
       // now ist bereits oben im Budget-Code definiert
@@ -962,8 +981,25 @@ Deno.serve(async (req) => {
         } else {
           // TAGSÜBER: ML oder Fallback-Logik
 
-          // ML decision ONLY if automation_enabled = true AND it's daytime
-          mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+          // ML decision: Erst Learned Policy prüfen, dann LLM als Fallback
+          const learnedPolicy = useMLDecisions ? learnedPolicies.get(room.id) : null;
+          
+          if (learnedPolicy && learnedPolicy.sample_count >= 20 && learnedPolicy.success_rate > 0.5) {
+            // EXPLOITATION: Gelernte Policy nutzen (genug Daten + gute Erfolgsrate)
+            action = learnedPolicy.recommended_action === 'activate' ? 'activate' : 
+                     learnedPolicy.recommended_action === 'deactivate' ? 'deactivate' : 'keep';
+            if (learnedPolicy.recommended_temp) {
+              targetTemp = learnedPolicy.recommended_temp;
+            }
+            reasoning = `📊 Gelernte Policy (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg, avg_reward: ${learnedPolicy.avg_reward?.toFixed(2)})`;
+            console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+          } else {
+            // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse)
+            mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+            if (learnedPolicy) {
+              console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
+            }
+          }
 
           // ============= MORGEN-AUFWÄRMPHASE nach Nachtende =============
           // NEUE LOGIK: Prüfe zuerst ob aktuelle Stunde in optimal_solar_hours liegt

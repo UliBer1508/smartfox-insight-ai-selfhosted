@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.monitor-solar-heating]
 verify_jwt = false
+
+[functions.update-learned-policies]
+verify_jwt = false
