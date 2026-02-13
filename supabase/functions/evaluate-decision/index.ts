@@ -289,9 +289,16 @@ function calculateReward(
 ): { total: number; breakdown: any } {
   const breakdown: any = {};
 
-  // 1. Energiekosten-Komponente (negativ = schlecht)
+  // 1. Energiekosten-Komponente (differenziert nach Entscheidungstyp)
   const gridCostEur = (outcome.grid_import_wh / 1000) * (electricityPrice / 100);
-  breakdown.energy_cost = -gridCostEur;
+  if (event.decision_type === 'deactivate') {
+    // Bei deactivate: Netzimport ist nicht durch diese Entscheidung verursacht
+    // Nur leicht negativ bewerten (Grundlast des Hauses)
+    breakdown.energy_cost = -gridCostEur * 0.1;
+  } else {
+    // Bei activate: Voller Netzimport ist relevant
+    breakdown.energy_cost = -gridCostEur;
+  }
 
   // 2. PV-Nutzungs-Bonus (positiv für Eigenverbrauch)
   const pvRatio = outcome.energy_used_wh > 0 
@@ -319,6 +326,20 @@ function calculateReward(
     } else {
       breakdown.comfort_bonus = -0.5; // Kein Effekt
     }
+  } else if (event.decision_type === 'deactivate') {
+    // Deactivate-Komfort: Temperatur sollte nicht unter Minimum fallen
+    const minTemp = event.context?.night_temp || event.context?.min_temp || 16;
+    if (outcome.temp_end !== null) {
+      if (outcome.temp_end >= minTemp) {
+        breakdown.comfort_bonus = 0.3; // Temperatur über Minimum gehalten
+      } else if (outcome.temp_end >= minTemp - 1) {
+        breakdown.comfort_bonus = -0.2; // Knapp unter Minimum
+      } else {
+        breakdown.comfort_bonus = -0.8; // Deutlich unter Minimum
+      }
+    } else {
+      breakdown.comfort_bonus = 0;
+    }
   } else {
     breakdown.comfort_bonus = 0;
   }
@@ -334,7 +355,17 @@ function calculateReward(
     breakdown.efficiency_bonus = 0;
   }
 
-  // 6. Prognose-Qualitäts-Komponente (NEU)
+  // 5b. Energiespar-Bonus (nur für deactivate)
+  if (event.decision_type === 'deactivate') {
+    const roomPowerW = event.context?.room_power_w || 800;
+    const savedKwh = (roomPowerW * 2) / 1000; // 2h Evaluierungsfenster
+    const savedEur = savedKwh * (electricityPrice / 100);
+    breakdown.energy_saving_bonus = Math.min(0.5, savedEur * 0.5);
+  } else {
+    breakdown.energy_saving_bonus = 0;
+  }
+
+  // 6. Prognose-Qualitäts-Komponente
   // Bonus wenn die PV-Prognose akkurat war und die Entscheidung darauf basierte
   if (outcome.forecast_accuracy !== null) {
     if (outcome.forecast_accuracy > 0.8) {
