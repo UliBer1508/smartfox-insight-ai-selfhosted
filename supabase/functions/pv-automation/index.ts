@@ -1294,7 +1294,9 @@ Deno.serve(async (req) => {
           outdoor_temp: weatherData?.temperature_c,
           cloud_cover: weatherData?.cloud_cover_percent,
           ml_confidence: confidence,
-          ml_features: latestMlFeatures.find(f => f.room_id === room.id) || null
+          ml_features: latestMlFeatures.find(f => f.room_id === room.id) || null,
+          room_power_w: room.calculated_power_w || room.heating_power_w || (room.floor_area_m2 ? room.floor_area_m2 * 60 : 800),
+          night_temp: room.night_temp || settings.night_temp || 17
         };
 
         const eventAction = {
