@@ -873,18 +873,22 @@ Deno.serve(async (req) => {
 
       // ============= LEARNED POLICIES LADEN =============
       // Epsilon-Greedy: Nutze gelernte Policies wenn genügend Daten vorhanden
+      const policyNightStart = settings?.night_start_time || '22:00';
+      const policyNightEnd = settings?.night_end_time || '08:00';
+      const { wienHour: currentWienHour } = isNightTime(policyNightStart, policyNightEnd);
+      
       let learnedPolicies: Map<string, any> = new Map();
       try {
         const { data: policies } = await supabase
           .from('learned_policies')
           .select('*')
-          .eq('hour_of_day', wienHour);
+          .eq('hour_of_day', currentWienHour);
         
         if (policies && policies.length > 0) {
           for (const p of policies) {
             learnedPolicies.set(p.room_id, p);
           }
-          console.log(`[PV-Automation] Loaded ${policies.length} learned policies for hour ${wienHour}`);
+          console.log(`[PV-Automation] Loaded ${policies.length} learned policies for hour ${currentWienHour}`);
         }
       } catch (policyError) {
         console.warn('[PV-Automation] Could not load learned policies:', policyError);
