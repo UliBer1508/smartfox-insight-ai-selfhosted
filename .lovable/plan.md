@@ -1,71 +1,73 @@
 
 
-# Collector v2.0 auf lokale Tuya-Steuerung erweitern
+# Auto-Discovery Script: IPs automatisch den Raeumen zuordnen
 
-## Ausgangslage
+## Was das Script macht
 
-Die hochgeladene `index.js` ist der aktuell laufende Collector (v2.0) - rein Fronius, 190 Zeilen, ohne Tuya. Die v3.0 im Repository hat bereits Tuya-Code, aber mit falschem DPS-Mapping (numerisch statt alphanumerisch).
+Das Script verbindet sich nacheinander zu allen 11 bekannten Thermostat-IPs per TuyAPI, liest die Device-ID aus und gleicht sie mit der `rooms`-Tabelle ab. Bei einem Match wird die `thermostat_local_ip` automatisch in der Datenbank eingetragen.
 
-## Aenderungen
-
-### 1. `tuya-thermostat.js` - DPS-Mapping korrigieren
-
-Das bestehende Mapping ist falsch:
+## Ablauf
 
 ```text
-Aktuell (falsch):           Korrekt (TGP508):
-MODE: '1'                   MODE: 'mode'
-TARGET_TEMP: '2'             TARGET_TEMP: 'temp_set'
-CURRENT_TEMP: '3'            CURRENT_TEMP: 'temp_current'
-HEATING: '4'                 SWITCH: 'switch'
+Fuer jede IP (192.168.188.42, .43, .68, .78, .79, .107, .114, .171, .173, .186, .197):
+  1. TCP-Port 6668 pruefen (schneller Vorab-Check)
+  2. TuyAPI connect mit allen bekannten Local Keys durchprobieren
+  3. Bei Erfolg: Device-ID aus der Antwort lesen
+  4. Device-ID in rooms-Tabelle suchen
+  5. Match gefunden -> UPDATE rooms SET thermostat_local_ip = IP WHERE tuya_device_id = device_id
+  6. Ergebnis ausgeben (zugeordnet / nicht gefunden / Fehler)
 ```
 
-Zusaetzlich: Dual-Format-Fallback in `getStatus` - probiert zuerst alphanumerische Keys, dann numerische als Fallback.
+## Technische Details
 
-### 2. `index.js` - Tuya-Integration in den v2.0 Collector einbauen
+### Neue Datei: `local-collector/collector-node/auto-discover.js`
 
-Folgende Bloecke werden zum bestehenden Fronius-Collector hinzugefuegt:
+- Liest alle Raeume mit `tuya_device_id` und `local_key` aus der Datenbank
+- Versucht fuer jede der 11 IPs, sich mit jedem bekannten Local Key zu verbinden
+- TuyAPI liefert bei erfolgreicher Verbindung die Device-ID zurueck
+- Matched die Device-ID gegen die Datenbank und schreibt die IP per UPDATE
+- Gibt eine Zusammenfassung aus: welche Raeume zugeordnet wurden, welche IPs keinen Match hatten
 
-- **Import**: ThermostatController laden (wenn `config.tuya.enabled`)
-- **syncThermostats()**: Alle Thermostate lesen, `rooms`-Tabelle aktualisieren
-- **processCommands()**: Pending Commands aus `thermostat_commands`-Tabelle ausfuehren (set_temp, set_mode)
-- **poll()**: syncThermostats und processCommands in den Polling-Loop integrieren
-- **Graceful Shutdown**: Alle TuyAPI-Verbindungen sauber schliessen
+### Herausforderung: Local Key Matching
 
-Die Fronius-Logik bleibt 1:1 erhalten.
+TuyAPI benoetigt den korrekten Local Key um sich zu verbinden. Da wir nicht wissen welcher Key zu welcher IP gehoert, probiert das Script alle 10 Keys pro IP durch. Bei falschem Key kommt ein Timeout/Fehler, bei richtigem Key eine erfolgreiche Verbindung mit Device-ID.
 
-### 3. `generate-config.js` - Neues Script
+### Alternative (schnellerer Ansatz)
 
-Generiert `config.json` automatisch aus der `rooms`-Tabelle:
-
-- Liest `tuya_device_id`, `local_key`, `thermostat_local_ip` und `name` aus der Datenbank
-- Erstellt vollstaendige config mit Fronius-IP und allen Tuya-Devices
-- Warnt bei fehlenden IPs
-
-Aufruf: `node generate-config.js --fronius-ip 192.168.188.64`
-
-### 4. Voraussetzung: Lokale IPs eintragen
-
-Die `thermostat_local_ip` Spalte in der `rooms`-Tabelle ist bei allen Raeumen noch `null`. Die IPs muessen aus dem Router (DHCP-Liste) den Raeumen zugeordnet und per SQL-Update eingetragen werden.
-
-Bekannte Thermostat-IPs im Netzwerk:
-```text
-192.168.188.42, .43, .68, .78, .79, .107, .114, .171, .173, .186, .197
-```
+Falls das Durchprobieren aller Keys zu langsam ist, kann das Script auch `tinytuya scan` nutzen (UDP Broadcast auf Port 6666/6667), das die Device-ID ohne Key liefert. Dann reicht ein einfacher Abgleich Device-ID -> IP.
 
 ## Dateien
 
 | Datei | Aktion |
 |---|---|
-| `local-collector/collector-node/tuya-thermostat.js` | DPS-Mapping auf `mode`, `temp_set`, `temp_current`, `switch` aendern |
-| `local-collector/collector-node/index.js` | Tuya-Integration (syncThermostats, processCommands) in v2.0 einbauen |
-| `local-collector/collector-node/generate-config.js` | Neues Script: Config aus Datenbank generieren |
+| `local-collector/collector-node/auto-discover.js` | Neues Script erstellen |
 
-## Ablauf nach Implementation
+## Aufruf
 
-1. IPs im Router nachschlagen und Raeumen zuordnen
-2. IPs per SQL in `rooms.thermostat_local_ip` eintragen
-3. `node generate-config.js --fronius-ip 192.168.188.64` ausfuehren
-4. `npm install tuyapi` im collector-node Verzeichnis
-5. `npm start` - Collector laeuft mit Fronius + lokaler Thermostat-Steuerung
+```text
+cd local-collector/collector-node
+npm install tuyapi    (falls noch nicht installiert)
+node auto-discover.js
+```
 
+## Erwartete Ausgabe
+
+```text
+========================================
+   Tuya Auto-Discovery v1.0
+========================================
+Lade 10 Raeume aus der Datenbank...
+
+Scanne 11 IPs...
+
+  192.168.188.42   -> Wohnzimmer (bf367d27...)   [ZUGEORDNET]
+  192.168.188.43   -> Zimmer Luca (bf4b2068...)  [ZUGEORDNET]
+  192.168.188.68   -> Buero (bf82697f...)         [ZUGEORDNET]
+  ...
+  192.168.188.197  -> Kein Match in der Datenbank [UEBERSPRUNGEN]
+
+========================================
+Ergebnis: 10/11 IPs zugeordnet, 1 ohne Match
+thermostat_local_ip fuer 10 Raeume aktualisiert
+========================================
+```
