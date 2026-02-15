@@ -33,7 +33,7 @@ const defaultRoom: Partial<Room> = {
   priority: 2,
   heating_power_w: null,
   tuya_device_id: null,
-  thermostat_ip: null,
+  thermostat_local_ip: null,
   local_key: null,
   pv_auto_enabled: false,
 };
@@ -199,11 +199,11 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                   </div>
 
                   <div className="col-span-2">
-                    <Label htmlFor="thermostat_ip">Thermostat IP-Adresse</Label>
+                    <Label htmlFor="thermostat_local_ip">Thermostat IP-Adresse</Label>
                     <Input
-                      id="thermostat_ip"
-                      value={editingRoom.thermostat_ip || ''}
-                      onChange={e => setEditingRoom({ ...editingRoom, thermostat_ip: e.target.value || null })}
+                      id="thermostat_local_ip"
+                      value={editingRoom.thermostat_local_ip || ''}
+                      onChange={e => setEditingRoom({ ...editingRoom, thermostat_local_ip: e.target.value || null })}
                       placeholder="z.B. 192.168.188.168"
                     />
                   </div>
