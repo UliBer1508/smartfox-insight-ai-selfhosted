@@ -1,61 +1,63 @@
 
 
-# useTuyaControl.ts auf Command-Queue umstellen
+# Steuerungsmodus-Schalter: Cloud vs. Lokal
 
-## Was wird geaendert
+## Uebersicht
 
-Die Datei `src/hooks/useTuyaControl.ts` wird so umgebaut, dass Temperatur-Befehle nicht mehr die Cloud Edge Function (`tuya-control/set-temp`) aufrufen, sondern einen Eintrag in die `thermostat_commands`-Tabelle schreiben. Der lokale `tuya-thermostat/index.js` liest diese Befehle alle 5 Sekunden und fuehrt sie via LAN (Port 6668) aus.
+In den Einstellungen wird ein neuer Schalter hinzugefuegt, mit dem zwischen zwei Steuerungsmodi gewechselt werden kann:
+
+- **Cloud**: Befehle gehen ueber die Edge Function (bisheriges Verhalten)
+- **Lokal**: Befehle werden in die `thermostat_commands`-Tabelle geschrieben und vom lokalen Service ausgefuehrt
 
 ## Aenderungen
 
-### setTemperature() - Neuer Ablauf
+### 1. Einstellung in der Datenbank speichern
 
-Statt:
+Ein neuer Eintrag in `system_settings` mit Key `tuya_control_mode` und Wert `{ "mode": "cloud" }` oder `{ "mode": "local" }`. Keine Migration noetig, da die Tabelle bereits existiert.
+
+### 2. Neuer Hook: `useTuyaControlMode.ts`
+
+- Liest den aktuellen Modus aus `system_settings` (Key: `tuya_control_mode`)
+- Bietet eine Funktion `setMode('cloud' | 'local')` zum Umschalten
+- Standardwert: `cloud` (wenn kein Eintrag existiert)
+
+### 3. Neues Settings-Widget: `TuyaControlModeSwitch.tsx`
+
+Ein kompaktes UI-Element im Tuya-Bereich der Einstellungen:
+- Label "Steuerungsmodus"
+- Zwei Optionen: "Cloud API" und "Lokaler Service"
+- Kurze Erklaerung je nach Modus
+- Cloud: "Befehle werden ueber die Cloud Edge Function gesendet"
+- Lokal: "Befehle werden vom lokalen tuya-thermostat Service ausgefuehrt"
+
+### 4. `useTuyaControl.ts` anpassen
+
+Die `setTemperature()`-Funktion prueft den aktuellen Modus:
+
 ```text
-supabase.functions.invoke('tuya-control/set-temp', { body: { deviceId, temperature, roomId } })
+WENN mode === 'cloud':
+  supabase.functions.invoke('tuya-control/set-temp', ...)  (bisheriger Code)
+
+WENN mode === 'local':
+  supabase.from('thermostat_commands').insert({
+    room_id, command: 'set_temp', value: temperature, status: 'pending'
+  })
 ```
 
-Wird:
-```text
-supabase.from('thermostat_commands').insert({
-  room_id: roomId,
-  command: 'set_temp',
-  value: temperature,
-  status: 'pending'
-})
-```
+Ebenso fuer `syncAllStatus()` und `getStatus()`:
+- Cloud-Modus: Edge Function aufrufen (bisherig)
+- Lokal-Modus: Direkt aus `rooms`-Tabelle lesen
 
-Zusaetzlich bleibt bestehen:
-- Manual Override fuer 2 Stunden in der `rooms`-Tabelle
-- Toast-Meldung "Temperatur-Befehl gesendet" (statt "gesetzt", da asynchron)
+### 5. SettingsPanel.tsx erweitern
 
-### syncAllStatus() - Vereinfachen
+Das neue `TuyaControlModeSwitch`-Widget wird im Tuya-Accordion-Bereich eingefuegt, oberhalb des bestehenden `TuyaConnectionTest`.
 
-Statt die Cloud Edge Function `tuya-control/sync-all` aufzurufen, liest die Funktion direkt die aktuellen Daten aus der `rooms`-Tabelle. Der lokale Service aktualisiert diese Daten bereits alle 60 Sekunden.
-
-### getStatus() - Vereinfachen
-
-Liest den Status direkt aus der `rooms`-Tabelle (`current_temp`, `target_temp`, `is_heating`) statt ueber die Edge Function.
-
-### fetchDevices() - Entfernen oder vereinfachen
-
-Die Cloud-API-basierte Device-Liste wird nicht mehr benoetigt, da die Geraete lokal gesteuert werden. Die Funktion wird vereinfacht oder entfernt.
-
-## Keine Datenbank-Aenderungen noetig
-
-Die `thermostat_commands`-Tabelle existiert bereits mit allen benoetigten Spalten:
-- `id` (UUID, auto)
-- `room_id` (UUID)
-- `command` (text)
-- `value` (numeric)
-- `status` (text, default: 'pending')
-- `error_message` (text)
-- `created_at` (timestamptz)
-- `executed_at` (timestamptz)
-
-## Betroffene Datei
+## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/hooks/useTuyaControl.ts` | Von Cloud Edge Function auf Command-Queue umstellen |
+| `src/hooks/useTuyaControlMode.ts` | Neu - Hook zum Lesen/Setzen des Modus |
+| `src/components/settings/TuyaControlModeSwitch.tsx` | Neu - Schalter-Widget |
+| `src/hooks/useTuyaControl.ts` | Angepasst - Beide Pfade (Cloud/Lokal) |
+| `src/components/energy/SettingsPanel.tsx` | Erweitert - Widget einbinden |
 
