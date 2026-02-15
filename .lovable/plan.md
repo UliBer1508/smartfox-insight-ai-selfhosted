@@ -1,36 +1,61 @@
 
-# Fix: Thermostat IP-Feld vereinheitlichen
 
-## Problem
-Es gibt zwei IP-Spalten in der `rooms`-Tabelle:
-- `thermostat_ip` - wird vom UI-Formular (RoomManager) beschrieben - **alle 12 IPs sind hier gespeichert**
-- `thermostat_local_ip` - wird vom Collector und auto-discover Script gelesen - **alle NULL**
+# useTuyaControl.ts auf Command-Queue umstellen
 
-Die IPs wurden korrekt ueber das Formular eingetragen, landen aber in der falschen Spalte.
+## Was wird geaendert
 
-## Loesung
+Die Datei `src/hooks/useTuyaControl.ts` wird so umgebaut, dass Temperatur-Befehle nicht mehr die Cloud Edge Function (`tuya-control/set-temp`) aufrufen, sondern einen Eintrag in die `thermostat_commands`-Tabelle schreiben. Der lokale `tuya-thermostat/index.js` liest diese Befehle alle 5 Sekunden und fuehrt sie via LAN (Port 6668) aus.
 
-### 1. Daten kopieren (SQL UPDATE)
-Die vorhandenen IPs von `thermostat_ip` nach `thermostat_local_ip` kopieren:
+## Aenderungen
 
-```sql
-UPDATE rooms 
-SET thermostat_local_ip = thermostat_ip 
-WHERE thermostat_ip IS NOT NULL;
+### setTemperature() - Neuer Ablauf
+
+Statt:
+```text
+supabase.functions.invoke('tuya-control/set-temp', { body: { deviceId, temperature, roomId } })
 ```
 
-### 2. Code vereinheitlichen
-Das Formular und den Code auf eine einzige Spalte (`thermostat_local_ip`) umstellen:
+Wird:
+```text
+supabase.from('thermostat_commands').insert({
+  room_id: roomId,
+  command: 'set_temp',
+  value: temperature,
+  status: 'pending'
+})
+```
 
-**Datei: `src/components/heating/RoomManager.tsx`**
-- Formularfeld von `thermostat_ip` auf `thermostat_local_ip` aendern
-- Default-Wert im Initial-State anpassen
+Zusaetzlich bleibt bestehen:
+- Manual Override fuer 2 Stunden in der `rooms`-Tabelle
+- Toast-Meldung "Temperatur-Befehl gesendet" (statt "gesetzt", da asynchron)
 
-**Datei: `src/types/room.ts`**
-- Keine Aenderung noetig (beide Felder sind bereits definiert)
+### syncAllStatus() - Vereinfachen
 
-### 3. Ergebnis
-- Der Collector findet die IPs in `thermostat_local_ip`
-- Das UI-Formular schreibt direkt in `thermostat_local_ip`
-- `auto-discover.js` und `generate-config.js` funktionieren korrekt
-- Alle 12 Thermostate sind sofort einsatzbereit fuer die lokale Steuerung
+Statt die Cloud Edge Function `tuya-control/sync-all` aufzurufen, liest die Funktion direkt die aktuellen Daten aus der `rooms`-Tabelle. Der lokale Service aktualisiert diese Daten bereits alle 60 Sekunden.
+
+### getStatus() - Vereinfachen
+
+Liest den Status direkt aus der `rooms`-Tabelle (`current_temp`, `target_temp`, `is_heating`) statt ueber die Edge Function.
+
+### fetchDevices() - Entfernen oder vereinfachen
+
+Die Cloud-API-basierte Device-Liste wird nicht mehr benoetigt, da die Geraete lokal gesteuert werden. Die Funktion wird vereinfacht oder entfernt.
+
+## Keine Datenbank-Aenderungen noetig
+
+Die `thermostat_commands`-Tabelle existiert bereits mit allen benoetigten Spalten:
+- `id` (UUID, auto)
+- `room_id` (UUID)
+- `command` (text)
+- `value` (numeric)
+- `status` (text, default: 'pending')
+- `error_message` (text)
+- `created_at` (timestamptz)
+- `executed_at` (timestamptz)
+
+## Betroffene Datei
+
+| Datei | Aenderung |
+|-------|-----------|
+| `src/hooks/useTuyaControl.ts` | Von Cloud Edge Function auf Command-Queue umstellen |
+
