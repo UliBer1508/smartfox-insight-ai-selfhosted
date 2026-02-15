@@ -1,65 +1,22 @@
 
+# Fix: ML-Analyse Guard in pv-automation
 
-# Edge Functions: Cloud/Lokal Dual-Modus
+## Problem
 
-## Uebersicht
+In `supabase/functions/pv-automation/index.ts` (Zeile 810) ist der gesamte ML-Analyse-Block (`analyze-patterns` Aufruf + Persistierung der Ergebnisse) in eine Bedingung `if (tuyaAccessId && tuyaAccessSecret)` eingeschlossen. Das bedeutet: Wenn im Lokal-Modus keine Tuya Cloud Credentials gesetzt sind, wird die ML-Analyse komplett uebersprungen - obwohl sie keine Tuya-Credentials benoetigt.
 
-Beide Edge Functions (`pv-automation` und `apply-recommendations`) rufen aktuell `setDeviceTemperature()` direkt ueber die Tuya Cloud API auf. Sie muessen den `tuya_control_mode` aus der `system_settings`-Tabelle lesen und je nach Modus entweder die Cloud API nutzen oder einen Befehl in die `thermostat_commands`-Tabelle schreiben.
+## Loesung
 
-## Technischer Ansatz
+Die Bedingung in Zeile 810 wird entfernt. Der Block bleibt bestehen, nur das `if`-Statement faellt weg. Konkret:
 
-### Neue Helper-Funktion in beiden Edge Functions
+**Zeile 810**: `if (tuyaAccessId && tuyaAccessSecret) {` wird zu `{`
 
-Eine neue Funktion `setTemperatureByMode()` wird eingefuehrt, die den Steuerungsmodus prueft:
+**Zeile 912**: Die zugehoerige schliessende Klammer `}` bleibt unveraendert (der Block-Scope bleibt erhalten).
 
-```text
-async function setTemperatureByMode(
-  supabase, accessId, accessSecret, 
-  deviceId, roomId, temperature, controlMode
-):
-  WENN controlMode === 'local':
-    INSERT INTO thermostat_commands (room_id, command, value, status)
-    VALUES (roomId, 'set_temp', temperature, 'pending')
-    RETURN { success: true }
-    
-  SONST (cloud):
-    setDeviceTemperature(accessId, accessSecret, deviceId, temperature)
-    RETURN result
-```
-
-### Modus einmalig laden
-
-Zu Beginn jeder Edge-Function-Ausfuehrung wird der Modus einmal aus `system_settings` gelesen:
-
-```text
-SELECT value FROM system_settings WHERE key = 'tuya_control_mode'
--> controlMode = result?.value?.mode || 'cloud'
-```
-
-### Betroffene Stellen in pv-automation (3 Aufrufe)
-
-1. **Zeile ~459**: Nachtmodus - Thermostate auf Nachttemperatur setzen
-2. **Zeile ~1334**: Aktivierung - Thermostat auf Zieltemperatur setzen
-3. **Zeile ~1388**: Deaktivierung - Thermostat auf reduzierte Temperatur setzen
-
-Alle drei Aufrufe von `setDeviceTemperature()` werden durch `setTemperatureByMode()` ersetzt.
-
-### Betroffene Stellen in apply-recommendations (1 Aufruf)
-
-1. **Zeile ~374**: Empfohlene Temperatur anwenden
-
-### Cloud-Credentials im Lokal-Modus
-
-Im Lokal-Modus werden keine Tuya Cloud Credentials benoetigt. Die Pruefung `if (!accessId || !accessSecret)` wird angepasst: Im Lokal-Modus wird kein Fehler geworfen wenn die Credentials fehlen.
-
-## Betroffene Dateien
+## Betroffene Datei
 
 | Datei | Aenderung |
 |-------|-----------|
-| `supabase/functions/pv-automation/index.ts` | Modus laden, `setTemperatureByMode()` einfuehren, 3 Aufrufe ersetzen |
-| `supabase/functions/apply-recommendations/index.ts` | Modus laden, `setTemperatureByMode()` einfuehren, 1 Aufruf ersetzen, Credential-Check anpassen |
+| `supabase/functions/pv-automation/index.ts` | Zeile 810: Guard-Bedingung entfernen, Block beibehalten |
 
-## Keine Datenbank-Aenderungen noetig
-
-Die `thermostat_commands`-Tabelle und `system_settings`-Tabelle existieren bereits mit allen benoetigten Spalten und RLS-Policies.
-
+Das ist ein Ein-Zeilen-Fix. Die ML-Analyse und Persistierung laufen danach unabhaengig davon, ob Tuya Cloud Credentials vorhanden sind.
