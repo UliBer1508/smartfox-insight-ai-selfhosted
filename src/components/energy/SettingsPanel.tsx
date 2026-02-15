@@ -9,6 +9,7 @@ import { useHeatingSettings } from "@/hooks/useHeatingSettings";
 import { useRooms } from "@/hooks/useRooms";
 import { TuyaSubscriptionAlert } from "@/components/settings/TuyaSubscriptionAlert";
 import { TuyaConnectionTest } from "@/components/settings/TuyaConnectionTest";
+import { TuyaControlModeSwitch } from "@/components/settings/TuyaControlModeSwitch";
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -42,6 +43,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="p-4 space-y-4">
+            <TuyaControlModeSwitch />
             <TuyaConnectionTest />
             <TuyaSubscriptionAlert />
           </AccordionContent>
