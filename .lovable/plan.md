@@ -1,63 +1,65 @@
 
 
-# Steuerungsmodus-Schalter: Cloud vs. Lokal
+# Edge Functions: Cloud/Lokal Dual-Modus
 
 ## Uebersicht
 
-In den Einstellungen wird ein neuer Schalter hinzugefuegt, mit dem zwischen zwei Steuerungsmodi gewechselt werden kann:
+Beide Edge Functions (`pv-automation` und `apply-recommendations`) rufen aktuell `setDeviceTemperature()` direkt ueber die Tuya Cloud API auf. Sie muessen den `tuya_control_mode` aus der `system_settings`-Tabelle lesen und je nach Modus entweder die Cloud API nutzen oder einen Befehl in die `thermostat_commands`-Tabelle schreiben.
 
-- **Cloud**: Befehle gehen ueber die Edge Function (bisheriges Verhalten)
-- **Lokal**: Befehle werden in die `thermostat_commands`-Tabelle geschrieben und vom lokalen Service ausgefuehrt
+## Technischer Ansatz
 
-## Aenderungen
+### Neue Helper-Funktion in beiden Edge Functions
 
-### 1. Einstellung in der Datenbank speichern
-
-Ein neuer Eintrag in `system_settings` mit Key `tuya_control_mode` und Wert `{ "mode": "cloud" }` oder `{ "mode": "local" }`. Keine Migration noetig, da die Tabelle bereits existiert.
-
-### 2. Neuer Hook: `useTuyaControlMode.ts`
-
-- Liest den aktuellen Modus aus `system_settings` (Key: `tuya_control_mode`)
-- Bietet eine Funktion `setMode('cloud' | 'local')` zum Umschalten
-- Standardwert: `cloud` (wenn kein Eintrag existiert)
-
-### 3. Neues Settings-Widget: `TuyaControlModeSwitch.tsx`
-
-Ein kompaktes UI-Element im Tuya-Bereich der Einstellungen:
-- Label "Steuerungsmodus"
-- Zwei Optionen: "Cloud API" und "Lokaler Service"
-- Kurze Erklaerung je nach Modus
-- Cloud: "Befehle werden ueber die Cloud Edge Function gesendet"
-- Lokal: "Befehle werden vom lokalen tuya-thermostat Service ausgefuehrt"
-
-### 4. `useTuyaControl.ts` anpassen
-
-Die `setTemperature()`-Funktion prueft den aktuellen Modus:
+Eine neue Funktion `setTemperatureByMode()` wird eingefuehrt, die den Steuerungsmodus prueft:
 
 ```text
-WENN mode === 'cloud':
-  supabase.functions.invoke('tuya-control/set-temp', ...)  (bisheriger Code)
-
-WENN mode === 'local':
-  supabase.from('thermostat_commands').insert({
-    room_id, command: 'set_temp', value: temperature, status: 'pending'
-  })
+async function setTemperatureByMode(
+  supabase, accessId, accessSecret, 
+  deviceId, roomId, temperature, controlMode
+):
+  WENN controlMode === 'local':
+    INSERT INTO thermostat_commands (room_id, command, value, status)
+    VALUES (roomId, 'set_temp', temperature, 'pending')
+    RETURN { success: true }
+    
+  SONST (cloud):
+    setDeviceTemperature(accessId, accessSecret, deviceId, temperature)
+    RETURN result
 ```
 
-Ebenso fuer `syncAllStatus()` und `getStatus()`:
-- Cloud-Modus: Edge Function aufrufen (bisherig)
-- Lokal-Modus: Direkt aus `rooms`-Tabelle lesen
+### Modus einmalig laden
 
-### 5. SettingsPanel.tsx erweitern
+Zu Beginn jeder Edge-Function-Ausfuehrung wird der Modus einmal aus `system_settings` gelesen:
 
-Das neue `TuyaControlModeSwitch`-Widget wird im Tuya-Accordion-Bereich eingefuegt, oberhalb des bestehenden `TuyaConnectionTest`.
+```text
+SELECT value FROM system_settings WHERE key = 'tuya_control_mode'
+-> controlMode = result?.value?.mode || 'cloud'
+```
+
+### Betroffene Stellen in pv-automation (3 Aufrufe)
+
+1. **Zeile ~459**: Nachtmodus - Thermostate auf Nachttemperatur setzen
+2. **Zeile ~1334**: Aktivierung - Thermostat auf Zieltemperatur setzen
+3. **Zeile ~1388**: Deaktivierung - Thermostat auf reduzierte Temperatur setzen
+
+Alle drei Aufrufe von `setDeviceTemperature()` werden durch `setTemperatureByMode()` ersetzt.
+
+### Betroffene Stellen in apply-recommendations (1 Aufruf)
+
+1. **Zeile ~374**: Empfohlene Temperatur anwenden
+
+### Cloud-Credentials im Lokal-Modus
+
+Im Lokal-Modus werden keine Tuya Cloud Credentials benoetigt. Die Pruefung `if (!accessId || !accessSecret)` wird angepasst: Im Lokal-Modus wird kein Fehler geworfen wenn die Credentials fehlen.
 
 ## Betroffene Dateien
 
 | Datei | Aenderung |
 |-------|-----------|
-| `src/hooks/useTuyaControlMode.ts` | Neu - Hook zum Lesen/Setzen des Modus |
-| `src/components/settings/TuyaControlModeSwitch.tsx` | Neu - Schalter-Widget |
-| `src/hooks/useTuyaControl.ts` | Angepasst - Beide Pfade (Cloud/Lokal) |
-| `src/components/energy/SettingsPanel.tsx` | Erweitert - Widget einbinden |
+| `supabase/functions/pv-automation/index.ts` | Modus laden, `setTemperatureByMode()` einfuehren, 3 Aufrufe ersetzen |
+| `supabase/functions/apply-recommendations/index.ts` | Modus laden, `setTemperatureByMode()` einfuehren, 1 Aufruf ersetzen, Credential-Check anpassen |
+
+## Keine Datenbank-Aenderungen noetig
+
+Die `thermostat_commands`-Tabelle und `system_settings`-Tabelle existieren bereits mit allen benoetigten Spalten und RLS-Policies.
 
