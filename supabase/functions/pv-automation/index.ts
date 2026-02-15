@@ -807,7 +807,7 @@ Deno.serve(async (req) => {
       let mlDecisions: MLDecision[] = [];
       let usedMlDecision = false;
 
-      if (tuyaAccessId && tuyaAccessSecret) {
+      {
         try {
           const mlResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-patterns`, {
             method: 'POST',
