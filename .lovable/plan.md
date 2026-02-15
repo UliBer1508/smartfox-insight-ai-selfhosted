@@ -1,57 +1,50 @@
 
 
-# Fix: Auto-Discovery Script bekommt keine Daten wegen RLS
+# Fix: Datenbank-Timeouts durch fehlende Indexes
 
 ## Problem
-Das `auto-discover.js` Script verbindet sich mit dem anon-Key zur Datenbank, ist aber **nicht eingeloggt**. Die `rooms`-Tabelle hat nur eine RLS-Policy fuer authentifizierte Benutzer. Daher gibt die Abfrage 0 Zeilen zurueck.
+Alle Datenbankabfragen scheitern mit "canceling statement due to statement timeout". Die `energy_readings`-Tabelle ist so gross geworden, dass Abfragen ohne Index nicht mehr innerhalb des Zeitlimits abgeschlossen werden.
+
+Betroffene Bereiche:
+- Batterie-Status: keine Daten
+- PV-Leistung: keine aktuelle Anzeige
+- Heizverbrauch: "Lade Daten..."
+- Kostenuebersicht: "Laden..."
 
 ## Loesung
 
-### 1. RLS-Policy fuer anonymen Lesezugriff auf `rooms`
+### 1. Indexes erstellen
 
-Eine neue SELECT-Policy hinzufuegen, die anonymen Lesezugriff auf die rooms-Tabelle erlaubt. Dies ist konsistent mit dem bestehenden Muster (z.B. `energy_readings` hat bereits eine anonyme INSERT-Policy fuer den Collector).
-
-```sql
-CREATE POLICY "Allow anonymous select for collector"
-  ON public.rooms
-  FOR SELECT
-  USING (true);
-```
-
-### 2. Anonymen INSERT auf `thermostat_commands` erlauben
-
-Der Collector muss auch Thermostat-Befehle lesen und aktualisieren koennen:
+Kritische Indexes fuer die am haeufigsten genutzten Abfragen:
 
 ```sql
-CREATE POLICY "Allow anonymous select for collector"
-  ON public.thermostat_commands
-  FOR SELECT
-  USING (true);
+-- Wichtigster Index: energy_readings nach timestamp (fuer ORDER BY DESC LIMIT 100)
+CREATE INDEX IF NOT EXISTS idx_energy_readings_timestamp 
+  ON energy_readings (timestamp DESC);
 
-CREATE POLICY "Allow anonymous update for collector"
-  ON public.thermostat_commands
-  FOR UPDATE
-  USING (true)
-  WITH CHECK (true);
+-- room_heating_logs nach timestamp (fuer Heizverbrauch-Abfrage)
+CREATE INDEX IF NOT EXISTS idx_room_heating_logs_timestamp 
+  ON room_heating_logs (timestamp DESC);
+
+-- energy_daily_costs nach date (fuer Kostenuebersicht)
+CREATE INDEX IF NOT EXISTS idx_energy_daily_costs_date 
+  ON energy_daily_costs (date);
 ```
 
-### 3. Anonymen UPDATE auf `rooms` erlauben
+### 2. totalCount-Abfrage entschaerfen
 
-Das auto-discover Script muss `thermostat_local_ip` in die rooms-Tabelle schreiben:
+Die Abfrage `SELECT *, count: exact, head: true` auf `energy_readings` fuehrt einen Full-Table-Scan durch. Diese wird durch eine geschaetzte Variante ersetzt, die keinen Scan benoetigt.
 
-```sql
-CREATE POLICY "Allow anonymous update for collector"
-  ON public.rooms
-  FOR UPDATE
-  USING (true)
-  WITH CHECK (true);
-```
+### 3. Alte Rohdaten bereinigen (optional)
 
-## Sicherheitshinweis
-Diese Policies erlauben oeffentlichen Zugriff auf die Tabellen. Da die App nur im lokalen Netzwerk verwendet wird und der anon-Key bereits im Collector-Script enthalten ist, ist das Risiko gering. Fuer hoehere Sicherheit koennte man stattdessen eine Service-Role-Key-basierte Authentifizierung im Script verwenden.
+Falls die Tabelle extrem gross ist, sollten aeltere Rohdaten geloescht werden. Die `data_retention_settings` sieht 7 Tage fuer Rohdaten vor, aber die Bereinigung lief offenbar nicht oder nicht regelmaessig.
 
 ## Technische Details
-- Betroffene Tabellen: `rooms`, `thermostat_commands`
-- Neue Policies: 3 (SELECT rooms, SELECT+UPDATE thermostat_commands, UPDATE rooms)
-- Keine Code-Aenderungen am auto-discover.js Script noetig
+
+Dateien die geaendert werden:
+
+- **Neue Migration**: Indexes auf `energy_readings`, `room_heating_logs`, `energy_daily_costs`
+- **`src/hooks/useSmartfoxData.ts`**: `loadTotalCount` durch geschaetzte Variante ersetzen oder ganz entfernen, um den Full-Table-Scan zu vermeiden
+
+Die Indexes allein sollten das Problem sofort beheben, da die haeufigsten Abfragen (`ORDER BY timestamp DESC LIMIT N`) dann den Index nutzen koennen statt die gesamte Tabelle zu scannen.
 
