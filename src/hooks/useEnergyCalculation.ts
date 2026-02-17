@@ -1,5 +1,5 @@
-import { useMemo, useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading } from '@/types/energy';
 
@@ -64,7 +64,6 @@ async function fetchAllReadingsSince(startTimestamp: string): Promise<{ timestam
 const MAX_GAP_FOR_INTERPOLATION_HOURS = 6;
 
 export function useEnergyCalculation(currentReadings: EnergyReading[]): CalculatedEnergy {
-  const queryClient = useQueryClient();
   const todayStr = useMemo(() => getTodayDateString(), []);
   // Verwende lokale Mitternacht für konsistente Queries
   const todayStart = useMemo(() => getLocalMidnightISO(), []);
