@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Room, RoomRecommendation } from '@/types/room';
 import { toast } from 'sonner';
@@ -19,6 +19,10 @@ export function useRooms() {
     );
   }, []);
 
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 5000;
+
   const loadRooms = useCallback(async () => {
     console.log('🔄 Loading rooms...');
     try {
@@ -31,8 +35,17 @@ export function useRooms() {
 
       console.log('📊 Rooms response:', { data, error, count: data?.length });
 
-      if (error) throw error;
-      // Cast the data properly to Room type including new Tuya fields
+      if (error) {
+        // PGRST002: Schema-Cache-Fehler → automatisch retry
+        if (error.code === 'PGRST002' && retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current++;
+          console.log(`⏳ PGRST002 detected, retry ${retryCountRef.current}/${MAX_RETRIES} in ${RETRY_DELAY_MS / 1000}s...`);
+          setTimeout(() => loadRooms(), RETRY_DELAY_MS);
+          return;
+        }
+        throw error;
+      }
+      retryCountRef.current = 0;
       setRooms(data as unknown as Room[]);
       setError(false);
       console.log('✅ Rooms set:', data?.length);
