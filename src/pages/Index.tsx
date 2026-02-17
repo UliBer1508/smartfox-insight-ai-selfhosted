@@ -17,6 +17,7 @@ import { ConsumptionExplainer } from '@/components/energy/ConsumptionExplainer';
 import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
+import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
@@ -204,6 +205,7 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
+                <RoomStatusTable rooms={rooms} />
                 <EnergyChart readings={readings} />
                 
                 <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
