@@ -71,6 +71,10 @@ export function useSmartfoxData() {
     }
   }, []);
 
+  const retryCountRef = useRef(0);
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY_MS = 5000;
+
   // Load recent readings on mount
   const loadReadings = useCallback(async () => {
     try {
@@ -80,8 +84,18 @@ export function useSmartfoxData() {
         .order('timestamp', { ascending: false })
         .limit(100);
 
-      if (error) throw error;
+      if (error) {
+        // PGRST002: Schema-Cache-Fehler → automatisch retry
+        if (error.code === 'PGRST002' && retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current++;
+          console.log(`⏳ PGRST002 detected (energy), retry ${retryCountRef.current}/${MAX_RETRIES} in ${RETRY_DELAY_MS / 1000}s...`);
+          setTimeout(() => loadReadings(), RETRY_DELAY_MS);
+          return;
+        }
+        throw error;
+      }
       
+      retryCountRef.current = 0;
       if (data) {
         setReadings(data as EnergyReading[]);
         if (data.length > 0) {
