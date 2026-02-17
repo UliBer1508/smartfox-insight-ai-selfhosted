@@ -17,6 +17,7 @@ import { ConsumptionExplainer } from '@/components/energy/ConsumptionExplainer';
 import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
+import { ThermostatOverviewTable } from '@/components/heating/ThermostatOverviewTable';
 
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
@@ -178,6 +179,8 @@ const Index = () => {
                   gridPower={currentReading?.power_io ?? 0}
                   batterySoc={currentReading?.battery_soc ?? null}
                 />
+
+                <ThermostatOverviewTable rooms={rooms} />
 
                 <BatteryStatus 
                   soc={currentReading?.battery_soc ?? null}
