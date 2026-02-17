@@ -28,7 +28,7 @@ export function useBatteryHistory(daysBack: number = 0) {
         .select('timestamp, battery_soc, battery_power')
         .gte('timestamp', startDate.toISOString())
         .order('timestamp', { ascending: false })
-        .limit(5000);
+        .limit(1000);
 
       if (error) throw error;
 
@@ -72,64 +72,14 @@ export function useBatteryHistory(daysBack: number = 0) {
     loadHistory();
   }, [loadHistory]);
 
-  // Subscribe to new readings - use unique channel name per daysBack
+  // Polling statt Realtime um DB-Last zu reduzieren
   useEffect(() => {
-    // Calculate cutoff outside callback to use current daysBack value
-    const startDate = new Date();
-    startDate.setHours(0, 0, 0, 0);
-    startDate.setDate(startDate.getDate() - daysBack);
-    const cutoff = startDate.getTime();
+    const interval = setInterval(() => {
+      loadHistory();
+    }, 60000); // Alle 60 Sekunden
 
-    const channel = supabase
-      .channel(`battery_history_updates_${daysBack}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'energy_readings' },
-        (payload) => {
-          const newReading = payload.new as {
-            timestamp: string;
-            battery_soc: number | null;
-            battery_power: number | null;
-          };
-
-          if (newReading.battery_soc !== null || newReading.battery_power !== null) {
-            setData((prev) => {
-              const lastPoint = prev[prev.length - 1];
-              const lastTime = lastPoint ? new Date(lastPoint.timestamp).getTime() : 0;
-              const newTime = new Date(newReading.timestamp).getTime();
-
-              // Remove points before midnight of start date
-              const filtered = prev.filter(
-                (p) => new Date(p.timestamp).getTime() >= cutoff
-              );
-
-              const newPoint = {
-                timestamp: newReading.timestamp,
-                battery_soc: newReading.battery_soc,
-                battery_power: newReading.battery_power,
-              };
-
-              // After sampling interval: add new point
-              if (newTime - lastTime >= samplingInterval) {
-                return [...filtered, newPoint];
-              }
-              
-              // Under sampling interval: update last point for immediate display
-              if (filtered.length > 0) {
-                return [...filtered.slice(0, -1), newPoint];
-              }
-              
-              return [newPoint];
-            });
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [daysBack, samplingInterval]);
+    return () => clearInterval(interval);
+  }, [loadHistory]);
 
   return { data, isLoading, refresh: loadHistory };
 }

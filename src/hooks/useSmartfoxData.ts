@@ -76,9 +76,9 @@ export function useSmartfoxData() {
     try {
       const { data, error } = await supabase
         .from('energy_readings')
-        .select('*')
+        .select('id, timestamp, power_io, energy_in, energy_out, battery_soc, battery_power, pv_power, consumption')
         .order('timestamp', { ascending: false })
-        .limit(100);
+        .limit(50);
 
       if (error) throw error;
       
@@ -118,33 +118,14 @@ export function useSmartfoxData() {
     return () => clearInterval(interval);
   }, [currentReading, checkConnectionStatus]);
 
-  // Realtime subscription for new readings
+  // Polling statt Realtime um DB-Last zu reduzieren
   useEffect(() => {
-    const channel = supabase
-      .channel('energy_readings_changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'energy_readings' },
-        (payload) => {
-          const newReading = payload.new as EnergyReading;
-          setCurrentReading(newReading);
-          setReadings(prev => [newReading, ...prev.slice(0, 99)]);
-          setTotalCount(prev => prev + 1);
-          checkConnectionStatus(newReading);
-          
-          // Reset warning flag when data arrives
-          if (hasShownTimeoutWarning.current) {
-            toast.success('Collector ist wieder online!', { duration: 3000 });
-            hasShownTimeoutWarning.current = false;
-          }
-        }
-      )
-      .subscribe();
+    const interval = setInterval(() => {
+      loadReadings();
+    }, pollingInterval * 1000); // Polling-Intervall aus Einstellungen
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [checkConnectionStatus]);
+    return () => clearInterval(interval);
+  }, [loadReadings, pollingInterval]);
 
   return {
     currentReading,

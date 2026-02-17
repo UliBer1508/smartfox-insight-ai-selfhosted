@@ -69,23 +69,7 @@ export function useEnergyCalculation(currentReadings: EnergyReading[]): Calculat
   // Verwende lokale Mitternacht für konsistente Queries
   const todayStart = useMemo(() => getLocalMidnightISO(), []);
 
-  // Realtime-Subscription: Bei neuen Readings Query invalidieren
-  useEffect(() => {
-    const channel = supabase
-      .channel('energy-calc-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'energy_readings' },
-        () => {
-          queryClient.invalidateQueries({ queryKey: ['energy-readings-today', todayStr] });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [queryClient, todayStr]);
+  // Kein Realtime mehr - refetchInterval in useQuery reicht aus
 
   // Lade ALLE Readings von heute aus der Datenbank mit Pagination
   const { data: todayReadings, isLoading } = useQuery({

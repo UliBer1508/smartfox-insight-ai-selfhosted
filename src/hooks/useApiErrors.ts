@@ -81,27 +81,7 @@ export function useApiErrors() {
   // Get total active error count
   const activeErrorCount = (errors || []).filter(e => !e.is_acknowledged).length;
 
-  // Subscribe to real-time updates
-  useEffect(() => {
-    const channel = supabase
-      .channel('api-errors-changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'api_errors',
-        },
-        () => {
-          refetch();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [refetch]);
+  // Polling via refetchInterval (bereits oben konfiguriert, kein Realtime nötig)
 
   return {
     errors: errors || [],
