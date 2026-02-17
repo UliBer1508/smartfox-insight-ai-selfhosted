@@ -148,29 +148,14 @@ export function useRooms() {
     loadRecommendations();
   }, [loadRooms, loadRecommendations]);
 
-  // Realtime subscription for rooms updates
+  // Polling statt Realtime um DB-Last zu reduzieren
   useEffect(() => {
-    const channel = supabase
-      .channel('rooms_realtime')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'rooms' },
-        (payload) => {
-          console.log('🔄 Room realtime update:', payload.new);
-          const updatedRoom = payload.new as unknown as Room;
-          setRooms(prevRooms => 
-            prevRooms.map(room => 
-              room.id === updatedRoom.id ? updatedRoom : room
-            )
-          );
-        }
-      )
-      .subscribe();
+    const interval = setInterval(() => {
+      loadRooms();
+    }, 30000); // Alle 30 Sekunden
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    return () => clearInterval(interval);
+  }, [loadRooms]);
 
   return {
     rooms,

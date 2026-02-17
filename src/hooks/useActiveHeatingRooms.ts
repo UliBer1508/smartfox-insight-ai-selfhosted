@@ -110,22 +110,12 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
   useEffect(() => {
     loadActiveRooms();
 
-    // Subscribe to room_heating_logs changes for real-time updates
-    const channel = supabase
-      .channel('active-heating-rooms')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'room_heating_logs' 
-      }, () => {
-        console.log('[ActiveHeatingRooms] Realtime update received');
-        loadActiveRooms();
-      })
-      .subscribe();
+    // Polling statt Realtime um DB-Last zu reduzieren
+    const interval = setInterval(() => {
+      loadActiveRooms();
+    }, 30000);
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => clearInterval(interval);
   }, [loadActiveRooms]);
 
   const totalHeatingPower = activeRooms.reduce((sum, room) => sum + room.power, 0);
