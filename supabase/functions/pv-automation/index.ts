@@ -460,8 +460,9 @@ Deno.serve(async (req) => {
         const roomsNeedingAdjustment = allRooms.filter(r => {
           const currentTarget = Number(r.target_temp) || 0;
           const normalNightTarget = r.night_temp || globalNightTemp;
-          // Batterie-Schutz: Bei SOC < 30% auf 15°C setzen
-          const effectiveTarget = batteryLow ? 15 : normalNightTarget;
+          // Batterie-Schutz: maximal 2°C unter night_temp absenken, nie unter 15°C
+          const batteryReduction = batteryLow ? 2 : 0;
+          const effectiveTarget = Math.max(normalNightTarget - batteryReduction, 15);
           // Need adjustment if difference >= 0.5°C
           return Math.abs(currentTarget - effectiveTarget) >= 0.5;
         });
@@ -483,14 +484,15 @@ Deno.serve(async (req) => {
         }
 
         // Set night temp for rooms that need it
-        console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment${batteryLow ? ' (BATTERY PROTECTION → 15°C)' : ''}`);
+        console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment${batteryLow ? ' (BATTERY PROTECTION → night_temp - 2°C)' : ''}`);
         const nightResults: { roomId: string; roomName: string; success: boolean; nightTemp: number; error?: string }[] = [];
 
         // Night mode works in both cloud and local mode
         for (const room of roomsNeedingAdjustment) {
             const normalNightTarget = room.night_temp || globalNightTemp;
-            // Batterie-Schutz: 15°C bei leerem Akku
-            const nightTarget = batteryLow ? 15 : normalNightTarget;
+            // Batterie-Schutz: maximal 2°C unter night_temp, nie unter 15°C
+            const batteryReduction = batteryLow ? 2 : 0;
+            const nightTarget = Math.max(normalNightTarget - batteryReduction, 15);
             console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)${batteryLow ? ' [BATTERY PROTECTION]' : ''}`);
             
             const result = await setTemperatureForMode(
@@ -999,10 +1001,9 @@ Deno.serve(async (req) => {
           // Robuster Vergleich (beide als Number)
           const currentTargetTemp = Number(room.target_temp) || 0;
           
-          // Batterie-Schutz: Bei niedrigem SOC (< 30%) auf 15°C statt night_temp
-          // Thermostate stoppen sofort, da Raumtemp > 15°C
+          // Batterie-Schutz: maximal 2°C unter night_temp absenken, nie unter 15°C
           const batteryLow = batterySoc !== null && batterySoc < 30;
-          const effectiveNightTemp = batteryLow ? 15 : nightTemp;
+          const effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp;
           
           const needsCorrection = currentTargetTemp !== effectiveNightTemp || room.pv_auto_active;
           
@@ -1228,11 +1229,11 @@ Deno.serve(async (req) => {
           if (budgetStatus) {
             if (budgetStatus.shouldRotate) {
               // Rotation: Raum hat zu lange geheizt, pausieren für andere
-              // WICHTIG: 15°C - deutlich unter Raumtemperatur damit Thermostat GARANTIERT stoppt
+              // Raum auf night_temp setzen statt 15°C - bleibt bewohnbar
               action = 'deactivate';
-              targetTemp = 15;  // 15°C - überwindet Thermostat-Hysterese (~0.5°C)
+              targetTemp = nightTemp;
               solarLimitTemp = null;
-              reasoning = `🔄 ${budgetStatus.reason} → 15°C (Rotation-Stopp)`;
+              reasoning = `🔄 ${budgetStatus.reason} → ${nightTemp}°C (Rotation-Stopp)`;
               console.log(`[PV-Automation] ${room.name}: ROTATION - ${reasoning}`);
               
               // Tracking aktualisieren
@@ -1244,12 +1245,11 @@ Deno.serve(async (req) => {
                 })
                 .eq('id', room.id);
             } else if (!budgetStatus.allowedToHeat) {
-              // Budget reicht nicht - auf 15°C setzen damit Thermostat GARANTIERT stoppt
-              // 15°C ist deutlich unter den aktuellen Raumtemperaturen (18-20°C)
+              // Budget reicht nicht - auf night_temp setzen statt 15°C
               action = 'deactivate';
-              targetTemp = 15;  // 15°C - überwindet Thermostat-Hysterese
+              targetTemp = nightTemp;
               solarLimitTemp = null;
-              reasoning = `⏸️ ${budgetStatus.reason} → 15°C (Budget-Stopp)`;
+              reasoning = `⏸️ ${budgetStatus.reason} → ${nightTemp}°C (Budget-Stopp)`;
               console.log(`[PV-Automation] ${room.name}: BUDGET-PAUSE - ${reasoning}`);
               
               // Tracking aktualisieren
