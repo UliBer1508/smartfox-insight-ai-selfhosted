@@ -1211,6 +1211,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      cleanup_old_data: { Args: never; Returns: undefined }
       get_heating_history: {
         Args: { days_back?: number }
         Returns: {
