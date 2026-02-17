@@ -395,6 +395,25 @@ Deno.serve(async (req) => {
 
     // POST /set-temp - Set temperature for a device
     if (req.method === 'POST' && path === '/set-temp') {
+      // MODE GUARD: Block Cloud API calls when in local mode
+      const { data: modeSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_control_mode')
+        .maybeSingle();
+      const controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
+
+      if (controlMode === 'local') {
+        console.log('[tuya-control] set-temp blocked: local mode active');
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Cloud-Modus deaktiviert. Thermostate werden über den lokalen Service gesteuert.'
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const { deviceId, temperature, roomId } = await req.json();
       
       if (!deviceId || temperature === undefined) {
@@ -421,6 +440,14 @@ Deno.serve(async (req) => {
 
     // POST /sync-all - Sync all thermostat statuses using BATCH API (90% quota savings!)
     if (req.method === 'POST' && path === '/sync-all') {
+      // MODE CHECK: In local mode, just return DB data without Tuya API calls
+      const { data: syncModeSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_control_mode')
+        .maybeSingle();
+      const syncControlMode = (syncModeSetting?.value as { mode?: string })?.mode || 'cloud';
+
       const { data: rooms } = await supabase
         .from('rooms')
         .select('*')
@@ -428,6 +455,22 @@ Deno.serve(async (req) => {
 
       if (!rooms || rooms.length === 0) {
         return new Response(JSON.stringify({ success: true, results: [], message: 'No rooms configured' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      if (syncControlMode === 'local') {
+        console.log('[tuya-control] sync-all: local mode - returning DB data only');
+        const results = rooms.map(r => ({
+          roomId: r.id,
+          name: r.name,
+          currentTemp: r.current_temp,
+          targetTemp: r.target_temp,
+          isHeating: r.is_heating,
+          synced: false,
+          localMode: true,
+        }));
+        return new Response(JSON.stringify({ success: true, results, localMode: true }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }

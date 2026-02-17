@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+import { useControlMode } from './useControlMode';
 
 export interface TuyaDevice {
   id: string;
@@ -29,6 +30,7 @@ export function useTuyaControl() {
   const [devices, setDevices] = useState<TuyaDevice[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const { mode } = useControlMode();
 
   const fetchDevices = useCallback(async () => {
     setIsLoading(true);
@@ -90,7 +92,29 @@ export function useTuyaControl() {
     }
 
     try {
-      // Direkt Tuya Cloud API aufrufen via Edge Function
+      if (mode === 'local') {
+        // LOKAL-MODUS: Befehl in thermostat_commands schreiben
+        const { error: insertError } = await supabase.from('thermostat_commands').insert({
+          room_id: roomId,
+          command: 'set_temp',
+          value: temperature,
+          status: 'pending',
+        });
+        if (insertError) throw insertError;
+
+        // Manual override setzen
+        const overrideUntil = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+        await supabase.from('rooms').update({
+          manual_override_until: overrideUntil,
+          target_temp: temperature
+        }).eq('id', roomId);
+
+        console.log(`[useTuyaControl] Temperature command queued locally for room ${roomId}`);
+        toast.success(`Temperatur ${temperature}°C → lokaler Service`);
+        return true;
+      }
+
+      // CLOUD-MODUS: Edge Function aufrufen
       const { data, error } = await supabase.functions.invoke('tuya-control/set-temp', {
         body: { deviceId, temperature, roomId }
       });
@@ -121,11 +145,31 @@ export function useTuyaControl() {
       toast.error(`Fehler: ${errorMsg}`);
       return false;
     }
-  }, []);
+  }, [mode]);
 
   const syncAllStatus = useCallback(async (): Promise<RoomStatus[]> => {
     setIsSyncing(true);
     try {
+      if (mode === 'local') {
+        // LOKAL-MODUS: Nur DB-Daten lesen, kein Cloud-Call
+        const { data: rooms, error } = await supabase
+          .from('rooms')
+          .select('id, name, current_temp, target_temp, is_heating')
+          .not('tuya_device_id', 'is', null);
+
+        if (error) throw error;
+
+        toast.success('Status aus Datenbank geladen (lokaler Modus)');
+        return (rooms || []).map(r => ({
+          roomId: r.id,
+          name: r.name,
+          currentTemp: r.current_temp ?? undefined,
+          targetTemp: r.target_temp ?? undefined,
+          isHeating: r.is_heating ?? undefined,
+        }));
+      }
+
+      // CLOUD-MODUS: Edge Function aufrufen
       const { data, error } = await supabase.functions.invoke('tuya-control/sync-all', {
         body: {},
       });
@@ -142,7 +186,7 @@ export function useTuyaControl() {
     } finally {
       setIsSyncing(false);
     }
-  }, []);
+  }, [mode]);
 
   return {
     devices,

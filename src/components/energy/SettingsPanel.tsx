@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug } from 'lucide-react';
+import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug, Cloud, MonitorSmartphone } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
 import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
@@ -9,6 +9,9 @@ import { useHeatingSettings } from "@/hooks/useHeatingSettings";
 import { useRooms } from "@/hooks/useRooms";
 import { TuyaSubscriptionAlert } from "@/components/settings/TuyaSubscriptionAlert";
 import { TuyaConnectionTest } from "@/components/settings/TuyaConnectionTest";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { useControlMode } from "@/hooks/useControlMode";
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -18,6 +21,7 @@ interface SettingsPanelProps {
 export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
   const { settings, saveSettings, isLoading: isHeatingLoading } = useHeatingSettings();
   const { rooms, saveRoom, deleteRoom, isLoading: isRoomsLoading } = useRooms();
+  const { mode, setMode, isLoading: isModeLoading } = useControlMode();
 
   const getTimeSinceUpdate = () => {
     if (!lastUpdate) return null;
@@ -42,6 +46,61 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="p-4 space-y-4">
+            {/* Steuerungsmodus */}
+            <div className="space-y-3">
+              <Label className="text-sm font-semibold">Steuerungsmodus</Label>
+              <RadioGroup
+                value={mode}
+                onValueChange={(val) => setMode(val as 'cloud' | 'local')}
+                disabled={isModeLoading}
+                className="grid grid-cols-1 gap-3"
+              >
+                <label
+                  htmlFor="mode-cloud"
+                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    mode === 'cloud' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                  }`}
+                >
+                  <RadioGroupItem value="cloud" id="mode-cloud" className="mt-0.5" />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Cloud className="h-4 w-4 text-primary" />
+                      <span className="font-medium text-sm">Cloud API</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Thermostate werden direkt über die Tuya Cloud API gesteuert. Erfordert aktives Tuya IoT-Abo.
+                    </p>
+                  </div>
+                </label>
+                <label
+                  htmlFor="mode-local"
+                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    mode === 'local' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
+                  }`}
+                >
+                  <RadioGroupItem value="local" id="mode-local" className="mt-0.5" />
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <MonitorSmartphone className="h-4 w-4 text-primary" />
+                      <span className="font-medium text-sm">Lokaler Service</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Befehle werden an den lokalen Node.js Collector gesendet (LAN-Steuerung). Kein Cloud-API-Verbrauch.
+                    </p>
+                  </div>
+                </label>
+              </RadioGroup>
+              {mode === 'local' && (
+                <Alert>
+                  <MonitorSmartphone className="h-4 w-4" />
+                  <AlertDescription className="text-xs">
+                    Im lokalen Modus werden alle Thermostat-Befehle über den Node.js Collector ausgeführt. 
+                    Die Tuya Cloud API wird <strong>nicht</strong> verwendet.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </div>
+
             <TuyaConnectionTest />
             <TuyaSubscriptionAlert />
           </AccordionContent>
