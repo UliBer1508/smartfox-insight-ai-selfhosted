@@ -1,22 +1,28 @@
 
-# Fix: ML-Analyse Guard in pv-automation
+# Fix: Fehlerhafte "{}" Anzeige auf der Login-Seite
 
 ## Problem
 
-In `supabase/functions/pv-automation/index.ts` (Zeile 810) ist der gesamte ML-Analyse-Block (`analyze-patterns` Aufruf + Persistierung der Ergebnisse) in eine Bedingung `if (tuyaAccessId && tuyaAccessSecret)` eingeschlossen. Das bedeutet: Wenn im Lokal-Modus keine Tuya Cloud Credentials gesetzt sind, wird die ML-Analyse komplett uebersprungen - obwohl sie keine Tuya-Credentials benoetigt.
+Beim Laden der Auth-Seite wird ein abgelaufener Session-Token erkannt. Der Refresh schlaegt fehl und der Fehler wird als leeres JavaScript-Objekt `{}` statt als lesbarer Text gespeichert. Die Alert-Komponente zeigt dieses Objekt dann woertlich als `{}` an.
+
+## Ursache
+
+Im `useAuth`-Hook wird bei `onAuthStateChange` kein Fehler-Handling durchgefuehrt. Wenn der Session-Refresh fehlschlaegt, kann ein Fehlerobjekt in den State gelangen, das kein `.message`-Property hat.
 
 ## Loesung
 
-Die Bedingung in Zeile 810 wird entfernt. Der Block bleibt bestehen, nur das `if`-Statement faellt weg. Konkret:
+### Datei: `src/hooks/useAuth.ts`
 
-**Zeile 810**: `if (tuyaAccessId && tuyaAccessSecret) {` wird zu `{`
+1. Im `onAuthStateChange`-Callback: Bei Events wie `TOKEN_REFRESHED` oder `SIGNED_OUT` den bestehenden Fehler-State zuruecksetzen
+2. In den `signIn`- und `signUp`-Funktionen: Sicherstellen, dass nur Strings als Fehler gesetzt werden (Fallback auf `String(error)` wenn `error.message` nicht existiert)
+3. Beim initialen `getSession()`-Aufruf: Fehler abfangen und ignorieren (der User muss sich einfach neu anmelden)
 
-**Zeile 912**: Die zugehoerige schliessende Klammer `}` bleibt unveraendert (der Block-Scope bleibt erhalten).
+### Datei: `src/pages/Auth.tsx`
 
-## Betroffene Datei
+1. Absicherung in der Fehleranzeige: `typeof error === 'string'` pruefen, bevor der Fehler dargestellt wird. Falls es kein String ist, einen generischen Fehlertext anzeigen.
 
-| Datei | Aenderung |
-|-------|-----------|
-| `supabase/functions/pv-automation/index.ts` | Zeile 810: Guard-Bedingung entfernen, Block beibehalten |
+## Ergebnis
 
-Das ist ein Ein-Zeilen-Fix. Die ML-Analyse und Persistierung laufen danach unabhaengig davon, ob Tuya Cloud Credentials vorhanden sind.
+- Keine `{}` Anzeige mehr auf der Login-Seite
+- Abgelaufene Sessions fuehren nicht zu verwirrenden Fehlermeldungen
+- Der User kann sich einfach normal einloggen
