@@ -261,6 +261,15 @@ Deno.serve(async (req) => {
 
       console.log(`[apply-recommendations] Checking recommendations for ${today} at ${currentTime}`);
 
+      // Load control mode
+      const { data: modeSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_control_mode')
+        .maybeSingle();
+      const controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
+      console.log(`[apply-recommendations] Control mode: ${controlMode}`);
+
       // Get heating settings for cooldown interval
       const { data: settingsData } = await supabase
         .from('heating_settings')
@@ -369,9 +378,21 @@ Deno.serve(async (req) => {
 
         // Apply temperature to thermostat
         try {
-          console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C`);
+          console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C (mode: ${controlMode})`);
           
-          await setDeviceTemperature(accessId, accessSecret, room.tuya_device_id!, safeTemp);
+          if (controlMode === 'local') {
+            // LOCAL MODE: Write command to thermostat_commands
+            const { error: cmdError } = await supabase.from('thermostat_commands').insert({
+              room_id: room.id,
+              command: 'set_temp',
+              value: safeTemp,
+              status: 'pending',
+            });
+            if (cmdError) throw cmdError;
+          } else {
+            // CLOUD MODE: Use Tuya Cloud API
+            await setDeviceTemperature(accessId!, accessSecret!, room.tuya_device_id!, safeTemp);
+          }
 
           // Update room in database
           await supabase
