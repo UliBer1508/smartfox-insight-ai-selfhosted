@@ -79,7 +79,7 @@ export default function Auth() {
               <TabsTrigger value="register">Registrieren</TabsTrigger>
             </TabsList>
             
-            {error && (
+            {error && typeof error === 'string' && error !== '{}' && (
               <Alert variant="destructive" className="mb-4">
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
