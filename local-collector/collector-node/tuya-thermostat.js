@@ -5,20 +5,12 @@
 
 const TuyAPI = require('tuyapi');
 
-// TGP508 Thermostat DPS-Mapping (alphanumerische Code-Namen)
+// TGP508 Thermostat DPS-Mapping (Data Point Schema)
 const DPS = {
-  MODE: 'mode',              // Modus: auto/manual/off
-  TARGET_TEMP: 'temp_set',   // Zieltemperatur (x10, z.B. 215 = 21.5°C)
-  CURRENT_TEMP: 'temp_current', // Aktuelle Temperatur (x10)
-  SWITCH: 'switch'           // Power on/off
-};
-
-// Fallback: Numerische DPS-IDs (falls Firmware aeltere Keys liefert)
-const DPS_NUMERIC = {
-  MODE: '1',
-  TARGET_TEMP: '2',
-  CURRENT_TEMP: '3',
-  SWITCH: '4'
+  MODE: '1',           // Modus: auto/manual/off
+  TARGET_TEMP: '2',    // Zieltemperatur (x10, z.B. 210 = 21.0°C)
+  CURRENT_TEMP: '3',   // Aktuelle Temperatur (x10)
+  HEATING: '4'         // Heizstatus: true/false
 };
 
 class ThermostatController {
@@ -58,38 +50,6 @@ class ThermostatController {
   }
 
   /**
-   * Parst DPS-Daten mit Dual-Format-Fallback (alphanumerisch + numerisch)
-   */
-  parseDps(dps) {
-    // Versuche zuerst alphanumerische Keys (TGP508 Standard)
-    if (dps[DPS.CURRENT_TEMP] !== undefined || dps[DPS.TARGET_TEMP] !== undefined) {
-      return {
-        current_temp: (dps[DPS.CURRENT_TEMP] || 0) / 10,
-        target_temp: (dps[DPS.TARGET_TEMP] || 0) / 10,
-        is_heating: dps[DPS.SWITCH] === true,
-        mode: dps[DPS.MODE] || 'unknown',
-        format: 'alpha'
-      };
-    }
-    
-    // Fallback: Numerische Keys
-    if (dps[DPS_NUMERIC.CURRENT_TEMP] !== undefined || dps[DPS_NUMERIC.TARGET_TEMP] !== undefined) {
-      console.log('[TuyAPI] Verwende numerisches DPS-Format (Fallback)');
-      return {
-        current_temp: (dps[DPS_NUMERIC.CURRENT_TEMP] || 0) / 10,
-        target_temp: (dps[DPS_NUMERIC.TARGET_TEMP] || 0) / 10,
-        is_heating: dps[DPS_NUMERIC.SWITCH] === true,
-        mode: dps[DPS_NUMERIC.MODE] || 'unknown',
-        format: 'numeric'
-      };
-    }
-    
-    // Kein bekanntes Format - raw zurueckgeben
-    console.warn('[TuyAPI] Unbekanntes DPS-Format:', JSON.stringify(dps));
-    return null;
-  }
-
-  /**
    * Liest Status eines Thermostats mit Retry-Logik
    */
   async getStatus(deviceConfig, retryCount = 0) {
@@ -107,30 +67,19 @@ class ThermostatController {
       // Reset retry counter on success
       this.connectionRetries.set(deviceConfig.device_id, 0);
       
-      const parsed = this.parseDps(dps);
-      
-      if (!parsed) {
-        return {
-          success: false,
-          error: 'Unbekanntes DPS-Format',
-          raw_dps: dps
-        };
-      }
-      
       return {
         success: true,
-        current_temp: parsed.current_temp,
-        target_temp: parsed.target_temp,
-        is_heating: parsed.is_heating,
-        mode: parsed.mode,
-        format: parsed.format,
+        current_temp: (dps[DPS.CURRENT_TEMP] || 0) / 10,
+        target_temp: (dps[DPS.TARGET_TEMP] || 0) / 10,
+        is_heating: dps[DPS.HEATING] === true,
+        mode: dps[DPS.MODE] || 'unknown',
         raw_dps: dps
       };
     } catch (error) {
       // Retry logic
       if (retryCount < this.maxRetries) {
         console.log(`[TuyAPI] ${deviceConfig.name} Retry ${retryCount + 1}/${this.maxRetries}...`);
-        await this.sleep(1000 * (retryCount + 1));
+        await this.sleep(1000 * (retryCount + 1)); // Exponential backoff
         return this.getStatus(deviceConfig, retryCount + 1);
       }
       
@@ -152,12 +101,12 @@ class ThermostatController {
       await device.find();
       await device.connect();
       
-      // Temperatur * 10 (TGP508 erwartet z.B. 215 fuer 21.5°C)
+      // Temperatur * 10 (TGP508 erwartet z.B. 210 fuer 21.0°C)
       const tempValue = Math.round(temperature * 10);
       
-      // Validierung: TGP508 unterstuetzt 5.0 - 35.0°C
+      // Validierung: TGP508 unterstützt 5.0 - 35.0°C
       if (tempValue < 50 || tempValue > 350) {
-        throw new Error(`Temperatur ${temperature}°C ausserhalb des gueltigen Bereichs (5-35°C)`);
+        throw new Error(`Temperatur ${temperature}°C außerhalb des gültigen Bereichs (5-35°C)`);
       }
       
       await device.set({
@@ -170,6 +119,7 @@ class ThermostatController {
       console.log(`[TuyAPI] ${deviceConfig.name}: Temperatur auf ${temperature}°C gesetzt`);
       return { success: true };
     } catch (error) {
+      // Retry logic
       if (retryCount < this.maxRetries) {
         console.log(`[TuyAPI] ${deviceConfig.name} Set-Retry ${retryCount + 1}/${this.maxRetries}...`);
         await this.sleep(1000 * (retryCount + 1));
@@ -212,7 +162,7 @@ class ThermostatController {
   }
 
   /**
-   * Alle Verbindungen schliessen
+   * Alle Verbindungen schließen
    */
   async disconnectAll() {
     for (const [id, device] of this.devices) {

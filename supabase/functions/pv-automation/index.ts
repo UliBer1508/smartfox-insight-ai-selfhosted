@@ -311,38 +311,6 @@ async function setDeviceTemperature(
   }
 }
 
-// Dual-mode: Set temperature via Cloud API or local command queue
-async function setTemperatureByMode(
-  supabase: ReturnType<typeof createClient>,
-  accessId: string | undefined,
-  accessSecret: string | undefined,
-  deviceId: string,
-  roomId: string,
-  temperature: number,
-  controlMode: string
-): Promise<TuyaResult> {
-  if (controlMode === 'local') {
-    console.log(`[PV-Automation] Local mode: queuing set_temp ${temperature}°C for room ${roomId}`);
-    const { error } = await supabase.from('thermostat_commands').insert({
-      room_id: roomId,
-      command: 'set_temp',
-      value: temperature,
-      status: 'pending',
-    });
-    if (error) {
-      console.error(`[PV-Automation] Failed to queue command:`, error);
-      return { success: false, errorType: 'local_queue', errorMessage: error.message };
-    }
-    return { success: true };
-  }
-
-  // Cloud mode
-  if (!accessId || !accessSecret) {
-    return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured for cloud mode' };
-  }
-  return await setDeviceTemperature(accessId, accessSecret, deviceId, temperature);
-}
-
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -403,16 +371,6 @@ Deno.serve(async (req) => {
     // POST /check - ML-based automation with SKIP LOGIC and NIGHT PAUSE
     if (path === '/check' && req.method === 'POST') {
       console.log('[PV-Automation] Starting ML-based check...');
-
-      // Load control mode from system_settings
-      const { data: modeData } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', 'tuya_control_mode')
-        .single();
-
-      const controlMode = (modeData?.value as { mode?: string })?.mode || 'cloud';
-      console.log(`[PV-Automation] Control mode: ${controlMode}`);
 
       // 2. Load settings FIRST (needed for night check)
       const { data: settings } = await supabase
@@ -491,16 +449,18 @@ Deno.serve(async (req) => {
         console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment${batteryLow ? ' (BATTERY PROTECTION → 15°C)' : ''}`);
         const nightResults: { roomId: string; roomName: string; success: boolean; nightTemp: number; error?: string }[] = [];
 
-        {
+        if (tuyaAccessId && tuyaAccessSecret) {
           for (const room of roomsNeedingAdjustment) {
             const normalNightTarget = room.night_temp || globalNightTemp;
             // Batterie-Schutz: 15°C bei leerem Akku
             const nightTarget = batteryLow ? 15 : normalNightTarget;
-            console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)${batteryLow ? ' [BATTERY PROTECTION]' : ''} (mode: ${controlMode})`);
+            console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)${batteryLow ? ' [BATTERY PROTECTION]' : ''}`);
             
-            const result = await setTemperatureByMode(
-              supabase, tuyaAccessId, tuyaAccessSecret,
-              room.tuya_device_id!, room.id, nightTarget, controlMode
+            const result = await setDeviceTemperature(
+              tuyaAccessId,
+              tuyaAccessSecret,
+              room.tuya_device_id!,
+              nightTarget
             );
 
             if (result.success) {
@@ -807,7 +767,7 @@ Deno.serve(async (req) => {
       let mlDecisions: MLDecision[] = [];
       let usedMlDecision = false;
 
-      {
+      if (tuyaAccessId && tuyaAccessSecret) {
         try {
           const mlResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-patterns`, {
             method: 'POST',
@@ -1334,9 +1294,7 @@ Deno.serve(async (req) => {
           outdoor_temp: weatherData?.temperature_c,
           cloud_cover: weatherData?.cloud_cover_percent,
           ml_confidence: confidence,
-          ml_features: latestMlFeatures.find(f => f.room_id === room.id) || null,
-          room_power_w: room.calculated_power_w || room.heating_power_w || (room.floor_area_m2 ? room.floor_area_m2 * 60 : 800),
-          night_temp: room.night_temp || settings.night_temp || 17
+          ml_features: latestMlFeatures.find(f => f.room_id === room.id) || null
         };
 
         const eventAction = {
@@ -1370,8 +1328,8 @@ Deno.serve(async (req) => {
         let tuyaError: { errorType?: string; errorMessage?: string } | null = null;
 
         if (action === 'activate') {
-          if (room.tuya_device_id) {
-            const result = await setTemperatureByMode(supabase, tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, room.id, targetTemp, controlMode);
+          if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
+            const result = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, targetTemp);
             success = result.success;
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
@@ -1424,8 +1382,8 @@ Deno.serve(async (req) => {
           
           console.log(`[PV-Automation] ${room.name} deactivate: Setze ${finalTemp}°C (targetTemp=${targetTemp}, nightTemp=${room.night_temp || settings?.night_temp})`);
 
-          if (room.tuya_device_id) {
-            const result = await setTemperatureByMode(supabase, tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, room.id, finalTemp, controlMode);
+          if (room.tuya_device_id && tuyaAccessId && tuyaAccessSecret) {
+            const result = await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id, finalTemp);
             success = result.success;
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };

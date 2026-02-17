@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Room, RoomRecommendation } from '@/types/room';
 import { toast } from 'sonner';
@@ -8,7 +8,6 @@ export function useRooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [recommendations, setRecommendations] = useState<RoomRecommendation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(false);
 
   // Lokales Update ohne Server-Reload für optimistische UI
   const updateRoomLocally = useCallback((roomId: string, updates: Partial<Room>) => {
@@ -18,10 +17,6 @@ export function useRooms() {
       )
     );
   }, []);
-
-  const retryCountRef = useRef(0);
-  const MAX_RETRIES = 3;
-  const RETRY_DELAY_MS = 5000;
 
   const loadRooms = useCallback(async () => {
     console.log('🔄 Loading rooms...');
@@ -35,23 +30,12 @@ export function useRooms() {
 
       console.log('📊 Rooms response:', { data, error, count: data?.length });
 
-      if (error) {
-        // PGRST002: Schema-Cache-Fehler → automatisch retry
-        if (error.code === 'PGRST002' && retryCountRef.current < MAX_RETRIES) {
-          retryCountRef.current++;
-          console.log(`⏳ PGRST002 detected, retry ${retryCountRef.current}/${MAX_RETRIES} in ${RETRY_DELAY_MS / 1000}s...`);
-          setTimeout(() => loadRooms(), RETRY_DELAY_MS);
-          return;
-        }
-        throw error;
-      }
-      retryCountRef.current = 0;
+      if (error) throw error;
+      // Cast the data properly to Room type including new Tuya fields
       setRooms(data as unknown as Room[]);
-      setError(false);
       console.log('✅ Rooms set:', data?.length);
-    } catch (err) {
-      console.error('❌ Error loading rooms:', err);
-      setError(true);
+    } catch (error) {
+      console.error('❌ Error loading rooms:', error);
       toast.error('Fehler beim Laden der Räume');
     } finally {
       setIsLoading(false);
@@ -198,7 +182,6 @@ export function useRooms() {
     deleteRoom,
     saveRecommendations,
     getCurrentRecommendation,
-    updateRoomLocally,
-    error
+    updateRoomLocally
   };
 }

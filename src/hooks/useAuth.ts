@@ -23,19 +23,13 @@ export function useAuth() {
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
-        // Reset error on successful auth events
-        if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'SIGNED_OUT') {
-          setError(null);
-        }
       }
     );
 
-    // THEN check for existing session - ignore errors (user just needs to log in again)
+    // THEN check for existing session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      setLoading(false);
-    }).catch(() => {
       setLoading(false);
     });
 

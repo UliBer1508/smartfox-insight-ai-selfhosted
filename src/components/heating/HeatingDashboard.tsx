@@ -24,8 +24,7 @@ import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { AIStatusWidget } from './AIStatusWidget';
 import { ApiErrorBanner } from './ApiErrorBanner';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot, AlertCircle } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
@@ -69,8 +68,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     getCurrentRecommendation,
     loadRecommendations: loadRoomRecommendations,
     loadRooms,
-    updateRoomLocally,
-    error: roomsError
+    updateRoomLocally
   } = useRooms();
 
   const {
@@ -268,21 +266,6 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     <div className="space-y-6">
       {/* API Error Banner */}
       <ApiErrorBanner onRetry={() => { syncAllStatus(); refetchErrors(); }} />
-
-      {/* Database Error Banner */}
-      {roomsError && rooms.length === 0 && (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Datenbank nicht erreichbar</AlertTitle>
-          <AlertDescription className="flex items-center justify-between">
-            <span>Räume und Thermostate können nicht geladen werden. Bitte versuche es erneut.</span>
-            <Button variant="outline" size="sm" onClick={() => loadRooms()} className="ml-4 shrink-0">
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Erneut laden
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
       
       {/* Current Status Cards */}
       <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 w-full min-w-0">

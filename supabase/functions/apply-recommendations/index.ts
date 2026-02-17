@@ -162,43 +162,6 @@ async function setDeviceTemperature(
   });
 }
 
-// Dual-mode: Set temperature via Cloud API or local command queue
-async function setTemperatureByMode(
-  supabase: ReturnType<typeof createClient>,
-  accessId: string | undefined,
-  accessSecret: string | undefined,
-  deviceId: string,
-  roomId: string,
-  temperature: number,
-  controlMode: string
-): Promise<{ success: boolean; error?: string }> {
-  if (controlMode === 'local') {
-    console.log(`[apply-recommendations] Local mode: queuing set_temp ${temperature}°C for room ${roomId}`);
-    const { error } = await supabase.from('thermostat_commands').insert({
-      room_id: roomId,
-      command: 'set_temp',
-      value: temperature,
-      status: 'pending',
-    });
-    if (error) {
-      console.error(`[apply-recommendations] Failed to queue command:`, error);
-      return { success: false, error: error.message };
-    }
-    return { success: true };
-  }
-
-  // Cloud mode
-  if (!accessId || !accessSecret) {
-    return { success: false, error: 'Tuya credentials not configured for cloud mode' };
-  }
-  try {
-    await setDeviceTemperature(accessId, accessSecret, deviceId, temperature);
-    return { success: true };
-  } catch (err) {
-    return { success: false, error: String(err) };
-  }
-}
-
 interface Room {
   id: string;
   name: string;
@@ -238,22 +201,11 @@ Deno.serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // Load control mode from system_settings
-    const { data: modeData } = await supabase
-      .from('system_settings')
-      .select('value')
-      .eq('key', 'tuya_control_mode')
-      .single();
-
-    const controlMode = (modeData?.value as { mode?: string })?.mode || 'cloud';
-    console.log(`[apply-recommendations] Control mode: ${controlMode}`);
-
-    // In cloud mode, credentials are required
-    if (controlMode === 'cloud' && (!accessId || !accessSecret)) {
-      throw new Error('Tuya credentials not configured (cloud mode)');
+    if (!accessId || !accessSecret) {
+      throw new Error('Tuya credentials not configured');
     }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
     
     const url = new URL(req.url);
     const path = url.pathname.replace('/apply-recommendations', '');
@@ -417,12 +369,9 @@ Deno.serve(async (req) => {
 
         // Apply temperature to thermostat
         try {
-          console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C (mode: ${controlMode})`);
+          console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C`);
           
-          const setResult = await setTemperatureByMode(supabase, accessId, accessSecret, room.tuya_device_id!, room.id, safeTemp, controlMode);
-          if (!setResult.success) {
-            throw new Error(setResult.error || 'Failed to set temperature');
-          }
+          await setDeviceTemperature(accessId, accessSecret, room.tuya_device_id!, safeTemp);
 
           // Update room in database
           await supabase
