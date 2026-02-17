@@ -676,11 +676,11 @@ Deno.serve(async (req) => {
           budgetMode = 'pv_optimized';
           availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
         } else {
-          // Zu wenig PV: KEIN aktives Heizen erlaubt
-          // Alle Räume gehen auf Stopp-Temperatur (15°C)
+          // Zu wenig PV: Grid-Fallback - alle Räume gleichzeitig auf eco_temp
+          // Budget auf maxGridHeatingPower setzen, damit Räume heizen können
           budgetMode = 'grid_sequential';
-          availableBudget = 0;
-          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - kein Budget für aktives Heizen`);
+          availableBudget = maxGridHeatingPower;
+          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - Grid-Fallback: Budget=${maxGridHeatingPower}W, alle Räume auf eco_temp`);
         }
       }
       
@@ -1070,14 +1070,15 @@ Deno.serve(async (req) => {
               }
               console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
             } else {
-              // ⚠️ NEUE LOGIK: NICHT heizen - warte auf optimale Stunden!
-              action = 'keep';  // Behalte aktuelle (niedrige) Temperatur
-              targetTemp = nightTemp; // Bleibe auf Nachttemperatur
+              // ML sagt "nicht optimal" für PV-Komfort, aber Basis-Heizen auf eco_temp erlauben
+              // Grid-Fallback: Räume sollen nicht auf nightTemp bleiben wenn es Tag ist
+              action = 'activate';
+              targetTemp = ecoTemp;
               solarLimitTemp = null;
-              reasoning = `🛑 Morgen-Sperre: ${optimalCheck.reason}`;
+              reasoning = `Morgen-Aufwärmen auf ${ecoTemp}°C (Grid, warte auf PV für Komfort: ${optimalCheck.reason})`;
               console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
               
-              // Raum-Status aktualisieren um zu zeigen warum er wartet
+              // Raum-Status aktualisieren
               await supabase
                 .from('rooms')
                 .update({ heating_paused_reason: 'waiting_for_optimal_hours' })
@@ -1107,13 +1108,14 @@ Deno.serve(async (req) => {
               );
               
               if (shouldWait) {
-                // Solar-Passiv-Modus: Thermostat auf niedrige Temperatur setzen und warten
-                action = 'deactivate';
-                targetTemp = solarTemp;
+                // Solar-Passiv-Modus: Mindestens eco_temp halten statt solarTemp
+                // Raum soll nicht unter eco_temp fallen während auf Solargewinn gewartet wird
+                action = 'activate';
+                targetTemp = ecoTemp;
                 solarLimitTemp = comfortTemp;
-                reasoning = reason;
+                reasoning = `Warte auf Solargewinn, halte ${ecoTemp}°C (${reason})`;
                 
-                console.log(`[PV-Automation] ${room.name}: MORGEN-SPERRE - ${reason}, Thermostat auf ${solarTemp}°C`);
+                console.log(`[PV-Automation] ${room.name}: SOLAR-WARTEN - ${reasoning}`);
               }
             }
           }
@@ -1223,7 +1225,7 @@ Deno.serve(async (req) => {
         // Sequenzielles Heizen: Aktive Räume auf Comfort, Wartende auf Night-Temp
         // Das verhindert dass wartende Thermostate autonom heizen
         // Budget-Logik auch nachts bei leerem Akku aktiv (verhindert Netz-Heizen)
-        if (powerBudgetEnabled && (!isNight || (batterySoc !== null && batterySoc < 30))) {
+        if (powerBudgetEnabled && budgetMode === 'pv_optimized') {
           const budgetStatus = roomBudgetStatus.get(room.id);
           
           if (budgetStatus) {
@@ -1258,11 +1260,17 @@ Deno.serve(async (req) => {
                 .update({ heating_paused_reason: 'budget' })
                 .eq('id', room.id);
             } else if (budgetStatus.allowedToHeat) {
-              // Heizen erlaubt - auf comfortTemp setzen für optimale PV-Nutzung!
+              // Heizen erlaubt - zuerst eco_temp, dann comfort_temp bei genügend PV
+              const currentRoomTemp = room.current_temp || 0;
               action = 'activate';
-              targetTemp = comfortTemp;  // 21°C - nutze PV voll aus
               solarLimitTemp = null;
-              reasoning = `☀️ PV-Heizen: ${comfortTemp}°C (Budget: ${budgetStatus.reason})`;
+              if (currentRoomTemp < ecoTemp - 0.5) {
+                targetTemp = ecoTemp;
+                reasoning = `☀️ PV-Heizen: zuerst ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
+              } else {
+                targetTemp = comfortTemp;
+                reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Raum warm genug, Budget: ${budgetStatus.reason})`;
+              }
               console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
               
               // Tracking starten
