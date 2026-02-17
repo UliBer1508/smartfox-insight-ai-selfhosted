@@ -1,141 +1,57 @@
 
 
-# Dual-Modus Schalter: Cloud API / Lokaler Service
+# Fix: Zimmer muessen auch ohne PV-Strom geheizt werden
 
-## Uebersicht
+## Problem
 
-Implementierung eines Umschalters in den Einstellungen, der zwischen zwei vollstaendig getrennten Steuerungsmodi wechselt:
+Die `pv-automation` setzt alle Thermostate auf 15°C wenn:
+- Batterie-SOC unter 30% (aktuell der Fall)
+- Leistungsbudget erschoepft ist (Rotation/Pause)
 
-- **Cloud API**: Edge Functions (`tuya-control`, `pv-automation`, `apply-recommendations`) rufen die Tuya Cloud API direkt auf
-- **Lokaler Service**: Alle Temperatur-Befehle werden als Eintraege in die `thermostat_commands`-Tabelle geschrieben, der lokale Node.js Collector fuehrt sie aus
+15°C bedeutet praktisch: Heizung AUS. Die Raeume kuehlen aus, obwohl der Benutzer z.B. `night_temp = 20°C` konfiguriert hat.
 
-Beide Modi muessen absolut eigenstaendig laufen - kein Modus darf den Kanal des anderen nutzen.
+## Loesung
 
-## Aktueller Zustand
+Statt hartem 15°C wird die konfigurierte `night_temp` des Raums verwendet. Bei niedrigem Akku maximal 2°C Absenkung unter `night_temp`, nie unter 15°C.
 
-- `system_settings` enthaelt bereits `tuya_control_mode = { mode: "cloud" }` -- wird aber **nirgends im Code ausgelesen**
-- Alle Edge Functions (`pv-automation`, `apply-recommendations`, `tuya-control`) rufen **immer** die Tuya Cloud API direkt auf
-- `useTuyaControl.setTemperature()` ruft **immer** die Edge Function `tuya-control/set-temp` auf (Cloud API)
-- Der lokale Collector verarbeitet Befehle aus `thermostat_commands`, aber niemand schreibt dort hinein
+## Aenderungen in `supabase/functions/pv-automation/index.ts`
 
-## Aenderungen
+5 Stellen werden geaendert:
 
-### 1. Neuer Hook: `useControlMode` (Frontend)
+### A) Nachtmodus Batterie-Schutz (Zeile 464)
 
-Neuer Hook `src/hooks/useControlMode.ts`:
-- Liest `tuya_control_mode` aus `system_settings`
-- Gibt `mode: 'cloud' | 'local'` zurueck
-- Stellt `setMode()` Funktion bereit
-- Cacht den Wert mit React Query
+Vorher: `effectiveTarget = batteryLow ? 15 : normalNightTarget`
+Nachher: `effectiveTarget = Math.max(normalNightTarget - (batteryLow ? 2 : 0), 15)`
 
-### 2. Settings-UI: Modus-Schalter
+Beispiel "Bad Uli" (night_temp=20): 18°C statt 15°C
 
-In `src/components/energy/SettingsPanel.tsx` im Tuya-Abschnitt:
-- Radio-Group oder SegmentedControl mit zwei Optionen:
-  - "Cloud API" -- Thermostate werden ueber die Tuya Cloud gesteuert
-  - "Lokaler Service" -- Befehle werden an den lokalen Collector gesendet
-- Kurze Erklaerung unter jeder Option
-- Warnung beim Wechsel, dass der andere Modus deaktiviert wird
+### B) Nachtmodus Raumanpassung (Zeile 493)
 
-### 3. `useTuyaControl.setTemperature()` -- Modus-Weiche
+Gleiche Logik wie A) fuer die Schleife die Raeume einzeln anpasst.
 
-Die zentrale Aenderung im Frontend. `setTemperature()` prueft den Modus:
+### C) Tages-Nachtcheck (Zeile 1005)
 
-**Cloud-Modus (wie bisher):**
-```text
-supabase.functions.invoke('tuya-control/set-temp', { body: { deviceId, temperature, roomId } })
-```
+Vorher: `effectiveNightTemp = batteryLow ? 15 : nightTemp`
+Nachher: `effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp`
 
-**Lokal-Modus (neu):**
-```text
-supabase.from('thermostat_commands').insert({
-  room_id: roomId,
-  command: 'set_temp',
-  value: temperature,
-  status: 'pending'
-})
-```
+### D) Leistungsbudget Rotation-Stopp (Zeile 1233)
 
-Kein Cloud-API-Aufruf, kein Edge-Function-Call. Der lokale Collector nimmt den Befehl auf.
+Vorher: `targetTemp = 15` (Rotation)
+Nachher: `targetTemp = nightTemp` (Raum bleibt bewohnbar)
 
-### 4. `useTuyaControl.syncAllStatus()` -- Modus-Weiche
+### E) Leistungsbudget Budget-Stopp (Zeile 1250)
 
-**Cloud-Modus:** Ruft `tuya-control/sync-all` auf (Batch-API, wie bisher)
+Vorher: `targetTemp = 15` (Budget erschoepft)
+Nachher: `targetTemp = nightTemp` (Raum bleibt bewohnbar)
 
-**Lokal-Modus:** Liest nur die `rooms`-Tabelle aus (Daten kommen vom lokalen Collector). Kein Edge-Function-Call.
+## Ergebnis
 
-### 5. Edge Function `pv-automation` -- Modus-Weiche
+| Situation | Vorher | Nachher |
+|---|---|---|
+| Nacht + Batterie OK | night_temp (20°C) | night_temp (20°C) - unveraendert |
+| Nacht + Batterie leer | 15°C | night_temp - 2°C (18°C) |
+| Tag + Budget-Pause | 15°C | night_temp (20°C) |
+| Tag + Rotation | 15°C | night_temp (20°C) |
 
-Die groesste Aenderung. Am Anfang des `/check`-Handlers:
-
-```text
-// Modus aus system_settings laden
-const { data: modeSetting } = await supabase
-  .from('system_settings')
-  .select('value')
-  .eq('key', 'tuya_control_mode')
-  .maybeSingle();
-
-const controlMode = modeSetting?.value?.mode || 'cloud';
-```
-
-Dann bei **jeder** Stelle wo `setDeviceTemperature()` aufgerufen wird:
-
-**Cloud-Modus:** `setDeviceTemperature(accessId, accessSecret, deviceId, temp)` (wie bisher)
-
-**Lokal-Modus:** Statt Tuya-API-Call einen Eintrag in `thermostat_commands` schreiben:
-```text
-await supabase.from('thermostat_commands').insert({
-  room_id: roomId,
-  command: 'set_temp',
-  value: targetTemp,
-  status: 'pending'
-});
-```
-
-Dies betrifft:
-- Nachtmodus-Absenkung (ca. Zeile 459)
-- Alle activate/deactivate Aktionen (ca. Zeile 1330-1430)
-
-### 6. Edge Function `apply-recommendations` -- Modus-Weiche
-
-Gleiche Logik: `controlMode` laden und bei `setDeviceTemperature()` (Zeile 374) entweder Cloud-API oder `thermostat_commands`-Insert verwenden.
-
-### 7. Edge Function `tuya-control` -- Modus-Guard
-
-Der `/set-temp`-Endpoint bekommt einen Guard:
-
-```text
-// Wenn Modus = local, lehne Cloud-Befehle ab
-if (controlMode === 'local') {
-  return new Response(JSON.stringify({
-    success: false,
-    error: 'Cloud-Modus deaktiviert. Bitte lokalen Service verwenden.'
-  }), { status: 403, headers: ... });
-}
-```
-
-Und `/sync-all` gibt im Local-Modus nur die DB-Daten zurueck (kein Tuya-API-Call).
-
-## Technische Details
-
-### Betroffene Dateien
-
-| Datei | Aenderung |
-|---|---|
-| `src/hooks/useControlMode.ts` | **Neu** - Hook fuer Modus-Verwaltung |
-| `src/hooks/useTuyaControl.ts` | Modus-Weiche in `setTemperature()` und `syncAllStatus()` |
-| `src/components/energy/SettingsPanel.tsx` | UI fuer Modus-Schalter |
-| `supabase/functions/pv-automation/index.ts` | Modus-Weiche bei allen `setDeviceTemperature()`-Aufrufen |
-| `supabase/functions/apply-recommendations/index.ts` | Modus-Weiche bei `setDeviceTemperature()` |
-| `supabase/functions/tuya-control/index.ts` | Guard gegen falsche Modus-Nutzung |
-
-### Keine Datenbank-Migration noetig
-
-`system_settings` mit Key `tuya_control_mode` existiert bereits.
-
-### Sicherstellung der Trennung
-
-- **Cloud-Modus aktiv:** Edge Functions rufen Tuya API direkt auf. `thermostat_commands` wird NICHT beschrieben. Lokaler Collector hat nichts zu tun.
-- **Lokal-Modus aktiv:** Edge Functions schreiben NUR in `thermostat_commands`. Tuya API wird NICHT aufgerufen. `tuya-control/set-temp` lehnt direkte Aufrufe ab. Lokaler Collector verarbeitet die Befehle.
+Raeume werden NIE unter ihre konfigurierte Nachttemperatur minus 2°C abgesenkt. Heizung laeuft weiter, nur etwas reduziert.
 
