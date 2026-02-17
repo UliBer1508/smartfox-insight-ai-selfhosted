@@ -1,6 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug } from 'lucide-react';
+import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
 import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
@@ -18,7 +19,7 @@ interface SettingsPanelProps {
 
 export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
   const { settings, saveSettings, isLoading: isHeatingLoading } = useHeatingSettings();
-  const { rooms, saveRoom, deleteRoom, isLoading: isRoomsLoading } = useRooms();
+  const { rooms, saveRoom, deleteRoom, isLoading: isRoomsLoading, error: roomsError, loadRooms } = useRooms();
 
   const getTimeSinceUpdate = () => {
     if (!lastUpdate) return null;
@@ -75,6 +76,21 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="p-0">
+            {roomsError && rooms.length === 0 && (
+              <div className="p-4">
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>Datenbank nicht erreichbar</AlertTitle>
+                  <AlertDescription className="flex items-center justify-between">
+                    <span>Räume können nicht geladen werden.</span>
+                    <Button variant="outline" size="sm" onClick={() => loadRooms()} className="ml-4 shrink-0">
+                      <RefreshCw className="h-4 w-4 mr-2" />
+                      Erneut laden
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              </div>
+            )}
             <RoomManager
               rooms={rooms}
               onSave={saveRoom}

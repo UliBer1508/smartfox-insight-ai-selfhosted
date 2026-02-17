@@ -8,6 +8,7 @@ export function useRooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [recommendations, setRecommendations] = useState<RoomRecommendation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   // Lokales Update ohne Server-Reload für optimistische UI
   const updateRoomLocally = useCallback((roomId: string, updates: Partial<Room>) => {
@@ -33,9 +34,11 @@ export function useRooms() {
       if (error) throw error;
       // Cast the data properly to Room type including new Tuya fields
       setRooms(data as unknown as Room[]);
+      setError(false);
       console.log('✅ Rooms set:', data?.length);
-    } catch (error) {
-      console.error('❌ Error loading rooms:', error);
+    } catch (err) {
+      console.error('❌ Error loading rooms:', err);
+      setError(true);
       toast.error('Fehler beim Laden der Räume');
     } finally {
       setIsLoading(false);
@@ -182,6 +185,7 @@ export function useRooms() {
     deleteRoom,
     saveRecommendations,
     getCurrentRecommendation,
-    updateRoomLocally
+    updateRoomLocally,
+    error
   };
 }
