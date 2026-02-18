@@ -1,143 +1,62 @@
 
 
-# Heizregelung: Alle Faktoren einbeziehen (PV, Grid, KI-Empfehlungen, ML-Policies)
+# Batterie-Schutz aus PV-Automation entfernen
 
-## Aktuelle Probleme
+## Problem
+Die PV-Automation senkt nachts alle Raumtemperaturen um 2 Grad C ab wenn die Batterie unter 30% SOC faellt. Das betrifft aktuell alle 12 Raeume - sie werden auf night_temp minus 2 Grad C gesetzt statt auf die konfigurierte night_temp.
 
-### 1. Budget = 0W bei wenig PV (Zeile 679-683)
-Wenn PV < 500W, wird `availableBudget = 0` gesetzt. Dadurch werden ALLE Raeume ueber die Budget-Override-Logik (Zeile 1226) auf `nightTemp` gesetzt - auch tagsueber. Raeume werden nicht geheizt.
+**Beispiel Bad Uli:** night_temp = 20 Grad C, aber Thermostat steht auf 18 Grad C wegen "Batterie-Schutz".
 
-### 2. Budget-Override greift auch im Grid-Modus (Zeile 1226)
-Die Bedingung `if (powerBudgetEnabled && (!isNight || batterySoc < 30))` aktiviert Rotation und Budget-Stopp auch wenn kein PV da ist. Im Grid-Modus ist das unnoetig - alle Raeume koennen gleichzeitig heizen.
-
-### 3. Morgen-Sperre blockiert Basis-Heizen (Zeile 1072-1085)
-`isOptimalHeatingTime()` blockiert das Aufwaermen wenn die aktuelle Stunde nicht in `optimal_solar_hours` liegt UND PV < 2000W UND Batterie < 80%. Der Raum bleibt auf `nightTemp` - auch an trueben Tagen ohne PV.
-
-### 4. PV-Budget springt sofort auf comfort_temp (Zeile 1260-1265)
-Wenn Budget erlaubt zu heizen, wird sofort `comfortTemp` (21 Grad C) gesetzt. Besser: Zuerst auf `ecoTemp` heizen, dann bei genuegend PV auf `comfortTemp`.
-
-### 5. Sued-Raum Morgensperre zu aggressiv (Zeile 1109-1117)
-Sued-Raeume werden auf `solarTemp` (17 Grad C) gesetzt waehrend sie auf Solargewinn warten - das ist unter eco_temp.
-
-## Loesung: Zwei-Modi-Logik mit KI-Integration
-
-### Modus A: PV-optimiert (pvPower >= 500W)
-- Sequenzielles Heizen nach Prioritaet (bestehendes Budget-System)
-- **Zuerst eco_temp**, dann comfort_temp wenn genuegend PV
-- ML-Policies und KI-Empfehlungen steuern Timing und Prioritaet
-- Rotation und Budget-Stopp aktiv
-
-### Modus B: Grid-Fallback (pvPower < 500W)
-- Alle Raeume gleichzeitig auf eco_temp (Tag) / night_temp (Nacht)
-- KEIN Budget-Override, KEINE Rotation
-- Vorhandener PV-Strom reduziert Netzbezug automatisch
-- KI-Empfehlungen und ML-Policies bleiben aktiv fuer Temperaturwahl
-
-## Technische Aenderungen in `supabase/functions/pv-automation/index.ts`
-
-### Aenderung 1: Grid-Budget statt 0W (Zeile 679-683)
-
+## Ursache
+Zeile 1004-1006 in `pv-automation/index.ts`:
 ```text
-// Vorher:
-budgetMode = 'grid_sequential';
-availableBudget = 0;
-
-// Nachher:
-budgetMode = 'grid_sequential';
-availableBudget = maxGridHeatingPower; // 2000W - genug fuer Grid-Heizen
+const batteryLow = batterySoc !== null && batterySoc < 30;
+const effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp;
 ```
 
-### Aenderung 2: Budget-Override NUR im PV-Modus (Zeile 1226)
+## Warum entfernen
+- Der Batterie-Schutz ist bereits in der Fronius/Smartfox-Hardware eingebaut
+- Die PV-Automation kann und soll die Batterie nicht steuern
+- Raeume sollen immer auf ihrer eingestellten Temperatur heizen (night_temp nachts, eco_temp tagsueber)
 
+## Aenderung in `supabase/functions/pv-automation/index.ts`
+
+### Stelle 1: Batterie-Schutz-Logik entfernen (Zeilen 1004-1018)
+
+Vorher:
 ```text
-// Vorher:
-if (powerBudgetEnabled && (!isNight || (batterySoc !== null && batterySoc < 30))) {
+const batteryLow = batterySoc !== null && batterySoc < 30;
+const effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp;
 
-// Nachher:
-if (powerBudgetEnabled && budgetMode === 'pv_optimized') {
-```
+const needsCorrection = currentTargetTemp !== effectiveNightTemp || room.pv_auto_active;
 
-Im Grid-Modus (`grid_sequential`) greift keine Rotation und kein Budget-Stopp. Raeume heizen einfach auf ihre Zieltemperatur (eco_temp tagsueber, night_temp nachts).
-
-### Aenderung 3: PV-Budget zuerst eco, dann comfort (Zeile 1260-1265)
-
-```text
-// Vorher:
-targetTemp = comfortTemp;  // 21°C sofort
-
-// Nachher:
-const currentRoomTemp = room.current_temp || 0;
-if (currentRoomTemp < ecoTemp - 0.5) {
-  targetTemp = ecoTemp;
-  reasoning = "PV-Heizen: zuerst eco_temp (Raum noch kalt)";
-} else {
-  targetTemp = comfortTemp;
-  reasoning = "PV-Komfort: genuegend PV fuer comfort_temp";
+// ... Log und Korrektur auf effectiveNightTemp
+if (needsCorrection) {
+  targetTemp = effectiveNightTemp;
+  reasoning = batteryLow ? "Batterie-Schutz..." : "Nachtmodus...";
 }
 ```
 
-### Aenderung 4: Morgen-Aufwaermen immer auf eco_temp erlauben (Zeile 1072-1085)
-
+Nachher:
 ```text
-// Vorher: ML sagt "nicht optimal" -> nightTemp beibehalten
-action = 'keep';
-targetTemp = nightTemp;
+const needsCorrection = currentTargetTemp !== nightTemp || room.pv_auto_active;
 
-// Nachher: Trotzdem auf eco_temp aufwaermen (Grid-Fallback)
-action = 'activate';
-targetTemp = ecoTemp;
-reasoning = "Morgen-Aufwaermen auf eco_temp (Grid, warte auf PV fuer Komfort)";
+// ... Log und Korrektur direkt auf nightTemp
+if (needsCorrection) {
+  targetTemp = nightTemp;
+  reasoning = "Nachtmodus bis [nightEnd] (Wien: [wienTime])";
+}
 ```
 
-ML-optimale Stunden steuern nur das PV-KOMFORT-Heizen (comfort_temp). Basis-Heizen auf eco_temp passiert immer.
+Die Variable `batteryLow` und `effectiveNightTemp` werden komplett entfernt. Raeume bekommen nachts immer ihre konfigurierte `night_temp`.
 
-### Aenderung 5: Sued-Raum Morgensperre auf eco_temp (Zeile 1109-1117)
+## Ergebnis nach Aenderung
 
-```text
-// Vorher: solarTemp (17°C), action = 'deactivate'
-action = 'deactivate';
-targetTemp = solarTemp;
-
-// Nachher: Mindestens eco_temp halten
-action = 'activate';
-targetTemp = ecoTemp;
-reasoning = "Warte auf Solargewinn, halte eco_temp";
-```
-
-## Zusammenspiel aller Faktoren
-
-```text
-1. Nacht (22:00-06:00):
-   -> night_temp (bei leerem Akku: night_temp - 2°C, min 15°C)
-   -> KI/ML inaktiv
-
-2. Tag + PV >= 500W (Modus A):
-   -> Budget = PV - Grundlast
-   -> Sequenziell heizen (Rotation alle 30 Min)
-   -> ML-Policy bestimmt optimale Stunden fuer comfort_temp
-   -> Zuerst eco_temp, dann comfort_temp bei genuegend PV
-   -> KI-Empfehlungen fuer Temperaturwahl und Prioritaet
-
-3. Tag + PV < 500W (Modus B):
-   -> Budget = max_grid_heating_power (2000W)
-   -> Alle Raeume gleichzeitig auf eco_temp
-   -> KEIN Budget-Override/Rotation
-   -> KI/ML aktiv fuer Temperaturwahl (kann eco_temp anpassen)
-   -> Vorhandener PV-Strom wird automatisch mitgenutzt
-
-4. Morgen-Aufwaermen:
-   -> IMMER auf eco_temp (Grid wenn noetig)
-   -> ML steuert nur WANN comfort_temp erreicht wird
-   -> Sued-Raeume: eco_temp statt solarTemp waehrend Warten
-
-5. Solargewinn erkannt:
-   -> Heizung reduzieren (solarTemp)
-   -> Raum darf sich durch Sonne bis comfort_temp erwaermen
-```
-
-## Betroffene Datei
-
-| Datei | Aenderungen |
-|---|---|
-| `supabase/functions/pv-automation/index.ts` | 5 Stellen: Budget, Override-Bedingung, PV eco-first, Morgensperre, Sued-Sperre |
+| Raum | night_temp | Neues target_temp |
+|------|-----------|-------------------|
+| Bad Uli | 20 Grad C | 20 Grad C |
+| Wohnzimmer | 20 Grad C | 20 Grad C |
+| Zimmer Uli | 20 Grad C | 20 Grad C |
+| Buero | 18 Grad C | 18 Grad C |
+| Wirtschaftsraum | 18 Grad C | 18 Grad C |
 
