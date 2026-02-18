@@ -432,9 +432,6 @@ Deno.serve(async (req) => {
           .limit(1)
           .single();
         
-        const nightBatterySoc = latestReading?.battery_soc || 0;
-        const batteryLow = nightBatterySoc < 30;
-        
         // Load all rooms with Tuya devices to check night temp
         const { data: allRooms } = await supabase
           .from('rooms')
@@ -453,29 +450,21 @@ Deno.serve(async (req) => {
         }
 
         // Filter rooms that need night temp adjustment
-        // Bei niedrigem SOC: 15°C statt night_temp (Batterie-Schutz)
         const globalNightTemp = settings?.night_temp || 17;
-        console.log(`[PV-Automation] Night: SOC=${nightBatterySoc}%, batteryLow=${batteryLow}, globalNightTemp=${globalNightTemp}°C`);
+        console.log(`[PV-Automation] Night: globalNightTemp=${globalNightTemp}°C`);
         
         const roomsNeedingAdjustment = allRooms.filter(r => {
           const currentTarget = Number(r.target_temp) || 0;
-          const normalNightTarget = r.night_temp || globalNightTemp;
-          // Batterie-Schutz: maximal 2°C unter night_temp absenken, nie unter 15°C
-          const batteryReduction = batteryLow ? 2 : 0;
-          const effectiveTarget = Math.max(normalNightTarget - batteryReduction, 15);
-          // Need adjustment if difference >= 0.5°C
-          return Math.abs(currentTarget - effectiveTarget) >= 0.5;
+          const nightTarget = r.night_temp || globalNightTemp;
+          return Math.abs(currentTarget - nightTarget) >= 0.5;
         });
 
         if (roomsNeedingAdjustment.length === 0) {
-          const status = batteryLow ? `Batterie-Schutz aktiv (SOC ${nightBatterySoc}%)` : 'Nachttemperatur';
-          console.log(`[PV-Automation] Night mode: all ${allRooms.length} thermostats already at ${status}`);
+          console.log(`[PV-Automation] Night mode: all ${allRooms.length} thermostats already at night temp`);
           return new Response(JSON.stringify({ 
             success: true, 
-            message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf ${status}`,
+            message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
             nightMode: true,
-            batteryLow,
-            batterySoc: nightBatterySoc,
             thermostatsChecked: allRooms.length,
             results: [] 
           }), {
@@ -484,16 +473,13 @@ Deno.serve(async (req) => {
         }
 
         // Set night temp for rooms that need it
-        console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment${batteryLow ? ' (BATTERY PROTECTION → night_temp - 2°C)' : ''}`);
+        console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment`);
         const nightResults: { roomId: string; roomName: string; success: boolean; nightTemp: number; error?: string }[] = [];
 
         // Night mode works in both cloud and local mode
         for (const room of roomsNeedingAdjustment) {
-            const normalNightTarget = room.night_temp || globalNightTemp;
-            // Batterie-Schutz: maximal 2°C unter night_temp, nie unter 15°C
-            const batteryReduction = batteryLow ? 2 : 0;
-            const nightTarget = Math.max(normalNightTarget - batteryReduction, 15);
-            console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)${batteryLow ? ' [BATTERY PROTECTION]' : ''}`);
+            const nightTarget = room.night_temp || globalNightTemp;
+            console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)`);
             
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
@@ -506,7 +492,7 @@ Deno.serve(async (req) => {
               await supabase.from('rooms').update({
                 target_temp: nightTarget,
                 pv_auto_active: false,
-                heating_paused_reason: batteryLow ? `Batterie-Schutz (SOC ${nightBatterySoc}%)` : null,
+                heating_paused_reason: null,
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
@@ -531,10 +517,8 @@ Deno.serve(async (req) => {
         const successCount = nightResults.filter(r => r.success).length;
         return new Response(JSON.stringify({ 
           success: true, 
-          message: `Nachtmodus aktiv (${wienTime})${batteryLow ? ' [BATTERIE-SCHUTZ]' : ''} - ${successCount}/${roomsNeedingAdjustment.length} Thermostate angepasst`,
+          message: `Nachtmodus aktiv (${wienTime}) - ${successCount}/${roomsNeedingAdjustment.length} Thermostate angepasst`,
           nightMode: true,
-          batteryLow,
-          batterySoc: nightBatterySoc,
           adjusted: successCount,
           total: allRooms.length,
           results: nightResults 
@@ -1001,21 +985,15 @@ Deno.serve(async (req) => {
           // Robuster Vergleich (beide als Number)
           const currentTargetTemp = Number(room.target_temp) || 0;
           
-          // Batterie-Schutz: maximal 2°C unter night_temp absenken, nie unter 15°C
-          const batteryLow = batterySoc !== null && batterySoc < 30;
-          const effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp;
+          const needsCorrection = currentTargetTemp !== nightTemp || room.pv_auto_active;
           
-          const needsCorrection = currentTargetTemp !== effectiveNightTemp || room.pv_auto_active;
-          
-          console.log(`[PV-Automation] ${room.name} Nacht-Check: target=${currentTargetTemp}°C, nightTemp=${nightTemp}°C, effectiveNightTemp=${effectiveNightTemp}°C, batteryLow=${batteryLow} (SOC=${batterySoc}%), pv_auto=${room.pv_auto_active}, needsCorrection=${needsCorrection}`);
+          console.log(`[PV-Automation] ${room.name} Nacht-Check: target=${currentTargetTemp}°C, nightTemp=${nightTemp}°C, pv_auto=${room.pv_auto_active}, needsCorrection=${needsCorrection}`);
           
           if (needsCorrection) {
             action = 'deactivate';
-            targetTemp = effectiveNightTemp;
+            targetTemp = nightTemp;
             solarLimitTemp = null; // Kein Solar-Limit nachts
-            reasoning = batteryLow 
-              ? `🔋 Nacht + Batterie niedrig (${batterySoc?.toFixed(0)}% < 30%) → ${effectiveNightTemp}°C (Schutz)`
-              : `Nachtmodus bis ${nightEnd} (Wien: ${wienTime})`;
+            reasoning = `Nachtmodus bis ${nightEnd} (Wien: ${wienTime})`;
           }
           // Skip ML and fallback logic during night
         } else {
