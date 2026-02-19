@@ -1,43 +1,60 @@
 
 
-# Batterie-Verlauf: 1000-Zeilen-Limit erhoehen
+# Mobile und PWA Optimierung aller Tabs
 
-## Problem
-Der Hook `useBatteryHistory` laed maximal 1000 Zeilen aus der Datenbank. Bei ca. 2880 Eintraegen pro Tag reicht das nicht fuer mehrtaegige Ansichten. Bei "2 Tage" werden nur die neuesten ~1000 Eintraege geholt (hauptsaechlich heute), wodurch die Lade-/Entladezyklen von gestern fehlen.
+## Uebersicht
 
-## Loesung
-Das Limit dynamisch an den Zeitraum anpassen und das Sampling-Intervall erhoehen, damit weniger Punkte geladen aber alle Tage abgedeckt werden.
+Die App wird fuer die Nutzung auf Smartphones und als installierte PWA optimiert. Hauptaenderungen betreffen die Navigation (Bottom-Tab-Bar), responsive Grids und PWA-spezifische Anpassungen.
 
-## Aenderung in `src/hooks/useBatteryHistory.ts`
+## 1. Bottom-Tab-Bar fuer Mobile (Header.tsx)
 
-### 1. Dynamisches Limit basierend auf Zeitraum
+Aktuell: Navigation ist in der oberen Header-Leiste mit Buttons, die auf kleinen Bildschirmen umbrechen und schwer zu treffen sind.
 
-| Zeitraum | Aktuelles Limit | Neues Limit | Sampling |
-|----------|----------------|-------------|----------|
-| Heute    | 1000           | 2000        | 2 Min    |
-| 2 Tage   | 1000           | 5000        | 5 Min    |
-| 3 Tage   | 1000           | 8000        | 10 Min   |
+Neu: Auf Mobilgeraeten wird eine fixierte Bottom-Tab-Bar angezeigt (typisches PWA/App-Pattern). Der Header wird vereinfacht und zeigt nur Logo + Dark-Mode/Logout.
 
-### 2. Code-Aenderung
+- Bottom-Bar mit 4 Icons: Dashboard, Heizung, Analyse, Einstellungen
+- Aktiver Tab wird farblich hervorgehoben
+- `safe-area-inset-bottom` fuer iPhones mit Home-Indicator
+- Desktop bleibt unveraendert (Buttons im Header)
 
-Vorher:
-```text
-const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 4 * 60 * 1000 : 8 * 60 * 1000;
-...
-.limit(1000);
-```
+## 2. Dashboard-Tab (Index.tsx)
 
-Nachher:
-```text
-const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 5 * 60 * 1000 : 10 * 60 * 1000;
-const queryLimit = daysBack === 0 ? 2000 : daysBack === 1 ? 5000 : 8000;
-...
-.limit(queryLimit);
-```
+- Widget-Grid von `grid-cols-3` auf `grid-cols-1 sm:grid-cols-3` aendern
+- Padding reduzieren auf Mobile (`px-3 py-4` statt `px-4 py-6`)
+- `pb-20` am Main-Container hinzufuegen damit Inhalte nicht hinter der Bottom-Bar verschwinden
+
+## 3. Heizungs-Tab (HeatingDashboard.tsx)
+
+- Status-Cards Grid: `grid-cols-2 lg:grid-cols-4` beibehalten (funktioniert bereits)
+- Thermostat-Steuerung Header: flex-wrap fuer mobile
+- Thermostat-Grid: bereits responsive mit `sm:grid-cols-2 lg:grid-cols-3`
+
+## 4. Analyse-Tab (Index.tsx - innere Tabs)
+
+- TabsList mit `grid-cols-3` bekommt kompaktere Labels auf Mobile
+- Icon-only auf kleinen Screens, Text ab `sm:` Breakpoint
+- Buttons `w-full` auf Mobile
+
+## 5. PWA Safe-Area und CSS (index.css)
+
+- `env(safe-area-inset-bottom)` fuer Bottom-Bar
+- `env(safe-area-inset-top)` fuer Status-Bar bei Standalone-Mode
+- Viewport-Meta anpassen: `viewport-fit=cover` in index.html
+- Touch-Highlights entfernen fuer natuerlicheres App-Gefuehl
+
+## Technische Aenderungen
+
+| Datei | Aenderung |
+|-------|-----------|
+| `src/components/energy/Header.tsx` | Bottom-Tab-Bar auf Mobile, vereinfachter Header |
+| `src/pages/Index.tsx` | Responsive Grid-Fixes, Bottom-Padding |
+| `src/index.css` | Safe-Area CSS, Touch-Optimierungen |
+| `index.html` | `viewport-fit=cover` Meta-Tag |
 
 ## Ergebnis
-- Heute: Bis zu 2000 Zeilen, nach Sampling ca. 350 Punkte im Chart
-- 2 Tage: Bis zu 5000 Zeilen, nach Sampling ca. 280 Punkte
-- 3 Tage: Bis zu 8000 Zeilen, nach Sampling ca. 210 Punkte
 
-Alle Tage werden vollstaendig abgedeckt, die Lade-/Entladezyklen sind sichtbar.
+- App fuehlt sich auf dem Handy wie eine native App an
+- Navigation per Daumen erreichbar (Bottom-Bar)
+- Keine abgeschnittenen Inhalte hinter System-UI
+- Alle Tabs nutzen den verfuegbaren Platz optimal
+
