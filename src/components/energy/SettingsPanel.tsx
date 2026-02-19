@@ -85,7 +85,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
                       <span className="font-medium text-sm">Lokaler Service</span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Befehle werden an den lokalen Node.js Collector gesendet (LAN-Steuerung). Kein Cloud-API-Verbrauch.
+                      Befehle werden an den lokalen Thermostat-Service gesendet (LAN-Steuerung). Kein Cloud-API-Verbrauch.
                     </p>
                   </div>
                 </label>
@@ -94,7 +94,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
                 <Alert>
                   <MonitorSmartphone className="h-4 w-4" />
                   <AlertDescription className="text-xs">
-                    Im lokalen Modus werden alle Thermostat-Befehle über den Node.js Collector ausgeführt. 
+                    Im lokalen Modus werden alle Thermostat-Befehle über den lokalen Thermostat-Service ausgeführt. 
                     Die Tuya Cloud API wird <strong>nicht</strong> verwendet.
                   </AlertDescription>
                 </Alert>
