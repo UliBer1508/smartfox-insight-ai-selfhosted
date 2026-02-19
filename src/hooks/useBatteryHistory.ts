@@ -12,7 +12,8 @@ export function useBatteryHistory(daysBack: number = 0) {
   const [isLoading, setIsLoading] = useState(true);
 
   // Sampling-Intervall basierend auf Zeitraum: heute=2min, 2 Tage=4min, 3 Tage=8min
-  const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 4 * 60 * 1000 : 8 * 60 * 1000;
+  const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 5 * 60 * 1000 : 10 * 60 * 1000;
+  const queryLimit = daysBack === 0 ? 2000 : daysBack === 1 ? 5000 : 8000;
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true);
@@ -28,7 +29,7 @@ export function useBatteryHistory(daysBack: number = 0) {
         .select('timestamp, battery_soc, battery_power')
         .gte('timestamp', startDate.toISOString())
         .order('timestamp', { ascending: false })
-        .limit(1000);
+        .limit(queryLimit);
 
       if (error) throw error;
 
