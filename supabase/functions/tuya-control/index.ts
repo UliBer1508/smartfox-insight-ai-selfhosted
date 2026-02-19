@@ -880,6 +880,75 @@ Deno.serve(async (req) => {
       });
     }
 
+    // POST /push-all-temps - Push target_temp from DB to all thermostats via Tuya Cloud
+    if (req.method === 'POST' && path === '/push-all-temps') {
+      // MODE GUARD: Block Cloud API calls when in local mode
+      const { data: pushModeSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_control_mode')
+        .maybeSingle();
+      const pushControlMode = (pushModeSetting?.value as { mode?: string })?.mode || 'cloud';
+
+      if (pushControlMode === 'local') {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Cloud-Modus deaktiviert. Thermostate werden über den lokalen Service gesteuert.'
+        }), {
+          status: 403,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      const { data: rooms } = await supabase
+        .from('rooms')
+        .select('id, name, tuya_device_id, target_temp')
+        .not('tuya_device_id', 'is', null)
+        .not('target_temp', 'is', null);
+
+      if (!rooms || rooms.length === 0) {
+        return new Response(JSON.stringify({ success: true, results: [], message: 'No rooms with Tuya devices configured' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+      console.log(`[push-all-temps] Pushing target temps to ${rooms.length} thermostats...`);
+
+      const results = [];
+      const now = new Date().toISOString();
+
+      for (const room of rooms) {
+        try {
+          await setDeviceTemperature(accessId, accessSecret, room.tuya_device_id, room.target_temp);
+
+          // Update last_thermostat_sync in DB
+          await supabase
+            .from('rooms')
+            .update({ last_thermostat_sync: now })
+            .eq('id', room.id);
+
+          results.push({ roomId: room.id, name: room.name, targetTemp: room.target_temp, success: true });
+          console.log(`[${room.name}] ✓ Pushed ${room.target_temp}°C`);
+        } catch (error) {
+          console.error(`[push-all-temps] Error for room ${room.name}:`, error);
+          results.push({ roomId: room.id, name: room.name, targetTemp: room.target_temp, success: false, error: String(error) });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      console.log(`[push-all-temps] Complete: ${successCount}/${rooms.length} successful`);
+
+      return new Response(JSON.stringify({
+        success: true,
+        results,
+        summary: `${successCount}/${rooms.length}`,
+        successCount,
+        totalCount: rooms.length,
+      }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
