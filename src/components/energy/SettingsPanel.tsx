@@ -202,40 +202,6 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
           </div>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Architektur</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-sm font-mono bg-muted p-4 rounded-lg overflow-x-auto">
-            <pre className="text-muted-foreground">{`
-         ┌─────────────────────┐
-         │   Fronius           │
-         │   (Energiedaten +   │
-         │    Battery SOC)     │
-         └──────────┬──────────┘
-                    │
-                    ▼
-         ┌─────────────────────┐
-         │   Node.js Collector │
-         │   (läuft lokal)     │
-         └──────────┬──────────┘
-                    │ (HTTPS)
-                    ▼
-         ┌─────────────────────┐
-         │   Cloud Datenbank   │
-         └──────────┬──────────┘
-                    │ (Realtime)
-                    ▼
-         ┌─────────────────────┐
-         │   Diese PWA         │
-         │   (überall nutzbar) │
-         └─────────────────────┘
-            `}</pre>
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }
