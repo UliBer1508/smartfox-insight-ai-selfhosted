@@ -160,7 +160,7 @@ const Index = () => {
     <div className="min-h-screen bg-background grid-pattern overflow-x-hidden">
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
-      <main className="w-full max-w-7xl mx-auto px-4 py-6 space-y-6 overflow-hidden box-border">
+      <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-hidden box-border pb-24 md:pb-6">
         {activeTab === 'dashboard' && (
           <>
             <ConnectionStatus
@@ -215,7 +215,7 @@ const Index = () => {
             <BatteryHistoryChart />
 
             {/* 3-Spalten Widget-Grid über volle Breite */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
               <Card className="h-fit">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
@@ -294,17 +294,20 @@ const Index = () => {
               <CardContent className="space-y-4">
                 <Tabs defaultValue={rooms.length > 0 ? "rooms" : "global"} className="w-full">
                   <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="global">
-                      <Thermometer className="w-4 h-4 mr-2" />
-                      TGP508 Global
+                    <TabsTrigger value="global" className="text-xs sm:text-sm px-1 sm:px-3">
+                      <Thermometer className="w-4 h-4 sm:mr-2 flex-shrink-0" />
+                      <span className="hidden sm:inline">TGP508 Global</span>
+                      <span className="sm:hidden">Global</span>
                     </TabsTrigger>
-                    <TabsTrigger value="rooms">
-                      <Home className="w-4 h-4 mr-2" />
-                      Raumweise
+                    <TabsTrigger value="rooms" className="text-xs sm:text-sm px-1 sm:px-3">
+                      <Home className="w-4 h-4 sm:mr-2 flex-shrink-0" />
+                      <span className="hidden sm:inline">Raumweise</span>
+                      <span className="sm:hidden">Räume</span>
                     </TabsTrigger>
-                    <TabsTrigger value="learning">
-                      <Brain className="w-4 h-4 mr-2" />
-                      ML-Status
+                    <TabsTrigger value="learning" className="text-xs sm:text-sm px-1 sm:px-3">
+                      <Brain className="w-4 h-4 sm:mr-2 flex-shrink-0" />
+                      <span className="hidden sm:inline">ML-Status</span>
+                      <span className="sm:hidden">ML</span>
                     </TabsTrigger>
                   </TabsList>
 
