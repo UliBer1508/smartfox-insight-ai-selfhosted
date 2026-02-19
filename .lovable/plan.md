@@ -1,62 +1,43 @@
 
 
-# Batterie-Schutz aus PV-Automation entfernen
+# Batterie-Verlauf: 1000-Zeilen-Limit erhoehen
 
 ## Problem
-Die PV-Automation senkt nachts alle Raumtemperaturen um 2 Grad C ab wenn die Batterie unter 30% SOC faellt. Das betrifft aktuell alle 12 Raeume - sie werden auf night_temp minus 2 Grad C gesetzt statt auf die konfigurierte night_temp.
+Der Hook `useBatteryHistory` laed maximal 1000 Zeilen aus der Datenbank. Bei ca. 2880 Eintraegen pro Tag reicht das nicht fuer mehrtaegige Ansichten. Bei "2 Tage" werden nur die neuesten ~1000 Eintraege geholt (hauptsaechlich heute), wodurch die Lade-/Entladezyklen von gestern fehlen.
 
-**Beispiel Bad Uli:** night_temp = 20 Grad C, aber Thermostat steht auf 18 Grad C wegen "Batterie-Schutz".
+## Loesung
+Das Limit dynamisch an den Zeitraum anpassen und das Sampling-Intervall erhoehen, damit weniger Punkte geladen aber alle Tage abgedeckt werden.
 
-## Ursache
-Zeile 1004-1006 in `pv-automation/index.ts`:
-```text
-const batteryLow = batterySoc !== null && batterySoc < 30;
-const effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp;
-```
+## Aenderung in `src/hooks/useBatteryHistory.ts`
 
-## Warum entfernen
-- Der Batterie-Schutz ist bereits in der Fronius/Smartfox-Hardware eingebaut
-- Die PV-Automation kann und soll die Batterie nicht steuern
-- Raeume sollen immer auf ihrer eingestellten Temperatur heizen (night_temp nachts, eco_temp tagsueber)
+### 1. Dynamisches Limit basierend auf Zeitraum
 
-## Aenderung in `supabase/functions/pv-automation/index.ts`
+| Zeitraum | Aktuelles Limit | Neues Limit | Sampling |
+|----------|----------------|-------------|----------|
+| Heute    | 1000           | 2000        | 2 Min    |
+| 2 Tage   | 1000           | 5000        | 5 Min    |
+| 3 Tage   | 1000           | 8000        | 10 Min   |
 
-### Stelle 1: Batterie-Schutz-Logik entfernen (Zeilen 1004-1018)
+### 2. Code-Aenderung
 
 Vorher:
 ```text
-const batteryLow = batterySoc !== null && batterySoc < 30;
-const effectiveNightTemp = batteryLow ? Math.max(nightTemp - 2, 15) : nightTemp;
-
-const needsCorrection = currentTargetTemp !== effectiveNightTemp || room.pv_auto_active;
-
-// ... Log und Korrektur auf effectiveNightTemp
-if (needsCorrection) {
-  targetTemp = effectiveNightTemp;
-  reasoning = batteryLow ? "Batterie-Schutz..." : "Nachtmodus...";
-}
+const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 4 * 60 * 1000 : 8 * 60 * 1000;
+...
+.limit(1000);
 ```
 
 Nachher:
 ```text
-const needsCorrection = currentTargetTemp !== nightTemp || room.pv_auto_active;
-
-// ... Log und Korrektur direkt auf nightTemp
-if (needsCorrection) {
-  targetTemp = nightTemp;
-  reasoning = "Nachtmodus bis [nightEnd] (Wien: [wienTime])";
-}
+const samplingInterval = daysBack === 0 ? 2 * 60 * 1000 : daysBack === 1 ? 5 * 60 * 1000 : 10 * 60 * 1000;
+const queryLimit = daysBack === 0 ? 2000 : daysBack === 1 ? 5000 : 8000;
+...
+.limit(queryLimit);
 ```
 
-Die Variable `batteryLow` und `effectiveNightTemp` werden komplett entfernt. Raeume bekommen nachts immer ihre konfigurierte `night_temp`.
+## Ergebnis
+- Heute: Bis zu 2000 Zeilen, nach Sampling ca. 350 Punkte im Chart
+- 2 Tage: Bis zu 5000 Zeilen, nach Sampling ca. 280 Punkte
+- 3 Tage: Bis zu 8000 Zeilen, nach Sampling ca. 210 Punkte
 
-## Ergebnis nach Aenderung
-
-| Raum | night_temp | Neues target_temp |
-|------|-----------|-------------------|
-| Bad Uli | 20 Grad C | 20 Grad C |
-| Wohnzimmer | 20 Grad C | 20 Grad C |
-| Zimmer Uli | 20 Grad C | 20 Grad C |
-| Buero | 18 Grad C | 18 Grad C |
-| Wirtschaftsraum | 18 Grad C | 18 Grad C |
-
+Alle Tage werden vollstaendig abgedeckt, die Lade-/Entladezyklen sind sichtbar.
