@@ -155,4 +155,34 @@
   .bg-energy-export {
     background-color: hsl(var(--energy-export));
   }
+
+  /* PWA Safe Area Utilities */
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .bottom-tab-bar {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Remove tap highlight for native app feel */
+  .touch-manipulation {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+
+/* Standalone PWA adjustments */
+@media all and (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    user-select: none;
+    overscroll-behavior: none;
+  }
+  
+  /* Allow text selection in inputs and textareas */
+  input, textarea, [contenteditable] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
 }
