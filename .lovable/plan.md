@@ -1,60 +1,45 @@
 
+# Thermostat-Empfehlungen fuer Mobile optimieren
 
-# Mobile und PWA Optimierung aller Tabs
+## Problem
 
-## Uebersicht
+Die Empfehlungskarten verwenden ein horizontales `flex justify-between` Layout. Auf schmalen Bildschirmen werden die Zeitangaben (Badge "15 - 18") und die Temperatur aus dem sichtbaren Bereich geschoben. Der Reason-Text ist auf `max-w-[200px]` begrenzt und wird abgeschnitten.
 
-Die App wird fuer die Nutzung auf Smartphones und als installierte PWA optimiert. Hauptaenderungen betreffen die Navigation (Bottom-Tab-Bar), responsive Grids und PWA-spezifische Anpassungen.
+## Loesung
 
-## 1. Bottom-Tab-Bar fuer Mobile (Header.tsx)
+Das Layout der einzelnen Raumkarten wird auf Mobile vertikal gestapelt statt horizontal nebeneinander.
 
-Aktuell: Navigation ist in der oberen Header-Leiste mit Buttons, die auf kleinen Bildschirmen umbrechen und schwer zu treffen sind.
+## Aenderung in `src/components/heating/RoomRecommendations.tsx`
 
-Neu: Auf Mobilgeraeten wird eine fixierte Bottom-Tab-Bar angezeigt (typisches PWA/App-Pattern). Der Header wird vereinfacht und zeigt nur Logo + Dark-Mode/Logout.
+### Neues Karten-Layout pro Raum (Mobile-optimiert)
 
-- Bottom-Bar mit 4 Icons: Dashboard, Heizung, Analyse, Einstellungen
-- Aktiver Tab wird farblich hervorgehoben
-- `safe-area-inset-bottom` fuer iPhones mit Home-Indicator
-- Desktop bleibt unveraendert (Buttons im Header)
+Vorher (horizontal, ueberlaeuft):
+```text
+[Icon] [Name + Reason]          [20°C] [15 - 18]
+```
 
-## 2. Dashboard-Tab (Index.tsx)
+Nachher (gestapelt, passt immer):
+```text
+[Icon] [Name]              [20°C]
+       [Reason-Text]     [15 - 18]
+```
 
-- Widget-Grid von `grid-cols-3` auf `grid-cols-1 sm:grid-cols-3` aendern
-- Padding reduzieren auf Mobile (`px-3 py-4` statt `px-4 py-6`)
-- `pb-20` am Main-Container hinzufuegen damit Inhalte nicht hinter der Bottom-Bar verschwinden
+### Konkrete Aenderungen
 
-## 3. Heizungs-Tab (HeatingDashboard.tsx)
+1. Aeusserer Container: Von `flex items-center justify-between` zu `flex flex-col gap-1 p-3` auf Mobile
+2. Erste Zeile: Icon + Raumname links, Temperatur rechts (kompakt)
+3. Zweite Zeile: Reason-Text links (volle Breite, kein truncate-Limit), Zeit-Badge rechts
+4. Temperatur: Von `text-2xl` auf `text-lg font-bold` (kompakter)
+5. `max-w-[200px]` entfernen, stattdessen `line-clamp-2` fuer mehrzeiligen Text
+6. CardHeader Titel: Kleinere Schrift auf Mobile (`text-base sm:text-2xl`)
 
-- Status-Cards Grid: `grid-cols-2 lg:grid-cols-4` beibehalten (funktioniert bereits)
-- Thermostat-Steuerung Header: flex-wrap fuer mobile
-- Thermostat-Grid: bereits responsive mit `sm:grid-cols-2 lg:grid-cols-3`
+### Legende
 
-## 4. Analyse-Tab (Index.tsx - innere Tabs)
-
-- TabsList mit `grid-cols-3` bekommt kompaktere Labels auf Mobile
-- Icon-only auf kleinen Screens, Text ab `sm:` Breakpoint
-- Buttons `w-full` auf Mobile
-
-## 5. PWA Safe-Area und CSS (index.css)
-
-- `env(safe-area-inset-bottom)` fuer Bottom-Bar
-- `env(safe-area-inset-top)` fuer Status-Bar bei Standalone-Mode
-- Viewport-Meta anpassen: `viewport-fit=cover` in index.html
-- Touch-Highlights entfernen fuer natuerlicheres App-Gefuehl
-
-## Technische Aenderungen
-
-| Datei | Aenderung |
-|-------|-----------|
-| `src/components/energy/Header.tsx` | Bottom-Tab-Bar auf Mobile, vereinfachter Header |
-| `src/pages/Index.tsx` | Responsive Grid-Fixes, Bottom-Padding |
-| `src/index.css` | Safe-Area CSS, Touch-Optimierungen |
-| `index.html` | `viewport-fit=cover` Meta-Tag |
+Die Legende am unteren Rand bleibt unveraendert - sie funktioniert bereits gut mit `flex-wrap`.
 
 ## Ergebnis
 
-- App fuehlt sich auf dem Handy wie eine native App an
-- Navigation per Daumen erreichbar (Bottom-Bar)
-- Keine abgeschnittenen Inhalte hinter System-UI
-- Alle Tabs nutzen den verfuegbaren Platz optimal
-
+- Kein horizontaler Overflow mehr
+- Zeitangaben und Temperatur sind immer sichtbar
+- Reason-Text kann mehrzeilig angezeigt werden statt abgeschnitten
+- Funktioniert auf allen Bildschirmgroessen
