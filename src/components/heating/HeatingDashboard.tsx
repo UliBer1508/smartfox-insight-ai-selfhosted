@@ -24,7 +24,8 @@ import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { AIStatusWidget } from './AIStatusWidget';
 import { ApiErrorBanner } from './ApiErrorBanner';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot } from 'lucide-react';
+import { usePushAllTemps } from '@/hooks/usePushAllTemps';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot, Send } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
@@ -93,6 +94,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     hasRoomError,
     refetch: refetchErrors,
   } = useApiErrors();
+
+  const { pushAllTemps, isPushing } = usePushAllTemps();
 
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
@@ -373,7 +376,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                 Live-Temperaturen und manuelle Steuerung
               </CardDescription>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               {lastSyncTime && (
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" />
@@ -383,8 +386,25 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               <Button
                 variant="outline"
                 size="sm"
+                onClick={async () => {
+                  await pushAllTemps();
+                  await loadRooms();
+                }}
+                disabled={isPushing || isSyncing}
+                title="Alle Zieltemperaturen direkt an die Thermostate senden"
+              >
+                {isPushing ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4 mr-2" />
+                )}
+                Alle pushen
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={handleSyncThermostats}
-                disabled={isSyncing}
+                disabled={isSyncing || isPushing}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
                 Sync
