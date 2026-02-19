@@ -1,45 +1,23 @@
 
-# Thermostat-Empfehlungen fuer Mobile optimieren
+
+# Beschreibung "Lokaler Service" korrigieren
 
 ## Problem
 
-Die Empfehlungskarten verwenden ein horizontales `flex justify-between` Layout. Auf schmalen Bildschirmen werden die Zeitangaben (Badge "15 - 18") und die Temperatur aus dem sichtbaren Bereich geschoben. Der Reason-Text ist auf `max-w-[200px]` begrenzt und wird abgeschnitten.
+Die Beschreibung im Einstellungs-Panel sagt "Befehle werden an den lokalen Node.js Collector gesendet", was nicht stimmt. Der Thermostat-Service ist ein **separater Prozess** und nicht Teil des Fronius-Collectors.
 
-## Loesung
+## Aenderung in `src/components/energy/SettingsPanel.tsx`
 
-Das Layout der einzelnen Raumkarten wird auf Mobile vertikal gestapelt statt horizontal nebeneinander.
+Drei Textstellen werden korrigiert:
 
-## Aenderung in `src/components/heating/RoomRecommendations.tsx`
+1. **Zeile 88** (Radio-Button Beschreibung):
+   - Alt: "Befehle werden an den lokalen Node.js Collector gesendet (LAN-Steuerung). Kein Cloud-API-Verbrauch."
+   - Neu: "Befehle werden an den lokalen Thermostat-Service gesendet (LAN-Steuerung). Kein Cloud-API-Verbrauch."
 
-### Neues Karten-Layout pro Raum (Mobile-optimiert)
+2. **Zeile 97** (Info-Alert im lokalen Modus):
+   - Alt: "Im lokalen Modus werden alle Thermostat-Befehle ueber den Node.js Collector ausgefuehrt."
+   - Neu: "Im lokalen Modus werden alle Thermostat-Befehle ueber den lokalen Thermostat-Service ausgefuehrt."
 
-Vorher (horizontal, ueberlaeuft):
-```text
-[Icon] [Name + Reason]          [20°C] [15 - 18]
-```
+3. **Zeile 190** (Erklaerung "So funktioniert es"):
+   - Pruefen ob der Text dort korrekt ist (bezieht sich auf den Fronius-Collector fuer Energiedaten, was stimmt)
 
-Nachher (gestapelt, passt immer):
-```text
-[Icon] [Name]              [20°C]
-       [Reason-Text]     [15 - 18]
-```
-
-### Konkrete Aenderungen
-
-1. Aeusserer Container: Von `flex items-center justify-between` zu `flex flex-col gap-1 p-3` auf Mobile
-2. Erste Zeile: Icon + Raumname links, Temperatur rechts (kompakt)
-3. Zweite Zeile: Reason-Text links (volle Breite, kein truncate-Limit), Zeit-Badge rechts
-4. Temperatur: Von `text-2xl` auf `text-lg font-bold` (kompakter)
-5. `max-w-[200px]` entfernen, stattdessen `line-clamp-2` fuer mehrzeiligen Text
-6. CardHeader Titel: Kleinere Schrift auf Mobile (`text-base sm:text-2xl`)
-
-### Legende
-
-Die Legende am unteren Rand bleibt unveraendert - sie funktioniert bereits gut mit `flex-wrap`.
-
-## Ergebnis
-
-- Kein horizontaler Overflow mehr
-- Zeitangaben und Temperatur sind immer sichtbar
-- Reason-Text kann mehrzeilig angezeigt werden statt abgeschnitten
-- Funktioniert auf allen Bildschirmgroessen
