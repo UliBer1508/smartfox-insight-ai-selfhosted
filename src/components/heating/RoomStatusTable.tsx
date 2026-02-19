@@ -4,6 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Check, X, Thermometer, ChevronDown } from 'lucide-react';
+import { useIsMobile } from '@/hooks/use-mobile';
 
 interface RoomStatusTableProps {
   rooms: Room[];
@@ -11,6 +12,7 @@ interface RoomStatusTableProps {
 
 export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
+  const isMobile = useIsMobile();
   const tuyaRooms = rooms.filter(r => r.tuya_device_id);
   if (tuyaRooms.length === 0) return null;
 
@@ -22,47 +24,92 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
             <CardTitle className="text-sm flex items-center gap-2">
               <Thermometer className="w-4 h-4 text-primary" />
               Raum-Übersicht
+              <span className="text-xs font-normal text-muted-foreground ml-1">({tuyaRooms.length})</span>
               <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
             </CardTitle>
           </CardHeader>
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="text-xs">Raum</TableHead>
-                    <TableHead className="text-xs">Device ID</TableHead>
-                    <TableHead className="text-xs">Local Key</TableHead>
-                    <TableHead className="text-xs">Local IP</TableHead>
-                    <TableHead className="text-xs">Temp</TableHead>
-                    <TableHead className="text-xs">Ziel</TableHead>
-                    <TableHead className="text-xs">Heizung</TableHead>
-                    <TableHead className="text-xs">Auto</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tuyaRooms.map(room => (
-                    <TableRow key={room.id}>
-                      <TableCell className="text-xs font-medium">{room.name}</TableCell>
-                      <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
-                      <TableCell>{room.local_key ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
-                      <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
-                      <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
-                      <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>
-                      <TableCell>
-                        <span className="flex items-center gap-1 text-xs">
-                          <span className={`w-2 h-2 rounded-full ${room.is_heating ? 'bg-red-500' : 'bg-muted-foreground/30'}`} />
-                          {room.is_heating ? 'An' : 'Aus'}
+            {isMobile ? (
+              <div className="divide-y">
+                {tuyaRooms.map(room => (
+                  <div key={room.id} className="px-4 py-3 space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">{room.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${
+                          room.is_heating 
+                            ? 'bg-destructive/10 text-destructive' 
+                            : 'bg-muted text-muted-foreground'
+                        }`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${room.is_heating ? 'bg-destructive' : 'bg-muted-foreground/40'}`} />
+                          {room.is_heating ? 'Heizt' : 'Aus'}
                         </span>
-                      </TableCell>
-                      <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-green-500" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
+                        {room.automation_enabled && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Auto</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      {room.current_temp != null && (
+                        <span>Ist: <strong className="text-foreground">{room.current_temp}°</strong></span>
+                      )}
+                      {room.target_temp != null && (
+                        <span>Ziel: <strong className="text-foreground">{room.target_temp}°</strong></span>
+                      )}
+                      {room.thermostat_local_ip && (
+                        <span className="font-mono text-[10px]">{room.thermostat_local_ip}</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                      <span className="flex items-center gap-1">
+                        ID {room.tuya_device_id ? <Check className="w-3 h-3 text-success" /> : <X className="w-3 h-3 text-destructive" />}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        Key {room.local_key ? <Check className="w-3 h-3 text-success" /> : <X className="w-3 h-3 text-destructive" />}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="text-xs">Raum</TableHead>
+                      <TableHead className="text-xs">Device ID</TableHead>
+                      <TableHead className="text-xs">Local Key</TableHead>
+                      <TableHead className="text-xs">Local IP</TableHead>
+                      <TableHead className="text-xs">Temp</TableHead>
+                      <TableHead className="text-xs">Ziel</TableHead>
+                      <TableHead className="text-xs">Heizung</TableHead>
+                      <TableHead className="text-xs">Auto</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+                  </TableHeader>
+                  <TableBody>
+                    {tuyaRooms.map(room => (
+                      <TableRow key={room.id}>
+                        <TableCell className="text-xs font-medium">{room.name}</TableCell>
+                        <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
+                        <TableCell>{room.local_key ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
+                        <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
+                        <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
+                        <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>
+                        <TableCell>
+                          <span className="flex items-center gap-1 text-xs">
+                            <span className={`w-2 h-2 rounded-full ${room.is_heating ? 'bg-destructive' : 'bg-muted-foreground/30'}`} />
+                            {room.is_heating ? 'An' : 'Aus'}
+                          </span>
+                        </TableCell>
+                        <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </CollapsibleContent>
       </Card>
