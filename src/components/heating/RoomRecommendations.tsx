@@ -63,8 +63,8 @@ export function RoomRecommendations({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Thermometer className="h-5 w-5" />
+        <CardTitle className="flex items-center gap-2 text-base sm:text-2xl">
+          <Thermometer className="h-5 w-5 shrink-0" />
           Aktuelle Thermostat-Empfehlungen
         </CardTitle>
       </CardHeader>
@@ -82,37 +82,37 @@ export function RoomRecommendations({
                   <div
                     key={room.id}
                     className={cn(
-                      'flex items-center justify-between p-3 rounded-lg border',
+                      'p-3 rounded-lg border space-y-1',
                       rec ? getPriorityColor(rec.priority) : 'bg-muted/50 border-border'
                     )}
                   >
-                    <div className="flex items-center gap-3">
-                      {getPriorityIcon(rec?.priority)}
-                      <div>
-                        <p className="font-medium">{room.name}</p>
-                        {rec?.reason && (
-                          <p className="text-xs opacity-80 max-w-[200px] truncate">
-                            {rec.reason}
-                          </p>
-                        )}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {getPriorityIcon(rec?.priority)}
+                        <p className="font-medium truncate">{room.name}</p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3">
                       {rec ? (
-                        <>
-                          <span className="text-2xl font-bold">
-                            {rec.recommended_temp}°C
-                          </span>
-                          <Badge variant="outline" className="text-xs">
-                            {rec.start_time} - {rec.end_time}
-                          </Badge>
-                        </>
+                        <span className="text-lg sm:text-2xl font-bold shrink-0">
+                          {rec.recommended_temp}°C
+                        </span>
                       ) : (
-                        <span className="text-muted-foreground text-sm">
+                        <span className="text-muted-foreground text-sm shrink-0">
                           Keine Empfehlung
                         </span>
                       )}
                     </div>
+                    {rec && (
+                      <div className="flex items-end justify-between gap-2 pl-6">
+                        {rec.reason && (
+                          <p className="text-xs opacity-80 line-clamp-2">
+                            {rec.reason}
+                          </p>
+                        )}
+                        <Badge variant="outline" className="text-xs shrink-0">
+                          {rec.start_time} - {rec.end_time}
+                        </Badge>
+                      </div>
+                    )}
                   </div>
                 );
               })}
