@@ -490,8 +490,7 @@ ${(() => {
 **REGELN FÜR STROMDIREKTHEIZUNG:**
 1. PV-Überschuss >${heatingSettings?.pv_surplus_threshold_on || 500}W → Heizung auf Comfort-Temp aktivieren
 2. PV-Überschuss <${heatingSettings?.pv_surplus_threshold_off || 200}W → Auf Eco-Temp reduzieren
-3. Batterie <${heatingSettings?.min_battery_soc || 20}% → Keine Aktivierung, nur Frostschutz
-4. Nachts nur bei Batterie >80% heizen, sonst Nacht-Temp
+3. Nachts Nacht-Temp verwenden (Fronius verwaltet Batterie eigenständig)
 5. Räume mit hohem PV-Anteil (ML) bevorzugt während Sonnenstunden heizen
 6. Geringe thermische Masse = schnelle Reaktion → häufigere, kürzere Heizphasen möglich
 

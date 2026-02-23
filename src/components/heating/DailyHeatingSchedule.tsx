@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Room } from '@/types/room';
 import { HeatingSettings } from '@/types/heating';
-import { Sun, Moon, Battery, Thermometer, Zap, Check, X, Bot } from 'lucide-react';
+import { Sun, Moon, Thermometer, Zap, Check, X, Bot } from 'lucide-react';
 
 interface DailyHeatingScheduleProps {
   rooms: Room[];
@@ -12,7 +12,7 @@ interface DailyHeatingScheduleProps {
   batterySoc: number | null;
 }
 
-type HeatingMode = 'night' | 'eco' | 'comfort' | 'battery_protect';
+type HeatingMode = 'night' | 'eco' | 'comfort';
 
 function isNightTime(nightStart: string, nightEnd: string): boolean {
   // Explizit Wiener Zeit verwenden (unabhängig von Browser-Zeitzone)
@@ -41,12 +41,9 @@ function getCurrentMode(
   nightStart: string, 
   nightEnd: string, 
   surplus: number | null, 
-  batterySoc: number | null,
-  minBatterySoc: number,
   thresholdOn: number
 ): HeatingMode {
   if (isNightTime(nightStart, nightEnd)) return 'night';
-  if (batterySoc !== null && batterySoc < minBatterySoc) return 'battery_protect';
   if (surplus !== null && surplus >= thresholdOn) return 'comfort';
   return 'eco';
 }
@@ -69,12 +66,6 @@ const MODE_CONFIG: Record<HeatingMode, { label: string; icon: React.ReactNode; c
     icon: <Sun className="h-4 w-4" />, 
     color: 'text-orange-500',
     bgColor: 'bg-orange-500/10'
-  },
-  battery_protect: { 
-    label: 'Batterie-Schutz', 
-    icon: <Battery className="h-4 w-4" />, 
-    color: 'text-red-500',
-    bgColor: 'bg-red-500/10'
   }
 };
 
@@ -84,11 +75,9 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
   const nightEnd = (settings.night_end_time || '06:00').substring(0, 5);
   const thresholdOn = settings.pv_surplus_threshold_on || 500;
   const thresholdOff = settings.pv_surplus_threshold_off || 200;
-  const minBatterySoc = settings.min_battery_soc || 20;
-
   const currentMode = useMemo(() => 
-    getCurrentMode(nightStart, nightEnd, currentSurplus, batterySoc, minBatterySoc, thresholdOn),
-    [nightStart, nightEnd, currentSurplus, batterySoc, minBatterySoc, thresholdOn]
+    getCurrentMode(nightStart, nightEnd, currentSurplus, thresholdOn),
+    [nightStart, nightEnd, currentSurplus, thresholdOn]
   );
 
   const sortedRooms = useMemo(() => 
@@ -114,7 +103,7 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Mode explanation */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+        <div className="grid grid-cols-3 gap-2 text-xs">
           <div className={`rounded-lg p-2 ${currentMode === 'night' ? 'ring-2 ring-primary' : 'bg-muted/30'}`}>
             <div className="flex items-center gap-1 text-blue-400 font-medium">
               <Moon className="h-3 w-3" />
@@ -135,13 +124,6 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
               Komfort
             </div>
             <div className="text-muted-foreground mt-0.5">PV &gt;{thresholdOn}W</div>
-          </div>
-          <div className={`rounded-lg p-2 ${currentMode === 'battery_protect' ? 'ring-2 ring-primary' : 'bg-muted/30'}`}>
-            <div className="flex items-center gap-1 text-red-500 font-medium">
-              <Battery className="h-3 w-3" />
-              Schutz
-            </div>
-            <div className="text-muted-foreground mt-0.5">Batterie &lt;{minBatterySoc}%</div>
           </div>
         </div>
 
@@ -193,7 +175,7 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                     <td className={`text-center py-2 font-mono ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
                       {nightTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'eco' || currentMode === 'battery_protect' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
                       {ecoTemp}°
                     </td>
                     <td className={`text-center py-2 font-mono ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
