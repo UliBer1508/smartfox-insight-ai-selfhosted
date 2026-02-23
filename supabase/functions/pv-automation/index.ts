@@ -1110,16 +1110,9 @@ Deno.serve(async (req) => {
             } else {
               // Basis-Zeitschaltung / Fallback (nur tagsüber)
               
-              // 2. Battery protection
-              if (batterySoc < minBatterySoc && room.pv_auto_active) {
-                action = 'deactivate';
-                targetTemp = ecoTemp;
-                solarLimitTemp = null;
-                reasoning = `Batterie <${minBatterySoc}%`;
-              } 
-              // 3. PV surplus/Solargewinn -> Solar-Modus aktivieren
+              // 2. PV surplus/Solargewinn -> Solar-Modus aktivieren
               // ABER: Nur wenn tatsächlich genug PV-Leistung vorhanden!
-              else if (surplus >= thresholdOn && !room.pv_auto_active && pvPower >= 1000) {
+              if (surplus >= thresholdOn && !room.pv_auto_active && pvPower >= 1000) {
                 action = 'activate';
                 
                 // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
