@@ -520,6 +520,7 @@ Deno.serve(async (req) => {
                 target_temp: nightTarget,
                 pv_auto_active: false,
                 heating_paused_reason: null,
+                last_auto_change: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
@@ -1389,6 +1390,7 @@ Deno.serve(async (req) => {
             await supabase.from('rooms').update({
               pv_auto_active: true,
               pv_auto_last_change: now.toISOString(),
+              last_auto_change: now.toISOString(),
               target_temp: targetTemp,
               solar_limit_temp: solarLimitTemp
             }).eq('id', room.id);
@@ -1442,6 +1444,7 @@ Deno.serve(async (req) => {
             await supabase.from('rooms').update({
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
+              last_auto_change: now.toISOString(),
               target_temp: finalTemp,
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
