@@ -144,45 +144,8 @@ async function callGoogleAI(requestBody: AIRequestBody): Promise<AIResponse> {
   }
 }
 
-// Lovable AI Gateway Call (Fallback)
-async function callLovableAI(requestBody: AIRequestBody): Promise<AIResponse> {
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    return { ok: false, status: 0, error: 'LOVABLE_API_KEY not configured' };
-  }
-
-  try {
-    console.log('Calling Lovable AI Gateway (fallback)...');
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: requestBody.model || 'google/gemini-2.5-flash',
-        ...requestBody
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Lovable AI error:', response.status, errorText);
-      return { ok: false, status: response.status, error: errorText };
-    }
-
-    const data = await response.json();
-    console.log('Lovable AI response received');
-    return { ok: true, status: 200, data };
-  } catch (err) {
-    console.error('Lovable AI exception:', err);
-    return { ok: false, status: 0, error: String(err) };
-  }
-}
-
-// Unified AI call with fallback
+// Unified AI call - Google AI only (no paid fallback)
 async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
-  // 1. Try Google AI first (free)
   const googleResponse = await callGoogleAI(requestBody);
   
   if (googleResponse.ok) {
@@ -190,20 +153,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     return googleResponse;
   }
   
-  // 2. If Google AI fails (rate limit, quota, error), fallback to Lovable AI
-  console.log(`⚠️ Google AI failed (${googleResponse.status}): ${googleResponse.error}`);
-  console.log('🔄 Falling back to Lovable AI...');
-  
-  const lovableResponse = await callLovableAI(requestBody);
-  
-  if (lovableResponse.ok) {
-    console.log('✅ Using Lovable AI (fallback)');
-    return lovableResponse;
-  }
-  
-  // Both failed
-  console.error('❌ Both AI providers failed');
-  return lovableResponse; // Return Lovable error for better error handling
+  console.error(`❌ Google AI failed (${googleResponse.status}): ${googleResponse.error}`);
+  return googleResponse;
 }
 
 // Hilfsfunktion: Prüft ob aktuell Nachtzeit ist basierend auf Benutzereinstellungen
