@@ -1,48 +1,48 @@
 
 
-# Scroll-Problem beheben
+# Fix: Cron-Job Auth fuer pv-automation und apply-recommendations
 
-## Ursache
+## Problem
 
-In `src/pages/Index.tsx` Zeile 163 hat das `<main>`-Element die Klasse `overflow-hidden`, die **jegliches Scrollen** innerhalb dieses Elements unterdrueckt. Da der gesamte Seiteninhalt in diesem Element liegt, kann die Seite nicht mehr gescrollt werden.
+Beim letzten Security-Fix wurde JWT-Authentifizierung zu `pv-automation` und `apply-recommendations` hinzugefuegt. Diese Funktionen werden aber auch von **Cron-Jobs** aufgerufen, die den **Service-Role-Key** verwenden -- keinen User-JWT. `getClaims()` findet kein `sub` im Service-Role-Key und gibt 401 zurueck.
 
-Zusaetzlich setzt `src/index.css` (Zeile 115-117) `overflow-x: hidden` auf `html`, `body` und `#root` gleichzeitig -- das kann in manchen Browsern dazu fuehren, dass auch `overflow-y` implizit auf `auto` statt `visible` gesetzt wird und Scroll-Kontexte kollidieren.
+Ergebnis: `pv-automation/check` schlaegt seit dem 27. Februar bei **jedem Aufruf** fehl. Keine neuen KI-Entscheidungen, keine Temperatur-Updates.
 
 ## Loesung
 
-### 1. Index.tsx - `overflow-hidden` entfernen
-- Zeile 163: `overflow-hidden` aus der `<main>`-Klasse entfernen
-- Stattdessen nichts oder `overflow-x-hidden` verwenden (nur horizontales Overflow verhindern)
+Die Auth-Logik in beiden Funktionen anpassen, sodass **sowohl** User-JWTs **als auch** der Service-Role-Key akzeptiert werden:
 
-### 2. index.css - overflow-Regeln vereinfachen
-- `overflow-x: hidden` nur auf `body` setzen, nicht auf alle drei Elemente (`html`, `body`, `#root`)
-- Das verhindert die Browser-Eigenheit, bei der `overflow-x: hidden` auf `html` den vertikalen Scroll stoert
+1. **Service-Role-Key Erkennung**: Pruefen ob der Bearer-Token dem `SUPABASE_SERVICE_ROLE_KEY` entspricht. Falls ja, Auth ueberspringen (Cron-Job / interner Aufruf).
+2. **User-JWT Validierung**: Falls der Token nicht der Service-Role-Key ist, weiterhin `getClaims()` pruefen (Frontend-Aufrufe).
 
-## Technische Details
+### Betroffene Dateien
 
-**Index.tsx Zeile 163** aendern von:
-```
-overflow-hidden box-border
-```
-zu:
-```
-overflow-x-hidden box-border
-```
+1. **`supabase/functions/pv-automation/index.ts`** (Zeilen 319-341)
+   - Service-Role-Key Check vor getClaims einfuegen
 
-**index.css Zeile 115-117** aendern von:
-```css
-html, body, #root {
-  overflow-x: hidden;
-  max-width: 100vw;
+2. **`supabase/functions/apply-recommendations/index.ts`** (Zeilen ~205-220)
+   - Gleiche Logik
+
+3. **`supabase/functions/tuya-control/index.ts`** -- ebenfalls pruefen, da auch per Cron aufgerufen
+
+4. **`supabase/functions/analyze-patterns/index.ts`** -- ebenfalls pruefen
+
+### Technisches Detail
+
+```typescript
+// Neue Auth-Logik (Pseudocode):
+const token = authHeader.replace('Bearer ', '');
+const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+// Service role key = interner/Cron Aufruf → erlaubt
+if (token === serviceRoleKey) {
+  // Skip user validation, proceed with service role client
+} else {
+  // Validate as user JWT
+  const { data, error } = await authClient.auth.getClaims(token);
+  if (error || !data?.claims?.sub) return 401;
 }
 ```
-zu:
-```css
-html, body {
-  max-width: 100vw;
-}
-body {
-  overflow-x: hidden;
-}
-```
+
+Dies stellt die KI-Steuerung wieder her, ohne die Security-Verbesserung fuer Frontend-Aufrufe zu verlieren.
 
