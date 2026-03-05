@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Bot, Brain, ChevronDown, Clock, Activity, TrendingUp, Flame, Snowflake } from 'lucide-react';
+import { Bot, Brain, ChevronDown, Clock, Activity, TrendingUp, Flame, Zap } from 'lucide-react';
 import { Room } from '@/types/room';
 import { useAIStats } from '@/hooks/useAIStats';
+import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 import { useState } from 'react';
 
 interface AIStatusWidgetProps {
@@ -73,7 +74,8 @@ function getTimeAgo(dateStr: string): string {
 }
 
 export function AIStatusWidget({ rooms, pvPower, soc }: AIStatusWidgetProps) {
-  const { recentActions, stats, isLoading } = useAIStats();
+  const { stats, isLoading } = useAIStats();
+  const { activeRooms, totalHeatingPower, isLoading: isLoadingRooms } = useActiveHeatingRooms();
   const [isActionsOpen, setIsActionsOpen] = useState(false);
   const [isStatsOpen, setIsStatsOpen] = useState(false);
   
@@ -111,30 +113,30 @@ export function AIStatusWidget({ rooms, pvPower, soc }: AIStatusWidgetProps) {
         <Collapsible open={isActionsOpen} onOpenChange={setIsActionsOpen}>
           <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground transition-colors w-full">
             <ChevronDown className={`h-3 w-3 transition-transform ${isActionsOpen ? 'rotate-180' : ''}`} />
-            <Activity className="h-3 w-3" />
-            Letzte Aktionen ({recentActions.length})
+            <Flame className="h-3 w-3" />
+            Aktive Heizungen ({activeRooms.length})
+            {totalHeatingPower > 0 && (
+              <span className="ml-auto font-medium text-foreground">
+                {totalHeatingPower >= 1000 ? `${(totalHeatingPower / 1000).toFixed(1)} kW` : `${totalHeatingPower} W`}
+              </span>
+            )}
           </CollapsibleTrigger>
           <CollapsibleContent className="mt-2 space-y-1">
-            {isLoading ? (
+            {isLoadingRooms ? (
               <p className="text-xs text-muted-foreground">Laden...</p>
-            ) : recentActions.length === 0 ? (
-              <p className="text-xs text-muted-foreground">Noch keine Aktionen</p>
+            ) : activeRooms.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Keine aktive Heizung</p>
             ) : (
-              recentActions.map(action => (
-                <div key={action.id} className="flex items-center gap-2 text-xs p-1 rounded bg-muted/30">
-                  {action.decision_type === 'activate_heating' ? (
-                    <Flame className="h-3 w-3 text-orange-500" />
-                  ) : action.decision_type === 'deactivate_heating' ? (
-                    <Snowflake className="h-3 w-3 text-blue-400" />
-                  ) : (
-                    <Activity className="h-3 w-3" />
-                  )}
-                  <span className="font-medium">{action.room_name || 'System'}</span>
-                  {action.action?.target_temp && (
-                    <span>→ {action.action.target_temp}°C</span>
-                  )}
-                  <span className="text-muted-foreground ml-auto">
-                    {getTimeAgo(action.timestamp)}
+              activeRooms.map(room => (
+                <div key={room.room_id} className="flex items-center gap-2 text-xs p-1 rounded bg-muted/30">
+                  <Flame className="h-3 w-3 text-orange-500" />
+                  <span className="font-medium">{room.room_name}</span>
+                  <span className="text-muted-foreground">
+                    {room.power >= 1000 ? `${(room.power / 1000).toFixed(1)} kW` : `${room.power} W`}
+                  </span>
+                  <span className="text-muted-foreground ml-auto flex items-center gap-1">
+                    <Clock className="h-3 w-3" />
+                    seit {room.duration_min} Min
                   </span>
                 </div>
               ))
