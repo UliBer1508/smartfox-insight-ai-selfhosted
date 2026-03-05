@@ -216,9 +216,10 @@ serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const token = authHeader.replace('Bearer ', '');
 
-    // Service role key = internal/Cron call → allowed
-    if (token !== serviceRoleKey) {
-      const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+    // Service role key OR anon key = internal/Cron call → allowed
+    if (token !== serviceRoleKey && token !== anonKey) {
       const { createClient } = await import('https://esm.sh/@supabase/supabase-js@2');
       const authClient = createClient(supabaseUrl, anonKey, {
         global: { headers: { Authorization: authHeader } },
