@@ -1048,10 +1048,8 @@ Deno.serve(async (req) => {
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const nightTemp = room.night_temp || settings?.night_temp || 17;
-        // Solar-Heiztemperatur: Priorität solar_heating_temp → night_temp → 17°C
-        const solarTemp = room.solar_heating_temp || room.night_temp || 17;
         
-        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd}), has_solar_gain=${room.has_solar_gain}, solar_heating_temp=${room.solar_heating_temp}`);
+        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd}), has_solar_gain=${room.has_solar_gain}`);
 
         // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
         if (isNight) {
@@ -1142,11 +1140,11 @@ Deno.serve(async (req) => {
             const realtimeSolarGain = roomsWithSolarGain.get(room.id);
           
             if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
-              // Room is actively being heated by the sun - reduce thermostat!
-              action = 'deactivate';
-              targetTemp = solarTemp;
+              // Room is actively being heated by the sun - keep eco_temp, thermostat won't heat if room is already warm
+              action = 'keep';
+              targetTemp = ecoTemp;
               solarLimitTemp = comfortTemp;
-              reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%)`;
+              reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%) - Thermostat auf ${ecoTemp}°C, Heizung aus da Raum warm`;
               console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
             }
             // ============= MORGEN-SPERRE für Süd-Räume bei erwartetem Sonnentag =============
@@ -1187,23 +1185,17 @@ Deno.serve(async (req) => {
               // ABER: Nur wenn tatsächlich genug PV-Leistung vorhanden!
               if (surplus >= thresholdOn && !room.pv_auto_active && pvPower >= 1000) {
                 action = 'activate';
-                
-                // Solar-Modus: Bei Solargewinn-Räumen niedrige Temperatur verwenden
-                if (room.has_solar_gain) {
-                  targetTemp = solarTemp; // z.B. 17-18°C - Heizung bleibt aus!
-                  solarLimitTemp = comfortTemp; // Raum darf sich durch Sonne bis hier erwärmen
-                  reasoning = `Solar-Passiv-Modus: Thermostat ${targetTemp}°C, Sonne darf bis ${comfortTemp}°C erwärmen (${surplus}W Überschuss, ${pvPower}W PV)`;
-                } else {
-                  targetTemp = ecoTemp; // Normale Räume: Eco-Temperatur
-                  solarLimitTemp = comfortTemp;
-                  reasoning = `Solar-Limit ${comfortTemp}°C erlaubt (Überschuss ${surplus}W)`;
-                }
+                // PV-Überschuss: Alle Räume auf eco_temp setzen, Thermostat regelt selbst
+                // Bei Solargewinn-Räumen heizt die Heizung ohnehin nicht wenn Sonne den Raum erwärmt
+                targetTemp = ecoTemp;
+                solarLimitTemp = comfortTemp;
+                reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV${room.has_solar_gain ? ', Solargewinn möglich' : ''})`;
               }
               // 3b. Überschuss vorhanden, aber PV-Leistung noch zu gering - warten
               else if (surplus >= thresholdOn && !room.pv_auto_active && pvPower < 1000 && room.has_solar_gain) {
-                // Noch nicht aktivieren - warten auf mehr PV
-                action = 'deactivate';
-                targetTemp = solarTemp;
+                // Noch nicht aktivieren - warten auf mehr PV, aber eco_temp halten
+                action = 'keep';
+                targetTemp = ecoTemp;
                 solarLimitTemp = null;
                 reasoning = `Warte auf PV: Überschuss ${surplus}W vorhanden aber PV-Leistung noch gering (${pvPower}W < 1000W)`;
                 console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
@@ -1217,12 +1209,8 @@ Deno.serve(async (req) => {
               } 
               // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
               else if (room.pv_auto_active && surplus >= thresholdOff) {
-                // Solar-Modus weiterhin aktiv - behalte die niedrige Temperatur bei
-                if (room.has_solar_gain) {
-                  targetTemp = solarTemp;
-                } else {
-                  targetTemp = ecoTemp;
-                }
+                // PV-Modus weiterhin aktiv - eco_temp beibehalten
+                targetTemp = ecoTemp;
                 solarLimitTemp = comfortTemp;
                 // Keep action = 'keep'
               }
