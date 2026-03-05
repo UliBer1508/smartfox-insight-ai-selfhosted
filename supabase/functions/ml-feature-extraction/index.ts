@@ -148,9 +148,52 @@ function calculateFeatures(
   // 6. Effizienz-Metriken
   const efficiency = calculateEfficiencyMetrics(heatingLogs, energyReadings);
 
-  // 7. Confidence basierend auf Datenmenge
+  // 7. Confidence basierend auf Feature-Qualität (nicht nur Datenmenge)
   const sampleCount = tempSamples.length + heatingLogs.length;
-  const confidence = Math.min(1, sampleCount / 500); // 500 Samples = 100% Confidence
+  
+  // Confidence-Komponenten: welche Features konnten berechnet werden?
+  let confidenceScore = 0;
+  let maxScore = 0;
+  
+  // Kernfeatures: jeweils 20% Gewicht
+  maxScore += 20;
+  if (heatLossRate !== null) confidenceScore += 20;
+  
+  maxScore += 20;
+  if (heatingRate !== null) confidenceScore += 20;
+  
+  maxScore += 15;
+  if (energyPerDegree !== null) confidenceScore += 15;
+  
+  maxScore += 10;
+  if (solarGainFactor.factor !== null) confidenceScore += 10;
+  
+  // Heizverhalten: 15% Gewicht
+  maxScore += 15;
+  if (heatingBehavior.avgDuration !== null && heatingBehavior.avgCycles !== null) {
+    confidenceScore += 15;
+  } else if (heatingBehavior.avgDuration !== null || heatingBehavior.avgCycles !== null) {
+    confidenceScore += 8;
+  }
+  
+  // Effizienz-Metriken: 10% Gewicht
+  maxScore += 10;
+  if (efficiency.pvRatio !== null) confidenceScore += 10;
+  
+  // Sample-Bonus: bis zu 10% extra für viele Datenpunkte
+  maxScore += 10;
+  const heatingCycles = heatingLogs.filter(l => 
+    l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop'
+  ).length;
+  if (heatingCycles >= 20) {
+    confidenceScore += 10;
+  } else if (heatingCycles >= 10) {
+    confidenceScore += 7;
+  } else if (heatingCycles >= 5) {
+    confidenceScore += 4;
+  }
+  
+  const confidence = Math.round((confidenceScore / maxScore) * 100) / 100;
 
   const preheatDuration = heatingRate && heatingRate > 0 ? 60 / heatingRate : null;
   
