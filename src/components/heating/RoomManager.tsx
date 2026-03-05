@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2, Info, Leaf, Moon, ChevronDown } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2, Info, Leaf, Moon, ChevronDown, Zap } from 'lucide-react';
 import { Room, OrientationType, ORIENTATION_LABELS, getEffectiveHeatingPower } from '@/types/room';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
