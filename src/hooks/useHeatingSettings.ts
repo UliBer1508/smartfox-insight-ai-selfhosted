@@ -48,6 +48,8 @@ const defaultSettings: HeatingSettings = {
   power_budget_tolerance_w: 200,
   room_rotation_minutes: 30,
   min_room_pause_minutes: 15,
+  // PV-Boost
+  pv_boost_temp_delta: 2,
 };
 
 export function useHeatingSettings() {

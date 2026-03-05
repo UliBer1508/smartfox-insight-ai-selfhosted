@@ -60,6 +60,8 @@ export interface HeatingSettings {
   max_grid_heating_power_w?: number;
   power_budget_tolerance_w?: number;
   room_rotation_minutes?: number;
+  // PV-Boost
+  pv_boost_temp_delta?: number;
   min_room_pause_minutes?: number;
   created_at?: string;
   updated_at?: string;
