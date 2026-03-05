@@ -45,6 +45,8 @@ export interface Room {
   manual_override_until?: string | null;
   // Solar-Limit - maximale erlaubte Temperatur bei Solargewinn (ohne aktives Heizen)
   solar_limit_temp?: number | null;
+  // PV-Boost - maximale erlaubte Temperatur bei PV-Überschuss (pro Raum)
+  pv_boost_max_temp?: number | null;
   // Solar-Heiztemperatur - Thermostat wird bei Sonneneinstrahlung auf diese niedrige Temperatur gesetzt
   // damit die Heizung aus bleibt und der Raum sich nur durch die Sonne erwärmt
   solar_heating_temp?: number | null;

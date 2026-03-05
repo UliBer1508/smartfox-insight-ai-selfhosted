@@ -381,6 +381,7 @@ export type Database = {
           power_budget_enabled: boolean | null
           power_budget_tolerance_w: number | null
           preheat_hours: number
+          pv_boost_temp_delta: number | null
           pv_capacity_kwp: number
           pv_surplus_threshold_off: number | null
           pv_surplus_threshold_on: number | null
@@ -425,6 +426,7 @@ export type Database = {
           power_budget_enabled?: boolean | null
           power_budget_tolerance_w?: number | null
           preheat_hours?: number
+          pv_boost_temp_delta?: number | null
           pv_capacity_kwp?: number
           pv_surplus_threshold_off?: number | null
           pv_surplus_threshold_on?: number | null
@@ -469,6 +471,7 @@ export type Database = {
           power_budget_enabled?: boolean | null
           power_budget_tolerance_w?: number | null
           preheat_hours?: number
+          pv_boost_temp_delta?: number | null
           pv_capacity_kwp?: number
           pv_surplus_threshold_off?: number | null
           pv_surplus_threshold_on?: number | null
@@ -904,6 +907,7 @@ export type Database = {
           pv_auto_active: boolean | null
           pv_auto_enabled: boolean | null
           pv_auto_last_change: string | null
+          pv_boost_max_temp: number | null
           solar_gain_confidence: number | null
           solar_gain_samples: number | null
           solar_heating_temp: number | null
@@ -950,6 +954,7 @@ export type Database = {
           pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
           pv_auto_last_change?: string | null
+          pv_boost_max_temp?: number | null
           solar_gain_confidence?: number | null
           solar_gain_samples?: number | null
           solar_heating_temp?: number | null
@@ -996,6 +1001,7 @@ export type Database = {
           pv_auto_active?: boolean | null
           pv_auto_enabled?: boolean | null
           pv_auto_last_change?: string | null
+          pv_boost_max_temp?: number | null
           solar_gain_confidence?: number | null
           solar_gain_samples?: number | null
           solar_heating_temp?: number | null

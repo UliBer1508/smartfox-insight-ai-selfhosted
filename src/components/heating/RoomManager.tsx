@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2, Info, Leaf, Moon, ChevronDown } from 'lucide-react';
+import { Home, Plus, Pencil, Trash2, Sun, Compass, Thermometer, TrendingUp, BarChart3, Loader2, Info, Leaf, Moon, ChevronDown, Zap } from 'lucide-react';
 import { Room, OrientationType, ORIENTATION_LABELS, getEffectiveHeatingPower } from '@/types/room';
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -305,6 +305,31 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                       />
                     </div>
                   </div>
+
+                  {/* PV-Boost Max-Temperatur */}
+                  {editingRoom.pv_auto_enabled && (
+                    <div className="mt-3 p-3 bg-primary/10 rounded-lg border border-primary/20">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap className="h-4 w-4 text-primary" />
+                        <Label htmlFor="pv_boost_max">PV-Boost Max °C</Label>
+                      </div>
+                      <Input
+                        id="pv_boost_max"
+                        type="number"
+                        step="0.5"
+                        value={editingRoom.pv_boost_max_temp ?? ''}
+                        onChange={e => setEditingRoom({ 
+                          ...editingRoom, 
+                          pv_boost_max_temp: e.target.value ? parseFloat(e.target.value) : null 
+                        })}
+                        placeholder={`Standard: Komfort + Delta`}
+                        className="max-w-32"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        Maximale Temperatur bei PV-Überschuss. Leer = Komfort + globaler Boost-Delta.
+                      </p>
+                    </div>
+                  )}
                   
                   {/* Solar-Heiztemperatur: Nur anzeigen wenn Solargewinn aktiviert ist */}
                   {editingRoom.has_solar_gain && (

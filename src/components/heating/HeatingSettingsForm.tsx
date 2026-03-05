@@ -257,7 +257,7 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               <Zap className="w-4 h-4" />
               PV-Automatik Schwellwerte
             </h3>
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="threshold_on">Heizen ab (W)</Label>
                 <Input
@@ -293,6 +293,21 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                   onChange={(e) => handleChange('min_switch_interval_min', parseInt(e.target.value))}
                 />
                 <p className="text-xs text-muted-foreground">Mindestzeit zwischen Schaltvorgängen</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="pv_boost_delta">PV-Boost Temperatur (°C)</Label>
+                <Input
+                  id="pv_boost_delta"
+                  type="number"
+                  min="0"
+                  max="5"
+                  step="0.5"
+                  value={formData.pv_boost_temp_delta ?? 2}
+                  onChange={(e) => handleChange('pv_boost_temp_delta', parseFloat(e.target.value))}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Max. Aufheizung über Komfort bei PV-Überschuss
+                </p>
               </div>
             </div>
           </div>

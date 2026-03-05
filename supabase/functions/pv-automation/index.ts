@@ -628,15 +628,59 @@ Deno.serve(async (req) => {
         .order('timestamp', { ascending: false })
         .limit(10);
 
-      // 7. Load PV forecast for today
+      // 7. Load PV forecast for today (with hourly_watts for tracking)
       const today = new Date().toISOString().split('T')[0];
       const { data: pvForecast } = await supabase
         .from('pv_forecasts')
-        .select('expected_kwh')
+        .select('expected_kwh, hourly_watts')
         .eq('date', today)
         .single();
 
       const expectedPvKwh = pvForecast?.expected_kwh || 0;
+      const hourlyWatts = (pvForecast?.hourly_watts || {}) as Record<string, number>;
+
+      // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
+      const boostDelta = settings?.pv_boost_temp_delta || 2;
+      const batteryCapacity = settings?.battery_capacity_kwh || 13.8;
+      const batteryNeedKwh = batteryCapacity * Math.max(0, 1 - (batterySoc / 100));
+      const hotwaterKwh = (settings?.hotwater_enabled !== false) 
+        ? ((settings?.hotwater_power_w || 2800) * 4 / 1000) // ~4h Laufzeit
+        : 0;
+      const carKwh = (settings?.car_charging_enabled === true) ? 10 : 0;
+      const availableHeatingKwh = Math.max(0, expectedPvKwh - batteryNeedKwh - hotwaterKwh - carKwh);
+
+      // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
+      let forecastAccuracy = 1.0; // 1.0 = perfekt
+      const { wienHour: currentHourForForecast } = isNightTime('22:00', '06:00');
+      if (currentHourForForecast >= 8 && Object.keys(hourlyWatts).length > 0) {
+        // Summe der prognostizierten Wh bis zur aktuellen Stunde
+        let forecastSoFarWh = 0;
+        for (let h = 6; h < currentHourForForecast; h++) {
+          const key = String(h);
+          forecastSoFarWh += (hourlyWatts[key] || 0);
+        }
+        
+        if (forecastSoFarWh > 0) {
+          // Tatsächliche Produktion aus energy_readings (energy_out = PV-Produktion)
+          const todayStart = `${today}T06:00:00`;
+          const { data: todayReadings } = await supabase
+            .from('energy_readings')
+            .select('pv_power, timestamp')
+            .gte('timestamp', todayStart)
+            .order('timestamp', { ascending: true });
+          
+          if (todayReadings && todayReadings.length > 2) {
+            // Approximate actual kWh from pv_power samples (avg * hours)
+            const avgPvW = todayReadings.reduce((sum, r) => sum + (r.pv_power || 0), 0) / todayReadings.length;
+            const hoursElapsed = Math.max(1, currentHourForForecast - 6);
+            const actualWh = avgPvW * hoursElapsed;
+            forecastAccuracy = Math.min(2.0, actualWh / forecastSoFarWh);
+          }
+        }
+      }
+
+      const boostAllowed = availableHeatingKwh > 10 && forecastAccuracy >= 0.7;
+      console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
 
       // 8. Load recent solar heating events (last 60 min) for real-time solar gain detection
@@ -1282,6 +1326,34 @@ Deno.serve(async (req) => {
                 })
                 .eq('id', room.id);
             }
+          }
+        }
+
+        // ============= PV-BOOST: ÜBERSCHUSS ZUM AUFHEIZEN NUTZEN =============
+        // Nach Budget-Override: Wenn genug PV-Energie verfügbar, Räume über comfort_temp hinaus aufheizen
+        if (boostAllowed && room.pv_auto_enabled && !isNight) {
+          const currentRoomTemp = room.current_temp || 0;
+          const boostMaxTemp = (room as any).pv_boost_max_temp ?? (comfortTemp + boostDelta);
+          
+          // Boost nur wenn: Raum auf/über comfort_temp UND unter boostMax UND genug Export/SOC
+          if (currentRoomTemp >= comfortTemp - 0.5 && currentRoomTemp < boostMaxTemp - 0.3) {
+            const hasEnoughSurplus = gridExport > 1000 || batterySoc > 70;
+            
+            if (hasEnoughSurplus) {
+              action = 'activate';
+              targetTemp = boostMaxTemp;
+              solarLimitTemp = null;
+              reasoning = `🔥 PV-Boost: ${availableHeatingKwh.toFixed(0)}kWh Heizbudget, Export ${gridExport}W, SOC ${batterySoc.toFixed(0)}% → ${boostMaxTemp}°C (max) statt ${comfortTemp}°C`;
+              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+            }
+          }
+          // Deaktivierung: Boost-Ziel erreicht oder nicht mehr genug Energie
+          else if (currentRoomTemp >= boostMaxTemp && room.pv_auto_active && targetTemp > comfortTemp) {
+            action = 'deactivate';
+            targetTemp = comfortTemp;
+            solarLimitTemp = null;
+            reasoning = `PV-Boost beendet: ${currentRoomTemp.toFixed(1)}°C >= ${boostMaxTemp}°C (Ziel erreicht)`;
+            console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
           }
         }
 
