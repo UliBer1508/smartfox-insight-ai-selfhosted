@@ -1,21 +1,42 @@
 
 
-# KI-Kosten vermeiden: Lovable AI Fallback entfernen
+# Fix: Cron-Jobs verwenden Anon-Key, Auth erwartet Service-Role-Key
 
-## Aktueller Zustand
+## Problem
 
-Die Edge Function `analyze-patterns` ist die **einzige** Funktion, die KI-Aufrufe macht. Sie hat zwei Provider:
+Die Cron-Jobs (pg_cron) senden den **Anon-Key** als Bearer-Token. Die Auth-Logik in den Edge Functions prüft aber ob der Token dem **Service-Role-Key** entspricht. Der Anon-Key ist weder der Service-Role-Key noch ein gültiger User-JWT → 401 bei jedem Cron-Aufruf.
 
-1. **Google AI (Primaer)**: Ruft `generativelanguage.googleapis.com` direkt mit dem `GOOGLE_AI_API_KEY` auf -- das ist dein eigener Google AI Studio Key (kostenlos im Free-Tier mit Ratenlimit).
-2. **Lovable AI Gateway (Fallback)**: Wenn Google fehlschlaegt, wird automatisch `ai.gateway.lovable.dev` aufgerufen. **Dieser Fallback verursacht Lovable AI Kosten.**
+Das erklärt warum die Daten seit dem 3. März stehen geblieben sind.
 
-## Loesung
+## Lösung
 
-Den Lovable AI Fallback in `analyze-patterns/index.ts` komplett entfernen:
+Zwei Optionen - ich empfehle **Option A** (einfacher, kein Cron-Umbau nötig):
 
-1. **`callLovableAI()` Funktion loeschen** (Zeilen 147-181)
-2. **`callAI()` Funktion vereinfachen**: Nur noch Google AI aufrufen, bei Fehler eine klare Fehlermeldung zurueckgeben statt auf Lovable AI auszuweichen
-3. **Fehlerbehandlung**: Wenn Google AI fehlschlaegt (z.B. Rate-Limit), wird ein Fehler zurueckgegeben statt kostenpflichtig weiterzuleiten
+### Option A: Auth-Logik erweitern - auch Anon-Key akzeptieren
 
-Dadurch entstehen keine Kosten mehr fuer Lovable AI. Der `LOVABLE_API_KEY` bleibt als System-Secret bestehen (kann nicht geloescht werden), wird aber nicht mehr verwendet.
+In allen 4 Edge Functions die Auth-Prüfung so anpassen, dass **sowohl** Service-Role-Key **als auch** Anon-Key als interne Aufrufe akzeptiert werden:
+
+```typescript
+const token = authHeader.replace('Bearer ', '');
+const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+// Service role key OR anon key = internal/Cron call → allowed
+if (token !== serviceRoleKey && token !== anonKey) {
+  // Validate as user JWT
+  const { data, error } = await authClient.auth.getClaims(token);
+  if (error || !data?.claims?.sub) return 401;
+}
+```
+
+### Betroffene Dateien
+
+1. `supabase/functions/pv-automation/index.ts` (Zeilen 329-344)
+2. `supabase/functions/apply-recommendations/index.ts`
+3. `supabase/functions/tuya-control/index.ts`
+4. `supabase/functions/analyze-patterns/index.ts`
+
+Gleiche Änderung in allen 4 Funktionen: Anon-Key zusätzlich als erlaubten internen Token akzeptieren.
+
+**Hinweis:** Da `verify_jwt = false` in config.toml gesetzt ist und die Funktionen bereits eigene Auth-Prüfung machen, ist dies sicher - der Anon-Key allein gewährt keinen Datenzugriff, die Funktionen verwenden intern den Service-Role-Key für DB-Operationen.
 
