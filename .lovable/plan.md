@@ -1,42 +1,27 @@
 
 
-# Fix: Cron-Jobs verwenden Anon-Key, Auth erwartet Service-Role-Key
+# "Letzte Aktionen" durch Echtzeit-Heizstatus ersetzen
 
 ## Problem
 
-Die Cron-Jobs (pg_cron) senden den **Anon-Key** als Bearer-Token. Die Auth-Logik in den Edge Functions prüft aber ob der Token dem **Service-Role-Key** entspricht. Der Anon-Key ist weder der Service-Role-Key noch ein gültiger User-JWT → 401 bei jedem Cron-Aufruf.
+Die "Letzte Aktionen" zeigen historische `learning_events` (alle "vor 1 Tag"). Der User will sehen, **was jetzt gerade passiert** -- welche Raeume aktiv heizen, seit wann, mit welcher Leistung.
 
-Das erklärt warum die Daten seit dem 3. März stehen geblieben sind.
+## Loesung
 
-## Lösung
+Den `useActiveHeatingRooms` Hook (existiert bereits) im AIStatusWidget nutzen statt `useAIStats.recentActions`:
 
-Zwei Optionen - ich empfehle **Option A** (einfacher, kein Cron-Umbau nötig):
+### Aenderungen in `AIStatusWidget.tsx`
 
-### Option A: Auth-Logik erweitern - auch Anon-Key akzeptieren
+1. **Import `useActiveHeatingRooms`** statt der recentActions aus useAIStats
+2. **"Letzte Aktionen" ersetzen durch "Aktive Heizungen"**: Zeigt pro Raum:
+   - Flame-Icon + Raumname + Leistung (z.B. "Buero 600W")
+   - Dauer seit Start (z.B. "seit 23 Min")
+3. Wenn keine Raeume heizen: "Keine aktive Heizung"
+4. Gesamtleistung als Zusammenfassung anzeigen (z.B. "Gesamt: 1.8 kW")
 
-In allen 4 Edge Functions die Auth-Prüfung so anpassen, dass **sowohl** Service-Role-Key **als auch** Anon-Key als interne Aufrufe akzeptiert werden:
+### Betroffene Datei
 
-```typescript
-const token = authHeader.replace('Bearer ', '');
-const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+- `src/components/heating/AIStatusWidget.tsx` -- Collapsible-Inhalt der "Letzte Aktionen" Section ersetzen
 
-// Service role key OR anon key = internal/Cron call → allowed
-if (token !== serviceRoleKey && token !== anonKey) {
-  // Validate as user JWT
-  const { data, error } = await authClient.auth.getClaims(token);
-  if (error || !data?.claims?.sub) return 401;
-}
-```
-
-### Betroffene Dateien
-
-1. `supabase/functions/pv-automation/index.ts` (Zeilen 329-344)
-2. `supabase/functions/apply-recommendations/index.ts`
-3. `supabase/functions/tuya-control/index.ts`
-4. `supabase/functions/analyze-patterns/index.ts`
-
-Gleiche Änderung in allen 4 Funktionen: Anon-Key zusätzlich als erlaubten internen Token akzeptieren.
-
-**Hinweis:** Da `verify_jwt = false` in config.toml gesetzt ist und die Funktionen bereits eigene Auth-Prüfung machen, ist dies sicher - der Anon-Key allein gewährt keinen Datenzugriff, die Funktionen verwenden intern den Service-Role-Key für DB-Operationen.
+Die historischen learning_events bleiben im `useAIStats` Hook fuer den Lernfortschritt erhalten, werden nur nicht mehr in der Aktions-Liste angezeigt.
 
