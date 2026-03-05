@@ -263,22 +263,38 @@ function calculateEnergyPerDegree(
   logs: RoomHeatingLog[],
   samples: TemperatureSample[]
 ): number | null {
-  // Korreliere Heizzyklen mit Energieverbrauch
-  const heatingStarts = logs.filter(l => l.event_type === 'heating_start' || l.event_type === 'solar_limit_start');
-  const heatingStops = logs.filter(l => l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop');
+  // Nutze Stop-Events mit duration_minutes und energy > 0
+  // Für jeden Stop: Startzeitpunkt = stop.timestamp - duration_minutes
+  // Dann nächste Temperature-Sample zum Startzeitpunkt suchen
+  const heatingStops = logs.filter(l => 
+    (l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop') &&
+    l.duration_minutes != null && l.duration_minutes > 0 &&
+    l.energy_estimate_wh != null && l.energy_estimate_wh > 0 &&
+    l.current_temp != null
+  );
 
   const cycles: { energy: number; tempGain: number }[] = [];
 
-  for (const start of heatingStarts) {
-    const stop = heatingStops.find(s => 
-      new Date(s.timestamp) > new Date(start.timestamp) &&
-      new Date(s.timestamp).getTime() - new Date(start.timestamp).getTime() < 3600000 * 4
-    );
+  for (const stop of heatingStops) {
+    const stopTime = new Date(stop.timestamp).getTime();
+    const startTime = stopTime - (stop.duration_minutes! * 60000);
 
-    if (stop && stop.energy_estimate_wh && start.current_temp && stop.current_temp) {
-      const tempGain = stop.current_temp - start.current_temp;
+    // Finde Temperature-Sample am nächsten zum berechneten Startzeitpunkt
+    let closestSample: TemperatureSample | null = null;
+    let closestDiff = Infinity;
+    for (const sample of samples) {
+      const sampleTime = new Date(sample.timestamp).getTime();
+      const diff = Math.abs(sampleTime - startTime);
+      if (diff < closestDiff && diff < 600000) { // Max 10 Min Abweichung
+        closestDiff = diff;
+        closestSample = sample;
+      }
+    }
+
+    if (closestSample) {
+      const tempGain = stop.current_temp! - closestSample.temperature;
       if (tempGain > 0.1) {
-        cycles.push({ energy: stop.energy_estimate_wh, tempGain });
+        cycles.push({ energy: stop.energy_estimate_wh!, tempGain });
       }
     }
   }
@@ -335,7 +351,8 @@ function calculateHeatingBehavior(logs: RoomHeatingLog[]): {
   avgCycles: number | null;
 } {
   const heatingStops = logs.filter(l => 
-    (l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop') && l.duration_minutes
+    (l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop') && 
+    l.duration_minutes != null && l.duration_minutes > 0
   );
   
   if (heatingStops.length === 0) {
@@ -344,9 +361,9 @@ function calculateHeatingBehavior(logs: RoomHeatingLog[]): {
 
   const avgDuration = heatingStops.reduce((sum, l) => sum + (l.duration_minutes || 0), 0) / heatingStops.length;
 
-  // Zyklen pro Tag
+  // Zyklen pro Tag - Stops zählen statt (fehlende) Starts
   const dayMap = new Map<string, number>();
-  for (const log of logs.filter(l => l.event_type === 'heating_start' || l.event_type === 'solar_limit_start')) {
+  for (const log of heatingStops) {
     const day = log.timestamp.split('T')[0];
     dayMap.set(day, (dayMap.get(day) || 0) + 1);
   }
@@ -406,20 +423,17 @@ function calculateEfficiencyMetrics(
 }
 
 function getHeatingPeriods(logs: RoomHeatingLog[]): { start: number; end: number }[] {
+  // Rekonstruiere Heizperioden aus Stop-Events mit duration_minutes
   const periods: { start: number; end: number }[] = [];
-  const starts = logs.filter(l => l.event_type === 'heating_start' || l.event_type === 'solar_limit_start').sort((a, b) => 
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-  const stops = logs.filter(l => l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop').sort((a, b) => 
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  const stops = logs.filter(l => 
+    (l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop') &&
+    l.duration_minutes != null && l.duration_minutes > 0
   );
 
-  for (const start of starts) {
-    const startTime = new Date(start.timestamp).getTime();
-    const stop = stops.find(s => new Date(s.timestamp).getTime() > startTime);
-    if (stop) {
-      periods.push({ start: startTime, end: new Date(stop.timestamp).getTime() });
-    }
+  for (const stop of stops) {
+    const endTime = new Date(stop.timestamp).getTime();
+    const startTime = endTime - (stop.duration_minutes! * 60000);
+    periods.push({ start: startTime, end: endTime });
   }
 
   return periods;
