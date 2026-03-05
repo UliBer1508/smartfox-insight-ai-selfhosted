@@ -1,23 +1,28 @@
 
-# ✅ PV-Boost mit raumspezifischen Maximaltemperaturen und Prognose-Tracking
+# ✅ Solar-Heiztemperatur entfernt, PV-Boost ist jetzt primäre Logik
 
-## Implementiert
+## Umgesetzt
 
-### DB-Felder
-- `rooms.pv_boost_max_temp` - Raumspezifische Boost-Obergrenze (nullable)
-- `heating_settings.pv_boost_temp_delta` - Globaler Boost-Delta (Default: 2°C)
+### Problem behoben
+- `solar_heating_temp` senkte Thermostate auf 18°C bei Sonne → verhinderte PV-Boost
+- Widerspruch: PV-Boost will HÖHER heizen, solar_heating_temp setzte NIEDRIGER
 
-### Initiale Werte gesetzt
-- Wohnzimmer: 22°C max
-- Schlafzimmer/Büro: 21°C max
+### Änderungen
+1. **pv-automation/index.ts**: Alle `solarTemp`-Referenzen entfernt
+   - Echtzeit-Solargewinn: Thermostat bleibt auf eco_temp (statt Absenkung)
+   - PV-Überschuss: Alle Räume einheitlich auf eco_temp (statt solar_heating_temp)
+   - Warte auf PV: action='keep' statt 'deactivate' mit solarTemp
+   - PV-Modus aktiv: eco_temp für alle Räume (keine Unterscheidung solar/normal)
 
-### PV-Boost-Logik in `pv-automation/index.ts`
-- Energiebudget: `Prognose - Batterie-Bedarf - Warmwasser - Auto = Heizbudget`
-- Prognose-Tracking: Vergleicht tatsächliche PV-Produktion mit Stunden-Prognose
-- Boost aktiv wenn: Budget > 10kWh UND Prognose-Genauigkeit >= 70%
-- Boost-Bedingungen: Raum >= comfort_temp, Export > 1000W oder SOC > 70%
-- Raumspezifische Max-Temp hat Vorrang vor globalem Delta
+2. **RoomManager.tsx**: "Solar-Heiztemperatur" Feld aus UI entfernt
 
-### UI
-- HeatingSettingsForm: "PV-Boost Temperatur" Feld (0-5°C)
-- RoomManager: "PV-Boost Max °C" pro Raum (nur bei PV-Auto aktiv)
+3. **room.ts**: `solar_heating_temp` als @deprecated markiert
+
+### Logik jetzt
+| Situation | Temperatur |
+|-----------|-----------|
+| Nacht | night_temp |
+| Tag, wenig PV | eco_temp |
+| Tag, PV-Überschuss | eco_temp → comfort_temp (Budget) |
+| Tag, viel PV-Überschuss | pv_boost_max_temp (über comfort) |
+| Solargewinn durch Fenster | eco_temp (Heizung geht nicht an, da Raum warm) |
