@@ -679,7 +679,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const boostAllowed = availableHeatingKwh > 10 && forecastAccuracy >= 0.7;
+      const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
 
@@ -1319,13 +1319,15 @@ Deno.serve(async (req) => {
 
         // ============= PV-BOOST: ÜBERSCHUSS ZUM AUFHEIZEN NUTZEN =============
         // Nach Budget-Override: Wenn genug PV-Energie verfügbar, Räume über comfort_temp hinaus aufheizen
-        if (boostAllowed && room.pv_auto_enabled && !isNight) {
+        if (boostAllowed && room.automation_enabled && !isNight) {
           const currentRoomTemp = room.current_temp || 0;
-          const boostMaxTemp = (room as any).pv_boost_max_temp ?? (comfortTemp + boostDelta);
+          // Fallback: wenn pv_boost_max_temp nicht gesetzt oder <= comfort_temp, dann comfort + boostDelta
+          const rawBoostMax = (room as any).pv_boost_max_temp;
+          const boostMaxTemp = (rawBoostMax && rawBoostMax > comfortTemp) ? rawBoostMax : (comfortTemp + boostDelta);
           
-          // Boost nur wenn: Raum auf/über comfort_temp UND unter boostMax UND genug Export/SOC
-          if (currentRoomTemp >= comfortTemp - 0.5 && currentRoomTemp < boostMaxTemp - 0.3) {
-            const hasEnoughSurplus = gridExport > 1000 || batterySoc > 70;
+          // Boost ab eco_temp erlauben (nicht erst ab comfort_temp)
+          if (currentRoomTemp >= ecoTemp - 0.5 && currentRoomTemp < boostMaxTemp - 0.3) {
+            const hasEnoughSurplus = gridExport > 500 || batterySoc > 70;
             
             if (hasEnoughSurplus) {
               action = 'activate';
