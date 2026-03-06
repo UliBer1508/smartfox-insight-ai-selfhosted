@@ -1,28 +1,10 @@
 
-# ✅ Solar-Heiztemperatur entfernt, PV-Boost ist jetzt primäre Logik
+# ✅ PV-Boost 3 Bugs gefixt
 
-## Umgesetzt
+## Änderungen in `pv-automation/index.ts`
 
-### Problem behoben
-- `solar_heating_temp` senkte Thermostate auf 18°C bei Sonne → verhinderte PV-Boost
-- Widerspruch: PV-Boost will HÖHER heizen, solar_heating_temp setzte NIEDRIGER
-
-### Änderungen
-1. **pv-automation/index.ts**: Alle `solarTemp`-Referenzen entfernt
-   - Echtzeit-Solargewinn: Thermostat bleibt auf eco_temp (statt Absenkung)
-   - PV-Überschuss: Alle Räume einheitlich auf eco_temp (statt solar_heating_temp)
-   - Warte auf PV: action='keep' statt 'deactivate' mit solarTemp
-   - PV-Modus aktiv: eco_temp für alle Räume (keine Unterscheidung solar/normal)
-
-2. **RoomManager.tsx**: "Solar-Heiztemperatur" Feld aus UI entfernt
-
-3. **room.ts**: `solar_heating_temp` als @deprecated markiert
-
-### Logik jetzt
-| Situation | Temperatur |
-|-----------|-----------|
-| Nacht | night_temp |
-| Tag, wenig PV | eco_temp |
-| Tag, PV-Überschuss | eco_temp → comfort_temp (Budget) |
-| Tag, viel PV-Überschuss | pv_boost_max_temp (über comfort) |
-| Solargewinn durch Fenster | eco_temp (Heizung geht nicht an, da Raum warm) |
+1. **Boost-Schwelle**: `availableHeatingKwh > 10` → `> 3` (Zeile 682)
+2. **Flag**: `room.pv_auto_enabled` → `room.automation_enabled` (Zeile 1322)
+3. **Fallback boost_max**: Wenn `pv_boost_max_temp` fehlt oder <= comfort → `comfort + boostDelta`
+4. **Boost-Gate**: `comfortTemp - 0.5` → `ecoTemp - 0.5` (Boost greift ab eco statt comfort)
+5. **Surplus-Schwelle**: `gridExport > 1000` → `> 500` (passt zu `pv_surplus_threshold_on`)
