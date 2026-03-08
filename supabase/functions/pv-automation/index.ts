@@ -1012,9 +1012,10 @@ Deno.serve(async (req) => {
           }
 
           // (Morgen-Aufwärmphase entfernt — normale Tag-Logik Grid-Fallback/PV/Boost übernimmt)
-          // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
+          // ============= SOLAR-ERKENNUNG IN ECHTZEIT =============
           // Check if this room is currently gaining heat from the sun
-          else {
+          {
+            const currentTargetTemp = Number(room.target_temp) || 0;
             const realtimeSolarGain = roomsWithSolarGain.get(room.id);
           
             if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
