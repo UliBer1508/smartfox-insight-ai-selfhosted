@@ -1011,50 +1011,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // ============= MORGEN-AUFWÄRMPHASE nach Nachtende =============
-          // NEUE LOGIK: Prüfe zuerst ob aktuelle Stunde in optimal_solar_hours liegt
-          // Statt blind um 08:00 zu heizen, warte auf PV-optimale Stunden
-          const currentTargetTemp = Number(room.target_temp) || 0;
-          const needsMorningWakeup = currentTargetTemp < ecoTemp || 
-            (Math.abs(currentTargetTemp - nightTemp) < 0.5 && !room.pv_auto_active);
-          
-          if (needsMorningWakeup) {
-            // Prüfe ML-basierte optimale Heizstunden
-            const optimalCheck = isOptimalHeatingTime(
-              room.id, 
-              latestMlFeatures as RoomMLFeatures[], 
-              wienHour, 
-              batterySoc,
-              pvPower
-            );
-            
-            if (optimalCheck.canHeat) {
-              action = 'activate';  // activate erzwingt Tuya-Sync
-              targetTemp = ecoTemp;
-              solarLimitTemp = null;
-              
-              if (optimalCheck.isLearningPhase) {
-                reasoning = `Morgen-Aufwärmen: ${currentTargetTemp}°C → ${ecoTemp}°C (${optimalCheck.reason})`;
-              } else {
-                reasoning = `Morgen-Aufwärmen: ${optimalCheck.reason}`;
-              }
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-            } else {
-              // ML sagt "nicht optimal" für PV-Komfort, aber Basis-Heizen auf eco_temp erlauben
-              // Grid-Fallback: Räume sollen nicht auf nightTemp bleiben wenn es Tag ist
-              action = 'activate';
-              targetTemp = ecoTemp;
-              solarLimitTemp = null;
-              reasoning = `Morgen-Aufwärmen auf ${ecoTemp}°C (Grid, warte auf PV für Komfort: ${optimalCheck.reason})`;
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              
-              // Raum-Status aktualisieren
-              await supabase
-                .from('rooms')
-                .update({ heating_paused_reason: 'waiting_for_optimal_hours' })
-                .eq('id', room.id);
-            }
-          }
+          // (Morgen-Aufwärmphase entfernt — normale Tag-Logik Grid-Fallback/PV/Boost übernimmt)
           // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
           // Check if this room is currently gaining heat from the sun
           else {
