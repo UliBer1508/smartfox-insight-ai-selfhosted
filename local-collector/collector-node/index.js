@@ -267,6 +267,51 @@ async function processCommands() {
   }
 }
 
+// Trigger pv-automation Edge Function
+async function triggerPvAutomation() {
+  try {
+    const url = `${config.supabase.url}/functions/v1/pv-automation`;
+    const https = require('https');
+    const postData = JSON.stringify({ action: 'check' });
+    
+    return new Promise((resolve) => {
+      const req = https.request(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${config.supabase.anon_key}`,
+          'Content-Length': Buffer.byteLength(postData)
+        },
+        timeout: 30000
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => data += chunk);
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            console.log('[PV-Auto] Edge Function erfolgreich aufgerufen');
+          } else {
+            console.error(`[PV-Auto] Fehler: HTTP ${res.statusCode}`);
+          }
+          resolve();
+        });
+      });
+      req.on('error', (err) => {
+        console.error('[PV-Auto] Aufruf fehlgeschlagen:', err.message);
+        resolve();
+      });
+      req.on('timeout', () => {
+        req.destroy();
+        console.error('[PV-Auto] Timeout');
+        resolve();
+      });
+      req.write(postData);
+      req.end();
+    });
+  } catch (error) {
+    console.error('[PV-Auto] Fehler:', error.message);
+  }
+}
+
 // Main polling loop
 async function poll() {
   const now = Date.now();
@@ -281,6 +326,12 @@ async function poll() {
   
   // Thermostat-Befehle verarbeiten (jedes Mal, für schnelle Reaktion)
   await processCommands();
+  
+  // PV-Automation triggern (alle 2 Minuten)
+  if (now - lastAutomationTrigger >= AUTOMATION_INTERVAL_MS) {
+    await triggerPvAutomation();
+    lastAutomationTrigger = now;
+  }
   
   // Thermostate synchronisieren (alle X Sekunden)
   const syncInterval = (config.tuya?.sync_interval_seconds || 60) * 1000;
