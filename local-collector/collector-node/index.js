@@ -43,7 +43,8 @@ if (config.tuya?.enabled) {
 }
 
 let lastThermostatSync = 0;
-
+let lastAutomationTrigger = 0;
+const AUTOMATION_INTERVAL_MS = 2 * 60 * 1000; // 2 Minuten
 // HTTP GET request helper
 function httpGet(url, timeout = 5000) {
   return new Promise((resolve, reject) => {
