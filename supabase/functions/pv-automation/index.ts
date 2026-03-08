@@ -77,86 +77,7 @@ function isMorningWaitPeriod(
   return { shouldWait: false, reason: '' };
 }
 
-// ============= ML-BASIERTE OPTIMALE HEIZSTUNDEN =============
-// Prüft ob die aktuelle Stunde in den gelernten optimal_solar_hours des Raums liegt
-interface OptimalHeatingResult {
-  canHeat: boolean;
-  reason: string;
-  optimalHours: string[] | null;
-  isLearningPhase: boolean;
-}
-
-interface RoomMLFeatures {
-  room_id: string;
-  optimal_solar_hours?: string[] | null;
-  pv_heating_ratio?: number | null;
-  grid_import_ratio?: number | null;
-  avg_heating_duration_min?: number | null;
-  sample_count?: number | null;
-}
-
-function isOptimalHeatingTime(
-  roomId: string,
-  mlFeatures: RoomMLFeatures[],
-  wienHour: number,
-  batterySoc: number,
-  pvPower: number
-): OptimalHeatingResult {
-  const roomFeatures = mlFeatures.find(f => f.room_id === roomId);
-  
-  // Keine ML-Daten oder zu wenig Samples → Lernphase, erlaube alles
-  if (!roomFeatures || !roomFeatures.optimal_solar_hours?.length || (roomFeatures.sample_count || 0) < 10) {
-    return { 
-      canHeat: true, 
-      reason: 'Lernphase aktiv (noch keine optimalen Stunden berechnet)',
-      optimalHours: null,
-      isLearningPhase: true
-    };
-  }
-  
-  const currentHourStr = `${String(wienHour).padStart(2, '0')}:00`;
-  const optimalHours = roomFeatures.optimal_solar_hours;
-  const isOptimal = optimalHours.includes(currentHourStr);
-  
-  if (isOptimal) {
-    return { 
-      canHeat: true, 
-      reason: `✅ Optimale Heizstunde (ML: ${optimalHours.join(', ')})`,
-      optimalHours,
-      isLearningPhase: false
-    };
-  }
-  
-  // Außerhalb optimaler Stunden: Prüfe Ausnahmen
-  
-  // Ausnahme 1: Batterie sehr voll (>80%) - nutze den Überschuss
-  if (batterySoc > 80) {
-    return { 
-      canHeat: true, 
-      reason: `Batterie >80% (${batterySoc.toFixed(0)}%), außerhalb optimaler Stunden erlaubt`,
-      optimalHours,
-      isLearningPhase: false
-    };
-  }
-  
-  // Ausnahme 2: PV produziert bereits genug (>2000W) - dann heizen sinnvoll
-  if (pvPower > 2000) {
-    return { 
-      canHeat: true, 
-      reason: `Hohe PV-Produktion (${pvPower}W), außerhalb optimaler Stunden erlaubt`,
-      optimalHours,
-      isLearningPhase: false
-    };
-  }
-  
-  // Sonst: NICHT heizen - warte auf optimale Stunden
-  return { 
-    canHeat: false, 
-    reason: `⏳ Warte auf optimale Stunden: ${optimalHours.join(', ')} (aktuell ${wienHour}:00, SOC ${batterySoc.toFixed(0)}%, PV ${pvPower}W)`,
-    optimalHours,
-    isLearningPhase: false
-  };
-}
+// (isOptimalHeatingTime entfernt — normale Tag-Logik übernimmt)
 
 interface MLDecision {
   room_id: string;
@@ -1090,53 +1011,11 @@ Deno.serve(async (req) => {
             }
           }
 
-          // ============= MORGEN-AUFWÄRMPHASE nach Nachtende =============
-          // NEUE LOGIK: Prüfe zuerst ob aktuelle Stunde in optimal_solar_hours liegt
-          // Statt blind um 08:00 zu heizen, warte auf PV-optimale Stunden
-          const currentTargetTemp = Number(room.target_temp) || 0;
-          const needsMorningWakeup = currentTargetTemp < ecoTemp || 
-            (Math.abs(currentTargetTemp - nightTemp) < 0.5 && !room.pv_auto_active);
-          
-          if (needsMorningWakeup) {
-            // Prüfe ML-basierte optimale Heizstunden
-            const optimalCheck = isOptimalHeatingTime(
-              room.id, 
-              latestMlFeatures as RoomMLFeatures[], 
-              wienHour, 
-              batterySoc,
-              pvPower
-            );
-            
-            if (optimalCheck.canHeat) {
-              action = 'activate';  // activate erzwingt Tuya-Sync
-              targetTemp = ecoTemp;
-              solarLimitTemp = null;
-              
-              if (optimalCheck.isLearningPhase) {
-                reasoning = `Morgen-Aufwärmen: ${currentTargetTemp}°C → ${ecoTemp}°C (${optimalCheck.reason})`;
-              } else {
-                reasoning = `Morgen-Aufwärmen: ${optimalCheck.reason}`;
-              }
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-            } else {
-              // ML sagt "nicht optimal" für PV-Komfort, aber Basis-Heizen auf eco_temp erlauben
-              // Grid-Fallback: Räume sollen nicht auf nightTemp bleiben wenn es Tag ist
-              action = 'activate';
-              targetTemp = ecoTemp;
-              solarLimitTemp = null;
-              reasoning = `Morgen-Aufwärmen auf ${ecoTemp}°C (Grid, warte auf PV für Komfort: ${optimalCheck.reason})`;
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              
-              // Raum-Status aktualisieren
-              await supabase
-                .from('rooms')
-                .update({ heating_paused_reason: 'waiting_for_optimal_hours' })
-                .eq('id', room.id);
-            }
-          }
-          // ============= NEUE SOLAR-ERKENNUNG IN ECHTZEIT =============
+          // (Morgen-Aufwärmphase entfernt — normale Tag-Logik Grid-Fallback/PV/Boost übernimmt)
+          // ============= SOLAR-ERKENNUNG IN ECHTZEIT =============
           // Check if this room is currently gaining heat from the sun
-          else {
+          {
+            const currentTargetTemp = Number(room.target_temp) || 0;
             const realtimeSolarGain = roomsWithSolarGain.get(room.id);
           
             if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
