@@ -100,7 +100,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 

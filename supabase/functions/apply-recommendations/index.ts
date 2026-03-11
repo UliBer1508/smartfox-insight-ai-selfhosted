@@ -289,6 +289,43 @@ Deno.serve(async (req) => {
 
       console.log(`[apply-recommendations] Checking recommendations for ${today} at ${currentTime}`);
 
+      // === NACHT-CHECK: Nachts keine Empfehlungen anwenden ===
+      const { data: nightSettings } = await supabase
+        .from('heating_settings')
+        .select('night_start_time, night_end_time')
+        .limit(1)
+        .maybeSingle();
+
+      const nightStart = nightSettings?.night_start_time || '22:00';
+      const nightEnd = nightSettings?.night_end_time || '06:00';
+
+      // Parse current Wien time
+      const [curH, curM] = currentTime.split(':').map(Number);
+      const curMinutes = curH * 60 + curM;
+      const [nsH, nsM] = String(nightStart).split(':').map(Number);
+      const [neH, neM] = String(nightEnd).split(':').map(Number);
+      const nightStartMin = nsH * 60 + (nsM || 0);
+      const nightEndMin = neH * 60 + (neM || 0);
+
+      let isNight: boolean;
+      if (nightStartMin > nightEndMin) {
+        isNight = curMinutes >= nightStartMin || curMinutes < nightEndMin;
+      } else {
+        isNight = curMinutes >= nightStartMin && curMinutes < nightEndMin;
+      }
+
+      if (isNight) {
+        console.log(`[apply-recommendations] Nachtmodus aktiv (${nightStart}-${nightEnd}), überspringe Empfehlungen`);
+        return new Response(JSON.stringify({
+          success: true,
+          message: 'Nachtmodus aktiv - keine Empfehlungen angewendet',
+          applied: 0,
+          skipped: 0,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       // Load control mode
       const { data: modeSetting } = await supabase
         .from('system_settings')

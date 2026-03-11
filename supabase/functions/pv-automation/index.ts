@@ -1046,7 +1046,9 @@ Deno.serve(async (req) => {
                 nightEnd,
                 wienHour,
                 expectedPvKwh,
-                pvPower
+                pvPower,
+                batterySoc,
+                settings?.target_battery_soc || 80
               );
               
               if (shouldWait) {
