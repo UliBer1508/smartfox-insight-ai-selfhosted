@@ -490,7 +490,7 @@ Deno.serve(async (req) => {
       // - Night mode (night_temp)
       // - Budget pause (15°C when PV is low)
       // - But NO active PV heating to comfort temp
-      const { data: rooms, error: roomsError } = await supabase
+      let { data: rooms, error: roomsError } = await supabase
         .from('rooms')
         .select('*')
         .eq('automation_enabled', true)
@@ -500,6 +500,46 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: true, message: 'No rooms with PV automation', results: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+
+      // ============= PRE-SYNC: Frische Thermostatdaten vor Automationsrunde =============
+      // Stellt sicher dass current_temp und is_heating aktuell sind
+      let syncFailed = false;
+      if (controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
+        try {
+          console.log(`[PV-Automation] Pre-sync: Lade frische Thermostatdaten für ${rooms.length} Räume...`);
+          const syncResponse = await fetch(`${supabaseUrl}/functions/v1/tuya-control/sync-all`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+          });
+          
+          if (syncResponse.ok) {
+            const syncResult = await syncResponse.json();
+            console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
+            
+            // Räume neu laden mit frischen Daten
+            const { data: freshRooms, error: freshError } = await supabase
+              .from('rooms')
+              .select('*')
+              .eq('automation_enabled', true)
+              .not('tuya_device_id', 'is', null);
+            
+            if (!freshError && freshRooms && freshRooms.length > 0) {
+              rooms = freshRooms;
+              console.log(`[PV-Automation] Räume neu geladen nach Pre-sync`);
+            }
+          } else {
+            console.warn(`[PV-Automation] Pre-sync fehlgeschlagen (${syncResponse.status}) - verwende DB-Daten, nur Reduktionen/Stops erlaubt`);
+            syncFailed = true;
+          }
+        } catch (syncError) {
+          console.warn(`[PV-Automation] Pre-sync Fehler: ${syncError} - verwende DB-Daten, nur Reduktionen/Stops erlaubt`);
+          syncFailed = true;
+        }
       }
 
       // 4. Load ML features
