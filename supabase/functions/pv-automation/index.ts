@@ -983,7 +983,7 @@ Deno.serve(async (req) => {
                 // Bei Solargewinn-Räumen heizt die Heizung ohnehin nicht wenn Sonne den Raum erwärmt
                 targetTemp = ecoTemp;
                 solarLimitTemp = comfortTemp;
-                reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV${room.has_solar_gain ? ', Solargewinn möglich' : ''})`;
+                reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV)`;
               }
               // (PV-Warte-Sonderbehandlung für has_solar_gain entfernt — alle Räume gleich behandelt)
               // 4. Low/no surplus -> Solar-Limit deaktivieren
