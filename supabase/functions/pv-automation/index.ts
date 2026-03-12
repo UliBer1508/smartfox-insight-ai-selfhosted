@@ -428,6 +428,7 @@ Deno.serve(async (req) => {
                 pv_auto_active: false,
                 heating_paused_reason: null,
                 last_auto_change: new Date().toISOString(),
+                last_thermostat_sync: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
