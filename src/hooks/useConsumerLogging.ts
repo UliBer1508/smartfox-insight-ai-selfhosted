@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { ActiveConsumer } from './useConsumptionAnalysis';
 
+const MAX_SESSION_HOURS = 4;
+
 interface ActiveSession {
   logId: string;
   consumerType: string;
@@ -13,15 +15,33 @@ interface ActiveSession {
 export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentConsumption: number | null) {
   const activeSessions = useRef<Map<string, ActiveSession>>(new Map());
   const lastUpdateTime = useRef<Date>(new Date());
+  const cleanupDone = useRef(false);
 
-  // Startet eine neue Log-Session für einen Verbraucher
+  // Cleanup verwaister Sessions beim Mount
+  useEffect(() => {
+    if (cleanupDone.current) return;
+    cleanupDone.current = true;
+
+    const cleanup = async () => {
+      const { data, error } = await supabase
+        .from('consumer_logs')
+        .update({
+          is_active: false,
+          end_time: new Date().toISOString(),
+        })
+        .eq('is_active', true)
+        .select('id');
+
+      if (!error && data && data.length > 0) {
+        console.log(`[ConsumerLogging] Cleanup: ${data.length} verwaiste Sessions geschlossen`);
+      }
+    };
+    cleanup();
+  }, []);
+
   const startSession = useCallback(async (consumer: ActiveConsumer) => {
     const consumerType = getConsumerType(consumer.name);
-    
-    // Prüfen ob bereits eine Session läuft
-    if (activeSessions.current.has(consumerType)) {
-      return;
-    }
+    if (activeSessions.current.has(consumerType)) return;
 
     const { data, error } = await supabase
       .from('consumer_logs')
@@ -47,7 +67,6 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
     }
   }, []);
 
-  // Beendet eine Log-Session
   const endSession = useCallback(async (consumerType: string) => {
     const session = activeSessions.current.get(consumerType);
     if (!session) return;
@@ -73,39 +92,38 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
     console.log(`[ConsumerLogging] Session beendet: ${consumerType} - ${durationMinutes} Min, ${avgPower}W avg, ${totalEnergyWh}Wh`);
   }, []);
 
-  // Aktualisiert eine laufende Session
   const updateSession = useCallback(async (consumer: ActiveConsumer) => {
     const consumerType = getConsumerType(consumer.name);
     const session = activeSessions.current.get(consumerType);
     if (!session) return;
 
+    // Auto-close sessions exceeding max duration
+    const runningHours = (Date.now() - session.startTime.getTime()) / 3600000;
+    if (runningHours >= MAX_SESSION_HOURS) {
+      console.log(`[ConsumerLogging] Session ${consumerType} überschreitet ${MAX_SESSION_HOURS}h - wird geschlossen`);
+      await endSession(consumerType);
+      return;
+    }
+
     session.powerSamples.push(Math.round(consumer.power));
     session.maxPower = Math.max(session.maxPower, Math.round(consumer.power));
 
-    // Nur alle 60 Sekunden in DB updaten
     const now = new Date();
     if (now.getTime() - lastUpdateTime.current.getTime() > 60000) {
       const avgPower = Math.round(session.powerSamples.reduce((a, b) => a + b, 0) / session.powerSamples.length);
-      
       await supabase
         .from('consumer_logs')
-        .update({
-          avg_power_w: avgPower,
-          max_power_w: session.maxPower
-        })
+        .update({ avg_power_w: avgPower, max_power_w: session.maxPower })
         .eq('id', session.logId);
-      
       lastUpdateTime.current = now;
     }
-  }, []);
+  }, [endSession]);
 
-  // Haupteffekt: Beobachtet Verbraucher und startet/beendet Sessions
   useEffect(() => {
     if (currentConsumption === null) return;
 
     const activeTypes = new Set(activeConsumers.map(c => getConsumerType(c.name)));
-    
-    // Neue Sessions starten
+
     for (const consumer of activeConsumers) {
       const type = getConsumerType(consumer.name);
       if (!activeSessions.current.has(type)) {
@@ -115,7 +133,6 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
       }
     }
 
-    // Beendete Sessions schließen
     for (const [type] of activeSessions.current) {
       if (!activeTypes.has(type)) {
         endSession(type);
@@ -123,10 +140,8 @@ export function useConsumerLogging(activeConsumers: ActiveConsumer[], currentCon
     }
   }, [activeConsumers, currentConsumption, startSession, endSession, updateSession]);
 
-  // Cleanup beim Unmount
   useEffect(() => {
     return () => {
-      // Alle aktiven Sessions beenden
       for (const [type] of activeSessions.current) {
         endSession(type);
       }

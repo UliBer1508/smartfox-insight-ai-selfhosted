@@ -81,12 +81,13 @@ export function useConsumptionAnalysis(currentConsumption: number | null): Consu
     if (heatingSettings?.hotwater_enabled && currentConsumption) {
       const start = heatingSettings.hotwater_schedule_start || '10:00';
       const end = heatingSettings.hotwater_schedule_end || '16:00';
-      const minHotwaterPower = heatingSettings.hotwater_min_surplus_w || 1000;
+      const boilerPower = heatingSettings.hotwater_power_w || 2800;
+      const minDetectionPower = boilerPower * 0.7; // Mindestens 70% der Boilerleistung
       
       const unexplained = currentConsumption - totalHeatingPower;
       
-      // Nur anzeigen wenn im Zeitplan UND Mindestleistung erreicht
-      if (currentTime >= start && currentTime <= end && unexplained >= minHotwaterPower) {
+      // Nur anzeigen wenn im Zeitplan UND >= 70% der erwarteten Boilerleistung
+      if (currentTime >= start && currentTime <= end && unexplained >= minDetectionPower) {
         consumers.push({
           name: 'Warmwasser',
           icon: Droplet,
