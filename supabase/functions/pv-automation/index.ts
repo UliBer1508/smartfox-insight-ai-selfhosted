@@ -582,12 +582,6 @@ Deno.serve(async (req) => {
 
       // Calculate grid export (negative power_io means export)
       const gridExport = reading.power_io < 0 ? -reading.power_io : 0;
-      
-      // Identify north-facing rooms that could use surplus
-      const northOrientations = ['nord', 'north', 'n', 'nordost', 'nordwest', 'no', 'nw'];
-      const northRooms = rooms.filter(r => 
-        r.orientation && northOrientations.some(o => r.orientation!.toLowerCase().includes(o))
-      );
 
       // ============= LEISTUNGSBUDGET-MANAGEMENT =============
       // Berechne verfügbares Budget basierend auf PV-Leistung oder Netz-Maximum
