@@ -323,7 +323,11 @@ Deno.serve(async (req) => {
         global: { headers: { Authorization: authHeader } },
       });
       const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(token);
-      if (claimsError || !claimsData?.claims?.sub) {
+      const role = claimsData?.claims?.role;
+      const hasSub = !!claimsData?.claims?.sub;
+      const allowedRoles = ['anon', 'authenticated', 'service_role'];
+      if (claimsError || (!hasSub && !allowedRoles.includes(role as string))) {
+        console.error(`[tuya-control] Auth rejected: role=${role}, hasSub=${hasSub}, error=${claimsError?.message}`);
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
