@@ -257,6 +257,8 @@ async function setDeviceMode(
 }
 
 // Parse thermostat status from Tuya response (extended with mode)
+// HYSTERESE: is_heating nur true wenn echte Wärmeanforderung besteht
+// Verhindert "Heizt"-Anzeige wenn Ist-Temp bereits über Ziel liegt
 function parseThermostatStatus(status: unknown[]): { currentTemp: number; targetTemp: number; isHeating: boolean; mode?: string } {
   let currentTemp = 0;
   let targetTemp = 0;
@@ -287,11 +289,28 @@ function parseThermostatStatus(status: unknown[]): { currentTemp: number; target
     }
   }
 
-  // Heizstatus logisch bestimmen:
-  // - Thermostat muss eingeschaltet sein (switch = true)
-  // - UND aktuelle Temperatur muss unter Zieltemperatur liegen
-  // - ODER work_state explizit "heating" meldet
-  const isHeating = switchOn && (workStateHeating || currentTemp < targetTemp);
+  // Heizstatus mit Hysterese/Deadband bestimmen:
+  // 1. Thermostat muss eingeschaltet sein (switch = true)
+  // 2. Wenn Ist-Temp >= Ziel + 0.3°C → NICHT heizend (egal was work_state sagt)
+  //    → Thermostat hat Ziel erreicht, work_state kann verzögert sein
+  // 3. Wenn Ist-Temp < Ziel - 0.2°C → heizend (echte Wärmeanforderung)
+  // 4. Im Deadband (Ziel-0.2 bis Ziel+0.3): work_state als Zusatzsignal verwenden
+  const OVER_TEMP_DEADBAND = 0.3; // °C über Ziel → definitiv nicht heizend
+  const UNDER_TEMP_TOLERANCE = 0.2; // °C unter Ziel → definitiv heizend
+  
+  let isHeating = false;
+  if (switchOn) {
+    if (currentTemp >= targetTemp + OVER_TEMP_DEADBAND) {
+      // Übertemperatur: definitiv nicht heizend
+      isHeating = false;
+    } else if (currentTemp < targetTemp - UNDER_TEMP_TOLERANCE) {
+      // Deutlich unter Ziel: heizend
+      isHeating = true;
+    } else {
+      // Im Deadband: work_state als Signal nutzen
+      isHeating = workStateHeating;
+    }
+  }
 
   return { currentTemp, targetTemp, isHeating, mode };
 }

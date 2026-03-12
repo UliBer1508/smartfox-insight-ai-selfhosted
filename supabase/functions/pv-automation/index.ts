@@ -904,17 +904,52 @@ Deno.serve(async (req) => {
         const lastChange = room.pv_auto_last_change ? new Date(room.pv_auto_last_change) : null;
         const minutesSinceChange = lastChange ? (now.getTime() - lastChange.getTime()) / (1000 * 60) : 999;
 
-        // Cooldown check
-        if (minutesSinceChange < (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN)) {
-          results.push({
-            roomId: room.id,
-            roomName: room.name,
-            action: 'cooldown',
-            message: `Wait ${Math.ceil((settings?.min_switch_interval_min || 5) - minutesSinceChange)} min`,
-            mlBased: false
-          });
+        // ============= ÜBERTEMPERATUR-SICHERHEITSREGEL =============
+        // HARTER STOP: Wenn Ist-Temp >= Ziel + Deadband → sofort deaktivieren
+        // Umgeht Cooldown! Verhindert minutenlanges Weiterheizen über Zieltemperatur
+        const OVER_TEMP_DEADBAND = 0.4; // °C
+        const currentRoomTempSafety = room.current_temp || 0;
+        const currentTargetTempSafety = Number(room.target_temp) || 0;
+        const isOverTemp = currentRoomTempSafety > 0 && currentTargetTempSafety > 0 && 
+          currentRoomTempSafety >= currentTargetTempSafety + OVER_TEMP_DEADBAND;
+        
+        if (isOverTemp && room.is_heating) {
+          console.log(`[PV-Automation] ${room.name}: ⚠️ ÜBER-TEMPERATUR! Ist=${currentRoomTempSafety}°C >= Ziel=${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C → FORCE STOP (Cooldown umgangen)`);
+          // Direkt auf deactivate setzen, Rest der Logik überspringen
+          // Temperatur nicht ändern, nur sicherstellen dass Heizung stoppt
+          const safeTemp = currentTargetTempSafety; // Behalte aktuelle Zieltemperatur
+          
+          if (room.tuya_device_id) {
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp);
+            if (result.success) {
+              await supabase.from('rooms').update({
+                is_heating: false,
+                pv_auto_active: false,
+                pv_auto_last_change: now.toISOString(),
+                last_auto_change: now.toISOString(),
+                last_thermostat_sync: now.toISOString(),
+                heating_paused_reason: 'over_temp',
+              }).eq('id', room.id);
+              if (controlMode === 'cloud') tuyaApiCalls++;
+            }
+            results.push({
+              roomId: room.id,
+              roomName: room.name,
+              action: 'deactivate',
+              targetTemp: safeTemp,
+              reasoning: `⚠️ Übertemperatur-Stop: ${currentRoomTempSafety.toFixed(1)}°C >= ${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C`,
+              mlBased: false,
+              success: result.success,
+              overTempGuard: true,
+            });
+          }
           continue;
         }
+
+        // Cooldown check - NUR für Aufheiz-Aktionen, NICHT für Sicherheits-Stops
+        // Sicherheitsfälle (Übertemperatur oben bereits behandelt, Reduktionen werden unten geprüft)
+        const inCooldown = minutesSinceChange < (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN);
+        // Cooldown wird erst NACH der Entscheidung angewendet (s.u.), nicht als blindes continue
 
         let action: 'activate' | 'deactivate' | 'keep' = 'keep';
         let targetTemp = room.target_temp || settings?.eco_temp || 19;
