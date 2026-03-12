@@ -1,30 +1,52 @@
 
-# ✅ Übertemperatur-Sicherheitsregel + Cooldown-Refactor
 
-## Änderungen
+# Bug: Räume werden auf Komforttemperatur gesetzt trotz fehlendem PV
 
-### 1. Übertemperatur-Guard (`pv-automation/index.ts`)
-- **VOR** Cooldown: Prüft ob `current_temp >= target_temp + 0.4°C` UND `is_heating=true`
-- Erzwingt sofortigen FORCE-STOP → umgeht Cooldown komplett
-- Setzt `heating_paused_reason: 'over_temp'`
+## Problem
 
-### 2. Cooldown nur für Aufheiz-Aktionen (`pv-automation/index.ts`)
-- Cooldown-Check verschoben: wird erst NACH Entscheidung angewendet
-- `deactivate` und Temperatur-Reduktionen umgehen Cooldown IMMER
-- Nur `activate` (Aufheizen) wird durch Cooldown verzögert
+Im Budget-Override (Zeile 1155-1177) wird **nicht** zwischen `pv_optimized` und `grid_sequential` unterschieden. Die Logik sagt:
 
-### 3. Skip-Logik erweitert (`pv-automation/index.ts`)
-- Neues Kriterium `needsHeatingStop`: wenn `is_heating=true` aber Ist >= Ziel + 0.3°C
-- In diesem Fall wird NIEMALS geskippt → Stop-Befehl wird immer gesendet
+- Raum kälter als eco_temp → `targetTemp = ecoTemp` ✅
+- Raum **bei oder über** eco_temp → `targetTemp = comfortTemp` ❌
 
-### 4. Pre-Sync vor jeder Automationsrunde (`pv-automation/index.ts`)
-- Ruft `tuya-control/sync-all` auf bevor Entscheidungen getroffen werden
-- Lädt danach frische Raumdaten aus der DB
-- Bei Sync-Fehler: nur Sicherheits-Aktionen (Reduktionen/Stops), kein Aufheizen
+Das passiert auch im `grid_sequential`-Modus (kein PV), wo Räume **nur** auf `eco_temp` geheizt werden dürfen. Deshalb stehen alle Räume, die eco_temp erreicht haben, auf 20-21°C Komfort statt dort zu stoppen.
 
-### 5. Heizstatus-Hysterese (`tuya-control/index.ts`)
-- `parseThermostatStatus` mit Deadband:
-  - Ist >= Ziel + 0.3°C → `is_heating = false` (unabhängig von work_state)
-  - Ist < Ziel - 0.2°C → `is_heating = true`
-  - Dazwischen: `work_state` als Signal
-- Verhindert "Heizt"-Anzeige wenn Temperatur bereits über Ziel
+## Lösung
+
+In `supabase/functions/pv-automation/index.ts`, Zeile 1155-1177:
+
+**Budget-Override nach `budgetMode` differenzieren:**
+
+- `grid_sequential` (kein PV): Nur bis `eco_temp` heizen. Wenn Raum bereits bei eco_temp → `action = 'keep'`, **nicht** auf comfort hochsetzen.
+- `pv_optimized` (PV vorhanden): Wie bisher — erst eco, dann comfort bei genug Überschuss.
+
+```text
+if (budgetStatus.allowedToHeat) {
+  if (budgetMode === 'grid_sequential') {
+    // KEIN PV: Nur bis eco_temp, dann stoppen
+    if (currentRoomTemp < ecoTemp - 0.3) {
+      action = 'activate';
+      targetTemp = ecoTemp;
+      reasoning = `🔌 Grid-Heizen: ${ecoTemp}°C (...)`;
+    } else {
+      // Eco erreicht → nicht weiter heizen
+      action = 'keep';
+      targetTemp = ecoTemp;
+      reasoning = `✅ Eco erreicht (${currentRoomTemp}°C ≥ ${ecoTemp}°C)`;
+    }
+  } else {
+    // PV-OPTIMIERT: eco zuerst, dann comfort
+    ... (bestehende Logik)
+  }
+}
+```
+
+## Dateien
+
+- `supabase/functions/pv-automation/index.ts` — Budget-Override-Abschnitt (Zeile 1155-1177)
+
+## Erwartetes Ergebnis
+
+- Ohne PV: Räume stoppen bei eco_temp (18-19°C), werden nicht auf 20-22°C hochgeheizt
+- Mit PV: Verhalten bleibt gleich (eco → comfort bei Überschuss)
+
