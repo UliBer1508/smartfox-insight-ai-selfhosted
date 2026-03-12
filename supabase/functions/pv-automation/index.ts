@@ -919,6 +919,7 @@ Deno.serve(async (req) => {
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const nightTemp = room.night_temp || settings?.night_temp || 17;
+        const currentTargetTemp = Number(room.target_temp) || 0;
         
         console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd})`);
 
