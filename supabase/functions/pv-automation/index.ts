@@ -1196,7 +1196,7 @@ Deno.serve(async (req) => {
 
         // ============= PV-BOOST: ÜBERSCHUSS ZUM AUFHEIZEN NUTZEN =============
         // Nach Budget-Override: Wenn genug PV-Energie verfügbar, Räume über comfort_temp hinaus aufheizen
-        if (boostAllowed && room.automation_enabled && !isNight) {
+        if (boostAllowed && room.automation_enabled && !isNight && pvPower > 500) {
           const currentRoomTemp = room.current_temp || 0;
           // Fallback: wenn pv_boost_max_temp nicht gesetzt oder <= comfort_temp, dann comfort + boostDelta
           const rawBoostMax = (room as any).pv_boost_max_temp;
@@ -1204,7 +1204,7 @@ Deno.serve(async (req) => {
           
           // Boost ab eco_temp erlauben (nicht erst ab comfort_temp)
           if (currentRoomTemp >= ecoTemp - 0.5 && currentRoomTemp < boostMaxTemp - 0.3) {
-            const hasEnoughSurplus = gridExport > 500 || batterySoc > 70;
+            const hasEnoughSurplus = gridExport > 500 || (pvPower > 1000 && batterySoc > 80);
             
             if (hasEnoughSurplus) {
               action = 'activate';
