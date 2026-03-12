@@ -48,48 +48,7 @@ function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: b
   return { isNight, wienTime, wienHour };
 }
 
-// Helper: Check if it's morning wait period (waiting for PV to become available)
-// Berücksichtigt Batterie-SOC: Bei ausreichender Batterie + Sonnentag wird sofort geheizt
-function isMorningWaitPeriod(
-  nightEndTime: string,
-  wienHour: number,
-  expectedPvKwh: number,
-  pvPower: number,
-  batterySoc: number,
-  targetBatterySoc: number,
-  minPvPowerForStart: number = 1000
-): { shouldWait: boolean; reason: string } {
-  const [endH] = (nightEndTime || '06:00').split(':').map(Number);
-  
-  // Morning period: between night end and 2 hours after
-  const morningEnd = endH + 2;
-  const isMorning = wienHour >= endH && wienHour < morningEnd;
-  
-  if (!isMorning) {
-    return { shouldWait: false, reason: '' };
-  }
-  
-  // Good sunny day expected (>15 kWh)
-  if (expectedPvKwh > 15) {
-    // Batterie ausreichend geladen → sofort heizen, wird tagsüber wieder geladen
-    if (batterySoc >= targetBatterySoc) {
-      return { 
-        shouldWait: false, 
-        reason: `Sonnentag erwartet (${expectedPvKwh.toFixed(1)} kWh) + Batterie ausreichend (${batterySoc}% >= ${targetBatterySoc}%) - heize sofort`
-      };
-    }
-    
-    // Batterie niedrig + PV noch nicht da → warten
-    if (pvPower < minPvPowerForStart) {
-      return { 
-        shouldWait: true, 
-        reason: `Sonnentag erwartet (${expectedPvKwh.toFixed(1)} kWh), Batterie niedrig (${batterySoc}% < ${targetBatterySoc}%) - warte auf PV (aktuell ${pvPower}W < ${minPvPowerForStart}W)`
-      };
-    }
-  }
-  
-  return { shouldWait: false, reason: '' };
-}
+// (isMorningWaitPeriod entfernt — Thermostate regeln passiven Solargewinn selbst, alle Räume gleich behandelt)
 
 // (isOptimalHeatingTime entfernt — normale Tag-Logik übernimmt)
 
