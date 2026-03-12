@@ -1168,6 +1168,24 @@ Deno.serve(async (req) => {
           }
         }
 
+        // ============= COOLDOWN-GATE =============
+        // Cooldown NUR für Aufheiz-Aktionen (activate, Temp erhöhen)
+        // Sicherheits-Aktionen (deactivate, Temp senken) umgehen Cooldown IMMER
+        const isSafetyAction = action === 'deactivate' || 
+          (Number(targetTemp) < currentTargetTemp - 0.3);
+        
+        if (action !== 'keep' && inCooldown && !isSafetyAction) {
+          console.log(`[PV-Automation] ${room.name}: COOLDOWN - ${Math.ceil((settings?.min_switch_interval_min || 5) - minutesSinceChange)} min (nur für Aufheiz-Aktionen)`);
+          results.push({
+            roomId: room.id,
+            roomName: room.name,
+            action: 'cooldown',
+            message: `Wait ${Math.ceil((settings?.min_switch_interval_min || 5) - minutesSinceChange)} min (Aufheiz-Cooldown)`,
+            mlBased: false
+          });
+          continue;
+        }
+
         if (action === 'keep') {
           results.push({
             roomId: room.id,
@@ -1190,12 +1208,16 @@ Deno.serve(async (req) => {
         const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
         
         // STALE-SYNC-CHECK: Force-Push wenn letzter erfolgreicher Sync >10 Min her
-        // Verhindert Desync nach Crash/Restart wo DB aktualisiert wurde aber Tuya-Call fehlte
         const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
         const syncAgeMs = Date.now() - lastSyncTime;
         const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
         
-        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp && !syncStale;
+        // ÜBER-TEMPERATUR-STOP: Wenn is_heating=true aber Ist > Ziel → niemals skippen
+        const needsHeatingStop = room.is_heating === true && 
+          (room.current_temp || 0) > 0 && newTargetTemp > 0 &&
+          (room.current_temp || 0) >= newTargetTemp + 0.3;
+        
+        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp && !syncStale && !needsHeatingStop;
         
         if (shouldSkip) {
           console.log(`[PV-Automation] ${room.name}: SKIP - already at ${currentTargetTemp}°C, state=${room.pv_auto_active ? 'active' : 'inactive'}`);
@@ -1208,6 +1230,10 @@ Deno.serve(async (req) => {
             skippedApiCall: true
           });
           continue;
+        }
+        
+        if (needsHeatingStop) {
+          console.log(`[PV-Automation] ${room.name}: FORCE-STOP - is_heating=true but temp ${(room.current_temp || 0).toFixed(1)}°C >= target ${newTargetTemp}°C + 0.3°C`);
         }
         
         if (syncStale && tempAlreadyCorrect) {
