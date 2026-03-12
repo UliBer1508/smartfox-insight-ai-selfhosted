@@ -920,7 +920,7 @@ Deno.serve(async (req) => {
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const nightTemp = room.night_temp || settings?.night_temp || 17;
         
-        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd}), has_solar_gain=${room.has_solar_gain}`);
+        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd})`);
 
         // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
         if (isNight) {
