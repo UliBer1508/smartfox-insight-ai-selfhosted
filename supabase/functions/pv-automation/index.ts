@@ -1032,15 +1032,7 @@ Deno.serve(async (req) => {
                 solarLimitTemp = comfortTemp;
                 reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV${room.has_solar_gain ? ', Solargewinn möglich' : ''})`;
               }
-              // 3b. Überschuss vorhanden, aber PV-Leistung noch zu gering - warten
-              else if (surplus >= thresholdOn && !room.pv_auto_active && pvPower < 1000 && room.has_solar_gain) {
-                // Noch nicht aktivieren - warten auf mehr PV, aber eco_temp halten
-                action = 'keep';
-                targetTemp = ecoTemp;
-                solarLimitTemp = null;
-                reasoning = `Warte auf PV: Überschuss ${surplus}W vorhanden aber PV-Leistung noch gering (${pvPower}W < 1000W)`;
-                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              }
+              // (PV-Warte-Sonderbehandlung für has_solar_gain entfernt — alle Räume gleich behandelt)
               // 4. Low/no surplus -> Solar-Limit deaktivieren
               else if (surplus < thresholdOff && room.pv_auto_active) {
                 action = 'deactivate';
