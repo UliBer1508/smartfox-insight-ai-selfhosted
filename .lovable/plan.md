@@ -1,30 +1,38 @@
 
-# ✅ Übertemperatur-Sicherheitsregel + Cooldown-Refactor
 
-## Änderungen
+# Fix: PV-Boost soll nur bei echter PV-Leistung aktivieren
 
-### 1. Übertemperatur-Guard (`pv-automation/index.ts`)
-- **VOR** Cooldown: Prüft ob `current_temp >= target_temp + 0.4°C` UND `is_heating=true`
-- Erzwingt sofortigen FORCE-STOP → umgeht Cooldown komplett
-- Setzt `heating_paused_reason: 'over_temp'`
+## Problem
 
-### 2. Cooldown nur für Aufheiz-Aktionen (`pv-automation/index.ts`)
-- Cooldown-Check verschoben: wird erst NACH Entscheidung angewendet
-- `deactivate` und Temperatur-Reduktionen umgehen Cooldown IMMER
-- Nur `activate` (Aufheizen) wird durch Cooldown verzögert
+Zeile 1207: `hasEnoughSurplus = gridExport > 500 || batterySoc > 70`
 
-### 3. Skip-Logik erweitert (`pv-automation/index.ts`)
-- Neues Kriterium `needsHeatingStop`: wenn `is_heating=true` aber Ist >= Ziel + 0.3°C
-- In diesem Fall wird NIEMALS geskippt → Stop-Befehl wird immer gesendet
+Der `||`-Operator erlaubt den Boost allein durch hohe Batterie-SOC — auch nachts oder bei Bewölkung ohne jede PV-Produktion. Dadurch wird z.B. Kinder Bad auf 20°C (comfort) geheizt, obwohl kein Solarstrom vorhanden ist.
 
-### 4. Pre-Sync vor jeder Automationsrunde (`pv-automation/index.ts`)
-- Ruft `tuya-control/sync-all` auf bevor Entscheidungen getroffen werden
-- Lädt danach frische Raumdaten aus der DB
-- Bei Sync-Fehler: nur Sicherheits-Aktionen (Reduktionen/Stops), kein Aufheizen
+Zusätzlich: `boostAllowed` (Zeile 630) prüft `availableHeatingKwh > 3`, was aus der **Prognose** kommt — nicht aus der aktuellen PV-Leistung. An einem bewölkten Tag kann die Prognose noch 3+ kWh zeigen, obwohl real 0W produziert wird.
 
-### 5. Heizstatus-Hysterese (`tuya-control/index.ts`)
-- `parseThermostatStatus` mit Deadband:
-  - Ist >= Ziel + 0.3°C → `is_heating = false` (unabhängig von work_state)
-  - Ist < Ziel - 0.2°C → `is_heating = true`
-  - Dazwischen: `work_state` als Signal
-- Verhindert "Heizt"-Anzeige wenn Temperatur bereits über Ziel
+## Lösung
+
+**Datei: `supabase/functions/pv-automation/index.ts`**
+
+1. **Zeile 1207** — `hasEnoughSurplus` verschärfen:
+   - Batterie-SOC entfernen als alleinigen Trigger
+   - Bedingung: `gridExport > 500` (echter Netzexport = echter PV-Überschuss)
+   - Oder: `pvPower > 1000 && batterySoc > 80` (PV produziert UND Batterie fast voll)
+
+2. **Zeile 1199** — Zusätzliche PV-Guard:
+   - `pvPower > 500` als harte Mindestbedingung für Boost
+   - Kein PV = kein Boost, unabhängig von Batterie/Prognose
+
+```typescript
+// Zeile 1199: PV-Mindestleistung als Voraussetzung
+if (boostAllowed && room.automation_enabled && !isNight && pvPower > 500) {
+
+// Zeile 1207: Nur echter Überschuss, nicht Batterie allein  
+const hasEnoughSurplus = gridExport > 500 || (pvPower > 1000 && batterySoc > 80);
+```
+
+## Ergebnis
+- Ohne PV-Leistung: Räume bleiben auf eco_temp, Boost ist komplett blockiert
+- Mit PV aber ohne Export: Boost nur wenn PV > 1kW UND Batterie > 80%
+- Mit PV-Export > 500W: Boost wie bisher
+
