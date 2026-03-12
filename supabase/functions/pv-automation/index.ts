@@ -726,7 +726,7 @@ Deno.serve(async (req) => {
       }
       
       console.log(`[PV-Automation] Budget-Modus: ${budgetMode}, Budget: ${availableBudget}W, Verwendet: ${usedBudget}W`);
-      console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}, SolarGain-Räume: ${roomsWithSolarGain.size}, Nord-Räume: ${northRooms.length}`);
+      console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
 
       // 7. Call analyze-patterns with optimize_decision
       let mlDecisions: MLDecision[] = [];
