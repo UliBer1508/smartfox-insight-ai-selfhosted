@@ -1008,44 +1008,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // (Morgen-Aufwärmphase entfernt — normale Tag-Logik Grid-Fallback/PV/Boost übernimmt)
-          // ============= SOLAR-ERKENNUNG IN ECHTZEIT =============
-          // Check if this room is currently gaining heat from the sun
-          {
-            const currentTargetTemp = Number(room.target_temp) || 0;
-            const realtimeSolarGain = roomsWithSolarGain.get(room.id);
-          
-            if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
-              // Room is actively being heated by the sun - keep eco_temp, thermostat won't heat if room is already warm
-              action = 'keep';
-              targetTemp = ecoTemp;
-              solarLimitTemp = comfortTemp;
-              reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%) - Thermostat auf ${ecoTemp}°C, Heizung aus da Raum warm`;
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-            }
-            // ============= MORGEN-SPERRE für Süd-Räume bei erwartetem Sonnentag =============
-            else if (room.has_solar_gain) {
-              const { shouldWait, reason } = isMorningWaitPeriod(
-                nightEnd,
-                wienHour,
-                expectedPvKwh,
-                pvPower,
-                batterySoc,
-                settings?.target_battery_soc || 80
-              );
-              
-              if (shouldWait) {
-                // Solar-Passiv-Modus: Mindestens eco_temp halten statt solarTemp
-                // Raum soll nicht unter eco_temp fallen während auf Solargewinn gewartet wird
-                action = 'activate';
-                targetTemp = ecoTemp;
-                solarLimitTemp = comfortTemp;
-                reasoning = `Warte auf Solargewinn, halte ${ecoTemp}°C (${reason})`;
-                
-                console.log(`[PV-Automation] ${room.name}: SOLAR-WARTEN - ${reasoning}`);
-              }
-            }
-          }
+          // (Solar-Gain-Erkennung und Morgen-Sperre entfernt — Thermostate regeln passiven Solargewinn selbst)
 
           // Only process ML/fallback if action is still 'keep' (not already set by morning wake-up or solar)
           if (action === 'keep') {
