@@ -59,7 +59,7 @@ function isMorningWaitPeriod(
   targetBatterySoc: number,
   minPvPowerForStart: number = 1000
 ): { shouldWait: boolean; reason: string } {
-  const [endH] = (nightEndTime || '08:00').split(':').map(Number);
+  const [endH] = (nightEndTime || '06:00').split(':').map(Number);
   
   // Morning period: between night end and 2 hours after
   const morningEnd = endH + 2;
