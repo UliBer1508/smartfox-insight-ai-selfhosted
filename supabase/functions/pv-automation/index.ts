@@ -564,7 +564,8 @@ Deno.serve(async (req) => {
         .limit(10);
 
       // 7. Load PV forecast for today (with hourly_watts for tracking)
-      const today = new Date().toISOString().split('T')[0];
+      // Wien-Datum verwenden (nicht UTC!) — zwischen 00:00-01:00 UTC wäre sonst das gestrige Datum
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
       const { data: pvForecast } = await supabase
         .from('pv_forecasts')
         .select('expected_kwh, hourly_watts')
