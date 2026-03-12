@@ -490,7 +490,7 @@ Deno.serve(async (req) => {
       // - Night mode (night_temp)
       // - Budget pause (15°C when PV is low)
       // - But NO active PV heating to comfort temp
-      const { data: rooms, error: roomsError } = await supabase
+      let { data: rooms, error: roomsError } = await supabase
         .from('rooms')
         .select('*')
         .eq('automation_enabled', true)
@@ -500,6 +500,46 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: true, message: 'No rooms with PV automation', results: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+
+      // ============= PRE-SYNC: Frische Thermostatdaten vor Automationsrunde =============
+      // Stellt sicher dass current_temp und is_heating aktuell sind
+      let syncFailed = false;
+      if (controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
+        try {
+          console.log(`[PV-Automation] Pre-sync: Lade frische Thermostatdaten für ${rooms.length} Räume...`);
+          const syncResponse = await fetch(`${supabaseUrl}/functions/v1/tuya-control/sync-all`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({})
+          });
+          
+          if (syncResponse.ok) {
+            const syncResult = await syncResponse.json();
+            console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
+            
+            // Räume neu laden mit frischen Daten
+            const { data: freshRooms, error: freshError } = await supabase
+              .from('rooms')
+              .select('*')
+              .eq('automation_enabled', true)
+              .not('tuya_device_id', 'is', null);
+            
+            if (!freshError && freshRooms && freshRooms.length > 0) {
+              rooms = freshRooms;
+              console.log(`[PV-Automation] Räume neu geladen nach Pre-sync`);
+            }
+          } else {
+            console.warn(`[PV-Automation] Pre-sync fehlgeschlagen (${syncResponse.status}) - verwende DB-Daten, nur Reduktionen/Stops erlaubt`);
+            syncFailed = true;
+          }
+        } catch (syncError) {
+          console.warn(`[PV-Automation] Pre-sync Fehler: ${syncError} - verwende DB-Daten, nur Reduktionen/Stops erlaubt`);
+          syncFailed = true;
+        }
       }
 
       // 4. Load ML features
@@ -904,17 +944,52 @@ Deno.serve(async (req) => {
         const lastChange = room.pv_auto_last_change ? new Date(room.pv_auto_last_change) : null;
         const minutesSinceChange = lastChange ? (now.getTime() - lastChange.getTime()) / (1000 * 60) : 999;
 
-        // Cooldown check
-        if (minutesSinceChange < (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN)) {
-          results.push({
-            roomId: room.id,
-            roomName: room.name,
-            action: 'cooldown',
-            message: `Wait ${Math.ceil((settings?.min_switch_interval_min || 5) - minutesSinceChange)} min`,
-            mlBased: false
-          });
+        // ============= ÜBERTEMPERATUR-SICHERHEITSREGEL =============
+        // HARTER STOP: Wenn Ist-Temp >= Ziel + Deadband → sofort deaktivieren
+        // Umgeht Cooldown! Verhindert minutenlanges Weiterheizen über Zieltemperatur
+        const OVER_TEMP_DEADBAND = 0.4; // °C
+        const currentRoomTempSafety = room.current_temp || 0;
+        const currentTargetTempSafety = Number(room.target_temp) || 0;
+        const isOverTemp = currentRoomTempSafety > 0 && currentTargetTempSafety > 0 && 
+          currentRoomTempSafety >= currentTargetTempSafety + OVER_TEMP_DEADBAND;
+        
+        if (isOverTemp && room.is_heating) {
+          console.log(`[PV-Automation] ${room.name}: ⚠️ ÜBER-TEMPERATUR! Ist=${currentRoomTempSafety}°C >= Ziel=${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C → FORCE STOP (Cooldown umgangen)`);
+          // Direkt auf deactivate setzen, Rest der Logik überspringen
+          // Temperatur nicht ändern, nur sicherstellen dass Heizung stoppt
+          const safeTemp = currentTargetTempSafety; // Behalte aktuelle Zieltemperatur
+          
+          if (room.tuya_device_id) {
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp);
+            if (result.success) {
+              await supabase.from('rooms').update({
+                is_heating: false,
+                pv_auto_active: false,
+                pv_auto_last_change: now.toISOString(),
+                last_auto_change: now.toISOString(),
+                last_thermostat_sync: now.toISOString(),
+                heating_paused_reason: 'over_temp',
+              }).eq('id', room.id);
+              if (controlMode === 'cloud') tuyaApiCalls++;
+            }
+            results.push({
+              roomId: room.id,
+              roomName: room.name,
+              action: 'deactivate',
+              targetTemp: safeTemp,
+              reasoning: `⚠️ Übertemperatur-Stop: ${currentRoomTempSafety.toFixed(1)}°C >= ${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C`,
+              mlBased: false,
+              success: result.success,
+              overTempGuard: true,
+            });
+          }
           continue;
         }
+
+        // Cooldown check - NUR für Aufheiz-Aktionen, NICHT für Sicherheits-Stops
+        // Sicherheitsfälle (Übertemperatur oben bereits behandelt, Reduktionen werden unten geprüft)
+        const inCooldown = minutesSinceChange < (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN);
+        // Cooldown wird erst NACH der Entscheidung angewendet (s.u.), nicht als blindes continue
 
         let action: 'activate' | 'deactivate' | 'keep' = 'keep';
         let targetTemp = room.target_temp || settings?.eco_temp || 19;
@@ -1133,6 +1208,31 @@ Deno.serve(async (req) => {
           }
         }
 
+        // SYNC-FAILED GUARD: Wenn Pre-Sync fehlgeschlagen, nur Sicherheits-Aktionen erlauben
+        if (syncFailed && action === 'activate') {
+          console.log(`[PV-Automation] ${room.name}: SYNC-FAILED → activate blockiert, nur Reduktionen/Stops erlaubt`);
+          action = 'keep';
+          reasoning = 'Sync fehlgeschlagen, Aufheizen blockiert';
+        }
+
+        // ============= COOLDOWN-GATE =============
+        // Cooldown NUR für Aufheiz-Aktionen (activate, Temp erhöhen)
+        // Sicherheits-Aktionen (deactivate, Temp senken) umgehen Cooldown IMMER
+        const isSafetyAction = action === 'deactivate' || 
+          (Number(targetTemp) < currentTargetTemp - 0.3);
+        
+        if (action !== 'keep' && inCooldown && !isSafetyAction) {
+          console.log(`[PV-Automation] ${room.name}: COOLDOWN - ${Math.ceil((settings?.min_switch_interval_min || 5) - minutesSinceChange)} min (nur für Aufheiz-Aktionen)`);
+          results.push({
+            roomId: room.id,
+            roomName: room.name,
+            action: 'cooldown',
+            message: `Wait ${Math.ceil((settings?.min_switch_interval_min || 5) - minutesSinceChange)} min (Aufheiz-Cooldown)`,
+            mlBased: false
+          });
+          continue;
+        }
+
         if (action === 'keep') {
           results.push({
             roomId: room.id,
@@ -1155,12 +1255,16 @@ Deno.serve(async (req) => {
         const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
         
         // STALE-SYNC-CHECK: Force-Push wenn letzter erfolgreicher Sync >10 Min her
-        // Verhindert Desync nach Crash/Restart wo DB aktualisiert wurde aber Tuya-Call fehlte
         const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
         const syncAgeMs = Date.now() - lastSyncTime;
         const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
         
-        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp && !syncStale;
+        // ÜBER-TEMPERATUR-STOP: Wenn is_heating=true aber Ist > Ziel → niemals skippen
+        const needsHeatingStop = room.is_heating === true && 
+          (room.current_temp || 0) > 0 && newTargetTemp > 0 &&
+          (room.current_temp || 0) >= newTargetTemp + 0.3;
+        
+        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp && !syncStale && !needsHeatingStop;
         
         if (shouldSkip) {
           console.log(`[PV-Automation] ${room.name}: SKIP - already at ${currentTargetTemp}°C, state=${room.pv_auto_active ? 'active' : 'inactive'}`);
@@ -1173,6 +1277,10 @@ Deno.serve(async (req) => {
             skippedApiCall: true
           });
           continue;
+        }
+        
+        if (needsHeatingStop) {
+          console.log(`[PV-Automation] ${room.name}: FORCE-STOP - is_heating=true but temp ${(room.current_temp || 0).toFixed(1)}°C >= target ${newTargetTemp}°C + 0.3°C`);
         }
         
         if (syncStale && tempAlreadyCorrect) {
