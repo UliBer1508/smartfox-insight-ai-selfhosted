@@ -1208,6 +1208,13 @@ Deno.serve(async (req) => {
           }
         }
 
+        // SYNC-FAILED GUARD: Wenn Pre-Sync fehlgeschlagen, nur Sicherheits-Aktionen erlauben
+        if (syncFailed && action === 'activate') {
+          console.log(`[PV-Automation] ${room.name}: SYNC-FAILED → activate blockiert, nur Reduktionen/Stops erlaubt`);
+          action = 'keep';
+          reasoning = 'Sync fehlgeschlagen, Aufheizen blockiert';
+        }
+
         // ============= COOLDOWN-GATE =============
         // Cooldown NUR für Aufheiz-Aktionen (activate, Temp erhöhen)
         // Sicherheits-Aktionen (deactivate, Temp senken) umgehen Cooldown IMMER
