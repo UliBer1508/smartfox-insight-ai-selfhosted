@@ -1132,7 +1132,7 @@ Deno.serve(async (req) => {
         }
 
         // ============= SKIP LOGIC: Check if Tuya API call is actually needed =============
-        const currentTargetTemp = Number(room.target_temp) || 0;
+        // currentTargetTemp already defined above (line ~922)
         const newTargetTemp = Number(targetTemp) || 0;
         const tempAlreadyCorrect = Math.abs(currentTargetTemp - newTargetTemp) < 0.5; // 0.5°C tolerance
         const stateAlreadyCorrect = (action === 'activate' && room.pv_auto_active) || 
