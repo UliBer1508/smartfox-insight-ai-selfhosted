@@ -59,7 +59,7 @@ function isMorningWaitPeriod(
   targetBatterySoc: number,
   minPvPowerForStart: number = 1000
 ): { shouldWait: boolean; reason: string } {
-  const [endH] = (nightEndTime || '08:00').split(':').map(Number);
+  const [endH] = (nightEndTime || '06:00').split(':').map(Number);
   
   // Morning period: between night end and 2 hours after
   const morningEnd = endH + 2;
@@ -564,7 +564,8 @@ Deno.serve(async (req) => {
         .limit(10);
 
       // 7. Load PV forecast for today (with hourly_watts for tracking)
-      const today = new Date().toISOString().split('T')[0];
+      // Wien-Datum verwenden (nicht UTC!) — zwischen 00:00-01:00 UTC wäre sonst das gestrige Datum
+      const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
       const { data: pvForecast } = await supabase
         .from('pv_forecasts')
         .select('expected_kwh, hourly_watts')
@@ -977,7 +978,7 @@ Deno.serve(async (req) => {
 
         // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
         const nightStart = settings?.night_start_time || '22:00';
-        const nightEnd = settings?.night_end_time || '08:00';
+        const nightEnd = settings?.night_end_time || '06:00';
         const { isNight, wienTime, wienHour } = isNightTime(nightStart, nightEnd);
         
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
@@ -991,7 +992,7 @@ Deno.serve(async (req) => {
           // Robuster Vergleich (beide als Number)
           const currentTargetTemp = Number(room.target_temp) || 0;
           
-          const needsCorrection = currentTargetTemp !== nightTemp || room.pv_auto_active;
+          const needsCorrection = Math.abs(currentTargetTemp - nightTemp) >= 0.5 || room.pv_auto_active;
           
           console.log(`[PV-Automation] ${room.name} Nacht-Check: target=${currentTargetTemp}°C, nightTemp=${nightTemp}°C, pv_auto=${room.pv_auto_active}, needsCorrection=${needsCorrection}`);
           
@@ -1152,7 +1153,7 @@ Deno.serve(async (req) => {
         // Sequenzielles Heizen: Aktive Räume auf Comfort, Wartende auf Night-Temp
         // Das verhindert dass wartende Thermostate autonom heizen
         // Budget-Logik auch nachts bei leerem Akku aktiv (verhindert Netz-Heizen)
-        if (powerBudgetEnabled && budgetMode === 'pv_optimized') {
+        if (powerBudgetEnabled && (budgetMode === 'pv_optimized' || budgetMode === 'grid_sequential')) {
           const budgetStatus = roomBudgetStatus.get(room.id);
           
           if (budgetStatus) {
