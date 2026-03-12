@@ -992,7 +992,7 @@ Deno.serve(async (req) => {
           // Robuster Vergleich (beide als Number)
           const currentTargetTemp = Number(room.target_temp) || 0;
           
-          const needsCorrection = currentTargetTemp !== nightTemp || room.pv_auto_active;
+          const needsCorrection = Math.abs(currentTargetTemp - nightTemp) >= 0.5 || room.pv_auto_active;
           
           console.log(`[PV-Automation] ${room.name} Nacht-Check: target=${currentTargetTemp}°C, nightTemp=${nightTemp}°C, pv_auto=${room.pv_auto_active}, needsCorrection=${needsCorrection}`);
           
