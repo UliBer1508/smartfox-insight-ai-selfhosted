@@ -1055,30 +1055,17 @@ Deno.serve(async (req) => {
                 reasoning = `Eco-Modus (Standard tagsüber): ${currentTargetTemp}°C → ${ecoTemp}°C`;
               }
               
-              // ============= ÜBERSCHUSS-UMLEITUNG zu Nord-Räumen =============
-              // If we have significant grid export and this is a north room, use the surplus for heating
-              const isNorthRoom = room.orientation && northOrientations.some(o => room.orientation!.toLowerCase().includes(o));
-              
-              if (action === 'keep' && isNorthRoom && gridExport > 500 && !room.pv_auto_active) {
-                // Check if room is below target and could use heating
+              // ============= ÜBERSCHUSS-UMLEITUNG =============
+              // Bei signifikantem Grid-Export: Kalte Räume heizen statt einspeisen (unabhängig von Ausrichtung)
+              if (action === 'keep' && gridExport > 1000 && !room.pv_auto_active) {
                 const currentRoomTemp = room.current_temp || 0;
                 const roomNeedsHeating = currentRoomTemp < (ecoTemp - 0.5);
                 
-                // Check if south rooms are being heated by sun (don't need heating power)
-                const southRoomsHeatedBySun = Array.from(roomsWithSolarGain.keys()).length > 0;
-                
-                if (roomNeedsHeating && southRoomsHeatedBySun) {
+                if (roomNeedsHeating) {
                   action = 'activate';
                   targetTemp = ecoTemp;
                   solarLimitTemp = comfortTemp;
-                  reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Nord-Raum heizen statt einspeisen (Süd-Räume durch Sonne erwärmt)`;
-                  console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-                } else if (roomNeedsHeating && gridExport > 1000) {
-                  // Even without detected solar gain, use significant surplus
-                  action = 'activate';
-                  targetTemp = ecoTemp;
-                  solarLimitTemp = comfortTemp;
-                  reasoning = `⚡ Hoher Überschuss: ${gridExport}W Export → Nord-Raum heizen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
+                  reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Raum heizen statt einspeisen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
                   console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
                 }
               }
