@@ -332,7 +332,7 @@ Deno.serve(async (req) => {
     }
 
     // POST /check - ML-based automation with SKIP LOGIC and NIGHT PAUSE
-    if (path === '/check' && req.method === 'POST') {
+    if ((path === '/check' || path === '') && req.method === 'POST') {
       console.log('[PV-Automation] Starting ML-based check...');
 
       // Load control mode FIRST
