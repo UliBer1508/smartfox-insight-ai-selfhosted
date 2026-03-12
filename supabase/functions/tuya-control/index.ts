@@ -339,6 +339,9 @@ Deno.serve(async (req) => {
       });
     }
 
+    const accessId = Deno.env.get('TUYA_ACCESS_ID')?.trim();
+    const accessSecret = Deno.env.get('TUYA_ACCESS_SECRET')?.trim();
+
     if (!accessId || !accessSecret) {
       throw new Error('Tuya credentials not configured');
     }
