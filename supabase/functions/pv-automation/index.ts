@@ -619,25 +619,7 @@ Deno.serve(async (req) => {
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
 
-      // 8. Load recent solar heating events (last 60 min) for real-time solar gain detection
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const { data: solarEvents } = await supabase
-        .from('solar_heating_events')
-        .select('room_id, temp_change_per_hour, solar_gain_detected, heat_source, confidence')
-        .gte('timestamp', oneHourAgo)
-        .eq('solar_gain_detected', true)
-        .order('timestamp', { ascending: false });
-
-      // Create lookup for rooms with active solar gain
-      const roomsWithSolarGain = new Map<string, { tempChangePerHour: number; confidence: number }>();
-      for (const event of solarEvents || []) {
-        if (!roomsWithSolarGain.has(event.room_id)) {
-          roomsWithSolarGain.set(event.room_id, {
-            tempChangePerHour: event.temp_change_per_hour || 0,
-            confidence: event.confidence || 0
-          });
-        }
-      }
+      // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
       // Calculate grid export (negative power_io means export)
       const gridExport = reading.power_io < 0 ? -reading.power_io : 0;
