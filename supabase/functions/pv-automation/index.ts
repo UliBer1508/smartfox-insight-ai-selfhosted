@@ -48,48 +48,7 @@ function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: b
   return { isNight, wienTime, wienHour };
 }
 
-// Helper: Check if it's morning wait period (waiting for PV to become available)
-// Berücksichtigt Batterie-SOC: Bei ausreichender Batterie + Sonnentag wird sofort geheizt
-function isMorningWaitPeriod(
-  nightEndTime: string,
-  wienHour: number,
-  expectedPvKwh: number,
-  pvPower: number,
-  batterySoc: number,
-  targetBatterySoc: number,
-  minPvPowerForStart: number = 1000
-): { shouldWait: boolean; reason: string } {
-  const [endH] = (nightEndTime || '06:00').split(':').map(Number);
-  
-  // Morning period: between night end and 2 hours after
-  const morningEnd = endH + 2;
-  const isMorning = wienHour >= endH && wienHour < morningEnd;
-  
-  if (!isMorning) {
-    return { shouldWait: false, reason: '' };
-  }
-  
-  // Good sunny day expected (>15 kWh)
-  if (expectedPvKwh > 15) {
-    // Batterie ausreichend geladen → sofort heizen, wird tagsüber wieder geladen
-    if (batterySoc >= targetBatterySoc) {
-      return { 
-        shouldWait: false, 
-        reason: `Sonnentag erwartet (${expectedPvKwh.toFixed(1)} kWh) + Batterie ausreichend (${batterySoc}% >= ${targetBatterySoc}%) - heize sofort`
-      };
-    }
-    
-    // Batterie niedrig + PV noch nicht da → warten
-    if (pvPower < minPvPowerForStart) {
-      return { 
-        shouldWait: true, 
-        reason: `Sonnentag erwartet (${expectedPvKwh.toFixed(1)} kWh), Batterie niedrig (${batterySoc}% < ${targetBatterySoc}%) - warte auf PV (aktuell ${pvPower}W < ${minPvPowerForStart}W)`
-      };
-    }
-  }
-  
-  return { shouldWait: false, reason: '' };
-}
+// (isMorningWaitPeriod entfernt — Thermostate regeln passiven Solargewinn selbst, alle Räume gleich behandelt)
 
 // (isOptimalHeatingTime entfernt — normale Tag-Logik übernimmt)
 
@@ -619,34 +578,10 @@ Deno.serve(async (req) => {
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
 
-      // 8. Load recent solar heating events (last 60 min) for real-time solar gain detection
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const { data: solarEvents } = await supabase
-        .from('solar_heating_events')
-        .select('room_id, temp_change_per_hour, solar_gain_detected, heat_source, confidence')
-        .gte('timestamp', oneHourAgo)
-        .eq('solar_gain_detected', true)
-        .order('timestamp', { ascending: false });
-
-      // Create lookup for rooms with active solar gain
-      const roomsWithSolarGain = new Map<string, { tempChangePerHour: number; confidence: number }>();
-      for (const event of solarEvents || []) {
-        if (!roomsWithSolarGain.has(event.room_id)) {
-          roomsWithSolarGain.set(event.room_id, {
-            tempChangePerHour: event.temp_change_per_hour || 0,
-            confidence: event.confidence || 0
-          });
-        }
-      }
+      // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
       // Calculate grid export (negative power_io means export)
       const gridExport = reading.power_io < 0 ? -reading.power_io : 0;
-      
-      // Identify north-facing rooms that could use surplus
-      const northOrientations = ['nord', 'north', 'n', 'nordost', 'nordwest', 'no', 'nw'];
-      const northRooms = rooms.filter(r => 
-        r.orientation && northOrientations.some(o => r.orientation!.toLowerCase().includes(o))
-      );
 
       // ============= LEISTUNGSBUDGET-MANAGEMENT =============
       // Berechne verfügbares Budget basierend auf PV-Leistung oder Netz-Maximum
@@ -791,7 +726,7 @@ Deno.serve(async (req) => {
       }
       
       console.log(`[PV-Automation] Budget-Modus: ${budgetMode}, Budget: ${availableBudget}W, Verwendet: ${usedBudget}W`);
-      console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}, SolarGain-Räume: ${roomsWithSolarGain.size}, Nord-Räume: ${northRooms.length}`);
+      console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
 
       // 7. Call analyze-patterns with optimize_decision
       let mlDecisions: MLDecision[] = [];
@@ -985,7 +920,7 @@ Deno.serve(async (req) => {
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const nightTemp = room.night_temp || settings?.night_temp || 17;
         
-        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd}), has_solar_gain=${room.has_solar_gain}`);
+        console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd})`);
 
         // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
         if (isNight) {
@@ -1026,44 +961,7 @@ Deno.serve(async (req) => {
             }
           }
 
-          // (Morgen-Aufwärmphase entfernt — normale Tag-Logik Grid-Fallback/PV/Boost übernimmt)
-          // ============= SOLAR-ERKENNUNG IN ECHTZEIT =============
-          // Check if this room is currently gaining heat from the sun
-          {
-            const currentTargetTemp = Number(room.target_temp) || 0;
-            const realtimeSolarGain = roomsWithSolarGain.get(room.id);
-          
-            if (realtimeSolarGain && realtimeSolarGain.tempChangePerHour > 0.3 && realtimeSolarGain.confidence > 0.5) {
-              // Room is actively being heated by the sun - keep eco_temp, thermostat won't heat if room is already warm
-              action = 'keep';
-              targetTemp = ecoTemp;
-              solarLimitTemp = comfortTemp;
-              reasoning = `🌞 Echtzeit-Solargewinn erkannt: +${realtimeSolarGain.tempChangePerHour.toFixed(1)}°C/h durch Sonne (Konf: ${Math.round(realtimeSolarGain.confidence * 100)}%) - Thermostat auf ${ecoTemp}°C, Heizung aus da Raum warm`;
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-            }
-            // ============= MORGEN-SPERRE für Süd-Räume bei erwartetem Sonnentag =============
-            else if (room.has_solar_gain) {
-              const { shouldWait, reason } = isMorningWaitPeriod(
-                nightEnd,
-                wienHour,
-                expectedPvKwh,
-                pvPower,
-                batterySoc,
-                settings?.target_battery_soc || 80
-              );
-              
-              if (shouldWait) {
-                // Solar-Passiv-Modus: Mindestens eco_temp halten statt solarTemp
-                // Raum soll nicht unter eco_temp fallen während auf Solargewinn gewartet wird
-                action = 'activate';
-                targetTemp = ecoTemp;
-                solarLimitTemp = comfortTemp;
-                reasoning = `Warte auf Solargewinn, halte ${ecoTemp}°C (${reason})`;
-                
-                console.log(`[PV-Automation] ${room.name}: SOLAR-WARTEN - ${reasoning}`);
-              }
-            }
-          }
+          // (Solar-Gain-Erkennung und Morgen-Sperre entfernt — Thermostate regeln passiven Solargewinn selbst)
 
           // Only process ML/fallback if action is still 'keep' (not already set by morning wake-up or solar)
           if (action === 'keep') {
@@ -1085,17 +983,9 @@ Deno.serve(async (req) => {
                 // Bei Solargewinn-Räumen heizt die Heizung ohnehin nicht wenn Sonne den Raum erwärmt
                 targetTemp = ecoTemp;
                 solarLimitTemp = comfortTemp;
-                reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV${room.has_solar_gain ? ', Solargewinn möglich' : ''})`;
+                reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV)`;
               }
-              // 3b. Überschuss vorhanden, aber PV-Leistung noch zu gering - warten
-              else if (surplus >= thresholdOn && !room.pv_auto_active && pvPower < 1000 && room.has_solar_gain) {
-                // Noch nicht aktivieren - warten auf mehr PV, aber eco_temp halten
-                action = 'keep';
-                targetTemp = ecoTemp;
-                solarLimitTemp = null;
-                reasoning = `Warte auf PV: Überschuss ${surplus}W vorhanden aber PV-Leistung noch gering (${pvPower}W < 1000W)`;
-                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              }
+              // (PV-Warte-Sonderbehandlung für has_solar_gain entfernt — alle Räume gleich behandelt)
               // 4. Low/no surplus -> Solar-Limit deaktivieren
               else if (surplus < thresholdOff && room.pv_auto_active) {
                 action = 'deactivate';
@@ -1118,30 +1008,17 @@ Deno.serve(async (req) => {
                 reasoning = `Eco-Modus (Standard tagsüber): ${currentTargetTemp}°C → ${ecoTemp}°C`;
               }
               
-              // ============= ÜBERSCHUSS-UMLEITUNG zu Nord-Räumen =============
-              // If we have significant grid export and this is a north room, use the surplus for heating
-              const isNorthRoom = room.orientation && northOrientations.some(o => room.orientation!.toLowerCase().includes(o));
-              
-              if (action === 'keep' && isNorthRoom && gridExport > 500 && !room.pv_auto_active) {
-                // Check if room is below target and could use heating
+              // ============= ÜBERSCHUSS-UMLEITUNG =============
+              // Bei signifikantem Grid-Export: Kalte Räume heizen statt einspeisen (unabhängig von Ausrichtung)
+              if (action === 'keep' && gridExport > 1000 && !room.pv_auto_active) {
                 const currentRoomTemp = room.current_temp || 0;
                 const roomNeedsHeating = currentRoomTemp < (ecoTemp - 0.5);
                 
-                // Check if south rooms are being heated by sun (don't need heating power)
-                const southRoomsHeatedBySun = Array.from(roomsWithSolarGain.keys()).length > 0;
-                
-                if (roomNeedsHeating && southRoomsHeatedBySun) {
+                if (roomNeedsHeating) {
                   action = 'activate';
                   targetTemp = ecoTemp;
                   solarLimitTemp = comfortTemp;
-                  reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Nord-Raum heizen statt einspeisen (Süd-Räume durch Sonne erwärmt)`;
-                  console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-                } else if (roomNeedsHeating && gridExport > 1000) {
-                  // Even without detected solar gain, use significant surplus
-                  action = 'activate';
-                  targetTemp = ecoTemp;
-                  solarLimitTemp = comfortTemp;
-                  reasoning = `⚡ Hoher Überschuss: ${gridExport}W Export → Nord-Raum heizen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
+                  reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Raum heizen statt einspeisen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
                   console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
                 }
               }
