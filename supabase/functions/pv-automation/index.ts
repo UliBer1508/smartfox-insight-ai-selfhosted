@@ -1153,18 +1153,34 @@ Deno.serve(async (req) => {
                 .update({ heating_paused_reason: 'budget' })
                 .eq('id', room.id);
             } else if (budgetStatus.allowedToHeat) {
-              // Heizen erlaubt - zuerst eco_temp, dann comfort_temp bei genügend PV
               const currentRoomTemp = room.current_temp || 0;
-              action = 'activate';
               solarLimitTemp = null;
-              if (currentRoomTemp < ecoTemp - 0.5) {
-                targetTemp = ecoTemp;
-                reasoning = `☀️ PV-Heizen: zuerst ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
+              
+              if (budgetMode === 'grid_sequential') {
+                // KEIN PV: Nur bis eco_temp heizen, dann stoppen
+                if (currentRoomTemp < ecoTemp - 0.3) {
+                  action = 'activate';
+                  targetTemp = ecoTemp;
+                  reasoning = `🔌 Grid-Heizen: ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
+                } else {
+                  // Eco erreicht → nicht weiter heizen, auf eco_temp halten
+                  action = 'keep';
+                  targetTemp = ecoTemp;
+                  reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C ≥ ${ecoTemp}°C) → kein Grid-Komfort-Heizen`;
+                }
+                console.log(`[PV-Automation] ${room.name}: GRID-HEIZEN - ${reasoning}`);
               } else {
-                targetTemp = comfortTemp;
-                reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Raum warm genug, Budget: ${budgetStatus.reason})`;
+                // PV-OPTIMIERT: zuerst eco_temp, dann comfort_temp bei genügend PV
+                action = 'activate';
+                if (currentRoomTemp < ecoTemp - 0.5) {
+                  targetTemp = ecoTemp;
+                  reasoning = `☀️ PV-Heizen: zuerst ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
+                } else {
+                  targetTemp = comfortTemp;
+                  reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Raum warm genug, Budget: ${budgetStatus.reason})`;
+                }
+                console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
               }
-              console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
               
               // Tracking starten
               await supabase
