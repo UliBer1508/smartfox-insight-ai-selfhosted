@@ -919,13 +919,13 @@ Deno.serve(async (req) => {
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const nightTemp = room.night_temp || settings?.night_temp || 17;
+        const currentTargetTemp = Number(room.target_temp) || 0;
         
         console.log(`[PV-Automation] ${room.name}: Wien-Zeit ${wienTime}, Nacht=${isNight} (${nightStart}-${nightEnd})`);
 
         // 1. NACHTMODUS - hat absolute Priorität über ALLES (auch ML!)
         if (isNight) {
-          // Robuster Vergleich (beide als Number)
-          const currentTargetTemp = Number(room.target_temp) || 0;
+          // currentTargetTemp ist jetzt oben definiert (Zeile ~922)
           
           const needsCorrection = Math.abs(currentTargetTemp - nightTemp) >= 0.5 || room.pv_auto_active;
           
@@ -1132,7 +1132,7 @@ Deno.serve(async (req) => {
         }
 
         // ============= SKIP LOGIC: Check if Tuya API call is actually needed =============
-        const currentTargetTemp = Number(room.target_temp) || 0;
+        // currentTargetTemp already defined above (line ~922)
         const newTargetTemp = Number(targetTemp) || 0;
         const tempAlreadyCorrect = Math.abs(currentTargetTemp - newTargetTemp) < 0.5; // 0.5°C tolerance
         const stateAlreadyCorrect = (action === 'activate' && room.pv_auto_active) || 
