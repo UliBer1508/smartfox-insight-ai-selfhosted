@@ -1303,6 +1303,7 @@ Deno.serve(async (req) => {
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
+              last_thermostat_sync: now.toISOString(),
               target_temp: finalTemp,
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
