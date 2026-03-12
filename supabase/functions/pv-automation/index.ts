@@ -428,6 +428,7 @@ Deno.serve(async (req) => {
                 pv_auto_active: false,
                 heating_paused_reason: null,
                 last_auto_change: new Date().toISOString(),
+                last_thermostat_sync: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
@@ -1151,10 +1152,15 @@ Deno.serve(async (req) => {
                                      (action === 'deactivate' && !room.pv_auto_active);
         
         // WICHTIG: Bei JEDER Temperatur-Reduktion API aufrufen (für sequenzielles Heizen)
-        // Prüfe nur ob neue Temp niedriger ist - unabhängig von action!
-        // Das behebt das Problem: 18°C -> 15°C wurde geskippt weil 18 < 18-0.5 = false
         const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
-        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp;
+        
+        // STALE-SYNC-CHECK: Force-Push wenn letzter erfolgreicher Sync >10 Min her
+        // Verhindert Desync nach Crash/Restart wo DB aktualisiert wurde aber Tuya-Call fehlte
+        const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
+        const syncAgeMs = Date.now() - lastSyncTime;
+        const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
+        
+        const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp && !syncStale;
         
         if (shouldSkip) {
           console.log(`[PV-Automation] ${room.name}: SKIP - already at ${currentTargetTemp}°C, state=${room.pv_auto_active ? 'active' : 'inactive'}`);
@@ -1167,6 +1173,10 @@ Deno.serve(async (req) => {
             skippedApiCall: true
           });
           continue;
+        }
+        
+        if (syncStale && tempAlreadyCorrect) {
+          console.log(`[PV-Automation] ${room.name}: FORCE-SYNC - last sync ${Math.round(syncAgeMs / 60000)} min ago, pushing ${newTargetTemp}°C to device`);
         }
         
         // Log wenn wir einen Force-Push machen
@@ -1239,6 +1249,7 @@ Deno.serve(async (req) => {
               pv_auto_active: true,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
+              last_thermostat_sync: now.toISOString(),
               target_temp: targetTemp,
               solar_limit_temp: solarLimitTemp
             }).eq('id', room.id);
@@ -1293,6 +1304,7 @@ Deno.serve(async (req) => {
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
+              last_thermostat_sync: now.toISOString(),
               target_temp: finalTemp,
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
