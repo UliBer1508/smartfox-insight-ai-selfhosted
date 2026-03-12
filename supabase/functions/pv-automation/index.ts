@@ -1153,7 +1153,7 @@ Deno.serve(async (req) => {
         // Sequenzielles Heizen: Aktive Räume auf Comfort, Wartende auf Night-Temp
         // Das verhindert dass wartende Thermostate autonom heizen
         // Budget-Logik auch nachts bei leerem Akku aktiv (verhindert Netz-Heizen)
-        if (powerBudgetEnabled && budgetMode === 'pv_optimized') {
+        if (powerBudgetEnabled && (budgetMode === 'pv_optimized' || budgetMode === 'grid_sequential')) {
           const budgetStatus = roomBudgetStatus.get(room.id);
           
           if (budgetStatus) {
