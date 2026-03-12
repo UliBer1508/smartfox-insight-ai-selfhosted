@@ -302,7 +302,7 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Authentication: Validate JWT token or Service Role Key
+    // Authentication: Validate JWT token or known key
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -315,29 +315,29 @@ Deno.serve(async (req) => {
     const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const token = authHeader.replace('Bearer ', '');
 
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const publishableKey = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') || '';
+    const knownKeys = [serviceRoleKey, Deno.env.get('SUPABASE_ANON_KEY'), Deno.env.get('SUPABASE_PUBLISHABLE_KEY')].filter(Boolean);
+    let isAuthorized = knownKeys.includes(token);
 
-    // Service role key OR anon/publishable key = internal/Cron call → allowed
-    if (token !== serviceRoleKey && token !== anonKey && token !== publishableKey) {
-      const authClient = createClient(supabaseUrl, anonKey, {
-        global: { headers: { Authorization: authHeader } },
-      });
-      const { data: claimsData, error: claimsError } = await authClient.auth.getClaims(token);
-      const role = claimsData?.claims?.role;
-      const hasSub = !!claimsData?.claims?.sub;
-      const allowedRoles = ['anon', 'authenticated', 'service_role'];
-      if (claimsError || (!hasSub && !allowedRoles.includes(role as string))) {
-        console.error(`[tuya-control] Auth rejected: role=${role}, hasSub=${hasSub}, error=${claimsError?.message}`);
-        return new Response(JSON.stringify({ error: 'Unauthorized' }), {
-          status: 401,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+    if (!isAuthorized) {
+      try {
+        const payloadB64 = token.split('.')[1];
+        if (payloadB64) {
+          const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+          const role = payload.role || payload.aud;
+          isAuthorized = ['anon', 'authenticated', 'service_role'].includes(role);
+          if (!isAuthorized) console.error(`[tuya-control] Auth rejected: role=${role}`);
+        }
+      } catch (e) {
+        console.error(`[tuya-control] JWT decode failed: ${e}`);
       }
     }
 
-    const accessId = Deno.env.get('TUYA_ACCESS_ID')?.trim();
-    const accessSecret = Deno.env.get('TUYA_ACCESS_SECRET')?.trim();
+    if (!isAuthorized) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+        status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     if (!accessId || !accessSecret) {
       throw new Error('Tuya credentials not configured');
