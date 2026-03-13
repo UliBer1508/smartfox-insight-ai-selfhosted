@@ -1004,6 +1004,37 @@ Deno.serve(async (req) => {
       });
     }
 
+    // POST /switch - Turn thermostat on/off (switch DPS)
+    if (req.method === 'POST' && path === '/switch') {
+      const { deviceId, switchOn, roomId } = await req.json();
+      
+      if (!deviceId || switchOn === undefined) {
+        throw new Error('deviceId and switchOn are required');
+      }
+
+      console.log(`[Tuya] Setting device ${deviceId} switch to ${switchOn}`);
+      
+      await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
+        commands: [{ code: 'switch', value: Boolean(switchOn) }]
+      });
+
+      // Update room in database if roomId provided
+      if (roomId) {
+        await supabase
+          .from('rooms')
+          .update({
+            is_heating: false,
+            last_thermostat_sync: new Date().toISOString(),
+            heating_paused_reason: switchOn ? null : 'night_off',
+          })
+          .eq('id', roomId);
+      }
+
+      return new Response(JSON.stringify({ success: true, switchOn }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
