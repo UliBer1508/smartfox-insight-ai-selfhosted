@@ -1085,7 +1085,8 @@ Deno.serve(async (req) => {
             if (mlDecision && usedMlDecision && useMLDecisions) {
               // Use ML/AI recommendation (nur tagsüber!)
               action = mlDecision.action;
-              targetTemp = mlDecision.target_temp;
+              // ML-Temperatur auf comfort_temp deckeln — comfort ist das absolute Maximum
+              targetTemp = Math.min(mlDecision.target_temp, comfortTemp);
               reasoning = mlDecision.reasoning + ' (KI)';
               expectedEnergyWh = mlDecision.expected_energy_wh;
               confidence = mlDecision.confidence;
