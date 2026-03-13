@@ -1,25 +1,60 @@
 
-# ✅ PV-Überschuss optimal nutzen: Stufenweise Heizung ohne Netzstrom
 
-## Implementierte Änderungen
+# Analyse-Häufigkeit reduzieren: Was wirklich nötig ist
 
-### 1. Budget auf gridExport basiert (`pv-automation/index.ts`)
-- **VORHER**: `pvPower - baseLoad + tolerance` (geschätzte 500W Grundlast)
-- **NACHHER**: `gridExport + tolerance` (tatsächlicher Netzexport)
-- Verhindert Netzstromverbrauch für Heizung
+## Aktuelle Situation
 
-### 2. 4-Stufen PV-Heizlogik (`pv-automation/index.ts`)
-- **Stufe 1**: Raum < eco_temp → eco heizen (wenn `gridExport >= heatingPower`)
-- **Stufe 2**: eco erreicht, Batterie ≥ 95%, kein WW → comfort heizen
-- **Stufe 3**: ALLE Räume ≥ comfort, Export reicht → Prio-Raum +1°C (Super-Comfort)
-- **Stufe 4**: Sonst → halten, kein Heizen
-- Jede Stufe prüft `gridExport >= roomHeatingPower`
+`pv-automation` läuft alle **2 Minuten** und ruft **jedes Mal** `analyze-patterns` mit `optimize_decision` auf (Zeile 842-858). Das sind **720 AI-Aufrufe/Tag** bei einem Limit von **20/Tag**.
 
-### 3. Warmwasser-Check (`pv-automation/index.ts`)
-- Prüft `consumer_logs` auf aktives Warmwasser (`is_active=true, consumer_type='hotwater'`)
-- Komfort/Super-Komfort nur wenn WW nicht aktiv
+## Was passiert wirklich alle 2 Minuten?
 
-### 4. Temperatur-Deckelung (`pv-automation/index.ts`)
-- Normal: comfort_temp ist Maximum
-- Super-Comfort: comfort_temp + 1°C nur wenn alle Bedingungen erfüllt
-- Batterie ≥ 95%, kein WW, alle Räume auf comfort, Export reicht
+Die `pv-automation` macht zwei völlig verschiedene Dinge:
+
+1. **Hardcoded Budget-Logik** (Zeilen 668-810): Berechnet Budget aus `gridExport`, sortiert Räume nach Priorität, rotiert Heizung — **braucht KEINE KI**, arbeitet mit aktuellen Sensordaten
+2. **ML-Entscheidungen** (Zeilen 838-943): Ruft Google AI auf für Temperatur-Empfehlungen — **braucht NICHT alle 2 Min**, weil sich die Grundsituation (Wetter, PV-Prognose, Raumtemperaturen) nur langsam ändert
+
+Zusätzlich: **Learned Policies** (Zeile 1089) werden bereits bevorzugt wenn genug Daten da sind. Die KI wird nur als "Exploration"-Fallback gebraucht.
+
+## Wie oft ist eine KI-Analyse wirklich nötig?
+
+| Faktor | Änderungsrate | Fazit |
+|--------|---------------|-------|
+| PV-Prognose | 1x/Tag | KI braucht das nicht alle 2 Min |
+| Wetter | ~stündlich | Alle 30-60 Min reicht |
+| Raumtemperaturen | ~0.1°C/10 Min | Alle 30 Min reicht |
+| gridExport | Sekündlich | Wird von Budget-Logik gehandelt, NICHT von KI |
+| Batterie-SOC | ~1%/5 Min | Alle 15-30 Min reicht |
+
+**Ergebnis: KI-Analyse alle 30 Minuten reicht völlig aus.** Die Budget-Logik läuft weiterhin alle 2 Minuten für schnelle Reaktionen.
+
+## Plan
+
+### Änderung in `pv-automation/index.ts`
+
+Cache die letzte ML-Entscheidung in der Datenbank (`system_settings` Tabelle, Key `last_ml_cache`) und verwende sie wieder, solange sie < 30 Minuten alt ist:
+
+```text
+Vor dem AI-Aufruf (Zeile 838):
+
+1. Lade system_settings['last_ml_cache']
+2. Prüfe: Cache vorhanden UND < 30 Min alt?
+   JA → verwende gecachte mlDecisions, überspringe AI-Aufruf
+   NEIN → rufe analyze-patterns auf, speichere Ergebnis in Cache
+
+Ausnahme: Cache wird invalidiert wenn sich SOC oder PV-Power 
+um >30% geändert haben (signifikante Änderung)
+```
+
+- Kein In-Memory-Cache (Edge Functions haben keinen persistenten State zwischen Aufrufen)
+- Nutzt bestehende `system_settings` Tabelle (hat bereits public INSERT/UPDATE/SELECT Policies)
+
+### Budget: ~16 AI-Aufrufe/Tag bei Tageslicht (6-22 Uhr = 16h ÷ 30 Min = 32, aber Learned Policies übernehmen oft → ~16 tatsächliche Aufrufe)
+
+### Dateien
+
+| Datei | Änderung |
+|-------|----------|
+| `supabase/functions/pv-automation/index.ts` | ML-Cache-Logik vor AI-Aufruf (Zeilen 838-858) |
+
+Keine neuen Tabellen, keine neuen Functions, keine Frontend-Änderungen nötig.
+
