@@ -1118,12 +1118,13 @@ Deno.serve(async (req) => {
                 solarLimitTemp = comfortTemp;
                 // Keep action = 'keep'
               }
-              // 6. Daytime default: Ensure eco temp is set if still on night temp
-              else if (!room.pv_auto_active && currentTargetTemp < ecoTemp) {
+              // 6. Daytime default: Eco-Temp nur setzen wenn PV verfügbar
+              // Ohne PV bleibt der Raum auf aktuellem Wert (kein Netzstrom)
+              else if (!room.pv_auto_active && currentTargetTemp < ecoTemp && pvPower >= 500) {
                 action = 'activate';
                 targetTemp = ecoTemp;
                 solarLimitTemp = null;
-                reasoning = `Eco-Modus (Standard tagsüber): ${currentTargetTemp}°C → ${ecoTemp}°C`;
+                reasoning = `Eco-Modus (PV verfügbar: ${pvPower}W): ${currentTargetTemp}°C → ${ecoTemp}°C`;
               }
               
               // ============= ÜBERSCHUSS-UMLEITUNG =============
