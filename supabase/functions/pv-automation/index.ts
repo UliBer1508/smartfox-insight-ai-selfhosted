@@ -686,11 +686,11 @@ Deno.serve(async (req) => {
           budgetMode = 'pv_optimized';
           availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
         } else {
-          // Zu wenig PV: Grid-Fallback - alle Räume gleichzeitig auf eco_temp
-          // Budget auf maxGridHeatingPower setzen, damit Räume heizen können
+          // KEIN PV → kein Heizen, Budget = 0
+          // Thermostate bleiben auf aktuellem Wert, kein Netzstrom für Heizung
           budgetMode = 'grid_sequential';
-          availableBudget = maxGridHeatingPower;
-          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - Grid-Fallback: Budget=${maxGridHeatingPower}W, alle Räume auf eco_temp`);
+          availableBudget = 0;
+          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - KEIN Heizen, Budget=0W`);
         }
       }
       
@@ -1085,7 +1085,8 @@ Deno.serve(async (req) => {
             if (mlDecision && usedMlDecision && useMLDecisions) {
               // Use ML/AI recommendation (nur tagsüber!)
               action = mlDecision.action;
-              targetTemp = mlDecision.target_temp;
+              // ML-Temperatur auf comfort_temp deckeln — comfort ist das absolute Maximum
+              targetTemp = Math.min(mlDecision.target_temp, comfortTemp);
               reasoning = mlDecision.reasoning + ' (KI)';
               expectedEnergyWh = mlDecision.expected_energy_wh;
               confidence = mlDecision.confidence;
@@ -1117,12 +1118,13 @@ Deno.serve(async (req) => {
                 solarLimitTemp = comfortTemp;
                 // Keep action = 'keep'
               }
-              // 6. Daytime default: Ensure eco temp is set if still on night temp
-              else if (!room.pv_auto_active && currentTargetTemp < ecoTemp) {
+              // 6. Daytime default: Eco-Temp nur setzen wenn PV verfügbar
+              // Ohne PV bleibt der Raum auf aktuellem Wert (kein Netzstrom)
+              else if (!room.pv_auto_active && currentTargetTemp < ecoTemp && pvPower >= 500) {
                 action = 'activate';
                 targetTemp = ecoTemp;
                 solarLimitTemp = null;
-                reasoning = `Eco-Modus (Standard tagsüber): ${currentTargetTemp}°C → ${ecoTemp}°C`;
+                reasoning = `Eco-Modus (PV verfügbar: ${pvPower}W): ${currentTargetTemp}°C → ${ecoTemp}°C`;
               }
               
               // ============= ÜBERSCHUSS-UMLEITUNG =============
@@ -1199,14 +1201,21 @@ Deno.serve(async (req) => {
                 }
                 console.log(`[PV-Automation] ${room.name}: GRID-HEIZEN - ${reasoning}`);
               } else {
-                // PV-OPTIMIERT: zuerst eco_temp, dann comfort_temp bei genügend PV
-                action = 'activate';
+                // PV-OPTIMIERT: eco_temp als Standard, comfort nur bei echtem Export-Überschuss
                 if (currentRoomTemp < ecoTemp - 0.5) {
+                  action = 'activate';
                   targetTemp = ecoTemp;
                   reasoning = `☀️ PV-Heizen: zuerst ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
-                } else {
+                } else if (gridExport > 500) {
+                  // Echter Überschuss wird ins Netz eingespeist → lieber heizen
+                  action = 'activate';
                   targetTemp = comfortTemp;
-                  reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Raum warm genug, Budget: ${budgetStatus.reason})`;
+                  reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Export ${gridExport}W > 500W, Budget: ${budgetStatus.reason})`;
+                } else {
+                  // Eco erreicht, kein Export → halten, kein weiteres Aufheizen
+                  action = 'keep';
+                  targetTemp = ecoTemp;
+                  reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), kein Export → halten`;
                 }
                 console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
               }
@@ -1225,32 +1234,12 @@ Deno.serve(async (req) => {
 
         // ============= PV-BOOST: ÜBERSCHUSS ZUM AUFHEIZEN NUTZEN =============
         // Nach Budget-Override: Wenn genug PV-Energie verfügbar, Räume über comfort_temp hinaus aufheizen
-        if (boostAllowed && room.automation_enabled && !isNight && pvPower > 500) {
-          const currentRoomTemp = room.current_temp || 0;
-          // Fallback: wenn pv_boost_max_temp nicht gesetzt oder <= comfort_temp, dann comfort + boostDelta
-          const rawBoostMax = (room as any).pv_boost_max_temp;
-          const boostMaxTemp = (rawBoostMax && rawBoostMax > comfortTemp) ? rawBoostMax : (comfortTemp + boostDelta);
-          
-          // Boost ab eco_temp erlauben (nicht erst ab comfort_temp)
-          if (currentRoomTemp >= ecoTemp - 0.5 && currentRoomTemp < boostMaxTemp - 0.3) {
-            const hasEnoughSurplus = gridExport > 500 || (pvPower > 1000 && batterySoc > 80);
-            
-            if (hasEnoughSurplus) {
-              action = 'activate';
-              targetTemp = boostMaxTemp;
-              solarLimitTemp = null;
-              reasoning = `🔥 PV-Boost: ${availableHeatingKwh.toFixed(0)}kWh Heizbudget, Export ${gridExport}W, SOC ${batterySoc.toFixed(0)}% → ${boostMaxTemp}°C (max) statt ${comfortTemp}°C`;
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-            }
-          }
-          // Deaktivierung: Boost-Ziel erreicht oder nicht mehr genug Energie
-          else if (currentRoomTemp >= boostMaxTemp && room.pv_auto_active && targetTemp > comfortTemp) {
-            action = 'deactivate';
-            targetTemp = comfortTemp;
-            solarLimitTemp = null;
-            reasoning = `PV-Boost beendet: ${currentRoomTemp.toFixed(1)}°C >= ${boostMaxTemp}°C (Ziel erreicht)`;
-            console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-          }
+        // ============= PV-BOOST DEAKTIVIERT =============
+        // comfort_temp ist das absolute Maximum — kein Boost darüber hinaus
+        // PV-Überschuss wird bei Bedarf zum Aufheizen auf comfort_temp genutzt (siehe PV-Optimized oben)
+        if (targetTemp > comfortTemp) {
+          console.log(`[PV-Automation] ${room.name}: Zieltemp ${targetTemp}°C auf comfort_temp ${comfortTemp}°C gedeckelt`);
+          targetTemp = comfortTemp;
         }
 
         // SYNC-FAILED GUARD: Wenn Pre-Sync fehlgeschlagen, nur Sicherheits-Aktionen erlauben
