@@ -1291,14 +1291,14 @@ Deno.serve(async (req) => {
           }
         }
 
-        // ============= PV-BOOST: ÜBERSCHUSS ZUM AUFHEIZEN NUTZEN =============
-        // Nach Budget-Override: Wenn genug PV-Energie verfügbar, Räume über comfort_temp hinaus aufheizen
-        // ============= PV-BOOST DEAKTIVIERT =============
-        // comfort_temp ist das absolute Maximum — kein Boost darüber hinaus
-        // PV-Überschuss wird bei Bedarf zum Aufheizen auf comfort_temp genutzt (siehe PV-Optimized oben)
-        if (targetTemp > comfortTemp) {
-          console.log(`[PV-Automation] ${room.name}: Zieltemp ${targetTemp}°C auf comfort_temp ${comfortTemp}°C gedeckelt`);
-          targetTemp = comfortTemp;
+        // ============= TEMPERATUR-DECKELUNG =============
+        // Super-Comfort (comfort+1) nur erlaubt wenn: Batterie voll, kein WW, alle Räume auf comfort, Export reicht
+        const superComfortAllowed = allRoomsAtComfort && batterySoc >= 95 && !hotwaterActive;
+        const maxAllowedTemp = superComfortAllowed ? comfortTemp + 1 : comfortTemp;
+        
+        if (targetTemp > maxAllowedTemp) {
+          console.log(`[PV-Automation] ${room.name}: Zieltemp ${targetTemp}°C auf ${maxAllowedTemp}°C gedeckelt (SuperComfort=${superComfortAllowed})`);
+          targetTemp = maxAllowedTemp;
         }
 
         // SYNC-FAILED GUARD: Wenn Pre-Sync fehlgeschlagen, nur Sicherheits-Aktionen erlauben
