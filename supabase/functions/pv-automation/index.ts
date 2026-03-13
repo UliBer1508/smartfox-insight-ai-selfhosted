@@ -686,11 +686,11 @@ Deno.serve(async (req) => {
           budgetMode = 'pv_optimized';
           availableBudget = Math.max(0, pvPower - baseLoad + powerBudgetTolerance);
         } else {
-          // Zu wenig PV: Grid-Fallback - alle Räume gleichzeitig auf eco_temp
-          // Budget auf maxGridHeatingPower setzen, damit Räume heizen können
+          // KEIN PV → kein Heizen, Budget = 0
+          // Thermostate bleiben auf aktuellem Wert, kein Netzstrom für Heizung
           budgetMode = 'grid_sequential';
-          availableBudget = maxGridHeatingPower;
-          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - Grid-Fallback: Budget=${maxGridHeatingPower}W, alle Räume auf eco_temp`);
+          availableBudget = 0;
+          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - KEIN Heizen, Budget=0W`);
         }
       }
       
