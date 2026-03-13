@@ -1,30 +1,25 @@
 
-# ✅ Übertemperatur-Sicherheitsregel + Cooldown-Refactor
+# ✅ PV-Überschuss optimal nutzen: Stufenweise Heizung ohne Netzstrom
 
-## Änderungen
+## Implementierte Änderungen
 
-### 1. Übertemperatur-Guard (`pv-automation/index.ts`)
-- **VOR** Cooldown: Prüft ob `current_temp >= target_temp + 0.4°C` UND `is_heating=true`
-- Erzwingt sofortigen FORCE-STOP → umgeht Cooldown komplett
-- Setzt `heating_paused_reason: 'over_temp'`
+### 1. Budget auf gridExport basiert (`pv-automation/index.ts`)
+- **VORHER**: `pvPower - baseLoad + tolerance` (geschätzte 500W Grundlast)
+- **NACHHER**: `gridExport + tolerance` (tatsächlicher Netzexport)
+- Verhindert Netzstromverbrauch für Heizung
 
-### 2. Cooldown nur für Aufheiz-Aktionen (`pv-automation/index.ts`)
-- Cooldown-Check verschoben: wird erst NACH Entscheidung angewendet
-- `deactivate` und Temperatur-Reduktionen umgehen Cooldown IMMER
-- Nur `activate` (Aufheizen) wird durch Cooldown verzögert
+### 2. 4-Stufen PV-Heizlogik (`pv-automation/index.ts`)
+- **Stufe 1**: Raum < eco_temp → eco heizen (wenn `gridExport >= heatingPower`)
+- **Stufe 2**: eco erreicht, Batterie ≥ 95%, kein WW → comfort heizen
+- **Stufe 3**: ALLE Räume ≥ comfort, Export reicht → Prio-Raum +1°C (Super-Comfort)
+- **Stufe 4**: Sonst → halten, kein Heizen
+- Jede Stufe prüft `gridExport >= roomHeatingPower`
 
-### 3. Skip-Logik erweitert (`pv-automation/index.ts`)
-- Neues Kriterium `needsHeatingStop`: wenn `is_heating=true` aber Ist >= Ziel + 0.3°C
-- In diesem Fall wird NIEMALS geskippt → Stop-Befehl wird immer gesendet
+### 3. Warmwasser-Check (`pv-automation/index.ts`)
+- Prüft `consumer_logs` auf aktives Warmwasser (`is_active=true, consumer_type='hotwater'`)
+- Komfort/Super-Komfort nur wenn WW nicht aktiv
 
-### 4. Pre-Sync vor jeder Automationsrunde (`pv-automation/index.ts`)
-- Ruft `tuya-control/sync-all` auf bevor Entscheidungen getroffen werden
-- Lädt danach frische Raumdaten aus der DB
-- Bei Sync-Fehler: nur Sicherheits-Aktionen (Reduktionen/Stops), kein Aufheizen
-
-### 5. Heizstatus-Hysterese (`tuya-control/index.ts`)
-- `parseThermostatStatus` mit Deadband:
-  - Ist >= Ziel + 0.3°C → `is_heating = false` (unabhängig von work_state)
-  - Ist < Ziel - 0.2°C → `is_heating = true`
-  - Dazwischen: `work_state` als Signal
-- Verhindert "Heizt"-Anzeige wenn Temperatur bereits über Ziel
+### 4. Temperatur-Deckelung (`pv-automation/index.ts`)
+- Normal: comfort_temp ist Maximum
+- Super-Comfort: comfort_temp + 1°C nur wenn alle Bedingungen erfüllt
+- Batterie ≥ 95%, kein WW, alle Räume auf comfort, Export reicht
