@@ -50,6 +50,8 @@ const defaultSettings: HeatingSettings = {
   min_room_pause_minutes: 15,
   // PV-Boost
   pv_boost_temp_delta: 2,
+  // Nacht-Heizmodus
+  night_heating_mode: 'frost_only' as const,
 };
 
 export function useHeatingSettings() {

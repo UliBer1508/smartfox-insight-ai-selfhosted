@@ -376,6 +376,7 @@ export type Database = {
           min_switch_interval_min: number | null
           night_cycling_enabled: boolean | null
           night_end_time: string | null
+          night_heating_mode: string | null
           night_start_time: string | null
           night_temp: number
           power_budget_enabled: boolean | null
@@ -421,6 +422,7 @@ export type Database = {
           min_switch_interval_min?: number | null
           night_cycling_enabled?: boolean | null
           night_end_time?: string | null
+          night_heating_mode?: string | null
           night_start_time?: string | null
           night_temp?: number
           power_budget_enabled?: boolean | null
@@ -466,6 +468,7 @@ export type Database = {
           min_switch_interval_min?: number | null
           night_cycling_enabled?: boolean | null
           night_end_time?: string | null
+          night_heating_mode?: string | null
           night_start_time?: string | null
           night_temp?: number
           power_budget_enabled?: boolean | null

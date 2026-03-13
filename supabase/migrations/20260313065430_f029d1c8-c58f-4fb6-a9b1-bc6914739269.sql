@@ -1,0 +1,1 @@
+ALTER TABLE public.heating_settings ADD COLUMN IF NOT EXISTS night_heating_mode text DEFAULT 'frost_only';

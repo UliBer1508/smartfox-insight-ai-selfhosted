@@ -356,20 +356,13 @@ Deno.serve(async (req) => {
       const { isNight, wienTime } = isNightTime(nightStartTime, nightEndTime);
       
       if (isNight) {
-        console.log(`[PV-Automation] Night mode active (${wienTime}) - checking if thermostats need adjustment...`);
+        const nightHeatingMode = settings?.night_heating_mode || 'frost_only';
+        console.log(`[PV-Automation] Night mode active (${wienTime}), mode: ${nightHeatingMode}`);
         
-        // Load battery SOC for battery protection check
-        const { data: latestReading } = await supabase
-          .from('energy_readings')
-          .select('battery_soc')
-          .order('timestamp', { ascending: false })
-          .limit(1)
-          .single();
-        
-        // Load all rooms with Tuya devices to check night temp
+        // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
-          .select('id, name, tuya_device_id, target_temp, night_temp, pv_auto_active')
+          .select('id, name, tuya_device_id, target_temp, night_temp, pv_auto_active, heating_paused_reason')
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
@@ -383,37 +376,85 @@ Deno.serve(async (req) => {
           });
         }
 
-        // Filter rooms that need night temp adjustment
-        const globalNightTemp = settings?.night_temp || 17;
-        console.log(`[PV-Automation] Night: globalNightTemp=${globalNightTemp}°C`);
-        
-        const roomsNeedingAdjustment = allRooms.filter(r => {
-          const currentTarget = Number(r.target_temp) || 0;
-          const nightTarget = r.night_temp || globalNightTemp;
-          return Math.abs(currentTarget - nightTarget) >= 0.5;
-        });
+        const nightResults: { roomId: string; roomName: string; success: boolean; action: string; error?: string }[] = [];
 
-        if (roomsNeedingAdjustment.length === 0) {
-          console.log(`[PV-Automation] Night mode: all ${allRooms.length} thermostats already at night temp`);
-          return new Response(JSON.stringify({ 
-            success: true, 
-            message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
-            nightMode: true,
-            thermostatsChecked: allRooms.length,
-            results: [] 
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        if (nightHeatingMode === 'frost_only') {
+          // FROST_ONLY: Thermostate auf Frostschutz (5°C) setzen → kein aktives Heizen
+          const FROST_TEMP = 5;
+          
+          const roomsNeedingOff = allRooms.filter(r => {
+            const currentTarget = Number(r.target_temp) || 0;
+            return currentTarget > FROST_TEMP + 1; // Noch nicht auf Frostschutz
           });
-        }
 
-        // Set night temp for rooms that need it
-        console.log(`[PV-Automation] Night mode: ${roomsNeedingAdjustment.length}/${allRooms.length} rooms need adjustment`);
-        const nightResults: { roomId: string; roomName: string; success: boolean; nightTemp: number; error?: string }[] = [];
+          if (roomsNeedingOff.length === 0) {
+            console.log(`[PV-Automation] Night frost_only: all ${allRooms.length} thermostats already at frost protection`);
+            return new Response(JSON.stringify({ 
+              success: true, 
+              message: `Nachtmodus aktiv (${wienTime}) - alle Thermostate auf Frostschutz (${FROST_TEMP}°C)`,
+              nightMode: true, nightHeatingMode,
+              thermostatsChecked: allRooms.length,
+              results: [] 
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
 
-        // Night mode works in both cloud and local mode
-        for (const room of roomsNeedingAdjustment) {
+          console.log(`[PV-Automation] Night frost_only: ${roomsNeedingOff.length}/${allRooms.length} rooms → Frostschutz ${FROST_TEMP}°C`);
+
+          for (const room of roomsNeedingOff) {
+            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)`);
+            
+            const result = await setTemperatureForMode(
+              room.tuya_device_id!,
+              room.id,
+              FROST_TEMP
+            );
+
+            if (result.success) {
+              await supabase.from('rooms').update({
+                target_temp: FROST_TEMP,
+                pv_auto_active: false,
+                is_heating: false,
+                heating_paused_reason: 'night_frost_only',
+                last_auto_change: new Date().toISOString(),
+                last_thermostat_sync: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              }).eq('id', room.id);
+              
+              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `frost_${FROST_TEMP}°C` });
+            } else {
+              console.error(`[PV-Automation] Night frost: Failed ${room.name}: ${result.errorMessage}`);
+              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: result.errorMessage });
+            }
+          }
+
+        } else {
+          // MAINTAIN: Bisheriges Verhalten – night_temp halten
+          const globalNightTemp = settings?.night_temp || 17;
+          console.log(`[PV-Automation] Night maintain: globalNightTemp=${globalNightTemp}°C`);
+          
+          const roomsNeedingAdjustment = allRooms.filter(r => {
+            const currentTarget = Number(r.target_temp) || 0;
+            const nightTarget = r.night_temp || globalNightTemp;
+            return Math.abs(currentTarget - nightTarget) >= 0.5;
+          });
+
+          if (roomsNeedingAdjustment.length === 0) {
+            return new Response(JSON.stringify({ 
+              success: true, 
+              message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
+              nightMode: true, nightHeatingMode,
+              thermostatsChecked: allRooms.length,
+              results: [] 
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
+
+          for (const room of roomsNeedingAdjustment) {
             const nightTarget = room.night_temp || globalNightTemp;
-            console.log(`[PV-Automation] Night: Setting ${room.name} to ${nightTarget}°C (was ${room.target_temp}°C)`);
+            console.log(`[PV-Automation] Night maintain: ${room.name} → ${nightTarget}°C (was ${room.target_temp}°C)`);
             
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
@@ -422,7 +463,6 @@ Deno.serve(async (req) => {
             );
 
             if (result.success) {
-              // Update database
               await supabase.from('rooms').update({
                 target_temp: nightTarget,
                 pv_auto_active: false,
@@ -432,29 +472,18 @@ Deno.serve(async (req) => {
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
-              nightResults.push({
-                roomId: room.id,
-                roomName: room.name,
-                success: true,
-                nightTemp: nightTarget
-              });
+              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `maintain_${nightTarget}°C` });
             } else {
-              console.error(`[PV-Automation] Night: Failed to set ${room.name}: ${result.errorMessage}`);
-              nightResults.push({
-                roomId: room.id,
-                roomName: room.name,
-                success: false,
-                nightTemp: nightTarget,
-                error: result.errorMessage
-              });
+              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: result.errorMessage });
             }
           }
+        }
 
         const successCount = nightResults.filter(r => r.success).length;
         return new Response(JSON.stringify({ 
           success: true, 
-          message: `Nachtmodus aktiv (${wienTime}) - ${successCount}/${roomsNeedingAdjustment.length} Thermostate angepasst`,
-          nightMode: true,
+          message: `Nachtmodus aktiv (${wienTime}, ${nightHeatingMode}) - ${successCount} Thermostate angepasst`,
+          nightMode: true, nightHeatingMode,
           adjusted: successCount,
           total: allRooms.length,
           results: nightResults 

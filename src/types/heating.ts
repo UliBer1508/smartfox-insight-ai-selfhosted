@@ -63,6 +63,8 @@ export interface HeatingSettings {
   // PV-Boost
   pv_boost_temp_delta?: number;
   min_room_pause_minutes?: number;
+  // Nacht-Heizmodus
+  night_heating_mode?: 'maintain' | 'frost_only';
   created_at?: string;
   updated_at?: string;
 }
