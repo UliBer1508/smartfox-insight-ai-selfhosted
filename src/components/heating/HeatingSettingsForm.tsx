@@ -170,8 +170,26 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                 />
               </div>
             </div>
+            <div className="mt-4 space-y-2">
+              <Label htmlFor="night_heating_mode">Nacht-Heizmodus</Label>
+              <Select
+                value={formData.night_heating_mode || 'frost_only'}
+                onValueChange={(value) => handleChange('night_heating_mode', value)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="frost_only">Frostschutz (5°C) — kein Heizen nachts</SelectItem>
+                  <SelectItem value="maintain">Nacht-Temp. halten — Thermostate cyclen</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Frostschutz: Thermostate auf 5°C → 0W Heizverbrauch nachts. Maintain: hält Nacht-Temperatur.
+              </p>
+            </div>
             <p className="text-xs text-muted-foreground mt-2">
-              Während dieser Zeit wird automatisch die Nacht-Temperatur verwendet
+              Während dieser Zeit wird automatisch der gewählte Nacht-Heizmodus angewendet
             </p>
           </div>
 
