@@ -358,6 +358,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         />
       </div>
 
+      {/* AI Settings Suggestions */}
+      <AISettingsSuggestions />
+
       {/* Heating History Chart */}
       <HeatingHistoryChart rooms={rooms} />
 

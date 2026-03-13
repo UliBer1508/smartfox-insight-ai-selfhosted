@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.update-learned-policies]
 verify_jwt = false
+
+[functions.generate-settings-suggestions]
+verify_jwt = false
