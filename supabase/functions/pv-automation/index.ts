@@ -1201,14 +1201,21 @@ Deno.serve(async (req) => {
                 }
                 console.log(`[PV-Automation] ${room.name}: GRID-HEIZEN - ${reasoning}`);
               } else {
-                // PV-OPTIMIERT: zuerst eco_temp, dann comfort_temp bei genügend PV
-                action = 'activate';
+                // PV-OPTIMIERT: eco_temp als Standard, comfort nur bei echtem Export-Überschuss
                 if (currentRoomTemp < ecoTemp - 0.5) {
+                  action = 'activate';
                   targetTemp = ecoTemp;
                   reasoning = `☀️ PV-Heizen: zuerst ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
-                } else {
+                } else if (gridExport > 500) {
+                  // Echter Überschuss wird ins Netz eingespeist → lieber heizen
+                  action = 'activate';
                   targetTemp = comfortTemp;
-                  reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Raum warm genug, Budget: ${budgetStatus.reason})`;
+                  reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Export ${gridExport}W > 500W, Budget: ${budgetStatus.reason})`;
+                } else {
+                  // Eco erreicht, kein Export → halten, kein weiteres Aufheizen
+                  action = 'keep';
+                  targetTemp = ecoTemp;
+                  reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), kein Export → halten`;
                 }
                 console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
               }
