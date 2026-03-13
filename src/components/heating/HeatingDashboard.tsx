@@ -29,6 +29,7 @@ import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain,
 import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
+import { AISettingsSuggestions } from './AISettingsSuggestions';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
@@ -356,6 +357,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           feedInPriceCent={settings.feed_in_price_kwh_cent ?? 8.0}
         />
       </div>
+
+      {/* AI Settings Suggestions */}
+      <AISettingsSuggestions />
 
       {/* Heating History Chart */}
       <HeatingHistoryChart rooms={rooms} />
