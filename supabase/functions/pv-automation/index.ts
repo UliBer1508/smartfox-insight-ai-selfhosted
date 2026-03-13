@@ -1226,21 +1226,55 @@ Deno.serve(async (req) => {
                 }
                 console.log(`[PV-Automation] ${room.name}: GRID-HEIZEN - ${reasoning}`);
               } else {
-                // PV-OPTIMIERT: eco_temp als Standard, comfort nur bei echtem Export-Überschuss
-                if (currentRoomTemp < ecoTemp - 0.5) {
-                  action = 'activate';
-                  targetTemp = ecoTemp;
-                  reasoning = `☀️ PV-Heizen: zuerst ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget: ${budgetStatus.reason})`;
-                } else if (gridExport > 500) {
-                  // Echter Überschuss wird ins Netz eingespeist → lieber heizen
+                // ============= 4-STUFEN PV-HEIZLOGIK =============
+                // Jede Stufe prüft gridExport >= heatingPower → NIE Netzstrom!
+                const rp = roomsWithPriority.find(r => r.room.id === room.id);
+                const roomHeatingPower = rp?.heatingPower || 800;
+                const exportCoversRoom = gridExport >= roomHeatingPower;
+                const batteryFull = batterySoc >= 95;
+                
+                if (currentRoomTemp < ecoTemp - 0.3) {
+                  // STUFE 1: Unter eco_temp → auf eco heizen (wenn Export reicht)
+                  if (exportCoversRoom) {
+                    action = 'activate';
+                    targetTemp = ecoTemp;
+                    reasoning = `☀️ Stufe 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Export ${gridExport}W >= Heizleistung ${roomHeatingPower}W)`;
+                  } else {
+                    action = 'keep';
+                    targetTemp = ecoTemp;
+                    reasoning = `⏸️ Eco warten (Export ${gridExport}W < Heizleistung ${roomHeatingPower}W → kein Netzstrom)`;
+                  }
+                } else if (currentRoomTemp < comfortTemp - 0.3 && exportCoversRoom && batteryFull && !hotwaterActive) {
+                  // STUFE 2: Bei eco, Batterie voll, kein WW → auf comfort heizen
                   action = 'activate';
                   targetTemp = comfortTemp;
-                  reasoning = `☀️ PV-Komfort: ${comfortTemp}°C (Export ${gridExport}W > 500W, Budget: ${budgetStatus.reason})`;
+                  reasoning = `☀️ Stufe 2: Komfort ${comfortTemp}°C (Batterie ${batterySoc}%, Export ${gridExport}W >= ${roomHeatingPower}W, kein WW)`;
+                } else if (allRoomsAtComfort && exportCoversRoom && batteryFull && !hotwaterActive && currentRoomTemp >= comfortTemp - 0.3) {
+                  // STUFE 3: Alle auf comfort, immer noch Export → Super-Comfort (+1°C)
+                  // Nur für den Raum mit der höchsten Priorität
+                  const highestPriorityRoom = roomsWithPriority[0];
+                  if (highestPriorityRoom && highestPriorityRoom.room.id === room.id) {
+                    action = 'activate';
+                    targetTemp = comfortTemp + 1;
+                    reasoning = `🔥 Stufe 3: Super-Komfort ${comfortTemp + 1}°C (alle Räume ≥ comfort, Export ${gridExport}W, Batterie ${batterySoc}%)`;
+                  } else {
+                    action = 'keep';
+                    targetTemp = comfortTemp;
+                    reasoning = `✅ Komfort erreicht (${currentRoomTemp.toFixed(1)}°C), Super-Komfort nur für Prio-Raum`;
+                  }
                 } else {
-                  // Eco erreicht, kein Export → halten, kein weiteres Aufheizen
+                  // STUFE 4: Halten, kein weiteres Heizen
                   action = 'keep';
-                  targetTemp = ecoTemp;
-                  reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), kein Export → halten`;
+                  targetTemp = currentRoomTemp >= ecoTemp ? ecoTemp : currentTargetTemp;
+                  if (!exportCoversRoom && currentRoomTemp >= ecoTemp - 0.3) {
+                    reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), Export ${gridExport}W < ${roomHeatingPower}W → halten`;
+                  } else if (!batteryFull) {
+                    reasoning = `⏸️ Batterie erst ${batterySoc}% (< 95%) → kein Komfort-Heizen`;
+                  } else if (hotwaterActive) {
+                    reasoning = `⏸️ Warmwasser aktiv → kein Komfort-Heizen`;
+                  } else {
+                    reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
+                  }
                 }
                 console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
               }
