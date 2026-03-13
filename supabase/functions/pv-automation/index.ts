@@ -835,48 +835,109 @@ Deno.serve(async (req) => {
       });
       console.log(`[PV-Automation] Alle Räume auf Komfort: ${allRoomsAtComfort}, Batterie: ${batterySoc}%, WW aktiv: ${hotwaterActive}`);
 
-      // 7. Call analyze-patterns with optimize_decision
+      // 7. Call analyze-patterns with optimize_decision (THROTTLED: max alle 30 Min)
       let mlDecisions: MLDecision[] = [];
       let usedMlDecision = false;
 
       if (tuyaAccessId && tuyaAccessSecret) {
-        try {
-          const mlResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-patterns`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              type: 'optimize_decision',
-              readings: [reading],
-              rooms: rooms,
-              heatingSettings: settings,
-              mlFeatures: latestMlFeatures,
-              weatherData: weatherData,
-              recentRewards: recentEvents
-            })
-          });
+        const ML_CACHE_KEY = 'last_ml_cache';
+        const ML_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minuten
+        const SIGNIFICANT_CHANGE_THRESHOLD = 0.30; // 30% Änderung
 
-          console.log(`[PV-Automation] ML Response status: ${mlResponse.status}, ok: ${mlResponse.ok}`);
-          
-          if (mlResponse.ok) {
-            const mlResult: MLDecisionResponse = await mlResponse.json();
-            console.log(`[PV-Automation] ML Result received, decisions: ${mlResult.decisions?.length || 0}, error: ${mlResult.error || 'none'}`);
-            
-            if (mlResult.decisions && mlResult.decisions.length > 0) {
-              mlDecisions = mlResult.decisions;
+        let useCache = false;
+        try {
+          // Lade ML-Cache aus system_settings
+          const { data: cacheRow } = await supabase
+            .from('system_settings')
+            .select('value')
+            .eq('key', ML_CACHE_KEY)
+            .single();
+
+          if (cacheRow?.value) {
+            const cache = cacheRow.value as Record<string, unknown>;
+            const cacheTime = cache.timestamp as number;
+            const cacheAge = Date.now() - cacheTime;
+            const cachedSoc = cache.battery_soc as number;
+            const cachedPvPower = cache.pv_power as number;
+            const cachedDecisions = cache.decisions as MLDecision[];
+
+            // Prüfe signifikante Änderungen
+            const socChange = cachedSoc > 0 ? Math.abs(batterySoc - cachedSoc) / cachedSoc : 1;
+            const pvChange = cachedPvPower > 100 ? Math.abs(pvPower - cachedPvPower) / cachedPvPower : (pvPower > 100 ? 1 : 0);
+            const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD;
+
+            if (cacheAge < ML_CACHE_TTL_MS && !significantChange && cachedDecisions?.length > 0) {
+              mlDecisions = cachedDecisions;
               usedMlDecision = true;
-              console.log(`[PV-Automation] ✅ ML decisions: ${mlDecisions.length}, Strategy: ${mlResult.overall_strategy?.substring(0, 100)}...`);
+              useCache = true;
+              console.log(`[PV-Automation] ♻️ ML-Cache verwendet (${Math.round(cacheAge / 60000)} Min alt, SOC-Δ=${(socChange*100).toFixed(0)}%, PV-Δ=${(pvChange*100).toFixed(0)}%)`);
             } else {
-              console.warn(`[PV-Automation] ⚠️ ML returned empty decisions array, overall_strategy: ${mlResult.overall_strategy?.substring(0, 50) || 'none'}`);
+              console.log(`[PV-Automation] 🔄 ML-Cache ungültig: Alter=${Math.round(cacheAge / 60000)}min, SOC-Δ=${(socChange*100).toFixed(0)}%, PV-Δ=${(pvChange*100).toFixed(0)}%, significantChange=${significantChange}`);
             }
-          } else {
-            const errorText = await mlResponse.text();
-            console.warn(`[PV-Automation] ❌ ML decision failed (${mlResponse.status}): ${errorText.substring(0, 200)}`);
           }
-        } catch (mlError) {
-          console.error('[PV-Automation] ❌ ML error:', mlError);
+        } catch (cacheError) {
+          console.log(`[PV-Automation] ML-Cache nicht vorhanden, rufe AI auf`);
+        }
+
+        // Nur AI aufrufen wenn Cache ungültig
+        if (!useCache) {
+          try {
+            const mlResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-patterns`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${supabaseKey}`,
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({
+                type: 'optimize_decision',
+                readings: [reading],
+                rooms: rooms,
+                heatingSettings: settings,
+                mlFeatures: latestMlFeatures,
+                weatherData: weatherData,
+                recentRewards: recentEvents
+              })
+            });
+
+            console.log(`[PV-Automation] ML Response status: ${mlResponse.status}, ok: ${mlResponse.ok}`);
+            
+            if (mlResponse.ok) {
+              const mlResult: MLDecisionResponse = await mlResponse.json();
+              console.log(`[PV-Automation] ML Result received, decisions: ${mlResult.decisions?.length || 0}, error: ${mlResult.error || 'none'}`);
+              
+              if (mlResult.decisions && mlResult.decisions.length > 0) {
+                mlDecisions = mlResult.decisions;
+                usedMlDecision = true;
+                console.log(`[PV-Automation] ✅ ML decisions: ${mlDecisions.length}, Strategy: ${mlResult.overall_strategy?.substring(0, 100)}...`);
+
+                // Speichere in ML-Cache
+                try {
+                  await supabase
+                    .from('system_settings')
+                    .upsert({
+                      key: ML_CACHE_KEY,
+                      value: {
+                        timestamp: Date.now(),
+                        battery_soc: batterySoc,
+                        pv_power: pvPower,
+                        decisions: mlDecisions
+                      },
+                      updated_at: new Date().toISOString()
+                    }, { onConflict: 'key' });
+                  console.log(`[PV-Automation] 💾 ML-Cache gespeichert`);
+                } catch (saveError) {
+                  console.warn(`[PV-Automation] ML-Cache speichern fehlgeschlagen:`, saveError);
+                }
+              } else {
+                console.warn(`[PV-Automation] ⚠️ ML returned empty decisions array, overall_strategy: ${mlResult.overall_strategy?.substring(0, 50) || 'none'}`);
+              }
+            } else {
+              const errorText = await mlResponse.text();
+              console.warn(`[PV-Automation] ❌ ML decision failed (${mlResponse.status}): ${errorText.substring(0, 200)}`);
+            }
+          } catch (mlError) {
+            console.error('[PV-Automation] ❌ ML error:', mlError);
+          }
         }
 
         // ============= PERSISTIERE ML-ENTSCHEIDUNGEN IN DATENBANK =============
