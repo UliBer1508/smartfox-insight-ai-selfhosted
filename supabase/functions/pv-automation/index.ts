@@ -809,8 +809,31 @@ Deno.serve(async (req) => {
         }
       }
       
-      console.log(`[PV-Automation] Budget-Modus: ${budgetMode}, Budget: ${availableBudget}W, Verwendet: ${usedBudget}W`);
+      console.log(`[PV-Automation] Budget-Modus: ${budgetMode}, Budget: ${availableBudget}W (gridExport: ${gridExport}W), Verwendet: ${usedBudget}W`);
       console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
+
+      // ============= WARMWASSER-STATUS PRÜFEN =============
+      // Für Comfort/Super-Comfort: Warmwasser darf nicht aktiv sein
+      let hotwaterActive = false;
+      try {
+        const { data: activeHotwater } = await supabase
+          .from('consumer_logs')
+          .select('id')
+          .eq('consumer_type', 'hotwater')
+          .eq('is_active', true)
+          .limit(1);
+        hotwaterActive = !!(activeHotwater && activeHotwater.length > 0);
+        console.log(`[PV-Automation] Warmwasser aktiv: ${hotwaterActive}`);
+      } catch (hwError) {
+        console.warn('[PV-Automation] Warmwasser-Status nicht abrufbar:', hwError);
+      }
+
+      // Prüfe ob alle Räume >= comfort_temp sind (für Super-Comfort)
+      const allRoomsAtComfort = rooms.every(r => {
+        const roomComfort = r.comfort_temp || settings?.comfort_temp || 21;
+        return (r.current_temp || 0) >= roomComfort - 0.3;
+      });
+      console.log(`[PV-Automation] Alle Räume auf Komfort: ${allRoomsAtComfort}, Batterie: ${batterySoc}%, WW aktiv: ${hotwaterActive}`);
 
       // 7. Call analyze-patterns with optimize_decision
       let mlDecisions: MLDecision[] = [];
