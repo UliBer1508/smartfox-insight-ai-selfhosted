@@ -682,11 +682,13 @@ Deno.serve(async (req) => {
       
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
-          // PV-Optimiert: Budget = tatsächlicher Grid-Export (nicht PV-Schätzung!)
+          // PV-Optimiert: Budget = tatsächlicher Grid-Export + dynamische Toleranz
           // gridExport = was wirklich ins Netz fließt, NACH Abzug aller Verbraucher
+          // Dynamische Toleranz: 20% des gridExport (min 200W) — bei hohem Export können mehr Räume gleichzeitig heizen
           budgetMode = 'pv_optimized';
-          availableBudget = Math.max(0, gridExport + powerBudgetTolerance);
-          console.log(`[PV-Automation] PV-Budget basiert auf gridExport: ${gridExport}W + Toleranz ${powerBudgetTolerance}W = ${availableBudget}W`);
+          const dynamicTolerance = Math.max(powerBudgetTolerance, Math.round(gridExport * 0.20));
+          availableBudget = Math.max(0, gridExport + dynamicTolerance);
+          console.log(`[PV-Automation] PV-Budget basiert auf gridExport: ${gridExport}W + Toleranz ${dynamicTolerance}W (20% oder min ${powerBudgetTolerance}W) = ${availableBudget}W`);
         } else {
           // KEIN PV → kein Heizen, Budget = 0
           // Thermostate bleiben auf aktuellem Wert, kein Netzstrom für Heizung
@@ -813,8 +815,9 @@ Deno.serve(async (req) => {
       console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
 
       // ============= WARMWASSER-STATUS PRÜFEN =============
-      // Für Comfort/Super-Comfort: Warmwasser darf nicht aktiv sein
+      // Warmwasser-Status und -Leistung für Budget-Berechnung
       let hotwaterActive = false;
+      const hotwaterPower = settings?.hotwater_power_w || 2000;
       try {
         const { data: activeHotwater } = await supabase
           .from('consumer_logs')
@@ -823,7 +826,7 @@ Deno.serve(async (req) => {
           .eq('is_active', true)
           .limit(1);
         hotwaterActive = !!(activeHotwater && activeHotwater.length > 0);
-        console.log(`[PV-Automation] Warmwasser aktiv: ${hotwaterActive}`);
+        console.log(`[PV-Automation] Warmwasser aktiv: ${hotwaterActive} (Leistung: ${hotwaterPower}W)`);
       } catch (hwError) {
         console.warn('[PV-Automation] Warmwasser-Status nicht abrufbar:', hwError);
       }
@@ -1305,23 +1308,39 @@ Deno.serve(async (req) => {
                     targetTemp = ecoTemp;
                     reasoning = `⏸️ Eco warten (Export ${gridExport}W < Heizleistung ${roomHeatingPower}W → kein Netzstrom)`;
                   }
-                } else if (currentRoomTemp < comfortTemp - 0.3 && exportCoversRoom && batteryFull && !hotwaterActive) {
-                  // STUFE 2: Bei eco, Batterie voll, kein WW → auf comfort heizen
-                  action = 'activate';
-                  targetTemp = comfortTemp;
-                  reasoning = `☀️ Stufe 2: Komfort ${comfortTemp}°C (Batterie ${batterySoc}%, Export ${gridExport}W >= ${roomHeatingPower}W, kein WW)`;
-                } else if (allRoomsAtComfort && exportCoversRoom && batteryFull && !hotwaterActive && currentRoomTemp >= comfortTemp - 0.3) {
-                  // STUFE 3: Alle auf comfort, immer noch Export → Super-Comfort (+1°C)
-                  // Nur für den Raum mit der höchsten Priorität
-                  const highestPriorityRoom = roomsWithPriority[0];
-                  if (highestPriorityRoom && highestPriorityRoom.room.id === room.id) {
+                } else if (currentRoomTemp < comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
+                  // STUFE 2: Bei eco, Batterie voll → auf comfort heizen
+                  // Warmwasser-Sperre nur wenn Export nicht für beides reicht
+                  const exportCoversRoomAndHW = !hotwaterActive || gridExport >= roomHeatingPower + hotwaterPower;
+                  if (exportCoversRoomAndHW) {
                     action = 'activate';
-                    targetTemp = comfortTemp + 1;
-                    reasoning = `🔥 Stufe 3: Super-Komfort ${comfortTemp + 1}°C (alle Räume ≥ comfort, Export ${gridExport}W, Batterie ${batterySoc}%)`;
+                    targetTemp = comfortTemp;
+                    reasoning = `☀️ Stufe 2: Komfort ${comfortTemp}°C (Batterie ${batterySoc}%, Export ${gridExport}W >= ${roomHeatingPower}W${hotwaterActive ? `, WW aktiv aber Export reicht für beides` : ``})`;
                   } else {
                     action = 'keep';
+                    targetTemp = ecoTemp;
+                    reasoning = `⏸️ Warmwasser aktiv (${hotwaterPower}W) + Heizung (${roomHeatingPower}W) > Export ${gridExport}W → warten`;
+                  }
+                } else if (allRoomsAtComfort && exportCoversRoom && batteryFull && currentRoomTemp >= comfortTemp - 0.3) {
+                  // STUFE 3: Alle auf comfort, immer noch Export → Super-Comfort (+1°C)
+                  // Warmwasser-Sperre nur wenn Export nicht für beides reicht
+                  const exportCoversRoomAndHW = !hotwaterActive || gridExport >= roomHeatingPower + hotwaterPower;
+                  if (!exportCoversRoomAndHW) {
+                    action = 'keep';
                     targetTemp = comfortTemp;
-                    reasoning = `✅ Komfort erreicht (${currentRoomTemp.toFixed(1)}°C), Super-Komfort nur für Prio-Raum`;
+                    reasoning = `⏸️ WW aktiv + Export knapp → Super-Komfort warten`;
+                  } else {
+                    // Nur für den Raum mit der höchsten Priorität
+                    const highestPriorityRoom = roomsWithPriority[0];
+                    if (highestPriorityRoom && highestPriorityRoom.room.id === room.id) {
+                      action = 'activate';
+                      targetTemp = comfortTemp + 1;
+                      reasoning = `🔥 Stufe 3: Super-Komfort ${comfortTemp + 1}°C (alle Räume ≥ comfort, Export ${gridExport}W, Batterie ${batterySoc}%)`;
+                    } else {
+                      action = 'keep';
+                      targetTemp = comfortTemp;
+                      reasoning = `✅ Komfort erreicht (${currentRoomTemp.toFixed(1)}°C), Super-Komfort nur für Prio-Raum`;
+                    }
                   }
                 } else {
                   // STUFE 4: Halten, kein weiteres Heizen
@@ -1331,8 +1350,6 @@ Deno.serve(async (req) => {
                     reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), Export ${gridExport}W < ${roomHeatingPower}W → halten`;
                   } else if (!batteryFull) {
                     reasoning = `⏸️ Batterie erst ${batterySoc}% (< 95%) → kein Komfort-Heizen`;
-                  } else if (hotwaterActive) {
-                    reasoning = `⏸️ Warmwasser aktiv → kein Komfort-Heizen`;
                   } else {
                     reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
                   }
