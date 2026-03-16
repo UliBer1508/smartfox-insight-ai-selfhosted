@@ -1,31 +1,31 @@
 
-# ✅ PV-Überschuss optimal nutzen: Stufenweise Heizung ohne Netzstrom
 
-## Implementierte Änderungen
+# Effizienz-basierte Raum-Sortierung implementieren
 
-### 1. Budget auf gridExport basiert (`pv-automation/index.ts`)
-- **VORHER**: `pvPower - baseLoad + tolerance` (geschätzte 500W Grundlast)
-- **NACHHER**: `gridExport + tolerance` (tatsächlicher Netzexport)
-- Verhindert Netzstromverbrauch für Heizung
+## Problem
+Die Sortierung der Räume (Zeile 732-736) nutzt nur Priorität, Temperatur-Defizit und Wartezeit. Die vorhandenen `energy_per_degree_wh`-Daten aus `room_ml_features` werden ignoriert. Dadurch werden ineffiziente Räume (z.B. Wirtschaftsraum: 1781 Wh/°C, 153 Min für +1°C) vor effizienten Räumen (z.B. Zimmer Luis: 345 Wh/°C, 21 Min) aktiviert.
 
-### 2. 4-Stufen PV-Heizlogik (`pv-automation/index.ts`)
-- **Stufe 1**: Raum < eco_temp → eco heizen (wenn `gridExport >= heatingPower`)
-- **Stufe 2**: eco erreicht, Batterie ≥ 95%, Export reicht (auch bei WW wenn genug Export) → comfort heizen
-- **Stufe 3**: ALLE Räume ≥ comfort, Export reicht → Prio-Raum +1°C (Super-Comfort)
-- **Stufe 4**: Sonst → halten, kein Heizen
-- Jede Stufe prüft `gridExport >= roomHeatingPower`
+## Lösung
 
-### 3. Warmwasser-Check (`pv-automation/index.ts`)
-- Prüft `consumer_logs` auf aktives Warmwasser (`is_active=true, consumer_type='hotwater'`)
-- **NEU**: Komfort/Super-Komfort wird nur blockiert wenn `gridExport < roomHeatingPower + hotwaterPower`
-- Bei genug Export wird parallel zu Warmwasser geheizt
+### In `pv-automation/index.ts` (Zeilen 700-736)
 
-### 4. Temperatur-Deckelung (`pv-automation/index.ts`)
-- Normal: comfort_temp ist Maximum
-- Super-Comfort: comfort_temp + 1°C nur wenn alle Bedingungen erfüllt
-- Batterie ≥ 95%, kein WW, alle Räume auf comfort, Export reicht
+1. **ML-Features in `roomsWithPriority` einbinden**: Für jeden Raum die `energy_per_degree_wh` aus den bereits geladenen `latestMlFeatures` (Zeile ~600) nachschlagen und dem Objekt hinzufügen.
 
-### 5. Dynamische Budget-Toleranz (`pv-automation/index.ts`)
-- **VORHER**: Feste Toleranz von 200W
-- **NACHHER**: 20% des gridExport (mindestens 200W)
-- Bei 8.871W Export → 1.774W Toleranz → Budget 10.645W → alle Räume können gleichzeitig heizen
+2. **Sortierung erweitern**: Nach gleicher Priorität und ähnlichem Temperatur-Defizit, Räume mit **niedrigerem** `energy_per_degree_wh` bevorzugen (schneller fertig → gibt Budget frei für nächsten Raum).
+
+3. **Logging**: Pro Raum loggen: `[Raum] braucht ~X Wh für +Y°C, geschätzte Dauer: Z Min`
+
+### Sortier-Reihenfolge (neu)
+1. Priorität (1 vor 2 vor 3)
+2. Temperatur-Defizit > 0.5°C Unterschied → größeres Defizit zuerst
+3. **Effizienz**: niedrigeres `energy_per_degree_wh` zuerst (Räume die schnell fertig sind)
+4. Wartezeit (längste zuerst, als Tiebreaker)
+
+### Datei
+
+| Datei | Änderung |
+|-------|----------|
+| `supabase/functions/pv-automation/index.ts` | ML-Features in Sortierung einbeziehen (Zeilen 700-736) |
+
+Keine DB-Änderungen nötig — `latestMlFeatures` wird bereits geladen.
+
