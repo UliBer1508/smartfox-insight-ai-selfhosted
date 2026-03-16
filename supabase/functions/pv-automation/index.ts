@@ -763,6 +763,12 @@ Deno.serve(async (req) => {
         return b.waitTimeMinutes - a.waitTimeMinutes;
       });
       
+      // Sortierungs-Ergebnis loggen
+      const heatingOrder = roomsWithPriority.map((rp, idx) => 
+        `  ${idx + 1}. ${rp.room.name} (Prio ${rp.priority}, Defizit ${rp.tempDeficit.toFixed(1)}°C, ${rp.energyPerDegreeWh ? rp.energyPerDegreeWh + ' Wh/°C' : 'keine ML-Daten'}, ${rp.heatingPower}W, ${rp.isCurrentlyHeating ? 'HEIZT' : 'wartet ' + Math.round(rp.waitTimeMinutes) + ' Min'})`
+      ).join('\n');
+      console.log(`[PV-Automation] Heiz-Reihenfolge (${roomsWithPriority.length} Räume):\n${heatingOrder}`);
+      
       // Tracking für Budget-Verbrauch
       let usedBudget = 0;
       const roomBudgetStatus = new Map<string, { 
