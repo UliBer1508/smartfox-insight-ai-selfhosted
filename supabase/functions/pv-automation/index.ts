@@ -698,14 +698,28 @@ Deno.serve(async (req) => {
         }
       }
       
-      // Räume nach Priorität und Temperatur-Defizit sortieren
-      // Typen inline für Deno Kompatibilität
+      // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
+      // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
       const roomsWithPriority = rooms.map(room => {
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
+        const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const currentTemp = room.current_temp || ecoTemp;
         const tempDeficit = ecoTemp - currentTemp;
         const heatingPower = room.calculated_power_w || room.heating_power_w || 800;
+        
+        // ML-Features: energy_per_degree_wh für diesen Raum nachschlagen
+        const mlFeature = latestMlFeatures.find((f: any) => f.room_id === room.id);
+        const energyPerDegreeWh = (mlFeature as any)?.energy_per_degree_wh || null;
+        
+        // Geschätzte Dauer bis Ziel (in Minuten)
+        const tempToTarget = Math.max(0, comfortTemp - currentTemp);
+        const estimatedDurationMin = energyPerDegreeWh && heatingPower > 0
+          ? (energyPerDegreeWh * tempToTarget) / heatingPower * 60
+          : null;
+        const estimatedEnergyWh = energyPerDegreeWh
+          ? energyPerDegreeWh * tempToTarget
+          : null;
         
         // Wartezeit seit letzter Heizung
         const lastEnd = room.last_heating_end ? new Date(room.last_heating_end) : null;
@@ -717,21 +731,35 @@ Deno.serve(async (req) => {
         const heatingDurationMinutes = isCurrentlyHeating && lastStart ? 
           (now.getTime() - lastStart.getTime()) / (1000 * 60) : 0;
         
+        // Logging: Effizienz-Info pro Raum
+        if (energyPerDegreeWh && tempToTarget > 0) {
+          console.log(`[PV-Automation] ${room.name}: braucht ~${estimatedEnergyWh?.toFixed(0)} Wh für +${tempToTarget.toFixed(1)}°C (${energyPerDegreeWh.toFixed(0)} Wh/°C), geschätzte Dauer: ${estimatedDurationMin?.toFixed(0)} Min bei ${heatingPower}W`);
+        }
+        
         return {
           room,
           priority: room.priority || 2,
           tempDeficit,
           heatingPower,
+          energyPerDegreeWh,
+          estimatedDurationMin,
           waitTimeMinutes,
           isCurrentlyHeating,
           heatingDurationMinutes
         };
       });
       
-      // Sortierung: 1. Priorität (aufsteigend: 1 vor 2 vor 3), 2. Temperatur-Defizit (größter zuerst), 3. Wartezeit (längste zuerst)
+      // Sortierung: 1. Priorität, 2. Temperatur-Defizit (>0.5°C Unterschied), 
+      // 3. Effizienz (niedrigeres energy_per_degree_wh = schneller fertig → bevorzugt),
+      // 4. Wartezeit (längste zuerst als Tiebreaker)
       roomsWithPriority.sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
         if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
+        // Effizienz: Räume mit bekanntem energy_per_degree_wh vor unbekannten,
+        // dann niedrigere Wh/°C zuerst (schneller aufgeheizt → gibt Budget frei)
+        const aEff = a.energyPerDegreeWh || 99999;
+        const bEff = b.energyPerDegreeWh || 99999;
+        if (Math.abs(aEff - bEff) > 100) return aEff - bEff;
         return b.waitTimeMinutes - a.waitTimeMinutes;
       });
       
