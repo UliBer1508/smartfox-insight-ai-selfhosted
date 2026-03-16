@@ -815,8 +815,9 @@ Deno.serve(async (req) => {
       console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
 
       // ============= WARMWASSER-STATUS PRÜFEN =============
-      // Für Comfort/Super-Comfort: Warmwasser darf nicht aktiv sein
+      // Warmwasser-Status und -Leistung für Budget-Berechnung
       let hotwaterActive = false;
+      const hotwaterPower = settings?.hotwater_power_w || 2000;
       try {
         const { data: activeHotwater } = await supabase
           .from('consumer_logs')
@@ -825,7 +826,7 @@ Deno.serve(async (req) => {
           .eq('is_active', true)
           .limit(1);
         hotwaterActive = !!(activeHotwater && activeHotwater.length > 0);
-        console.log(`[PV-Automation] Warmwasser aktiv: ${hotwaterActive}`);
+        console.log(`[PV-Automation] Warmwasser aktiv: ${hotwaterActive} (Leistung: ${hotwaterPower}W)`);
       } catch (hwError) {
         console.warn('[PV-Automation] Warmwasser-Status nicht abrufbar:', hwError);
       }
