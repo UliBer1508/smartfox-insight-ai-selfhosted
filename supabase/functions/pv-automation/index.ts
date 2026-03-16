@@ -682,11 +682,13 @@ Deno.serve(async (req) => {
       
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
-          // PV-Optimiert: Budget = tatsächlicher Grid-Export (nicht PV-Schätzung!)
+          // PV-Optimiert: Budget = tatsächlicher Grid-Export + dynamische Toleranz
           // gridExport = was wirklich ins Netz fließt, NACH Abzug aller Verbraucher
+          // Dynamische Toleranz: 20% des gridExport (min 200W) — bei hohem Export können mehr Räume gleichzeitig heizen
           budgetMode = 'pv_optimized';
-          availableBudget = Math.max(0, gridExport + powerBudgetTolerance);
-          console.log(`[PV-Automation] PV-Budget basiert auf gridExport: ${gridExport}W + Toleranz ${powerBudgetTolerance}W = ${availableBudget}W`);
+          const dynamicTolerance = Math.max(powerBudgetTolerance, Math.round(gridExport * 0.20));
+          availableBudget = Math.max(0, gridExport + dynamicTolerance);
+          console.log(`[PV-Automation] PV-Budget basiert auf gridExport: ${gridExport}W + Toleranz ${dynamicTolerance}W (20% oder min ${powerBudgetTolerance}W) = ${availableBudget}W`);
         } else {
           // KEIN PV → kein Heizen, Budget = 0
           // Thermostate bleiben auf aktuellem Wert, kein Netzstrom für Heizung
