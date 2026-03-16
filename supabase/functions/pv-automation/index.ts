@@ -783,12 +783,19 @@ Deno.serve(async (req) => {
         
         // Rotation: Hat dieser Raum zu lange geheizt?
         const shouldRotate = rp.heatingDurationMinutes >= roomRotationMinutes && 
-          roomsWithPriority.some(other => 
-            !other.isCurrentlyHeating && 
-            other.tempDeficit > 0.5 && 
-            other.waitTimeMinutes >= minRoomPauseMinutes &&
-            other.priority <= rp.priority
-          );
+          roomsWithPriority.some(other => {
+            if (other.isCurrentlyHeating || other.tempDeficit <= 0.5 || other.waitTimeMinutes < minRoomPauseMinutes) return false;
+            // Höhere Priorität (niedrigere Zahl) kann immer rotieren
+            if (other.priority < rp.priority) return true;
+            // Gleiche Priorität: nur wenn effizienter oder gleich
+            if (other.priority === rp.priority) {
+              const otherEff = other.energyPerDegreeWh || 99999;
+              const rpEff = rp.energyPerDegreeWh || 99999;
+              return otherEff <= rpEff;
+            }
+            // Niedrigere Priorität (höhere Zahl) darf NICHT rotieren
+            return false;
+          });
         
         if (shouldRotate) {
           roomBudgetStatus.set(rp.room.id, {
