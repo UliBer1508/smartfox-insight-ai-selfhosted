@@ -1,31 +1,18 @@
 
-# ✅ PV-Überschuss optimal nutzen: Stufenweise Heizung ohne Netzstrom
+# ✅ Effizienz-basierte Raum-Sortierung
 
-## Implementierte Änderungen
+## Implementierte Änderungen in `pv-automation/index.ts`
 
-### 1. Budget auf gridExport basiert (`pv-automation/index.ts`)
-- **VORHER**: `pvPower - baseLoad + tolerance` (geschätzte 500W Grundlast)
-- **NACHHER**: `gridExport + tolerance` (tatsächlicher Netzexport)
-- Verhindert Netzstromverbrauch für Heizung
+### ML-Features in Budget-Sortierung integriert
+- `energy_per_degree_wh` wird aus `latestMlFeatures` für jeden Raum nachgeschlagen
+- Geschätzte Heizdauer und Energiebedarf werden pro Raum berechnet und geloggt
+- Logging: `[Raum] braucht ~X Wh für +Y°C, geschätzte Dauer: Z Min bei W Watt`
 
-### 2. 4-Stufen PV-Heizlogik (`pv-automation/index.ts`)
-- **Stufe 1**: Raum < eco_temp → eco heizen (wenn `gridExport >= heatingPower`)
-- **Stufe 2**: eco erreicht, Batterie ≥ 95%, Export reicht (auch bei WW wenn genug Export) → comfort heizen
-- **Stufe 3**: ALLE Räume ≥ comfort, Export reicht → Prio-Raum +1°C (Super-Comfort)
-- **Stufe 4**: Sonst → halten, kein Heizen
-- Jede Stufe prüft `gridExport >= roomHeatingPower`
+### Neue Sortier-Reihenfolge
+1. **Priorität** (1 vor 2 vor 3)
+2. **Temperatur-Defizit** (>0.5°C Unterschied → größeres Defizit zuerst)
+3. **Effizienz** (niedrigeres `energy_per_degree_wh` zuerst, >100 Wh Unterschied signifikant)
+4. **Wartezeit** (längste zuerst als Tiebreaker)
 
-### 3. Warmwasser-Check (`pv-automation/index.ts`)
-- Prüft `consumer_logs` auf aktives Warmwasser (`is_active=true, consumer_type='hotwater'`)
-- **NEU**: Komfort/Super-Komfort wird nur blockiert wenn `gridExport < roomHeatingPower + hotwaterPower`
-- Bei genug Export wird parallel zu Warmwasser geheizt
-
-### 4. Temperatur-Deckelung (`pv-automation/index.ts`)
-- Normal: comfort_temp ist Maximum
-- Super-Comfort: comfort_temp + 1°C nur wenn alle Bedingungen erfüllt
-- Batterie ≥ 95%, kein WW, alle Räume auf comfort, Export reicht
-
-### 5. Dynamische Budget-Toleranz (`pv-automation/index.ts`)
-- **VORHER**: Feste Toleranz von 200W
-- **NACHHER**: 20% des gridExport (mindestens 200W)
-- Bei 8.871W Export → 1.774W Toleranz → Budget 10.645W → alle Räume können gleichzeitig heizen
+### Effekt
+Räume wie Zimmer Luis (345 Wh/°C, ~21 Min) werden vor ineffizienten Räumen wie Wirtschaftsraum (1781 Wh/°C, ~153 Min) aktiviert. Dadurch wird das PV-Budget schneller für weitere Räume frei.
