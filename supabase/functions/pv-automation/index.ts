@@ -879,7 +879,7 @@ Deno.serve(async (req) => {
       });
       console.log(`[PV-Automation] Alle Räume auf Komfort: ${allRoomsAtComfort}, Batterie: ${batterySoc}%, WW aktiv: ${hotwaterActive}`);
 
-      // 7. Call analyze-patterns with optimize_decision (THROTTLED: max alle 30 Min)
+      // 7. Call analyze-patterns with optimize_decision (THROTTLED: max alle 60 Min)
       let mlDecisions: MLDecision[] = [];
       let usedMlDecision = false;
 
