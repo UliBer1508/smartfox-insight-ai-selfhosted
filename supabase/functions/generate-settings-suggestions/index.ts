@@ -234,7 +234,7 @@ Wichtige Regeln:
       }
     }];
 
-    const aiResponse = await callGoogleAI({
+    const aiResponse = await callAI({
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: contextText }
