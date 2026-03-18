@@ -879,14 +879,14 @@ Deno.serve(async (req) => {
       });
       console.log(`[PV-Automation] Alle Räume auf Komfort: ${allRoomsAtComfort}, Batterie: ${batterySoc}%, WW aktiv: ${hotwaterActive}`);
 
-      // 7. Call analyze-patterns with optimize_decision (THROTTLED: max alle 30 Min)
+      // 7. Call analyze-patterns with optimize_decision (THROTTLED: max alle 60 Min)
       let mlDecisions: MLDecision[] = [];
       let usedMlDecision = false;
 
       if (tuyaAccessId && tuyaAccessSecret) {
         const ML_CACHE_KEY = 'last_ml_cache';
-        const ML_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minuten
-        const SIGNIFICANT_CHANGE_THRESHOLD = 0.30; // 30% Änderung
+        const ML_CACHE_TTL_MS = 60 * 60 * 1000; // 60 Minuten
+        const SIGNIFICANT_CHANGE_THRESHOLD = 0.40; // 40% Änderung
 
         let useCache = false;
         try {
