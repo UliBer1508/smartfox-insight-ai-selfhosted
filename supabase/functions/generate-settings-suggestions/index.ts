@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Google AI API Call (kostenlos) - gleiche Abstraktionsschicht wie analyze-patterns
+// Lovable AI Gateway
 interface AIRequestBody {
   messages: Array<{ role: string; content: string }>;
   tools?: unknown[];
@@ -20,102 +20,47 @@ interface AIResponse {
   error?: string;
 }
 
-async function callGoogleAI(requestBody: AIRequestBody): Promise<AIResponse> {
-  const GOOGLE_AI_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
-  if (!GOOGLE_AI_KEY) {
-    return { ok: false, status: 0, error: 'GOOGLE_AI_API_KEY not configured' };
+async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
+  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+  if (!LOVABLE_API_KEY) {
+    return { ok: false, status: 0, error: 'LOVABLE_API_KEY not configured' };
   }
 
   try {
-    const contents = requestBody.messages
-      .filter(m => m.role !== 'system')
-      .map(m => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }]
-      }));
-
-    const systemPrompt = requestBody.messages.find(m => m.role === 'system')?.content;
-    if (systemPrompt && contents.length > 0 && contents[0].role === 'user') {
-      contents[0].parts.unshift({ text: `[System]: ${systemPrompt}\n\n` });
-    }
-
-    let tools: unknown[] | undefined;
-    if (requestBody.tools && Array.isArray(requestBody.tools) && requestBody.tools.length > 0) {
-      tools = [{
-        functionDeclarations: requestBody.tools.map((t: any) => ({
-          name: t.function?.name || t.name,
-          description: t.function?.description || t.description,
-          parameters: t.function?.parameters || t.parameters
-        }))
-      }];
-    }
-
-    const googleBody: Record<string, unknown> = {
-      contents,
-      generationConfig: { temperature: 0.7, maxOutputTokens: 4096 }
-    };
-
-    if (tools) {
-      googleBody.tools = tools;
-      if (requestBody.tool_choice && typeof requestBody.tool_choice === 'object') {
-        const toolChoice = requestBody.tool_choice as { function?: { name: string } };
-        if (toolChoice.function?.name) {
-          googleBody.toolConfig = {
-            functionCallingConfig: {
-              mode: 'ANY',
-              allowedFunctionNames: [toolChoice.function.name]
-            }
-          };
-        }
-      }
-    }
-
-    console.log('Calling Google AI for settings suggestions...');
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_AI_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(googleBody)
-      }
-    );
+    console.log('Calling Lovable AI Gateway for settings suggestions...');
+    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'google/gemini-2.5-flash',
+        messages: requestBody.messages,
+        tools: requestBody.tools,
+        tool_choice: requestBody.tool_choice,
+      }),
+    });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Google AI error:', response.status, errorText);
+      if (response.status === 429) {
+        console.error('❌ Rate limit exceeded');
+        return { ok: false, status: 429, error: 'Rate limit exceeded' };
+      }
+      if (response.status === 402) {
+        console.error('❌ Credits exhausted');
+        return { ok: false, status: 402, error: 'AI-Credits erschöpft' };
+      }
+      console.error('AI Gateway error:', response.status, errorText);
       return { ok: false, status: response.status, error: errorText };
     }
 
-    const googleData = await response.json();
-    const candidate = googleData.candidates?.[0];
-    const content = candidate?.content;
-
-    if (content?.parts?.[0]?.functionCall) {
-      const functionCall = content.parts[0].functionCall;
-      return {
-        ok: true, status: 200,
-        data: {
-          choices: [{
-            message: {
-              tool_calls: [{
-                function: {
-                  name: functionCall.name,
-                  arguments: JSON.stringify(functionCall.args)
-                }
-              }]
-            }
-          }]
-        }
-      };
-    } else {
-      const textContent = content?.parts?.map((p: { text?: string }) => p.text || '').join('') || '';
-      return {
-        ok: true, status: 200,
-        data: { choices: [{ message: { content: textContent } }] }
-      };
-    }
+    const data = await response.json();
+    console.log('✅ AI Gateway response received');
+    return { ok: true, status: 200, data };
   } catch (err) {
-    console.error('Google AI exception:', err);
+    console.error('AI Gateway exception:', err);
     return { ok: false, status: 0, error: String(err) };
   }
 }

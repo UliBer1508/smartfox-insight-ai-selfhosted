@@ -885,8 +885,8 @@ Deno.serve(async (req) => {
 
       if (tuyaAccessId && tuyaAccessSecret) {
         const ML_CACHE_KEY = 'last_ml_cache';
-        const ML_CACHE_TTL_MS = 30 * 60 * 1000; // 30 Minuten
-        const SIGNIFICANT_CHANGE_THRESHOLD = 0.30; // 30% Änderung
+        const ML_CACHE_TTL_MS = 60 * 60 * 1000; // 60 Minuten
+        const SIGNIFICANT_CHANGE_THRESHOLD = 0.40; // 40% Änderung
 
         let useCache = false;
         try {
