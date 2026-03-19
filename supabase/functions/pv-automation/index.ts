@@ -1335,7 +1335,9 @@ Deno.serve(async (req) => {
                 // Jede Stufe prüft gridExport >= heatingPower → NIE Netzstrom!
                 const rp = roomsWithPriority.find(r => r.room.id === room.id);
                 const roomHeatingPower = rp?.heatingPower || 800;
-                const exportCoversRoom = gridExport >= roomHeatingPower;
+                const budgetStatus = roomBudgetStatus.get(room.id);
+                const exportCoversRoom = budgetStatus?.allowedToHeat === true;
+                console.log(`[PV-Automation] ${room.name}: Budget-Check → ${exportCoversRoom ? '✅' : '❌'} (${budgetStatus?.reason || 'kein Status'}, Leistung: ${roomHeatingPower}W)`);
                 const batteryFull = batterySoc >= 95;
                 
                 if (currentRoomTemp < ecoTemp - 0.3) {
