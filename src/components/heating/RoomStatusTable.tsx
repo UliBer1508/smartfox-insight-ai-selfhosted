@@ -18,9 +18,9 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const tuyaRooms = rooms.filter(r => r.tuya_device_id).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   if (tuyaRooms.length === 0) return null;
 
-  const handlePriorityChange = (roomId: string, value: string) => {
+  const handlePriorityChange = (roomId: string, value: string, currentPriority: number) => {
     const num = parseInt(value);
-    if (!isNaN(num) && num >= 1 && num <= 12 && onSavePriority) {
+    if (!isNaN(num) && num >= 1 && num <= 12 && onSavePriority && num !== currentPriority) {
       onSavePriority(roomId, num);
     }
   };
