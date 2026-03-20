@@ -80,6 +80,7 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">Raum</TableHead>
+                      <TableHead className="text-xs">Prio</TableHead>
                       <TableHead className="text-xs">Device ID</TableHead>
                       <TableHead className="text-xs">Local Key</TableHead>
                       <TableHead className="text-xs">Local IP</TableHead>
