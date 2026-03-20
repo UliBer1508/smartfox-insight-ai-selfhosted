@@ -43,7 +43,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
             {isMobile ? (
               <div className="divide-y">
                 {tuyaRooms.map(room => (
-                  <div key={room.id} className="px-4 py-3 space-y-1.5">
+                  <div key={`${room.id}-${room.priority}`} className="px-4 py-3 space-y-1.5">
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-semibold">{room.name}</span>
                       <div className="flex items-center gap-2">
