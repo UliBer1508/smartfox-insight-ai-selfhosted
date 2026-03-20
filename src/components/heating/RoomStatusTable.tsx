@@ -111,7 +111,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                   </TableHeader>
                   <TableBody>
                     {tuyaRooms.map(room => (
-                      <TableRow key={room.id}>
+                      <TableRow key={`${room.id}-${room.priority}`}>
                         <TableCell className="text-xs font-medium">{room.name}</TableCell>
                         <TableCell>
                           <Input
