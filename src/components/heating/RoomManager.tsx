@@ -159,20 +159,21 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                   </div>
 
                   <div>
-                    <Label htmlFor="priority">Priorität</Label>
-                    <Select
-                      value={String(editingRoom.priority || 2)}
-                      onValueChange={v => setEditingRoom({ ...editingRoom, priority: parseInt(v) })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="1">Hoch (1)</SelectItem>
-                        <SelectItem value="2">Mittel (2)</SelectItem>
-                        <SelectItem value="3">Niedrig (3)</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="priority">Heiz-Priorität (1–10)</Label>
+                    <Input
+                      id="priority"
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editingRoom.priority ?? 5}
+                      onChange={e => setEditingRoom({ 
+                        ...editingRoom, 
+                        priority: Math.max(1, Math.min(10, parseInt(e.target.value) || 1))
+                      })}
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      1 = höchste Priorität beim sequenziellen Heizen
+                    </p>
                   </div>
 
                   <div>

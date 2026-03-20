@@ -3,18 +3,27 @@ import { Room } from '@/types/room';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Input } from '@/components/ui/input';
 import { Check, X, Thermometer, ChevronDown } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 
 interface RoomStatusTableProps {
   rooms: Room[];
+  onSavePriority?: (roomId: string, priority: number) => void;
 }
 
-export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
+export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
   const tuyaRooms = rooms.filter(r => r.tuya_device_id).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   if (tuyaRooms.length === 0) return null;
+
+  const handlePriorityChange = (roomId: string, value: string) => {
+    const num = parseInt(value);
+    if (!isNaN(num) && num >= 1 && num <= 10 && onSavePriority) {
+      onSavePriority(roomId, num);
+    }
+  };
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
@@ -52,15 +61,22 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                      <span>Prio: <strong className="text-foreground">{room.priority ?? '-'}</strong></span>
+                      <span className="flex items-center gap-1">
+                        Prio:
+                        <Input
+                          type="number"
+                          min={1}
+                          max={10}
+                          defaultValue={room.priority ?? 5}
+                          className="w-12 h-6 text-xs px-1 text-center text-foreground"
+                          onBlur={e => room.id && handlePriorityChange(room.id, e.target.value)}
+                        />
+                      </span>
                       {room.current_temp != null && (
                         <span>Ist: <strong className="text-foreground">{room.current_temp}°</strong></span>
                       )}
                       {room.target_temp != null && (
                         <span>Ziel: <strong className="text-foreground">{room.target_temp}°</strong></span>
-                      )}
-                      {room.thermostat_local_ip && (
-                        <span className="font-mono text-[10px]">{room.thermostat_local_ip}</span>
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
@@ -70,6 +86,9 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                       <span className="flex items-center gap-1">
                         Key {room.local_key ? <Check className="w-3 h-3 text-success" /> : <X className="w-3 h-3 text-destructive" />}
                       </span>
+                      {room.thermostat_local_ip && (
+                        <span className="font-mono text-[10px]">{room.thermostat_local_ip}</span>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -80,7 +99,7 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">Raum</TableHead>
-                      <TableHead className="text-xs">Prio</TableHead>
+                      <TableHead className="text-xs w-16">Prio</TableHead>
                       <TableHead className="text-xs">Device ID</TableHead>
                       <TableHead className="text-xs">Local Key</TableHead>
                       <TableHead className="text-xs">Local IP</TableHead>
@@ -94,7 +113,16 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                     {tuyaRooms.map(room => (
                       <TableRow key={room.id}>
                         <TableCell className="text-xs font-medium">{room.name}</TableCell>
-                        <TableCell className="text-xs">{room.priority ?? '-'}</TableCell>
+                        <TableCell>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={10}
+                            defaultValue={room.priority ?? 5}
+                            className="w-14 h-7 text-xs px-1 text-center"
+                            onBlur={e => room.id && handlePriorityChange(room.id, e.target.value)}
+                          />
+                        </TableCell>
                         <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         <TableCell>{room.local_key ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>

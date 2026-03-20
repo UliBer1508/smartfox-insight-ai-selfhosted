@@ -67,6 +67,7 @@ const Index = () => {
   const {
     rooms,
     getCurrentRecommendation,
+    saveRoom,
     saveRecommendations: saveRoomRecommendations,
     loadRecommendations: loadRoomRecommendations,
   } = useRooms();
@@ -205,7 +206,7 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
-                <RoomStatusTable rooms={rooms} />
+                <RoomStatusTable rooms={rooms} onSavePriority={(roomId, priority) => saveRoom({ id: roomId, priority })} />
                 <EnergyChart readings={readings} />
                 
                 <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
