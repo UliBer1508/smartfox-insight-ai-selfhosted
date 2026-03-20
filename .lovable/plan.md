@@ -1,17 +1,24 @@
 
 
-# Priorität in Raum-Übersicht anzeigen
+# Priorität editierbar machen
 
-## Änderung
+## Änderungen
 
-**Datei:** `src/components/heating/RoomStatusTable.tsx`
+### 1. RoomManager: Priorität-Feld erweitern (Zeilen 161-176)
 
-### Desktop-Tabelle
-- Neue Spalte "Prio" nach "Raum" einfügen (Zeile 82)
-- In jeder Zeile `room.priority` anzeigen (nach Zeile 94)
+Das aktuelle Select hat nur 3 Optionen (Hoch/Mittel/Niedrig = 1-3). Das reicht nicht für die 10 Prioritätsstufen. Ersetzen durch ein Number-Input (1-10) mit Erklärung, dass niedrigere Zahlen = höhere Priorität beim sequenziellen Heizen.
 
-### Mobile-Ansicht
-- Priorität in der Info-Zeile (Zeile 54) als "Prio: X" ergänzen
+### 2. RoomStatusTable: Priorität editierbar machen
 
-Die Tabelle wird nach Priorität sortiert (`tuyaRooms` nach `priority` ascending sortieren), damit die Reihenfolge der sequenziellen Heizung direkt sichtbar ist.
+In der Tabelle (Desktop und Mobile) die Prioritätszahl durch ein kleines editierbares Number-Input ersetzen. Bei Änderung wird `onSave` mit der neuen Priorität aufgerufen.
+
+Dafür muss `RoomStatusTable` eine neue `onSave` Prop bekommen, die von der Parent-Komponente durchgereicht wird.
+
+### Dateien
+
+| Datei | Änderung |
+|-------|----------|
+| `src/components/heating/RoomStatusTable.tsx` | `onSave` Prop hinzufügen, Prio-Spalte als editierbares Input |
+| `src/components/heating/RoomManager.tsx` | Select durch Number-Input (1-10) ersetzen |
+| `src/components/heating/HeatingDashboard.tsx` | `onSave` an RoomStatusTable durchreichen |
 
