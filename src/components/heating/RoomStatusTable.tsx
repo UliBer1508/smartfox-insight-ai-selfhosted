@@ -13,7 +13,7 @@ interface RoomStatusTableProps {
 export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
-  const tuyaRooms = rooms.filter(r => r.tuya_device_id);
+  const tuyaRooms = rooms.filter(r => r.tuya_device_id).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   if (tuyaRooms.length === 0) return null;
 
   return (
@@ -52,6 +52,7 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                       </div>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                      <span>Prio: <strong className="text-foreground">{room.priority ?? '-'}</strong></span>
                       {room.current_temp != null && (
                         <span>Ist: <strong className="text-foreground">{room.current_temp}°</strong></span>
                       )}
@@ -79,6 +80,7 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                   <TableHeader>
                     <TableRow>
                       <TableHead className="text-xs">Raum</TableHead>
+                      <TableHead className="text-xs">Prio</TableHead>
                       <TableHead className="text-xs">Device ID</TableHead>
                       <TableHead className="text-xs">Local Key</TableHead>
                       <TableHead className="text-xs">Local IP</TableHead>
@@ -92,6 +94,7 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                     {tuyaRooms.map(room => (
                       <TableRow key={room.id}>
                         <TableCell className="text-xs font-medium">{room.name}</TableCell>
+                        <TableCell className="text-xs">{room.priority ?? '-'}</TableCell>
                         <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         <TableCell>{room.local_key ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
