@@ -777,56 +777,34 @@ Deno.serve(async (req) => {
         shouldRotate: boolean;
       }>();
       
-      // Erste Runde: Bereits heizende Räume prüfen auf Rotation
+      // Eine einzige Runde: Alle Räume in Prioritäts-Reihenfolge prüfen
       for (const rp of roomsWithPriority) {
-        if (!rp.isCurrentlyHeating) continue;
-        
-        // Rotation: Hat dieser Raum zu lange geheizt?
-        const shouldRotate = rp.heatingDurationMinutes >= roomRotationMinutes && 
-          roomsWithPriority.some(other => {
-            if (other.isCurrentlyHeating || other.tempDeficit <= 0.5 || other.waitTimeMinutes < minRoomPauseMinutes) return false;
-            // Höhere Priorität (niedrigere Zahl) kann immer rotieren
-            if (other.priority < rp.priority) return true;
-            // Gleiche Priorität: nur wenn effizienter oder gleich
-            if (other.priority === rp.priority) {
-              const otherEff = other.energyPerDegreeWh || 99999;
-              const rpEff = rp.energyPerDegreeWh || 99999;
-              return otherEff <= rpEff;
-            }
-            // Niedrigere Priorität (höhere Zahl) darf NICHT rotieren
-            return false;
-          });
-        
-        if (shouldRotate) {
-          roomBudgetStatus.set(rp.room.id, {
-            allowedToHeat: false,
-            reason: `Rotation nach ${Math.round(rp.heatingDurationMinutes)} Min`,
-            shouldRotate: true
-          });
-        } else if (usedBudget + rp.heatingPower <= availableBudget) {
-          // Weiter heizen erlaubt
-          usedBudget += rp.heatingPower;
-          roomBudgetStatus.set(rp.room.id, {
-            allowedToHeat: true,
-            reason: `Weiter heizen (${usedBudget}/${availableBudget}W)`,
-            shouldRotate: false
-          });
-        } else {
-          // Budget erschöpft
-          roomBudgetStatus.set(rp.room.id, {
-            allowedToHeat: false,
-            reason: `Budget erschöpft (${usedBudget}/${availableBudget}W)`,
-            shouldRotate: false
-          });
+        // Rotation prüfen (nur für heizende Räume)
+        if (rp.isCurrentlyHeating) {
+          const shouldRotate = rp.heatingDurationMinutes >= roomRotationMinutes && 
+            roomsWithPriority.some(other => {
+              if (other.isCurrentlyHeating || other.tempDeficit <= 0.5 || other.waitTimeMinutes < minRoomPauseMinutes) return false;
+              if (other.priority < rp.priority) return true;
+              if (other.priority === rp.priority) {
+                const otherEff = other.energyPerDegreeWh || 99999;
+                const rpEff = rp.energyPerDegreeWh || 99999;
+                return otherEff <= rpEff;
+              }
+              return false;
+            });
+          
+          if (shouldRotate) {
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: false,
+              reason: `Rotation nach ${Math.round(rp.heatingDurationMinutes)} Min`,
+              shouldRotate: true
+            });
+            continue;
+          }
         }
-      }
-      
-      // Zweite Runde: Nicht-heizende Räume nach Priorität aktivieren
-      for (const rp of roomsWithPriority) {
-        if (rp.isCurrentlyHeating) continue;
         
-        // Mindest-Pause prüfen
-        if (rp.waitTimeMinutes < minRoomPauseMinutes && rp.room.last_heating_end) {
+        // Pause prüfen (nur für nicht-heizende Räume)
+        if (!rp.isCurrentlyHeating && rp.waitTimeMinutes < minRoomPauseMinutes && rp.room.last_heating_end) {
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: false,
             reason: `Pause: noch ${Math.ceil(minRoomPauseMinutes - rp.waitTimeMinutes)} Min`,
@@ -835,18 +813,20 @@ Deno.serve(async (req) => {
           continue;
         }
         
-        // Budget-Check
+        // Budget-Check (für alle Räume gleich)
         if (usedBudget + rp.heatingPower <= availableBudget) {
           usedBudget += rp.heatingPower;
+          const status = rp.isCurrentlyHeating ? 'Weiter heizen' : 'Aktiviert';
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: true,
-            reason: `Aktiviert (${usedBudget}/${availableBudget}W)`,
+            reason: `${status} (${usedBudget}/${availableBudget}W)`,
             shouldRotate: false
           });
         } else {
+          const action = rp.isCurrentlyHeating ? 'Gestoppt' : 'Kein Budget';
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: false,
-            reason: `Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
+            reason: `${action}: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
             shouldRotate: false
           });
         }
