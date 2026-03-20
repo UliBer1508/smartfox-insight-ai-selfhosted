@@ -66,7 +66,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                         <Input
                           type="number"
                           min={1}
-                          max={10}
+                          max={12}
                           defaultValue={room.priority ?? 5}
                           className="w-12 h-6 text-xs px-1 text-center text-foreground"
                           onBlur={e => room.id && handlePriorityChange(room.id, e.target.value)}
