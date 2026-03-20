@@ -1,63 +1,29 @@
 
 
-# Fix: Räume werden trotz Export nicht geheizt
+# Priorität sofort sortieren und speichern
 
-## Problem 1: Stufe 2 Deadband zu strikt
+## Problem
 
-Die Prüfung `currentRoomTemp < comfortTemp - 0.3` schließt Räume aus, die genau auf der Grenze liegen (19.7 < 19.7 = false). Zimmer Luca bleibt dadurch auf target_temp=18.5°C und heizt nicht.
+Die Prioritätsänderung nutzt `onBlur` — der Wert wird erst beim Verlassen des Feldes gespeichert. Die Sortierung aktualisiert sich erst nach dem DB-Reload. Außerdem nutzt `saveRoom` ohne `skipReload` ein volles Reload, was langsam ist.
 
-**Fix:** `<` durch `<=` ersetzen: `currentRoomTemp <= comfortTemp - 0.3`
+## Lösung
 
-Gleiches für Stufe 1: `currentRoomTemp <= ecoTemp - 0.3`
-
-## Problem 2: `keep`-Aktion korrigiert falsches Target nicht
-
-Wenn die Automation `keep` entscheidet, wird weder Tuya aufgerufen noch das Target aktualisiert. Ein Raum mit target_temp=18.5 bleibt bei 18.5, obwohl er mindestens auf eco (19°C) stehen sollte.
-
-**Fix:** In Stufe 4, wenn `action='keep'` aber `currentTargetTemp < ecoTemp - 1`, dann auf `activate` mit `ecoTemp` setzen. So wird ein falsch niedriges Target korrigiert.
+1. **`onBlur` beibehalten** für das Speichern, aber sofort ein **optimistisches lokales Update** durchführen mit `updateRoomLocally`
+2. Dann im Hintergrund in die DB speichern mit `skipReload = true`
+3. Die lokale State-Änderung triggert sofort die Neu-Sortierung (da `tuyaRooms` bei jedem Render sortiert wird)
 
 ## Änderung
 
-**Datei:** `supabase/functions/pv-automation/index.ts`
+**Datei:** `src/pages/Index.tsx` (Zeile 209)
 
-### Zeile 1323: Stufe 1 Deadband
-```typescript
-// Vorher:
-if (currentRoomTemp < ecoTemp - 0.3) {
-// Nachher:
-if (currentRoomTemp <= ecoTemp - 0.3) {
-```
-
-### Zeile 1334: Stufe 2 Deadband
-```typescript
-// Vorher:
-} else if (currentRoomTemp < comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
-// Nachher:
-} else if (currentRoomTemp <= comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
-```
-
-### Zeilen 1353-1363: Stufe 4 — falsches Target korrigieren
-Nach der bestehenden Stufe-4-Logik eine Korrektur einfügen: Wenn `action === 'keep'` aber das aktuelle Thermostat-Target deutlich unter eco liegt, dann auf eco aktivieren:
+Die `onSavePriority` Callback ändern: Zuerst `updateRoomLocally` aufrufen für sofortige UI-Sortierung, dann `saveRoom` mit `skipReload=true`:
 
 ```typescript
-} else {
-  // STUFE 4: Halten
-  // ABER: Wenn das aktuelle Thermostat-Target deutlich unter eco liegt, korrigieren
-  if (currentTargetTemp < ecoTemp - 1 && exportCoversRoom) {
-    action = 'activate';
-    targetTemp = ecoTemp;
-    reasoning = `🔧 Target-Korrektur: Thermostat bei ${currentTargetTemp}°C statt ${ecoTemp}°C → korrigiere auf Eco`;
-  } else {
-    action = 'keep';
-    targetTemp = currentRoomTemp >= ecoTemp ? ecoTemp : currentTargetTemp;
-    if (!exportCoversRoom && currentRoomTemp >= ecoTemp - 0.3) {
-      reasoning = `✅ Eco erreicht, Export reicht nicht`;
-    } else if (!batteryFull) {
-      reasoning = `⏸️ Batterie erst ${batterySoc}%`;
-    } else {
-      reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
-    }
-  }
-}
+onSavePriority={(roomId, priority) => {
+  updateRoomLocally(roomId, { priority });
+  saveRoom({ id: roomId, priority }, true);
+}}
 ```
+
+`updateRoomLocally` und `saveRoom` kommen beide aus `useRooms()` und sind bereits verfügbar in Index.tsx.
 
