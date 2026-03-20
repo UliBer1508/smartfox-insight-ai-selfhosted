@@ -13,7 +13,7 @@ interface RoomStatusTableProps {
 export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const isMobile = useIsMobile();
-  const tuyaRooms = rooms.filter(r => r.tuya_device_id);
+  const tuyaRooms = rooms.filter(r => r.tuya_device_id).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   if (tuyaRooms.length === 0) return null;
 
   return (
