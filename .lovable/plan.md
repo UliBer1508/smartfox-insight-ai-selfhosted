@@ -1,21 +1,13 @@
 
 
-# Räume nach Prioritätsänderung neu sortieren
+# Prioritätsbereich auf 1-12 erweitern
 
-## Problem
+## Änderungen
 
-Die Inputs verwenden `defaultValue`, das sich nicht aktualisiert wenn React die Komponente mit neuen Props re-rendert. Nach einer Prioritätsänderung wird der Raum in der DB aktualisiert und `rooms` neu geladen, aber die Sortierung im UI ändert sich nicht, weil `defaultValue` den alten Wert behält und React das Input nicht neu erstellt.
+| Datei | Änderung |
+|-------|----------|
+| `src/components/heating/RoomManager.tsx` | Label "1–10" → "1–12", `Math.min(10, ...)` → `Math.min(12, ...)`, `max` Attribut auf 12 |
+| `src/components/heating/RoomStatusTable.tsx` | Validierung `num <= 10` → `num <= 12`, Input `max` auf 12 |
 
-## Lösung
-
-`key={room.id + '-' + room.priority}` auf die Input-Elemente setzen (oder auf die TableRow/div). Dadurch erzwingt React ein neues Input mit dem aktualisierten `defaultValue` wenn sich die Priorität ändert. Die Sortierung funktioniert bereits korrekt (`tuyaRooms` wird bei jedem Render neu sortiert), nur das Input zeigt den alten Wert.
-
-## Änderung
-
-**Datei:** `src/components/heating/RoomStatusTable.tsx`
-
-- Zeile 114: `<TableRow key={room.id}>` → `<TableRow key={`${room.id}-${room.priority}`}>`
-- Zeile 46: `<div key={room.id}>` → `<div key={`${room.id}-${room.priority}`}>`
-
-Dadurch wird bei Prioritätsänderung die gesamte Zeile neu gerendert und erscheint an der korrekten Position.
+Keine Datenbank-Änderung nötig — die `priority`-Spalte ist ein `integer` ohne Constraint.
 
