@@ -20,7 +20,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
 
   const handlePriorityChange = (roomId: string, value: string) => {
     const num = parseInt(value);
-    if (!isNaN(num) && num >= 1 && num <= 10 && onSavePriority) {
+    if (!isNaN(num) && num >= 1 && num <= 12 && onSavePriority) {
       onSavePriority(roomId, num);
     }
   };
