@@ -26,8 +26,9 @@ try {
   process.exit(1);
 }
 
-// Initialize Supabase client
-const supabase = createClient(config.supabase.url, config.supabase.anon_key);
+// Initialize Supabase client (service_role key bypasses RLS for collector access)
+const supabaseKey = config.supabase.service_role_key || config.supabase.anon_key;
+const supabase = createClient(config.supabase.url, supabaseKey);
 
 // Initialize Thermostat Controller (wenn aktiviert)
 let thermostatCtrl = null;
