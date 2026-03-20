@@ -68,6 +68,7 @@ const Index = () => {
     rooms,
     getCurrentRecommendation,
     saveRoom,
+    updateRoomLocally,
     saveRecommendations: saveRoomRecommendations,
     loadRecommendations: loadRoomRecommendations,
   } = useRooms();
@@ -206,7 +207,10 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
-                <RoomStatusTable rooms={rooms} onSavePriority={(roomId, priority) => saveRoom({ id: roomId, priority })} />
+                <RoomStatusTable rooms={rooms} onSavePriority={(roomId, priority) => {
+                  updateRoomLocally(roomId, { priority });
+                  saveRoom({ id: roomId, priority }, true);
+                }} />
                 <EnergyChart readings={readings} />
                 
                 <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
