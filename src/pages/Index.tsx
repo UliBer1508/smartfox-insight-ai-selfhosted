@@ -68,6 +68,7 @@ const Index = () => {
     rooms,
     getCurrentRecommendation,
     saveRoom,
+    updateRoomLocally,
     saveRecommendations: saveRoomRecommendations,
     loadRecommendations: loadRoomRecommendations,
   } = useRooms();
