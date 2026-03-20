@@ -159,16 +159,16 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                   </div>
 
                   <div>
-                    <Label htmlFor="priority">Heiz-Priorität (1–10)</Label>
+                    <Label htmlFor="priority">Heiz-Priorität (1–12)</Label>
                     <Input
                       id="priority"
                       type="number"
                       min={1}
-                      max={10}
+                      max={12}
                       value={editingRoom.priority ?? 5}
                       onChange={e => setEditingRoom({ 
                         ...editingRoom, 
-                        priority: Math.max(1, Math.min(10, parseInt(e.target.value) || 1))
+                        priority: Math.max(1, Math.min(12, parseInt(e.target.value) || 1))
                       })}
                     />
                     <p className="text-xs text-muted-foreground mt-1">
