@@ -18,6 +18,6 @@
   "polling_interval_seconds": 30,
   "supabase": {
     "url": "https://tvqmhdpcixkfsudxughs.supabase.co",
-    "anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InR2cW1oZHBjaXhrZnN1ZHh1Z2hzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjU3NjAxODQsImV4cCI6MjA4MTMzNjE4NH0.3WDZXuxGECexP_wjvmK5QTFvJakMW2-SLs7FRzxoFKI"
+    "service_role_key": "DEIN_SERVICE_ROLE_KEY_HIER"
   }
 }
