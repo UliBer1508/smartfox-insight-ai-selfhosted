@@ -94,6 +94,7 @@ export const RoomStatusTable = ({ rooms }: RoomStatusTableProps) => {
                     {tuyaRooms.map(room => (
                       <TableRow key={room.id}>
                         <TableCell className="text-xs font-medium">{room.name}</TableCell>
+                        <TableCell className="text-xs">{room.priority ?? '-'}</TableCell>
                         <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         <TableCell>{room.local_key ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
