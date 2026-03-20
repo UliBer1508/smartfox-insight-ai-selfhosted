@@ -207,9 +207,14 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
-                <RoomStatusTable rooms={rooms} onSavePriority={(roomId, priority) => {
+                <RoomStatusTable rooms={rooms} onSavePriority={async (roomId, priority) => {
+                  const room = rooms.find(r => r.id === roomId);
+                  const oldPriority = room?.priority ?? 5;
                   updateRoomLocally(roomId, { priority });
-                  saveRoom({ id: roomId, priority }, true);
+                  const success = await saveRoom({ id: roomId, priority }, true);
+                  if (!success) {
+                    updateRoomLocally(roomId, { priority: oldPriority });
+                  }
                 }} />
                 <EnergyChart readings={readings} />
                 

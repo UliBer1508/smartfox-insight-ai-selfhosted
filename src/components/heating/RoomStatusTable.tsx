@@ -6,6 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input';
 import { Check, X, Thermometer, ChevronDown } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { toast } from 'sonner';
 
 interface RoomStatusTableProps {
   rooms: Room[];
@@ -20,9 +21,15 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
 
   const handlePriorityChange = (roomId: string, value: string, currentPriority: number) => {
     const num = parseInt(value);
-    if (!isNaN(num) && num >= 1 && num <= 12 && onSavePriority && num !== currentPriority) {
-      onSavePriority(roomId, num);
+    if (isNaN(num) || num < 1 || num > 12 || num === currentPriority) return;
+    if (!onSavePriority) return;
+    // Lokale Duplikat-Prüfung
+    const conflict = tuyaRooms.find(r => r.priority === num && r.id !== roomId);
+    if (conflict) {
+      toast.error(`Priorität ${num} ist bereits an "${conflict.name}" vergeben`);
+      return;
     }
+    onSavePriority(roomId, num);
   };
 
   return (

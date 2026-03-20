@@ -4,17 +4,19 @@ import { Room, RoomRecommendation } from '@/types/room';
 import { toast } from 'sonner';
 import { getLocalDateString, getViennaTimeString } from '@/lib/dateUtils';
 
+const sortRooms = (rooms: Room[]): Room[] =>
+  [...rooms].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99) || a.name.localeCompare(b.name));
+
 export function useRooms() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [recommendations, setRecommendations] = useState<RoomRecommendation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Lokales Update ohne Server-Reload für optimistische UI
   const updateRoomLocally = useCallback((roomId: string, updates: Partial<Room>) => {
     setRooms(prevRooms => 
-      prevRooms.map(room => 
+      sortRooms(prevRooms.map(room => 
         room.id === roomId ? { ...room, ...updates } : room
-      )
+      ))
     );
   }, []);
 
@@ -31,8 +33,7 @@ export function useRooms() {
       console.log('📊 Rooms response:', { data, error, count: data?.length });
 
       if (error) throw error;
-      // Cast the data properly to Room type including new Tuya fields
-      setRooms(data as unknown as Room[]);
+      setRooms(sortRooms(data as unknown as Room[]));
       console.log('✅ Rooms set:', data?.length);
     } catch (error) {
       console.error('❌ Error loading rooms:', error);
@@ -58,10 +59,9 @@ export function useRooms() {
     }
   }, []);
 
-  const saveRoom = useCallback(async (room: Partial<Room>, skipReload = false) => {
+  const saveRoom = useCallback(async (room: Partial<Room>, skipReload = false): Promise<boolean> => {
     try {
       if (room.id) {
-        // Optimistisches Update für sofortige UI-Reaktion
         if (skipReload) {
           updateRoomLocally(room.id, room);
         }
@@ -70,9 +70,21 @@ export function useRooms() {
           .from('rooms')
           .update({ ...room, updated_at: new Date().toISOString() })
           .eq('id', room.id);
-        if (error) throw error;
         
-        // Nur bei vollem Save neu laden
+        if (error) {
+          // Unique-Verstoß
+          if (error.code === '23505' && error.message?.includes('priority')) {
+            toast.error(`Priorität ${room.priority} ist bereits vergeben`);
+            return false;
+          }
+          // Check-Constraint
+          if (error.code === '23514') {
+            toast.error('Priorität muss zwischen 1 und 12 liegen');
+            return false;
+          }
+          throw error;
+        }
+        
         if (!skipReload) {
           await loadRooms();
           toast.success('Raum gespeichert');
@@ -81,15 +93,22 @@ export function useRooms() {
         const { error } = await supabase
           .from('rooms')
           .insert([room as any]);
-        if (error) throw error;
+        if (error) {
+          if (error.code === '23505' && error.message?.includes('priority')) {
+            toast.error(`Priorität ${room.priority} ist bereits vergeben`);
+            return false;
+          }
+          throw error;
+        }
         await loadRooms();
         toast.success('Raum gespeichert');
       }
+      return true;
     } catch (error) {
       console.error('Error saving room:', error);
-      // Bei Fehler: State durch Neuladen korrigieren
       await loadRooms();
       toast.error('Fehler beim Speichern');
+      return false;
     }
   }, [loadRooms, updateRoomLocally]);
 
@@ -111,13 +130,11 @@ export function useRooms() {
   const saveRecommendations = useCallback(async (newRecommendations: RoomRecommendation[]) => {
     const today = getLocalDateString();
     try {
-      // Delete existing recommendations for today
       await supabase
         .from('room_recommendations')
         .delete()
         .eq('date', today);
 
-      // Insert new recommendations
       if (newRecommendations.length > 0) {
         const { error } = await supabase
           .from('room_recommendations')
@@ -133,7 +150,6 @@ export function useRooms() {
   }, [loadRecommendations]);
 
   const getCurrentRecommendation = useCallback((roomId: string): RoomRecommendation | undefined => {
-    // Explizit Wiener Zeit verwenden
     const currentTime = getViennaTimeString();
     
     return recommendations.find(rec => 
@@ -148,11 +164,10 @@ export function useRooms() {
     loadRecommendations();
   }, [loadRooms, loadRecommendations]);
 
-  // Polling statt Realtime um DB-Last zu reduzieren
   useEffect(() => {
     const interval = setInterval(() => {
       loadRooms();
-    }, 30000); // Alle 30 Sekunden
+    }, 30000);
 
     return () => clearInterval(interval);
   }, [loadRooms]);
