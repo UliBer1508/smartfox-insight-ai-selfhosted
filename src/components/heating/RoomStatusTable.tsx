@@ -18,9 +18,9 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const tuyaRooms = rooms.filter(r => r.tuya_device_id).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   if (tuyaRooms.length === 0) return null;
 
-  const handlePriorityChange = (roomId: string, value: string) => {
+  const handlePriorityChange = (roomId: string, value: string, currentPriority: number) => {
     const num = parseInt(value);
-    if (!isNaN(num) && num >= 1 && num <= 12 && onSavePriority) {
+    if (!isNaN(num) && num >= 1 && num <= 12 && onSavePriority && num !== currentPriority) {
       onSavePriority(roomId, num);
     }
   };
@@ -69,7 +69,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           max={12}
                           defaultValue={room.priority ?? 5}
                           className="w-12 h-6 text-xs px-1 text-center text-foreground"
-                          onBlur={e => room.id && handlePriorityChange(room.id, e.target.value)}
+                          onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
                         />
                       </span>
                       {room.current_temp != null && (
@@ -120,7 +120,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             max={12}
                             defaultValue={room.priority ?? 5}
                             className="w-14 h-7 text-xs px-1 text-center"
-                            onBlur={e => room.id && handlePriorityChange(room.id, e.target.value)}
+                            onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
                           />
                         </TableCell>
                         <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
