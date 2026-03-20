@@ -1,55 +1,71 @@
 
 
-# Fix: Warmwasser-Check komplett entfernen
+# Fix: Budget-Vergabe muss Priorität in einer Runde respektieren
 
-## Warum
+## Problem
 
-Der Smartfox steuert das Warmwasser eigenständig basierend auf PV-Überschuss. Das pv-automation System hat keinen Einfluss darauf. Der `gridExport` ist bereits der Netto-Überschuss **nach** Warmwasser und allen anderen Verbrauchern. Ein zusätzlicher Warmwasser-Check zählt die Last doppelt und blockiert Räume fälschlich.
+Das Budget-System hat zwei getrennte Runden (Zeilen 780-852):
+1. **Runde 1**: Alle bereits heizenden Räume behalten ihr Budget -- egal welche Priorität
+2. **Runde 2**: Nicht-heizende Räume bekommen den Rest
 
-## Änderung
+Ergebnis: Waschraum (Prio 7, 600W), Flur (Prio 7, 700W), Wirtschaftsraum (Prio 7, 700W) belegen zusammen 2000W Budget, weil sie gerade heizen. Wohnzimmer (Prio 6, 2400W) bekommt kein Budget mehr.
 
-**Datei:** `supabase/functions/pv-automation/index.ts`
+## Lösung
 
-### Stufe 2 (Zeilen 1354-1366) vereinfachen
+Die zwei Runden zu **einer einzigen Runde** in Prioritäts-Reihenfolge zusammenfassen. Für jeden Raum in Reihenfolge:
+- Wenn er heizt UND Budget reicht → weiter heizen (Rotation prüfen)
+- Wenn er NICHT heizt UND Budget reicht → aktivieren (Pause prüfen)
+- Wenn Budget nicht reicht → stoppen (auch wenn er gerade heizt!)
 
-Vorher (mit unnötigem WW-Check):
-```typescript
-} else if (...&& exportCoversRoom && batteryFull) {
-  const exportCoversRoomAndHW = !hotwaterActive || gridExport >= roomHeatingPower + hotwaterPower;
-  if (exportCoversRoomAndHW) { ... } else { ... }
-}
+So wird ein Prio-7-Raum gestoppt, wenn sein Budget für einen höher-priorisierten Raum gebraucht wird.
+
+## Beispiel mit 6425W Export (Budget ~7710W)
+
+**Vorher** (zwei Runden):
+```text
+Runde 1: Bad Uli(600) + Z.Uli(1200) + Z.Luis(1000) + Büro(900) + Waschraum(600) + Flur(700) + Wirtschaftsraum(700) = 5700W
+Runde 2: Z.Luca(1000)=6700 ✓, Toilette(800)=7500 ✓, Wohnzimmer(2400)=9900 ✗
 ```
 
-Nachher (direkt heizen wenn Budget OK):
-```typescript
-} else if (currentRoomTemp < comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
-  action = 'activate';
-  targetTemp = comfortTemp;
-  reasoning = `☀️ Stufe 2: Komfort ${comfortTemp}°C (Batterie ${batterySoc}%, Budget OK)`;
-}
+**Nachher** (eine Runde nach Priorität):
+```text
+Bad Uli(600) + Z.Uli(1200) + Z.Luis(1000) + Z.Luca(1000) + Büro(900) + Wohnzimmer(2400) = 7100W ✓
+Waschraum(600) = 7700W ✓, Flur(700) = 8400W ✗ → gestoppt
 ```
 
-### Stufe 3 (Zeilen 1367-1387) vereinfachen
+## Technische Änderung
 
-Gleicher Fix: `exportCoversRoomAndHW`-Check und die if/else-Verzweigung entfernen. Direkt auf Budget und Batterie-Status vertrauen:
+**Datei:** `supabase/functions/pv-automation/index.ts` (Zeilen 780-853)
+
+Die zwei `for`-Schleifen (Runde 1: heizende Räume, Runde 2: nicht-heizende Räume) durch eine einzige Schleife ersetzen, die in Prioritäts-Reihenfolge iteriert:
+
 ```typescript
-} else if (allRoomsAtComfort && exportCoversRoom && batteryFull && currentRoomTemp >= comfortTemp - 0.3) {
-  const highestPriorityRoom = roomsWithPriority[0];
-  if (highestPriorityRoom && highestPriorityRoom.room.id === room.id) {
-    action = 'activate';
-    targetTemp = comfortTemp + 1;
-    reasoning = `🔥 Stufe 3: Super-Komfort ${comfortTemp + 1}°C (alle ≥ comfort, Budget OK)`;
+for (const rp of roomsWithPriority) {
+  // Rotation prüfen (nur für heizende Räume)
+  if (rp.isCurrentlyHeating) {
+    const shouldRotate = /* bestehende Rotationslogik */;
+    if (shouldRotate) {
+      roomBudgetStatus.set(rp.room.id, { allowedToHeat: false, reason: '...', shouldRotate: true });
+      continue;
+    }
+  }
+  
+  // Pause prüfen (nur für nicht-heizende Räume)
+  if (!rp.isCurrentlyHeating && rp.waitTimeMinutes < minRoomPauseMinutes && rp.room.last_heating_end) {
+    roomBudgetStatus.set(rp.room.id, { allowedToHeat: false, reason: '...', shouldRotate: false });
+    continue;
+  }
+  
+  // Budget-Check (für alle)
+  if (usedBudget + rp.heatingPower <= availableBudget) {
+    usedBudget += rp.heatingPower;
+    const status = rp.isCurrentlyHeating ? 'Weiter heizen' : 'Aktiviert';
+    roomBudgetStatus.set(rp.room.id, { allowedToHeat: true, reason: `${status} (${usedBudget}/${availableBudget}W)`, shouldRotate: false });
   } else {
-    action = 'keep';
-    targetTemp = comfortTemp;
-    reasoning = `✅ Komfort erreicht, Super-Komfort nur für Prio-Raum`;
+    roomBudgetStatus.set(rp.room.id, { allowedToHeat: false, reason: `Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`, shouldRotate: false });
   }
 }
 ```
 
-## Ergebnis
-
-- Kein doppeltes Abrechnen von Warmwasser
-- Budget-System hat volle Kontrolle
-- Räume werden bei ausreichend Export sofort auf Komfort geheizt
+Keine weiteren Dateien betroffen. Die 4-Stufen-Logik und die Raum-Prioritäten bleiben unverändert.
 
