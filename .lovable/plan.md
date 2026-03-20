@@ -1,24 +1,29 @@
 
 
-# Priorität editierbar machen
+# Raum-Prioritäten in der Datenbank korrigieren
 
-## Änderungen
+## Problem
 
-### 1. RoomManager: Priorität-Feld erweitern (Zeilen 161-176)
+Die aktuellen Prioritäten in der Datenbank weichen von der gewünschten Heiz-Reihenfolge ab:
 
-Das aktuelle Select hat nur 3 Optionen (Hoch/Mittel/Niedrig = 1-3). Das reicht nicht für die 10 Prioritätsstufen. Ersetzen durch ein Number-Input (1-10) mit Erklärung, dass niedrigere Zahlen = höhere Priorität beim sequenziellen Heizen.
+| Raum | Ist-Prio | Soll-Prio |
+|------|----------|-----------|
+| Bad Uli | 1 | 1 |
+| Zimmer Uli | 2 | 2 |
+| Zimmer Luis | 3 | 3 |
+| Zimmer Luca | 4 | 4 |
+| Büro | 6 → | 5 |
+| Wohnzimmer | 7 → | 6 |
+| Kinder Bad | 5 → | 7 |
+| Flur | 8 | 8 |
+| Haustür | 7 | 8 |
+| Toilette Eingang | 7 | 8 |
+| Waschraum | 7 | 8 |
+| Wirtschaftsraum | 7 | 8 |
 
-### 2. RoomStatusTable: Priorität editierbar machen
+## Änderung
 
-In der Tabelle (Desktop und Mobile) die Prioritätszahl durch ein kleines editierbares Number-Input ersetzen. Bei Änderung wird `onSave` mit der neuen Priorität aufgerufen.
+**Datenbank-Migration:** UPDATE-Statements für die 6 Räume deren Priorität sich ändert (Büro 6→5, Wohnzimmer 7→6, Kinder Bad 5→7, Haustür/Toilette/Waschraum/Wirtschaftsraum 7→8).
 
-Dafür muss `RoomStatusTable` eine neue `onSave` Prop bekommen, die von der Parent-Komponente durchgereicht wird.
-
-### Dateien
-
-| Datei | Änderung |
-|-------|----------|
-| `src/components/heating/RoomStatusTable.tsx` | `onSave` Prop hinzufügen, Prio-Spalte als editierbares Input |
-| `src/components/heating/RoomManager.tsx` | Select durch Number-Input (1-10) ersetzen |
-| `src/components/heating/HeatingDashboard.tsx` | `onSave` an RoomStatusTable durchreichen |
+Der Code in `RoomStatusTable.tsx` sortiert bereits korrekt nach Priorität — es sind nur die DB-Werte falsch.
 
