@@ -12,6 +12,7 @@ import { Room, OrientationType, ORIENTATION_LABELS, getEffectiveHeatingPower } f
 import { Badge } from '@/components/ui/badge';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSolarGainAnalysis } from '@/hooks/useSolarGainAnalysis';
+import { toast } from 'sonner';
 
 interface RoomManagerProps {
   rooms: Room[];
