@@ -49,6 +49,12 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
   };
   const handleSave = () => {
     if (editingRoom && editingRoom.name) {
+      // Duplikat-Prüfung für Priorität
+      const conflict = rooms.find(r => r.priority === editingRoom.priority && r.id !== editingRoom.id);
+      if (conflict) {
+        toast.error(`Priorität ${editingRoom.priority} ist bereits an "${conflict.name}" vergeben`);
+        return;
+      }
       onSave(editingRoom);
       setIsDialogOpen(false);
       setEditingRoom(null);
