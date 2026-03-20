@@ -1320,7 +1320,7 @@ Deno.serve(async (req) => {
                 console.log(`[PV-Automation] ${room.name}: Budget-Check → ${exportCoversRoom ? '✅' : '❌'} (${budgetStatus?.reason || 'kein Status'}, Leistung: ${roomHeatingPower}W)`);
                 const batteryFull = batterySoc >= 95;
                 
-                if (currentRoomTemp < ecoTemp - 0.3) {
+                if (currentRoomTemp <= ecoTemp - 0.3) {
                   // STUFE 1: Unter eco_temp → auf eco heizen (wenn Export reicht)
                   if (exportCoversRoom) {
                     action = 'activate';
@@ -1331,7 +1331,7 @@ Deno.serve(async (req) => {
                     targetTemp = ecoTemp;
                     reasoning = `⏸️ Eco warten (Export ${gridExport}W < Heizleistung ${roomHeatingPower}W → kein Netzstrom)`;
                   }
-                } else if (currentRoomTemp < comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
+                } else if (currentRoomTemp <= comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
                   // STUFE 2: Bei eco, Batterie voll, Budget erlaubt → auf comfort heizen
                   // Kein Warmwasser-Check nötig: Smartfox steuert WW eigenständig, gridExport ist bereits Netto-Überschuss
                   action = 'activate';
@@ -1351,15 +1351,21 @@ Deno.serve(async (req) => {
                     reasoning = `✅ Komfort erreicht (${currentRoomTemp.toFixed(1)}°C), Super-Komfort nur für Prio-Raum`;
                   }
                 } else {
-                  // STUFE 4: Halten, kein weiteres Heizen
-                  action = 'keep';
-                  targetTemp = currentRoomTemp >= ecoTemp ? ecoTemp : currentTargetTemp;
-                  if (!exportCoversRoom && currentRoomTemp >= ecoTemp - 0.3) {
-                    reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), Export ${gridExport}W < ${roomHeatingPower}W → halten`;
-                  } else if (!batteryFull) {
-                    reasoning = `⏸️ Batterie erst ${batterySoc}% (< 95%) → kein Komfort-Heizen`;
+                  // STUFE 4: Halten — ABER falsches Target korrigieren
+                  if (currentTargetTemp < ecoTemp - 1 && exportCoversRoom) {
+                    action = 'activate';
+                    targetTemp = ecoTemp;
+                    reasoning = `🔧 Target-Korrektur: Thermostat bei ${currentTargetTemp}°C statt ${ecoTemp}°C → korrigiere auf Eco`;
                   } else {
-                    reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
+                    action = 'keep';
+                    targetTemp = currentRoomTemp >= ecoTemp ? ecoTemp : currentTargetTemp;
+                    if (!exportCoversRoom && currentRoomTemp >= ecoTemp - 0.3) {
+                      reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), Export ${gridExport}W < ${roomHeatingPower}W → halten`;
+                    } else if (!batteryFull) {
+                      reasoning = `⏸️ Batterie erst ${batterySoc}% (< 95%) → kein Komfort-Heizen`;
+                    } else {
+                      reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
+                    }
                   }
                 }
                 console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
