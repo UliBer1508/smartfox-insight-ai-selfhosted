@@ -469,6 +469,9 @@ Deno.serve(async (req) => {
           console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C (mode: ${controlMode})`);
           
           if (controlMode === 'local') {
+            if (!localServiceActive) {
+              throw new Error('Lokaler Service offline - Empfehlung nicht angewendet');
+            }
             // LOCAL MODE: Write command to thermostat_commands
             const { error: cmdError } = await supabase.from('thermostat_commands').insert({
               room_id: room.id,
