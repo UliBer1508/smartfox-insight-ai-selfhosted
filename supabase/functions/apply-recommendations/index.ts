@@ -341,7 +341,22 @@ Deno.serve(async (req) => {
         .eq('key', 'tuya_control_mode')
         .maybeSingle();
       const controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
-      console.log(`[apply-recommendations] Control mode: ${controlMode}`);
+
+      // Local channel heartbeat: only apply local recommendations if service is active
+      let localServiceActive = true;
+      if (controlMode === 'local') {
+        const { data: recentLocalExec } = await supabase
+          .from('thermostat_commands')
+          .select('executed_at')
+          .eq('status', 'executed')
+          .order('executed_at', { ascending: false })
+          .limit(1);
+
+        const lastExec = recentLocalExec?.[0]?.executed_at;
+        localServiceActive = !!(lastExec && (Date.now() - new Date(lastExec).getTime()) < 15 * 60 * 1000);
+      }
+
+      console.log(`[apply-recommendations] Control mode: ${controlMode}, localServiceActive=${localServiceActive}`);
 
       // Get heating settings for cooldown interval
       const { data: settingsData } = await supabase
@@ -454,6 +469,9 @@ Deno.serve(async (req) => {
           console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C (mode: ${controlMode})`);
           
           if (controlMode === 'local') {
+            if (!localServiceActive) {
+              throw new Error('Lokaler Service offline - Empfehlung nicht angewendet');
+            }
             // LOCAL MODE: Write command to thermostat_commands
             const { error: cmdError } = await supabase.from('thermostat_commands').insert({
               room_id: room.id,

@@ -153,5 +153,6 @@ function getConsumerType(name: string): string {
   const lower = name.toLowerCase();
   if (lower.includes('auto') || lower.includes('car')) return 'car';
   if (lower.includes('wasser') || lower.includes('water')) return 'hotwater';
+  if (lower.includes('sonstig') || lower.includes('unbekannt') || lower.includes('other')) return 'other';
   return 'heating';
 }

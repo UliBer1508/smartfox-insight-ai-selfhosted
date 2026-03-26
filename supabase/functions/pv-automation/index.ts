@@ -315,9 +315,23 @@ Deno.serve(async (req) => {
       let controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
       console.log(`[PV-Automation] Control mode: ${controlMode}`);
 
-      // ============= TUYA API QUOTA TRACKING =============
+      // ============= TUYA API QUOTA + KANAL-GESUNDHEIT =============
       let quotaData: { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null = null;
       let quotaExhausted = false;
+      let localServiceActive = true;
+      let lastLocalExec: string | null = null;
+
+      const checkLocalServiceActive = async (): Promise<boolean> => {
+        const { data: recentLocalExec } = await supabase
+          .from('thermostat_commands')
+          .select('executed_at')
+          .eq('status', 'executed')
+          .order('executed_at', { ascending: false })
+          .limit(1);
+
+        lastLocalExec = recentLocalExec?.[0]?.executed_at || null;
+        return !!(lastLocalExec && (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000);
+      };
 
       if (controlMode === 'cloud') {
         const { data: quotaSetting } = await supabase
@@ -332,12 +346,10 @@ Deno.serve(async (req) => {
           const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
           const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
 
-          // Reset monthly counter on new month
           if (quotaData!.month !== currentMonth) {
             quotaData!.calls_this_month = 0;
             quotaData!.month = currentMonth;
           }
-          // Reset daily counter on new day
           if (quotaData!.today !== wienDate) {
             quotaData!.calls_today = 0;
             quotaData!.today = wienDate;
@@ -346,48 +358,43 @@ Deno.serve(async (req) => {
           const monthlyLimit = quotaData!.monthly_limit || 900;
           const dailyLimit = quotaData!.daily_limit || 33;
 
-          if (quotaData!.calls_this_month >= monthlyLimit) {
-            console.log(`[PV-Automation] ⚠️ MONATLICHE QUOTA ERSCHÖPFT (${quotaData!.calls_this_month}/${monthlyLimit}) → Fallback auf Local-Mode`);
-            controlMode = 'local'; // Fallback
+          if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= dailyLimit) {
+            controlMode = 'local';
             quotaExhausted = true;
-          } else if (quotaData!.calls_today >= dailyLimit) {
-            console.log(`[PV-Automation] ⚠️ TÄGLICHE QUOTA ERSCHÖPFT (${quotaData!.calls_today}/${dailyLimit}) → Fallback auf Local-Mode`);
-            controlMode = 'local'; // Fallback
-            quotaExhausted = true;
+            console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft → Fallback Local`);
           } else {
             console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
           }
+        }
 
-          // ============= LOCAL-SERVICE ERREICHBARKEITS-CHECK =============
-          // Wenn Quota erschöpft → prüfen ob lokaler Service aktiv ist
-          // Wenn AUCH Local nicht erreichbar → NUR Sicherheits-Aktionen (deactivate) erlauben
-          if (quotaExhausted) {
-            // Prüfe ob der lokale Service kürzlich Befehle ausgeführt hat
-            const { data: recentLocalExec } = await supabase
-              .from('thermostat_commands')
-              .select('executed_at')
-              .eq('status', 'executed')
-              .order('executed_at', { ascending: false })
-              .limit(1);
-            
-            const lastLocalExec = recentLocalExec?.[0]?.executed_at;
-            const localServiceActive = lastLocalExec && 
-              (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000; // Innerhalb 15 Min
-            
-            if (!localServiceActive) {
-              console.log(`[PV-Automation] ⛔ WARNUNG: Cloud-Quota erschöpft UND lokaler Service NICHT aktiv (letzter Befehl: ${lastLocalExec || 'nie'}) → NUR Sicherheits-Aktionen erlaubt!`);
-              
-              // API-Error loggen damit User benachrichtigt wird
-              await supabase.from('api_errors').insert({
-                source: 'pv-automation',
-                error_type: 'no_control_channel',
-                error_message: `Cloud-Quota erschöpft und lokaler Service nicht aktiv. Thermostate können nicht gesteuert werden! Letzter lokaler Befehl: ${lastLocalExec || 'nie'}`,
-                error_code: 'NO_CONTROL',
-              });
-            } else {
-              console.log(`[PV-Automation] ✅ Local-Service aktiv (letzter Befehl: ${lastLocalExec}), Fallback funktioniert`);
-            }
-          }
+        // Realitäts-Check: echte Quota-Fehler schlagen Counter
+        const { data: recentQuotaErrors } = await supabase
+          .from('api_errors')
+          .select('id')
+          .eq('source', 'pv-automation')
+          .eq('error_type', 'tuya_api')
+          .is('resolved_at', null)
+          .gte('created_at', new Date(Date.now() - 90 * 60 * 1000).toISOString())
+          .ilike('error_message', '%quota%')
+          .limit(1);
+
+        if (recentQuotaErrors && recentQuotaErrors.length > 0) {
+          quotaExhausted = true;
+          controlMode = 'local';
+          console.log('[PV-Automation] ⚠️ Quota laut API-Fehlern erschöpft → Cloud sofort deaktiviert');
+        }
+      }
+
+      if (controlMode === 'local' || quotaExhausted) {
+        localServiceActive = await checkLocalServiceActive();
+        if (!localServiceActive) {
+          await supabase.from('api_errors').insert({
+            source: 'pv-automation',
+            error_type: 'no_control_channel',
+            error_message: `Lokaler Service nicht aktiv. Letzter ausgeführter lokaler Befehl: ${lastLocalExec || 'nie'}`,
+            error_code: 'NO_CONTROL',
+          });
+          console.log(`[PV-Automation] ⛔ Kein Steuerkanal verfügbar (lastLocalExec=${lastLocalExec || 'none'})`);
         }
       }
 
@@ -398,7 +405,14 @@ Deno.serve(async (req) => {
         temperature: number
       ): Promise<TuyaResult> {
         if (controlMode === 'local') {
-          // LOCAL MODE: Write to thermostat_commands, NO Cloud API call
+          if (!localServiceActive) {
+            return {
+              success: false,
+              errorType: 'local_service_offline',
+              errorMessage: 'Lokaler Service offline - Befehl nicht gesendet',
+            };
+          }
+
           const { error } = await supabase.from('thermostat_commands').insert({
             room_id: roomId,
             command: 'set_temp',
@@ -412,7 +426,6 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] Local command queued: room=${roomId} temp=${temperature}°C`);
           return { success: true };
         }
-        // CLOUD MODE: Use Tuya Cloud API
         if (!tuyaAccessId || !tuyaAccessSecret) {
           return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
         }
