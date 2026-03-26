@@ -1633,6 +1633,21 @@ Deno.serve(async (req) => {
           reasoning = 'Sync fehlgeschlagen, Aufheizen blockiert';
         }
 
+        // ============= STALE-SYNC-CHECK: Force-Push wenn letzter Sync alt ist =============
+        const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
+        const syncAgeMs = Date.now() - lastSyncTime;
+        const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
+
+        // Kritischer Sicherheitsfall: Bei wenig PV + altem Sync IMMER mindestens Eco/Nacht neu pushen
+        const lowPvSafetyWindow = pvPower < 500 || expectedPvKwh < 5;
+        if (action === 'keep' && syncStale && lowPvSafetyWindow) {
+          action = 'deactivate';
+          targetTemp = Math.min(currentTargetTemp || ecoTemp, ecoTemp);
+          solarLimitTemp = null;
+          reasoning = `🔁 Sicherheits-Resync: wenig PV (${pvPower}W), Prognose ${expectedPvKwh}kWh`;
+          console.log(`[PV-Automation] ${room.name}: FORCE-RESYNC bei Low-PV (last sync ${Math.round(syncAgeMs / 60000)} min)`);
+        }
+
         // ============= COOLDOWN-GATE =============
         // Cooldown NUR für Aufheiz-Aktionen (activate, Temp erhöhen)
         // Sicherheits-Aktionen (deactivate, Temp senken) umgehen Cooldown IMMER
@@ -1671,11 +1686,6 @@ Deno.serve(async (req) => {
         
         // WICHTIG: Bei JEDER Temperatur-Reduktion API aufrufen (für sequenzielles Heizen)
         const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
-        
-        // STALE-SYNC-CHECK: Force-Push wenn letzter erfolgreicher Sync >10 Min her
-        const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
-        const syncAgeMs = Date.now() - lastSyncTime;
-        const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
         
         // ÜBER-TEMPERATUR-STOP: Wenn is_heating=true aber Ist > Ziel → niemals skippen
         const needsHeatingStop = room.is_heating === true && 
