@@ -357,6 +357,37 @@ Deno.serve(async (req) => {
           } else {
             console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
           }
+
+          // ============= LOCAL-SERVICE ERREICHBARKEITS-CHECK =============
+          // Wenn Quota erschöpft → prüfen ob lokaler Service aktiv ist
+          // Wenn AUCH Local nicht erreichbar → NUR Sicherheits-Aktionen (deactivate) erlauben
+          if (quotaExhausted) {
+            // Prüfe ob der lokale Service kürzlich Befehle ausgeführt hat
+            const { data: recentLocalExec } = await supabase
+              .from('thermostat_commands')
+              .select('executed_at')
+              .eq('status', 'executed')
+              .order('executed_at', { ascending: false })
+              .limit(1);
+            
+            const lastLocalExec = recentLocalExec?.[0]?.executed_at;
+            const localServiceActive = lastLocalExec && 
+              (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000; // Innerhalb 15 Min
+            
+            if (!localServiceActive) {
+              console.log(`[PV-Automation] ⛔ WARNUNG: Cloud-Quota erschöpft UND lokaler Service NICHT aktiv (letzter Befehl: ${lastLocalExec || 'nie'}) → NUR Sicherheits-Aktionen erlaubt!`);
+              
+              // API-Error loggen damit User benachrichtigt wird
+              await supabase.from('api_errors').insert({
+                source: 'pv-automation',
+                error_type: 'no_control_channel',
+                error_message: `Cloud-Quota erschöpft und lokaler Service nicht aktiv. Thermostate können nicht gesteuert werden! Letzter lokaler Befehl: ${lastLocalExec || 'nie'}`,
+                error_code: 'NO_CONTROL',
+              });
+            } else {
+              console.log(`[PV-Automation] ✅ Local-Service aktiv (letzter Befehl: ${lastLocalExec}), Fallback funktioniert`);
+            }
+          }
         }
       }
 
