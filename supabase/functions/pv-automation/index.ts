@@ -381,7 +381,7 @@ Deno.serve(async (req) => {
           .eq('key', 'tuya_api_quota')
           .maybeSingle();
 
-        if (quotaSetting?.value) {
+         if (quotaSetting?.value) {
           quotaData = quotaSetting.value as typeof quotaData;
           const now = new Date();
           const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -400,16 +400,15 @@ Deno.serve(async (req) => {
           const dailyLimit = quotaData!.daily_limit || 33;
 
           if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= dailyLimit) {
-            controlMode = 'local';
             quotaExhausted = true;
-            forcedLocalFallback = true;
-            console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft → Fallback Local`);
+            // NOTE: Do NOT switch to local mode automatically - local service not functional
+            console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft (${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich) - bleibe bei Cloud`);
           } else {
             console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
           }
         }
 
-        // Realitäts-Check: echte Quota-Fehler schlagen Counter
+        // Realitäts-Check: echte Quota-Fehler loggen (aber KEIN Auto-Switch)
         const { data: recentQuotaErrors } = await supabase
           .from('api_errors')
           .select('id')
@@ -422,14 +421,8 @@ Deno.serve(async (req) => {
 
         if (recentQuotaErrors && recentQuotaErrors.length > 0) {
           quotaExhausted = true;
-          controlMode = 'local';
-          forcedLocalFallback = true;
-          console.log('[PV-Automation] ⚠️ Quota laut API-Fehlern erschöpft → Cloud sofort deaktiviert');
+          console.log('[PV-Automation] ⚠️ Quota laut API-Fehlern erschöpft - Auto-Switch auf LOCAL ist deaktiviert, bleibe bei Cloud');
         }
-      }
-
-      if (forcedLocalFallback) {
-        await persistLocalModeIfNeeded('quota_exhausted');
       }
 
       if (controlMode === 'local' || quotaExhausted) {
