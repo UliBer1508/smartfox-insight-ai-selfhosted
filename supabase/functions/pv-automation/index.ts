@@ -312,8 +312,53 @@ Deno.serve(async (req) => {
         .select('value')
         .eq('key', 'tuya_control_mode')
         .maybeSingle();
-      const controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
+      let controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
       console.log(`[PV-Automation] Control mode: ${controlMode}`);
+
+      // ============= TUYA API QUOTA TRACKING =============
+      let quotaData: { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null = null;
+      let quotaExhausted = false;
+
+      if (controlMode === 'cloud') {
+        const { data: quotaSetting } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'tuya_api_quota')
+          .maybeSingle();
+
+        if (quotaSetting?.value) {
+          quotaData = quotaSetting.value as typeof quotaData;
+          const now = new Date();
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+          const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+
+          // Reset monthly counter on new month
+          if (quotaData!.month !== currentMonth) {
+            quotaData!.calls_this_month = 0;
+            quotaData!.month = currentMonth;
+          }
+          // Reset daily counter on new day
+          if (quotaData!.today !== wienDate) {
+            quotaData!.calls_today = 0;
+            quotaData!.today = wienDate;
+          }
+
+          const monthlyLimit = quotaData!.monthly_limit || 900;
+          const dailyLimit = quotaData!.daily_limit || 33;
+
+          if (quotaData!.calls_this_month >= monthlyLimit) {
+            console.log(`[PV-Automation] ⚠️ MONATLICHE QUOTA ERSCHÖPFT (${quotaData!.calls_this_month}/${monthlyLimit}) → Fallback auf Local-Mode`);
+            controlMode = 'local'; // Fallback
+            quotaExhausted = true;
+          } else if (quotaData!.calls_today >= dailyLimit) {
+            console.log(`[PV-Automation] ⚠️ TÄGLICHE QUOTA ERSCHÖPFT (${quotaData!.calls_today}/${dailyLimit}) → Fallback auf Local-Mode`);
+            controlMode = 'local'; // Fallback
+            quotaExhausted = true;
+          } else {
+            console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
+          }
+        }
+      }
 
       // Helper: Mode-aware temperature setting
       async function setTemperatureForMode(
