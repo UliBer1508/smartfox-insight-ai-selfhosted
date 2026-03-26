@@ -320,6 +320,7 @@ Deno.serve(async (req) => {
       let quotaExhausted = false;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
+      let forcedLocalFallback = false;
 
       const checkLocalServiceActive = async (): Promise<boolean> => {
         const { data: recentLocalExec } = await supabase
@@ -331,6 +332,64 @@ Deno.serve(async (req) => {
 
         lastLocalExec = recentLocalExec?.[0]?.executed_at || null;
         return !!(lastLocalExec && (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000);
+      };
+
+      const persistLocalModeIfNeeded = async (reason: string) => {
+        const { data: modeRow } = await supabase
+          .from('system_settings')
+          .select('id, value')
+          .eq('key', 'tuya_control_mode')
+          .maybeSingle();
+
+        const currentMode = (modeRow?.value as { mode?: string } | null)?.mode || 'cloud';
+        if (currentMode === 'local') return;
+
+        if (modeRow?.id) {
+          await supabase
+            .from('system_settings')
+            .update({ value: { mode: 'local' }, updated_at: new Date().toISOString() })
+            .eq('id', modeRow.id);
+        } else {
+          await supabase
+            .from('system_settings')
+            .insert({ key: 'tuya_control_mode', value: { mode: 'local' } });
+        }
+
+        console.log(`[PV-Automation] 🔁 Control mode auf LOCAL erzwungen (${reason})`);
+      };
+
+      const queueLocalTemperatureCommand = async (
+        roomId: string,
+        temperature: number
+      ): Promise<{ queued: boolean; alreadyQueued: boolean; error?: string }> => {
+        const { data: pendingCommand } = await supabase
+          .from('thermostat_commands')
+          .select('id, value')
+          .eq('room_id', roomId)
+          .eq('command', 'set_temp')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const pendingValue = Number(pendingCommand?.value ?? NaN);
+        if (pendingCommand?.id && Number.isFinite(pendingValue) && Math.abs(pendingValue - temperature) < 0.1) {
+          return { queued: true, alreadyQueued: true };
+        }
+
+        const { error } = await supabase.from('thermostat_commands').insert({
+          room_id: roomId,
+          command: 'set_temp',
+          value: temperature,
+          status: 'pending',
+        });
+
+        if (error) {
+          console.error('[PV-Automation] Local command insert error:', error);
+          return { queued: false, alreadyQueued: false, error: error.message };
+        }
+
+        return { queued: true, alreadyQueued: false };
       };
 
       if (controlMode === 'cloud') {
@@ -361,6 +420,7 @@ Deno.serve(async (req) => {
           if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= dailyLimit) {
             controlMode = 'local';
             quotaExhausted = true;
+            forcedLocalFallback = true;
             console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft → Fallback Local`);
           } else {
             console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
@@ -381,19 +441,44 @@ Deno.serve(async (req) => {
         if (recentQuotaErrors && recentQuotaErrors.length > 0) {
           quotaExhausted = true;
           controlMode = 'local';
+          forcedLocalFallback = true;
           console.log('[PV-Automation] ⚠️ Quota laut API-Fehlern erschöpft → Cloud sofort deaktiviert');
         }
       }
 
+      if (forcedLocalFallback) {
+        await persistLocalModeIfNeeded('quota_exhausted');
+      }
+
       if (controlMode === 'local' || quotaExhausted) {
         localServiceActive = await checkLocalServiceActive();
-        if (!localServiceActive) {
-          await supabase.from('api_errors').insert({
-            source: 'pv-automation',
-            error_type: 'no_control_channel',
-            error_message: `Lokaler Service nicht aktiv. Letzter ausgeführter lokaler Befehl: ${lastLocalExec || 'nie'}`,
-            error_code: 'NO_CONTROL',
-          });
+
+        if (localServiceActive) {
+          await supabase
+            .from('api_errors')
+            .update({ resolved_at: new Date().toISOString() })
+            .eq('source', 'pv-automation')
+            .eq('error_type', 'no_control_channel')
+            .is('resolved_at', null);
+        } else {
+          const { data: recentNoControl } = await supabase
+            .from('api_errors')
+            .select('id')
+            .eq('source', 'pv-automation')
+            .eq('error_type', 'no_control_channel')
+            .is('resolved_at', null)
+            .gte('created_at', new Date(Date.now() - 30 * 60 * 1000).toISOString())
+            .limit(1);
+
+          if (!recentNoControl || recentNoControl.length === 0) {
+            await supabase.from('api_errors').insert({
+              source: 'pv-automation',
+              error_type: 'no_control_channel',
+              error_message: `Lokaler Service nicht aktiv. Letzter ausgeführter lokaler Befehl: ${lastLocalExec || 'nie'}`,
+              error_code: 'NO_CONTROL',
+            });
+          }
+
           console.log(`[PV-Automation] ⛔ Kein Steuerkanal verfügbar (lastLocalExec=${lastLocalExec || 'none'})`);
         }
       }
@@ -405,25 +490,23 @@ Deno.serve(async (req) => {
         temperature: number
       ): Promise<TuyaResult> {
         if (controlMode === 'local') {
+          const queued = await queueLocalTemperatureCommand(roomId, temperature);
+          if (!queued.queued) {
+            return { success: false, errorType: 'db_error', errorMessage: queued.error || 'Lokales Queueing fehlgeschlagen' };
+          }
+
           if (!localServiceActive) {
+            console.log(`[PV-Automation] Local command vorgemerkt (Service offline): room=${roomId} temp=${temperature}°C`);
             return {
               success: false,
               errorType: 'local_service_offline',
-              errorMessage: 'Lokaler Service offline - Befehl nicht gesendet',
+              errorMessage: queued.alreadyQueued
+                ? 'Lokaler Service offline - Befehl bereits wartend'
+                : 'Lokaler Service offline - Befehl wartend vorgemerkt',
             };
           }
 
-          const { error } = await supabase.from('thermostat_commands').insert({
-            room_id: roomId,
-            command: 'set_temp',
-            value: temperature,
-            status: 'pending',
-          });
-          if (error) {
-            console.error(`[PV-Automation] Local command insert error:`, error);
-            return { success: false, errorType: 'db_error', errorMessage: error.message };
-          }
-          console.log(`[PV-Automation] Local command queued: room=${roomId} temp=${temperature}°C`);
+          console.log(`[PV-Automation] Local command queued: room=${roomId} temp=${temperature}°C${queued.alreadyQueued ? ' (bereits vorhanden)' : ''}`);
           return { success: true };
         }
         if (!tuyaAccessId || !tuyaAccessSecret) {
@@ -1550,6 +1633,21 @@ Deno.serve(async (req) => {
           reasoning = 'Sync fehlgeschlagen, Aufheizen blockiert';
         }
 
+        // ============= STALE-SYNC-CHECK: Force-Push wenn letzter Sync alt ist =============
+        const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
+        const syncAgeMs = Date.now() - lastSyncTime;
+        const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
+
+        // Kritischer Sicherheitsfall: Bei wenig PV + altem Sync IMMER mindestens Eco/Nacht neu pushen
+        const lowPvSafetyWindow = pvPower < 500 || expectedPvKwh < 5;
+        if (action === 'keep' && syncStale && lowPvSafetyWindow) {
+          action = 'deactivate';
+          targetTemp = Math.min(currentTargetTemp || ecoTemp, ecoTemp);
+          solarLimitTemp = null;
+          reasoning = `🔁 Sicherheits-Resync: wenig PV (${pvPower}W), Prognose ${expectedPvKwh}kWh`;
+          console.log(`[PV-Automation] ${room.name}: FORCE-RESYNC bei Low-PV (last sync ${Math.round(syncAgeMs / 60000)} min)`);
+        }
+
         // ============= COOLDOWN-GATE =============
         // Cooldown NUR für Aufheiz-Aktionen (activate, Temp erhöhen)
         // Sicherheits-Aktionen (deactivate, Temp senken) umgehen Cooldown IMMER
@@ -1588,11 +1686,6 @@ Deno.serve(async (req) => {
         
         // WICHTIG: Bei JEDER Temperatur-Reduktion API aufrufen (für sequenzielles Heizen)
         const needsToReduceTemp = newTargetTemp < currentTargetTemp - 0.5;
-        
-        // STALE-SYNC-CHECK: Force-Push wenn letzter erfolgreicher Sync >10 Min her
-        const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
-        const syncAgeMs = Date.now() - lastSyncTime;
-        const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
         
         // ÜBER-TEMPERATUR-STOP: Wenn is_heating=true aber Ist > Ziel → niemals skippen
         const needsHeatingStop = room.is_heating === true && 
