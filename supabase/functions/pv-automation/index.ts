@@ -334,28 +334,10 @@ Deno.serve(async (req) => {
         return !!(lastLocalExec && (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000);
       };
 
+      // NOTE: Auto-switch to local mode is DISABLED - local service is not yet functional.
+      // The mode must be changed manually by the user in settings.
       const persistLocalModeIfNeeded = async (reason: string) => {
-        const { data: modeRow } = await supabase
-          .from('system_settings')
-          .select('id, value')
-          .eq('key', 'tuya_control_mode')
-          .maybeSingle();
-
-        const currentMode = (modeRow?.value as { mode?: string } | null)?.mode || 'cloud';
-        if (currentMode === 'local') return;
-
-        if (modeRow?.id) {
-          await supabase
-            .from('system_settings')
-            .update({ value: { mode: 'local' }, updated_at: new Date().toISOString() })
-            .eq('id', modeRow.id);
-        } else {
-          await supabase
-            .from('system_settings')
-            .insert({ key: 'tuya_control_mode', value: { mode: 'local' } });
-        }
-
-        console.log(`[PV-Automation] 🔁 Control mode auf LOCAL erzwungen (${reason})`);
+        console.log(`[PV-Automation] ⚠️ Quota-Problem erkannt (${reason}), aber Auto-Switch auf LOCAL ist deaktiviert. Bleibe bei aktuellem Modus.`);
       };
 
       const queueLocalTemperatureCommand = async (

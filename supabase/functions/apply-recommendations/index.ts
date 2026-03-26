@@ -342,8 +342,8 @@ Deno.serve(async (req) => {
         .maybeSingle();
       let controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
 
-      // Quota-Reality-Check: bei aktiven Quota-Fehlern sofort auf local umschalten
-      let forcedLocalFallback = false;
+      // NOTE: Auto-switch to local mode is DISABLED - local service is not yet functional.
+      // Quota errors are logged but the mode stays as configured by the user.
       if (controlMode === 'cloud') {
         const { data: recentQuotaErrors } = await supabase
           .from('api_errors')
@@ -356,22 +356,7 @@ Deno.serve(async (req) => {
           .limit(1);
 
         if (recentQuotaErrors && recentQuotaErrors.length > 0) {
-          controlMode = 'local';
-          forcedLocalFallback = true;
-          console.log('[apply-recommendations] ⚠️ Quota erkannt → wechsle auf lokalen Modus');
-        }
-      }
-
-      if (forcedLocalFallback) {
-        if (modeSetting?.id) {
-          await supabase
-            .from('system_settings')
-            .update({ value: { mode: 'local' }, updated_at: new Date().toISOString() })
-            .eq('id', modeSetting.id);
-        } else {
-          await supabase
-            .from('system_settings')
-            .insert({ key: 'tuya_control_mode', value: { mode: 'local' } });
+          console.log('[apply-recommendations] ⚠️ Quota-Fehler erkannt, aber Auto-Switch auf LOCAL ist deaktiviert. Bleibe bei Cloud.');
         }
       }
 
