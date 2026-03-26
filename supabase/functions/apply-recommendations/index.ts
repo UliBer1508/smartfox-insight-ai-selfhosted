@@ -546,16 +546,19 @@ Deno.serve(async (req) => {
             }
 
             if (!localServiceActive) {
-              await supabase.from('api_errors').insert({
-                source: 'apply-recommendations',
-                error_type: 'no_control_channel',
-                error_message: queued.alreadyQueued
-                  ? `Lokaler Service offline - Befehl für ${room.name} bereits wartend (${safeTemp}°C)`
-                  : `Lokaler Service offline - Befehl für ${room.name} wartend vorgemerkt (${safeTemp}°C)`,
-                room_id: room.id,
-                room_name: room.name,
-                error_code: 'NO_CONTROL',
-              });
+              if (!noControlLogged) {
+                await supabase.from('api_errors').insert({
+                  source: 'apply-recommendations',
+                  error_type: 'no_control_channel',
+                  error_message: queued.alreadyQueued
+                    ? `Lokaler Service offline - Befehle bereits wartend (z.B. ${room.name} ${safeTemp}°C)`
+                    : `Lokaler Service offline - Sicherheitsbefehle wartend vorgemerkt (z.B. ${room.name} ${safeTemp}°C)`,
+                  room_id: room.id,
+                  room_name: room.name,
+                  error_code: 'NO_CONTROL',
+                });
+                noControlLogged = true;
+              }
 
               results.skipped.push({
                 roomId: room.id,
