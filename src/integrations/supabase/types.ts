@@ -65,6 +65,13 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "api_errors_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       consumer_logs: {
@@ -577,6 +584,13 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "learned_policies_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       learning_events: {
@@ -628,6 +642,13 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "learning_events_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
             referencedColumns: ["id"]
           },
         ]
@@ -716,6 +737,13 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "room_heating_logs_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       room_ml_features: {
@@ -787,6 +815,13 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "room_ml_features_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       room_recommendations: {
@@ -834,6 +869,13 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "room_recommendations_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       room_temperature_samples: {
@@ -870,6 +912,13 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_temperature_samples_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
             referencedColumns: ["id"]
           },
         ]
@@ -1165,6 +1214,13 @@ export type Database = {
             referencedRelation: "rooms"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "thermostat_commands_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms_public"
+            referencedColumns: ["id"]
+          },
         ]
       }
       weather_data: {
@@ -1217,7 +1273,138 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      rooms_public: {
+        Row: {
+          automation_enabled: boolean | null
+          avg_heating_cycles_per_day: number | null
+          calculated_heat_loss_rate: number | null
+          calculated_power_w: number | null
+          calculated_solar_gain_factor: number | null
+          comfort_temp: number | null
+          created_at: string | null
+          current_temp: number | null
+          eco_temp: number | null
+          estimated_kwh_per_degree: number | null
+          floor_area_m2: number | null
+          has_solar_gain: boolean | null
+          heating_paused_reason: string | null
+          heating_power_w: number | null
+          id: string | null
+          is_heating: boolean | null
+          last_auto_change: string | null
+          last_heating_duration_min: number | null
+          last_heating_end: string | null
+          last_heating_start: string | null
+          last_power_calculation: string | null
+          last_solar_analysis: string | null
+          last_thermostat_sync: string | null
+          manual_override_until: string | null
+          name: string | null
+          night_temp: number | null
+          orientation: string | null
+          power_calculation_confidence: number | null
+          power_samples: number | null
+          priority: number | null
+          pv_auto_active: boolean | null
+          pv_auto_enabled: boolean | null
+          pv_auto_last_change: string | null
+          pv_boost_max_temp: number | null
+          solar_gain_confidence: number | null
+          solar_gain_samples: number | null
+          solar_heating_temp: number | null
+          solar_limit_temp: number | null
+          target_temp: number | null
+          thermostat_type: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          automation_enabled?: boolean | null
+          avg_heating_cycles_per_day?: number | null
+          calculated_heat_loss_rate?: number | null
+          calculated_power_w?: number | null
+          calculated_solar_gain_factor?: number | null
+          comfort_temp?: number | null
+          created_at?: string | null
+          current_temp?: number | null
+          eco_temp?: number | null
+          estimated_kwh_per_degree?: number | null
+          floor_area_m2?: number | null
+          has_solar_gain?: boolean | null
+          heating_paused_reason?: string | null
+          heating_power_w?: number | null
+          id?: string | null
+          is_heating?: boolean | null
+          last_auto_change?: string | null
+          last_heating_duration_min?: number | null
+          last_heating_end?: string | null
+          last_heating_start?: string | null
+          last_power_calculation?: string | null
+          last_solar_analysis?: string | null
+          last_thermostat_sync?: string | null
+          manual_override_until?: string | null
+          name?: string | null
+          night_temp?: number | null
+          orientation?: string | null
+          power_calculation_confidence?: number | null
+          power_samples?: number | null
+          priority?: number | null
+          pv_auto_active?: boolean | null
+          pv_auto_enabled?: boolean | null
+          pv_auto_last_change?: string | null
+          pv_boost_max_temp?: number | null
+          solar_gain_confidence?: number | null
+          solar_gain_samples?: number | null
+          solar_heating_temp?: number | null
+          solar_limit_temp?: number | null
+          target_temp?: number | null
+          thermostat_type?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          automation_enabled?: boolean | null
+          avg_heating_cycles_per_day?: number | null
+          calculated_heat_loss_rate?: number | null
+          calculated_power_w?: number | null
+          calculated_solar_gain_factor?: number | null
+          comfort_temp?: number | null
+          created_at?: string | null
+          current_temp?: number | null
+          eco_temp?: number | null
+          estimated_kwh_per_degree?: number | null
+          floor_area_m2?: number | null
+          has_solar_gain?: boolean | null
+          heating_paused_reason?: string | null
+          heating_power_w?: number | null
+          id?: string | null
+          is_heating?: boolean | null
+          last_auto_change?: string | null
+          last_heating_duration_min?: number | null
+          last_heating_end?: string | null
+          last_heating_start?: string | null
+          last_power_calculation?: string | null
+          last_solar_analysis?: string | null
+          last_thermostat_sync?: string | null
+          manual_override_until?: string | null
+          name?: string | null
+          night_temp?: number | null
+          orientation?: string | null
+          power_calculation_confidence?: number | null
+          power_samples?: number | null
+          priority?: number | null
+          pv_auto_active?: boolean | null
+          pv_auto_enabled?: boolean | null
+          pv_auto_last_change?: string | null
+          pv_boost_max_temp?: number | null
+          solar_gain_confidence?: number | null
+          solar_gain_samples?: number | null
+          solar_heating_temp?: number | null
+          solar_limit_temp?: number | null
+          target_temp?: number | null
+          thermostat_type?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       cleanup_old_data: { Args: never; Returns: undefined }
