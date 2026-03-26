@@ -451,6 +451,33 @@ Deno.serve(async (req) => {
         errors: [] as { roomId: string; name: string; error: string }[],
       };
 
+      const queueLocalTemperatureCommand = async (roomId: string, temperature: number) => {
+        const { data: pendingCommand } = await supabase
+          .from('thermostat_commands')
+          .select('id, value')
+          .eq('room_id', roomId)
+          .eq('command', 'set_temp')
+          .eq('status', 'pending')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        const pendingValue = Number(pendingCommand?.value ?? NaN);
+        if (pendingCommand?.id && Number.isFinite(pendingValue) && Math.abs(pendingValue - temperature) < 0.1) {
+          return { ok: true, alreadyQueued: true };
+        }
+
+        const { error } = await supabase.from('thermostat_commands').insert({
+          room_id: roomId,
+          command: 'set_temp',
+          value: temperature,
+          status: 'pending',
+        });
+
+        if (error) return { ok: false, alreadyQueued: false, error: error.message };
+        return { ok: true, alreadyQueued: false };
+      };
+
       for (const room of rooms as Room[]) {
         // Check manual override first
         if (room.manual_override_until) {
