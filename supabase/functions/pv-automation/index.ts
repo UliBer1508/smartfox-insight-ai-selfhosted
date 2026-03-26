@@ -312,8 +312,53 @@ Deno.serve(async (req) => {
         .select('value')
         .eq('key', 'tuya_control_mode')
         .maybeSingle();
-      const controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
+      let controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
       console.log(`[PV-Automation] Control mode: ${controlMode}`);
+
+      // ============= TUYA API QUOTA TRACKING =============
+      let quotaData: { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null = null;
+      let quotaExhausted = false;
+
+      if (controlMode === 'cloud') {
+        const { data: quotaSetting } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'tuya_api_quota')
+          .maybeSingle();
+
+        if (quotaSetting?.value) {
+          quotaData = quotaSetting.value as typeof quotaData;
+          const now = new Date();
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+          const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+
+          // Reset monthly counter on new month
+          if (quotaData!.month !== currentMonth) {
+            quotaData!.calls_this_month = 0;
+            quotaData!.month = currentMonth;
+          }
+          // Reset daily counter on new day
+          if (quotaData!.today !== wienDate) {
+            quotaData!.calls_today = 0;
+            quotaData!.today = wienDate;
+          }
+
+          const monthlyLimit = quotaData!.monthly_limit || 900;
+          const dailyLimit = quotaData!.daily_limit || 33;
+
+          if (quotaData!.calls_this_month >= monthlyLimit) {
+            console.log(`[PV-Automation] ⚠️ MONATLICHE QUOTA ERSCHÖPFT (${quotaData!.calls_this_month}/${monthlyLimit}) → Fallback auf Local-Mode`);
+            controlMode = 'local'; // Fallback
+            quotaExhausted = true;
+          } else if (quotaData!.calls_today >= dailyLimit) {
+            console.log(`[PV-Automation] ⚠️ TÄGLICHE QUOTA ERSCHÖPFT (${quotaData!.calls_today}/${dailyLimit}) → Fallback auf Local-Mode`);
+            controlMode = 'local'; // Fallback
+            quotaExhausted = true;
+          } else {
+            console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
+          }
+        }
+      }
 
       // Helper: Mode-aware temperature setting
       async function setTemperatureForMode(
@@ -480,13 +525,24 @@ Deno.serve(async (req) => {
         }
 
         const successCount = nightResults.filter(r => r.success).length;
+        
+        // Quota tracking für Nacht-Befehle
+        if (quotaData && controlMode === 'cloud' && successCount > 0) {
+          quotaData.calls_this_month += successCount;
+          quotaData.calls_today += successCount;
+          await supabase.from('system_settings')
+            .update({ value: quotaData, updated_at: new Date().toISOString() })
+            .eq('key', 'tuya_api_quota');
+        }
+
         return new Response(JSON.stringify({ 
           success: true, 
           message: `Nachtmodus aktiv (${wienTime}, ${nightHeatingMode}) - ${successCount} Thermostate angepasst`,
           nightMode: true, nightHeatingMode,
           adjusted: successCount,
           total: allRooms.length,
-          results: nightResults 
+          results: nightResults,
+          quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
@@ -532,9 +588,17 @@ Deno.serve(async (req) => {
       }
 
       // ============= PRE-SYNC: Frische Thermostatdaten vor Automationsrunde =============
-      // Stellt sicher dass current_temp und is_heating aktuell sind
+      // Throttle: nur alle 15 Minuten syncen um Tuya API Quota zu schonen
       let syncFailed = false;
-      if (controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
+      const shouldSync = (() => {
+        if (controlMode !== 'cloud' || !tuyaAccessId || !tuyaAccessSecret) return false;
+        if (!quotaData?.last_sync_at) return true;
+        const lastSync = new Date(quotaData.last_sync_at).getTime();
+        const minutesSinceSync = (Date.now() - lastSync) / (1000 * 60);
+        return minutesSinceSync >= 15; // Nur alle 15 Minuten syncen (statt jedes Mal)
+      })();
+
+      if (shouldSync) {
         try {
           console.log(`[PV-Automation] Pre-sync: Lade frische Thermostatdaten für ${rooms.length} Räume...`);
           const syncResponse = await fetch(`${supabaseUrl}/functions/v1/tuya-control/sync-all`, {
@@ -549,6 +613,13 @@ Deno.serve(async (req) => {
           if (syncResponse.ok) {
             const syncResult = await syncResponse.json();
             console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
+            
+            // Quota: Sync = 2 API calls (token + batch status)
+            if (quotaData) {
+              quotaData.calls_this_month += 2;
+              quotaData.calls_today += 2;
+              quotaData.last_sync_at = new Date().toISOString();
+            }
             
             // Räume neu laden mit frischen Daten
             const { data: freshRooms, error: freshError } = await supabase
@@ -569,6 +640,8 @@ Deno.serve(async (req) => {
           console.warn(`[PV-Automation] Pre-sync Fehler: ${syncError} - verwende DB-Daten, nur Reduktionen/Stops erlaubt`);
           syncFailed = true;
         }
+      } else if (controlMode === 'cloud') {
+        console.log(`[PV-Automation] Pre-sync übersprungen (Throttle: nächster Sync in ${quotaData?.last_sync_at ? Math.max(0, 15 - Math.round((Date.now() - new Date(quotaData.last_sync_at).getTime()) / 60000)) : '?'} Min)`);
       }
 
       // 4. Load ML features
@@ -1703,7 +1776,22 @@ Deno.serve(async (req) => {
         console.error('[PV-Automation] Evaluation trigger error:', evalError);
       }
 
-      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}`);
+      // ============= QUOTA PERSISTIEREN =============
+      if (quotaData && tuyaApiCalls > 0) {
+        // Jeder tuyaApiCall = 1 command API call (Token ist gecached)
+        quotaData.calls_this_month += tuyaApiCalls;
+        quotaData.calls_today += tuyaApiCalls;
+      }
+      if (quotaData) {
+        await supabase.from('system_settings')
+          .update({ value: quotaData, updated_at: new Date().toISOString() })
+          .eq('key', 'tuya_api_quota');
+      }
+
+      const quotaInfo = quotaData 
+        ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich`
+        : '';
+      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}${quotaInfo}${quotaExhausted ? ' ⚠️ QUOTA-FALLBACK aktiv' : ''}`);
 
       return new Response(JSON.stringify({
         success: true,
@@ -1713,6 +1801,8 @@ Deno.serve(async (req) => {
         usedMlDecision,
         results,
         tuyaApiCalls,
+        quotaExhausted,
+        quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
         evaluatedEvents: evaluationResult?.evaluated || 0
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
