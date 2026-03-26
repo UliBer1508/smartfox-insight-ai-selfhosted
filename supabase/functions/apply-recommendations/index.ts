@@ -478,6 +478,8 @@ Deno.serve(async (req) => {
         return { ok: true, alreadyQueued: false };
       };
 
+      let noControlLogged = false;
+
       for (const room of rooms as Room[]) {
         // Check manual override first
         if (room.manual_override_until) {
