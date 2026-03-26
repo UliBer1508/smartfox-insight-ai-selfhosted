@@ -525,13 +525,24 @@ Deno.serve(async (req) => {
         }
 
         const successCount = nightResults.filter(r => r.success).length;
+        
+        // Quota tracking für Nacht-Befehle
+        if (quotaData && controlMode === 'cloud' && successCount > 0) {
+          quotaData.calls_this_month += successCount;
+          quotaData.calls_today += successCount;
+          await supabase.from('system_settings')
+            .update({ value: quotaData, updated_at: new Date().toISOString() })
+            .eq('key', 'tuya_api_quota');
+        }
+
         return new Response(JSON.stringify({ 
           success: true, 
           message: `Nachtmodus aktiv (${wienTime}, ${nightHeatingMode}) - ${successCount} Thermostate angepasst`,
           nightMode: true, nightHeatingMode,
           adjusted: successCount,
           total: allRooms.length,
-          results: nightResults 
+          results: nightResults,
+          quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
