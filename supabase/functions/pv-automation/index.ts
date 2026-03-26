@@ -1765,7 +1765,22 @@ Deno.serve(async (req) => {
         console.error('[PV-Automation] Evaluation trigger error:', evalError);
       }
 
-      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}`);
+      // ============= QUOTA PERSISTIEREN =============
+      if (quotaData && tuyaApiCalls > 0) {
+        // Jeder tuyaApiCall = 1 command API call (Token ist gecached)
+        quotaData.calls_this_month += tuyaApiCalls;
+        quotaData.calls_today += tuyaApiCalls;
+      }
+      if (quotaData) {
+        await supabase.from('system_settings')
+          .update({ value: quotaData, updated_at: new Date().toISOString() })
+          .eq('key', 'tuya_api_quota');
+      }
+
+      const quotaInfo = quotaData 
+        ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich`
+        : '';
+      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}${quotaInfo}${quotaExhausted ? ' ⚠️ QUOTA-FALLBACK aktiv' : ''}`);
 
       return new Response(JSON.stringify({
         success: true,
@@ -1775,6 +1790,8 @@ Deno.serve(async (req) => {
         usedMlDecision,
         results,
         tuyaApiCalls,
+        quotaExhausted,
+        quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
         evaluatedEvents: evaluationResult?.evaluated || 0
       }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
