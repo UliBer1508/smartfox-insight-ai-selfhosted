@@ -357,6 +357,37 @@ Deno.serve(async (req) => {
           } else {
             console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
           }
+
+          // ============= LOCAL-SERVICE ERREICHBARKEITS-CHECK =============
+          // Wenn Quota erschöpft → prüfen ob lokaler Service aktiv ist
+          // Wenn AUCH Local nicht erreichbar → NUR Sicherheits-Aktionen (deactivate) erlauben
+          if (quotaExhausted) {
+            // Prüfe ob der lokale Service kürzlich Befehle ausgeführt hat
+            const { data: recentLocalExec } = await supabase
+              .from('thermostat_commands')
+              .select('executed_at')
+              .eq('status', 'executed')
+              .order('executed_at', { ascending: false })
+              .limit(1);
+            
+            const lastLocalExec = recentLocalExec?.[0]?.executed_at;
+            const localServiceActive = lastLocalExec && 
+              (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000; // Innerhalb 15 Min
+            
+            if (!localServiceActive) {
+              console.log(`[PV-Automation] ⛔ WARNUNG: Cloud-Quota erschöpft UND lokaler Service NICHT aktiv (letzter Befehl: ${lastLocalExec || 'nie'}) → NUR Sicherheits-Aktionen erlaubt!`);
+              
+              // API-Error loggen damit User benachrichtigt wird
+              await supabase.from('api_errors').insert({
+                source: 'pv-automation',
+                error_type: 'no_control_channel',
+                error_message: `Cloud-Quota erschöpft und lokaler Service nicht aktiv. Thermostate können nicht gesteuert werden! Letzter lokaler Befehl: ${lastLocalExec || 'nie'}`,
+                error_code: 'NO_CONTROL',
+              });
+            } else {
+              console.log(`[PV-Automation] ✅ Local-Service aktiv (letzter Befehl: ${lastLocalExec}), Fallback funktioniert`);
+            }
+          }
         }
       }
 
@@ -961,7 +992,12 @@ Deno.serve(async (req) => {
             // Prüfe signifikante Änderungen
             const socChange = cachedSoc > 0 ? Math.abs(batterySoc - cachedSoc) / cachedSoc : 1;
             const pvChange = cachedPvPower > 100 ? Math.abs(pvPower - cachedPvPower) / cachedPvPower : (pvPower > 100 ? 1 : 0);
-            const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD;
+            // PV-Abfall von >500W auf <500W ist IMMER signifikant (Gate-Grenze!)
+            const pvDroppedBelowGate = cachedPvPower >= 500 && pvPower < 500;
+            const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD || pvDroppedBelowGate;
+            if (pvDroppedBelowGate) {
+              console.log(`[PV-Automation] 🔄 ML-Cache INVALIDIERT: PV fiel unter Gate-Grenze (${cachedPvPower}W → ${pvPower}W)`);
+            }
 
             if (cacheAge < ML_CACHE_TTL_MS && !significantChange && cachedDecisions?.length > 0) {
               mlDecisions = cachedDecisions;
@@ -1241,87 +1277,115 @@ Deno.serve(async (req) => {
         } else {
           // TAGSÜBER: ML oder Fallback-Logik
 
-          // ML decision: Erst Learned Policy prüfen, dann LLM als Fallback
-          const learnedPolicy = useMLDecisions ? learnedPolicies.get(room.id) : null;
+          // ============= HARTER PV-GATE =============
+          // KEINE Heizung ohne PV-Strom, unabhängig von ML/Learned Policies!
+          // Dies ist die letzte Sicherheitsebene die NICHT übergangen werden kann.
+          const noPvAvailable = pvPower < 500;
+          const lowForecast = expectedPvKwh < 5; // Weniger als 5 kWh Tagesprognose
+          const noPvHeatingAllowed = noPvAvailable && lowForecast;
           
-          if (learnedPolicy && learnedPolicy.sample_count >= 20 && learnedPolicy.success_rate > 0.5) {
-            // EXPLOITATION: Gelernte Policy nutzen (genug Daten + gute Erfolgsrate)
-            action = learnedPolicy.recommended_action === 'activate' ? 'activate' : 
-                     learnedPolicy.recommended_action === 'deactivate' ? 'deactivate' : 'keep';
-            if (learnedPolicy.recommended_temp) {
-              targetTemp = learnedPolicy.recommended_temp;
+          if (noPvHeatingAllowed) {
+            console.log(`[PV-Automation] ${room.name}: ⛔ HARTER PV-GATE: Kein PV (${pvPower}W) + niedrige Prognose (${expectedPvKwh}kWh) → KEIN Heizen erlaubt`);
+            // Wenn Raum aktiv heizt und über eco_temp ist → deaktivieren
+            if (room.pv_auto_active || currentTargetTemp > ecoTemp + 0.5) {
+              action = 'deactivate';
+              targetTemp = ecoTemp;
+              solarLimitTemp = null;
+              reasoning = `⛔ Kein PV (${pvPower}W) + Prognose nur ${expectedPvKwh}kWh → Heizung gestoppt`;
             }
-            reasoning = `📊 Gelernte Policy (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg, avg_reward: ${learnedPolicy.avg_reward?.toFixed(2)})`;
-            console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+            // Sonst: keep, nichts ändern
           } else {
-            // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse)
-            mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
-            if (learnedPolicy) {
-              console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
-            }
-          }
-
-          // (Solar-Gain-Erkennung und Morgen-Sperre entfernt — Thermostate regeln passiven Solargewinn selbst)
-
-          // Only process ML/fallback if action is still 'keep' (not already set by morning wake-up or solar)
-          if (action === 'keep') {
-            if (mlDecision && usedMlDecision && useMLDecisions) {
-              // Use ML/AI recommendation (nur tagsüber!)
-              action = mlDecision.action;
-              // ML-Temperatur auf comfort_temp deckeln — comfort ist das absolute Maximum
-              targetTemp = Math.min(mlDecision.target_temp, comfortTemp);
-              reasoning = mlDecision.reasoning + ' (KI)';
-              expectedEnergyWh = mlDecision.expected_energy_wh;
-              confidence = mlDecision.confidence;
+            // ML decision: Erst Learned Policy prüfen, dann LLM als Fallback
+            const learnedPolicy = useMLDecisions ? learnedPolicies.get(room.id) : null;
+            
+            if (learnedPolicy && learnedPolicy.sample_count >= 20 && learnedPolicy.success_rate > 0.5) {
+              // EXPLOITATION: Gelernte Policy nutzen (genug Daten + gute Erfolgsrate)
+              action = learnedPolicy.recommended_action === 'activate' ? 'activate' : 
+                       learnedPolicy.recommended_action === 'deactivate' ? 'deactivate' : 'keep';
+              if (learnedPolicy.recommended_temp) {
+                targetTemp = learnedPolicy.recommended_temp;
+              }
+              reasoning = `📊 Gelernte Policy (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg, avg_reward: ${learnedPolicy.avg_reward?.toFixed(2)})`;
+              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+              
+              // ============= PV-GATE FÜR ML-ACTIVATE =============
+              // Auch gelernte Policies dürfen NUR bei tatsächlichem PV-Überschuss aktivieren
+              if (action === 'activate' && pvPower < 500) {
+                console.log(`[PV-Automation] ${room.name}: ⚠️ Learned Policy will activate, aber PV nur ${pvPower}W → BLOCKIERT`);
+                action = 'keep';
+                reasoning += ' → BLOCKIERT (kein PV)';
+              }
             } else {
-              // Basis-Zeitschaltung / Fallback (nur tagsüber)
-              
-              // 2. PV surplus/Solargewinn -> Solar-Modus aktivieren
-              // ABER: Nur wenn tatsächlich genug PV-Leistung vorhanden!
-              if (surplus >= thresholdOn && !room.pv_auto_active && pvPower >= 1000) {
-                action = 'activate';
-                // PV-Überschuss: Alle Räume auf eco_temp setzen, Thermostat regelt selbst
-                // Bei Solargewinn-Räumen heizt die Heizung ohnehin nicht wenn Sonne den Raum erwärmt
-                targetTemp = ecoTemp;
-                solarLimitTemp = comfortTemp;
-                reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV)`;
+              // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse)
+              mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+              if (learnedPolicy) {
+                console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
               }
-              // (PV-Warte-Sonderbehandlung für has_solar_gain entfernt — alle Räume gleich behandelt)
-              // 4. Low/no surplus -> Solar-Limit deaktivieren
-              else if (surplus < thresholdOff && room.pv_auto_active) {
-                action = 'deactivate';
-                targetTemp = ecoTemp;
-                solarLimitTemp = null;
-                reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
-              } 
-              // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
-              else if (room.pv_auto_active && surplus >= thresholdOff) {
-                // PV-Modus weiterhin aktiv - eco_temp beibehalten
-                targetTemp = ecoTemp;
-                solarLimitTemp = comfortTemp;
-                // Keep action = 'keep'
-              }
-              // 6. Daytime default: Eco-Temp nur setzen wenn PV verfügbar
-              // Ohne PV bleibt der Raum auf aktuellem Wert (kein Netzstrom)
-              else if (!room.pv_auto_active && currentTargetTemp < ecoTemp && pvPower >= 500) {
-                action = 'activate';
-                targetTemp = ecoTemp;
-                solarLimitTemp = null;
-                reasoning = `Eco-Modus (PV verfügbar: ${pvPower}W): ${currentTargetTemp}°C → ${ecoTemp}°C`;
-              }
-              
-              // ============= ÜBERSCHUSS-UMLEITUNG =============
-              // Bei signifikantem Grid-Export: Kalte Räume heizen statt einspeisen (unabhängig von Ausrichtung)
-              if (action === 'keep' && gridExport > 1000 && !room.pv_auto_active) {
-                const currentRoomTemp = room.current_temp || 0;
-                const roomNeedsHeating = currentRoomTemp < (ecoTemp - 0.5);
+            }
+
+            // (Solar-Gain-Erkennung und Morgen-Sperre entfernt — Thermostate regeln passiven Solargewinn selbst)
+
+            // Only process ML/fallback if action is still 'keep' (not already set by morning wake-up or solar)
+            if (action === 'keep') {
+              if (mlDecision && usedMlDecision && useMLDecisions) {
+                // Use ML/AI recommendation (nur tagsüber!)
+                action = mlDecision.action;
+                // ML-Temperatur auf comfort_temp deckeln — comfort ist das absolute Maximum
+                targetTemp = Math.min(mlDecision.target_temp, comfortTemp);
+                reasoning = mlDecision.reasoning + ' (KI)';
+                expectedEnergyWh = mlDecision.expected_energy_wh;
+                confidence = mlDecision.confidence;
                 
-                if (roomNeedsHeating) {
+                // ============= PV-GATE FÜR ML-ACTIVATE =============
+                // ML darf NUR bei tatsächlichem PV-Überschuss aktivieren
+                if (action === 'activate' && pvPower < 500) {
+                  console.log(`[PV-Automation] ${room.name}: ⚠️ ML will activate, aber PV nur ${pvPower}W → BLOCKIERT`);
+                  action = 'keep';
+                  reasoning += ' → BLOCKIERT (kein PV)';
+                }
+              } else {
+                // Basis-Zeitschaltung / Fallback (nur tagsüber)
+                
+                // 2. PV surplus/Solargewinn -> Solar-Modus aktivieren
+                // ABER: Nur wenn tatsächlich genug PV-Leistung vorhanden!
+                if (surplus >= thresholdOn && !room.pv_auto_active && pvPower >= 1000) {
                   action = 'activate';
                   targetTemp = ecoTemp;
                   solarLimitTemp = comfortTemp;
-                  reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Raum heizen statt einspeisen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
-                  console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+                  reasoning = `PV-Überschuss: ${ecoTemp}°C (${surplus}W Überschuss, ${pvPower}W PV)`;
+                }
+                // 4. Low/no surplus -> Solar-Limit deaktivieren
+                else if (surplus < thresholdOff && room.pv_auto_active) {
+                  action = 'deactivate';
+                  targetTemp = ecoTemp;
+                  solarLimitTemp = null;
+                  reasoning = `Solar-Limit aus (Überschuss ${surplus}W < ${thresholdOff}W)`;
+                } 
+                // 5. Wenn Solar-Limit aktiv ist und Bedingungen noch gelten, beibehalten
+                else if (room.pv_auto_active && surplus >= thresholdOff) {
+                  targetTemp = ecoTemp;
+                  solarLimitTemp = comfortTemp;
+                }
+                // 6. Daytime default: Eco-Temp nur setzen wenn PV verfügbar
+                else if (!room.pv_auto_active && currentTargetTemp < ecoTemp && pvPower >= 500) {
+                  action = 'activate';
+                  targetTemp = ecoTemp;
+                  solarLimitTemp = null;
+                  reasoning = `Eco-Modus (PV verfügbar: ${pvPower}W): ${currentTargetTemp}°C → ${ecoTemp}°C`;
+                }
+                
+                // ============= ÜBERSCHUSS-UMLEITUNG =============
+                if (action === 'keep' && gridExport > 1000 && !room.pv_auto_active) {
+                  const currentRoomTemp = room.current_temp || 0;
+                  const roomNeedsHeating = currentRoomTemp < (ecoTemp - 0.5);
+                  
+                  if (roomNeedsHeating) {
+                    action = 'activate';
+                    targetTemp = ecoTemp;
+                    solarLimitTemp = comfortTemp;
+                    reasoning = `⚡ Überschuss-Nutzung: ${gridExport}W Export → Raum heizen statt einspeisen (${currentRoomTemp.toFixed(1)}°C < ${ecoTemp}°C)`;
+                    console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+                  }
                 }
               }
             }
