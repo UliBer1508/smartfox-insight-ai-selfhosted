@@ -577,9 +577,17 @@ Deno.serve(async (req) => {
       }
 
       // ============= PRE-SYNC: Frische Thermostatdaten vor Automationsrunde =============
-      // Stellt sicher dass current_temp und is_heating aktuell sind
+      // Throttle: nur alle 15 Minuten syncen um Tuya API Quota zu schonen
       let syncFailed = false;
-      if (controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
+      const shouldSync = (() => {
+        if (controlMode !== 'cloud' || !tuyaAccessId || !tuyaAccessSecret) return false;
+        if (!quotaData?.last_sync_at) return true;
+        const lastSync = new Date(quotaData.last_sync_at).getTime();
+        const minutesSinceSync = (Date.now() - lastSync) / (1000 * 60);
+        return minutesSinceSync >= 15; // Nur alle 15 Minuten syncen (statt jedes Mal)
+      })();
+
+      if (shouldSync) {
         try {
           console.log(`[PV-Automation] Pre-sync: Lade frische Thermostatdaten für ${rooms.length} Räume...`);
           const syncResponse = await fetch(`${supabaseUrl}/functions/v1/tuya-control/sync-all`, {
@@ -594,6 +602,13 @@ Deno.serve(async (req) => {
           if (syncResponse.ok) {
             const syncResult = await syncResponse.json();
             console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
+            
+            // Quota: Sync = 2 API calls (token + batch status)
+            if (quotaData) {
+              quotaData.calls_this_month += 2;
+              quotaData.calls_today += 2;
+              quotaData.last_sync_at = new Date().toISOString();
+            }
             
             // Räume neu laden mit frischen Daten
             const { data: freshRooms, error: freshError } = await supabase
@@ -614,6 +629,8 @@ Deno.serve(async (req) => {
           console.warn(`[PV-Automation] Pre-sync Fehler: ${syncError} - verwende DB-Daten, nur Reduktionen/Stops erlaubt`);
           syncFailed = true;
         }
+      } else if (controlMode === 'cloud') {
+        console.log(`[PV-Automation] Pre-sync übersprungen (Throttle: nächster Sync in ${quotaData?.last_sync_at ? Math.max(0, 15 - Math.round((Date.now() - new Date(quotaData.last_sync_at).getTime()) / 60000)) : '?'} Min)`);
       }
 
       // 4. Load ML features
