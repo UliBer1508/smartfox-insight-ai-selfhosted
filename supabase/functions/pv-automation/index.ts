@@ -992,7 +992,12 @@ Deno.serve(async (req) => {
             // Prüfe signifikante Änderungen
             const socChange = cachedSoc > 0 ? Math.abs(batterySoc - cachedSoc) / cachedSoc : 1;
             const pvChange = cachedPvPower > 100 ? Math.abs(pvPower - cachedPvPower) / cachedPvPower : (pvPower > 100 ? 1 : 0);
-            const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD;
+            // PV-Abfall von >500W auf <500W ist IMMER signifikant (Gate-Grenze!)
+            const pvDroppedBelowGate = cachedPvPower >= 500 && pvPower < 500;
+            const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD || pvDroppedBelowGate;
+            if (pvDroppedBelowGate) {
+              console.log(`[PV-Automation] 🔄 ML-Cache INVALIDIERT: PV fiel unter Gate-Grenze (${cachedPvPower}W → ${pvPower}W)`);
+            }
 
             if (cacheAge < ML_CACHE_TTL_MS && !significantChange && cachedDecisions?.length > 0) {
               mlDecisions = cachedDecisions;
