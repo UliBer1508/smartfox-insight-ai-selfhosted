@@ -337,12 +337,45 @@ Deno.serve(async (req) => {
       // Load control mode
       const { data: modeSetting } = await supabase
         .from('system_settings')
-        .select('value')
+        .select('id, value')
         .eq('key', 'tuya_control_mode')
         .maybeSingle();
-      const controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
+      let controlMode = (modeSetting?.value as { mode?: string })?.mode || 'cloud';
 
-      // Local channel heartbeat: only apply local recommendations if service is active
+      // Quota-Reality-Check: bei aktiven Quota-Fehlern sofort auf local umschalten
+      let forcedLocalFallback = false;
+      if (controlMode === 'cloud') {
+        const { data: recentQuotaErrors } = await supabase
+          .from('api_errors')
+          .select('id')
+          .in('source', ['pv-automation', 'apply-recommendations'])
+          .eq('error_type', 'tuya_api')
+          .is('resolved_at', null)
+          .gte('created_at', new Date(Date.now() - 120 * 60 * 1000).toISOString())
+          .ilike('error_message', '%quota%')
+          .limit(1);
+
+        if (recentQuotaErrors && recentQuotaErrors.length > 0) {
+          controlMode = 'local';
+          forcedLocalFallback = true;
+          console.log('[apply-recommendations] ⚠️ Quota erkannt → wechsle auf lokalen Modus');
+        }
+      }
+
+      if (forcedLocalFallback) {
+        if (modeSetting?.id) {
+          await supabase
+            .from('system_settings')
+            .update({ value: { mode: 'local' }, updated_at: new Date().toISOString() })
+            .eq('id', modeSetting.id);
+        } else {
+          await supabase
+            .from('system_settings')
+            .insert({ key: 'tuya_control_mode', value: { mode: 'local' } });
+        }
+      }
+
+      // Local channel heartbeat: bei lokalem Modus auf letzten executed command prüfen
       let localServiceActive = true;
       if (controlMode === 'local') {
         const { data: recentLocalExec } = await supabase
@@ -354,6 +387,15 @@ Deno.serve(async (req) => {
 
         const lastExec = recentLocalExec?.[0]?.executed_at;
         localServiceActive = !!(lastExec && (Date.now() - new Date(lastExec).getTime()) < 15 * 60 * 1000);
+
+        if (localServiceActive) {
+          await supabase
+            .from('api_errors')
+            .update({ resolved_at: new Date().toISOString() })
+            .eq('source', 'apply-recommendations')
+            .eq('error_type', 'no_control_channel')
+            .is('resolved_at', null);
+        }
       }
 
       console.log(`[apply-recommendations] Control mode: ${controlMode}, localServiceActive=${localServiceActive}`);
