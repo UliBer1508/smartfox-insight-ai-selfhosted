@@ -6,7 +6,7 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Lovable AI Gateway
+// Google Gemini API direkt (kein Lovable AI Gateway)
 interface AIRequestBody {
   messages: Array<{ role: string; content: string }>;
   tools?: unknown[];
@@ -21,26 +21,58 @@ interface AIResponse {
 }
 
 async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
-  const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
-  if (!LOVABLE_API_KEY) {
-    return { ok: false, status: 0, error: 'LOVABLE_API_KEY not configured' };
+  const GOOGLE_AI_API_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
+  if (!GOOGLE_AI_API_KEY) {
+    return { ok: false, status: 0, error: 'GOOGLE_AI_API_KEY not configured' };
   }
 
   try {
-    console.log('Calling Lovable AI Gateway for settings suggestions...');
-    const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${LOVABLE_API_KEY}`,
-        'Content-Type': 'application/json',
+    console.log('Calling Google Gemini API for settings suggestions...');
+    
+    // Convert OpenAI-style messages to Gemini format
+    const systemInstruction = requestBody.messages.find(m => m.role === 'system');
+    const userMessages = requestBody.messages.filter(m => m.role !== 'system');
+    
+    const contents = userMessages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+
+    // Convert tools to Gemini format
+    const geminiTools = requestBody.tools ? [{
+      functionDeclarations: requestBody.tools.map((t: any) => ({
+        name: t.function.name,
+        description: t.function.description,
+        parameters: t.function.parameters,
+      }))
+    }] : undefined;
+
+    const geminiBody: any = {
+      contents,
+      generationConfig: {
+        temperature: 0.7,
       },
-      body: JSON.stringify({
-        model: 'google/gemini-2.5-flash',
-        messages: requestBody.messages,
-        tools: requestBody.tools,
-        tool_choice: requestBody.tool_choice,
-      }),
-    });
+    };
+
+    if (systemInstruction) {
+      geminiBody.systemInstruction = { parts: [{ text: systemInstruction.content }] };
+    }
+
+    if (geminiTools) {
+      geminiBody.tools = geminiTools;
+      geminiBody.toolConfig = {
+        functionCallingConfig: { mode: 'ANY' }
+      };
+    }
+
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(geminiBody),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -48,19 +80,38 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
         console.error('❌ Rate limit exceeded');
         return { ok: false, status: 429, error: 'Rate limit exceeded' };
       }
-      if (response.status === 402) {
-        console.error('❌ Credits exhausted');
-        return { ok: false, status: 402, error: 'AI-Credits erschöpft' };
-      }
-      console.error('AI Gateway error:', response.status, errorText);
+      console.error('Gemini API error:', response.status, errorText);
       return { ok: false, status: response.status, error: errorText };
     }
 
-    const data = await response.json();
-    console.log('✅ AI Gateway response received');
-    return { ok: true, status: 200, data };
+    const geminiData = await response.json();
+    console.log('✅ Gemini API response received');
+
+    // Convert Gemini response to OpenAI-compatible format for downstream parsing
+    const candidate = geminiData.candidates?.[0];
+    const parts = candidate?.content?.parts || [];
+    
+    const functionCall = parts.find((p: any) => p.functionCall);
+    const textPart = parts.find((p: any) => p.text);
+
+    const openAIFormat: any = {
+      choices: [{
+        message: {
+          role: 'assistant',
+          content: textPart?.text || null,
+          tool_calls: functionCall ? [{
+            function: {
+              name: functionCall.functionCall.name,
+              arguments: JSON.stringify(functionCall.functionCall.args),
+            }
+          }] : undefined,
+        }
+      }]
+    };
+
+    return { ok: true, status: 200, data: openAIFormat };
   } catch (err) {
-    console.error('AI Gateway exception:', err);
+    console.error('Gemini API exception:', err);
     return { ok: false, status: 0, error: String(err) };
   }
 }
