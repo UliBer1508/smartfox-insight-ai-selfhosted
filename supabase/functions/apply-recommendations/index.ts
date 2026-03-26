@@ -538,17 +538,32 @@ Deno.serve(async (req) => {
           console.log(`[apply-recommendations] Setting ${room.name} from ${currentTemp}°C to ${safeTemp}°C (mode: ${controlMode})`);
           
           if (controlMode === 'local') {
-            if (!localServiceActive) {
-              throw new Error('Lokaler Service offline - Empfehlung nicht angewendet');
+            const queued = await queueLocalTemperatureCommand(room.id, safeTemp);
+            if (!queued.ok) {
+              throw new Error(queued.error || 'Lokales Queueing fehlgeschlagen');
             }
-            // LOCAL MODE: Write command to thermostat_commands
-            const { error: cmdError } = await supabase.from('thermostat_commands').insert({
-              room_id: room.id,
-              command: 'set_temp',
-              value: safeTemp,
-              status: 'pending',
-            });
-            if (cmdError) throw cmdError;
+
+            if (!localServiceActive) {
+              await supabase.from('api_errors').insert({
+                source: 'apply-recommendations',
+                error_type: 'no_control_channel',
+                error_message: queued.alreadyQueued
+                  ? `Lokaler Service offline - Befehl für ${room.name} bereits wartend (${safeTemp}°C)`
+                  : `Lokaler Service offline - Befehl für ${room.name} wartend vorgemerkt (${safeTemp}°C)`,
+                room_id: room.id,
+                room_name: room.name,
+                error_code: 'NO_CONTROL',
+              });
+
+              results.skipped.push({
+                roomId: room.id,
+                name: room.name,
+                reason: queued.alreadyQueued
+                  ? `Lokaler Service offline, Befehl bereits wartend (${safeTemp}°C)`
+                  : `Lokaler Service offline, Befehl vorgemerkt (${safeTemp}°C)`,
+              });
+              continue;
+            }
           } else {
             // CLOUD MODE: Use Tuya Cloud API
             await setDeviceTemperature(accessId!, accessSecret!, room.tuya_device_id!, safeTemp);
