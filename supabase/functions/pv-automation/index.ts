@@ -484,6 +484,11 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] Local command queued: room=${roomId} temp=${temperature}°C${queued.alreadyQueued ? ' (bereits vorhanden)' : ''}`);
           return { success: true };
         }
+        // QUOTA-GATE: Block cloud API calls when quota is exhausted
+        if (quotaExhausted) {
+          console.log(`[PV-Automation] ⛔ QUOTA-GATE: Cloud API call blocked for device ${deviceId} → ${temperature}°C`);
+          return { success: false, errorType: 'quota_exhausted', errorMessage: 'Tuya API Quota erschöpft - kein Cloud-Call möglich' };
+        }
         if (!tuyaAccessId || !tuyaAccessSecret) {
           return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
         }
@@ -694,10 +699,11 @@ Deno.serve(async (req) => {
       let syncFailed = false;
       const shouldSync = (() => {
         if (controlMode !== 'cloud' || !tuyaAccessId || !tuyaAccessSecret) return false;
+        if (quotaExhausted) return false; // Skip pre-sync when quota exhausted
         if (!quotaData?.last_sync_at) return true;
         const lastSync = new Date(quotaData.last_sync_at).getTime();
         const minutesSinceSync = (Date.now() - lastSync) / (1000 * 60);
-        return minutesSinceSync >= 15; // Nur alle 15 Minuten syncen (statt jedes Mal)
+        return minutesSinceSync >= 15;
       })();
 
       if (shouldSync) {
@@ -1611,11 +1617,12 @@ Deno.serve(async (req) => {
         // ============= STALE-SYNC-CHECK: Force-Push wenn letzter Sync alt ist =============
         const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
         const syncAgeMs = Date.now() - lastSyncTime;
-        const syncStale = syncAgeMs > 10 * 60 * 1000; // >10 Minuten
+        const syncStale = syncAgeMs > 30 * 60 * 1000; // >30 Minuten (erhöht von 10 um Quota zu schonen)
 
         // Kritischer Sicherheitsfall: Bei wenig PV + altem Sync IMMER mindestens Eco/Nacht neu pushen
+        // ABER: Nicht wenn Quota erschöpft — dann würde der API-Call sowieso blockiert
         const lowPvSafetyWindow = pvPower < 500 || expectedPvKwh < 5;
-        if (action === 'keep' && syncStale && lowPvSafetyWindow) {
+        if (action === 'keep' && syncStale && lowPvSafetyWindow && !quotaExhausted) {
           action = 'deactivate';
           targetTemp = Math.min(currentTargetTemp || ecoTemp, ecoTemp);
           solarLimitTemp = null;
