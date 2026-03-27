@@ -56,9 +56,11 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
   // Group errors by type for summary
   const tokenErrors = errors.filter(e => e.error_type === 'token_expired');
   const offlineErrors = errors.filter(e => e.error_type === 'device_offline');
-  const otherErrors = errors.filter(e => !['token_expired', 'device_offline'].includes(e.error_type));
+  const quotaErrors = errors.filter(e => e.error_type === 'quota_exhausted');
+  const otherErrors = errors.filter(e => !['token_expired', 'device_offline', 'quota_exhausted'].includes(e.error_type));
 
   const isTokenError = tokenErrors.length > 0;
+  const isQuotaError = quotaErrors.length > 0;
   const totalErrors = errors.length;
 
   const handleRetry = async () => {
@@ -90,7 +92,7 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
       variant="destructive" 
       className={cn(
         "border-2",
-        isTokenError 
+        isTokenError || isQuotaError
           ? "bg-red-50 dark:bg-red-950/50 border-red-500" 
           : "bg-amber-50 dark:bg-amber-950/50 border-amber-500",
         className
@@ -99,9 +101,11 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
       <AlertTriangle className="h-4 w-4" />
       <AlertTitle className="flex items-center justify-between">
         <span>
-          {isTokenError 
-            ? 'Tuya-Zugangsdaten prüfen' 
-            : `Thermostat-Verbindungsfehler (${totalErrors})`
+          {isQuotaError
+            ? '⚠️ Tuya API-Quota erschöpft'
+            : isTokenError 
+              ? 'Tuya-Zugangsdaten prüfen' 
+              : `Thermostat-Verbindungsfehler (${totalErrors})`
           }
         </span>
         <div className="flex items-center gap-2">
@@ -127,6 +131,17 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
         </div>
       </AlertTitle>
       <AlertDescription className="mt-2 space-y-1">
+        {isQuotaError && (
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
+              <AlertCircle className="h-4 w-4" />
+              Tuya API-Tageslimit erreicht — Thermostate können nicht mehr ferngesteuert werden!
+            </div>
+            <div className="text-sm text-red-600 dark:text-red-400">
+              👉 Bitte Thermostate <strong>manuell am Gerät</strong> oder über die <strong>Tuya App</strong> auf Frostschutz stellen, bis das Limit um Mitternacht zurückgesetzt wird.
+            </div>
+          </div>
+        )}
         {isTokenError && (
           <div className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
             <Key className="h-4 w-4" />
