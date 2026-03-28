@@ -18,6 +18,7 @@ import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
+import { ApiErrorBanner } from '@/components/heating/ApiErrorBanner';
 
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
@@ -163,6 +164,7 @@ const Index = () => {
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
       <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 md:pb-6">
+        <ApiErrorBanner className="mb-2" criticalOnly />
         {activeTab === 'dashboard' && (
           <>
             <ConnectionStatus

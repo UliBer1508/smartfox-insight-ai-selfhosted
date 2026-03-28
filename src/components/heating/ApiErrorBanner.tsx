@@ -12,28 +12,8 @@ import { useState } from 'react';
 interface ApiErrorBannerProps {
   onRetry?: () => void;
   className?: string;
-}
-
-function getErrorIcon(errorType: string) {
-  switch (errorType) {
-    case 'device_offline':
-      return <WifiOff className="h-4 w-4" />;
-    case 'token_expired':
-      return <Key className="h-4 w-4" />;
-    default:
-      return <AlertCircle className="h-4 w-4" />;
-  }
-}
-
-function getErrorLabel(errorType: string): string {
-  switch (errorType) {
-    case 'device_offline':
-      return 'Gerät offline';
-    case 'token_expired':
-      return 'Token abgelaufen';
-    default:
-      return 'API-Fehler';
-  }
+  /** Only show critical errors (quota_exhausted, token_expired) — useful for global placement */
+  criticalOnly?: boolean;
 }
 
 function formatErrorTime(createdAt: string): string {
@@ -47,13 +27,13 @@ function formatErrorTime(createdAt: string): string {
   }
 }
 
-export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
+export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: ApiErrorBannerProps) {
   const { errors, acknowledgeError, hasErrors, refetch } = useApiErrors();
   const [isRetrying, setIsRetrying] = useState(false);
 
   if (!hasErrors) return null;
 
-  // Group errors by type for summary
+  // Group errors by type
   const tokenErrors = errors.filter(e => e.error_type === 'token_expired');
   const offlineErrors = errors.filter(e => e.error_type === 'device_offline');
   const quotaErrors = errors.filter(e => e.error_type === 'quota_exhausted');
@@ -63,15 +43,16 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
   const isQuotaError = quotaErrors.length > 0;
   const totalErrors = errors.length;
 
+  // In criticalOnly mode, only show quota and token errors
+  if (criticalOnly && !isQuotaError && !isTokenError) return null;
+
   const handleRetry = async () => {
     setIsRetrying(true);
     try {
-      // Trigger PV-Automation check which will attempt to reconnect
       await supabase.functions.invoke('pv-automation/check', {
         body: {}
       });
       toast.success('Verbindungsversuch gestartet');
-      // Refresh errors after a short delay
       setTimeout(() => refetch(), 3000);
     } catch (error) {
       console.error('Retry failed:', error);
@@ -87,12 +68,54 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
     errors.forEach(e => acknowledgeError(e.id));
   };
 
+  // Quota errors get a prominent pulsing style
+  if (isQuotaError) {
+    return (
+      <Alert 
+        variant="destructive" 
+        className={cn(
+          "border-2 border-red-500 bg-red-50 dark:bg-red-950/60 animate-pulse",
+          className
+        )}
+      >
+        <AlertTriangle className="h-5 w-5 text-red-600" />
+        <AlertTitle className="flex items-center justify-between text-base font-bold text-red-700 dark:text-red-300">
+          <span>🚨 Tuya API-Quota erschöpft — Thermostate nicht steuerbar!</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleRetry}
+            disabled={isRetrying}
+            className="h-7 px-2 text-xs"
+          >
+            <RefreshCw className={cn("h-3 w-3 mr-1", isRetrying && "animate-spin")} />
+            {isRetrying ? 'Wird versucht...' : 'Erneut prüfen'}
+          </Button>
+        </AlertTitle>
+        <AlertDescription className="mt-2 space-y-2">
+          <div className="text-sm font-medium text-red-700 dark:text-red-300">
+            Das Tages- oder Monatslimit der Tuya Cloud API wurde erreicht.
+          </div>
+          <div className="text-sm text-red-600 dark:text-red-400 space-y-1">
+            <p>👉 Bitte Thermostate <strong>manuell am Gerät</strong> oder über die <strong>Tuya App</strong> auf Frostschutz stellen.</p>
+            <p>⏰ Das <strong>Tageslimit</strong> wird um Mitternacht zurückgesetzt. Das <strong>Monatslimit</strong> am Monatsersten.</p>
+          </div>
+          {quotaErrors[0]?.error_message && (
+            <div className="text-xs text-red-500 dark:text-red-400 mt-1 font-mono">
+              {quotaErrors[0].error_message}
+            </div>
+          )}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   return (
     <Alert 
       variant="destructive" 
       className={cn(
         "border-2",
-        isTokenError || isQuotaError
+        isTokenError
           ? "bg-red-50 dark:bg-red-950/50 border-red-500" 
           : "bg-amber-50 dark:bg-amber-950/50 border-amber-500",
         className
@@ -101,11 +124,9 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
       <AlertTriangle className="h-4 w-4" />
       <AlertTitle className="flex items-center justify-between">
         <span>
-          {isQuotaError
-            ? '⚠️ Tuya API-Quota erschöpft'
-            : isTokenError 
-              ? 'Tuya-Zugangsdaten prüfen' 
-              : `Thermostat-Verbindungsfehler (${totalErrors})`
+          {isTokenError 
+            ? 'Tuya-Zugangsdaten prüfen' 
+            : `Thermostat-Verbindungsfehler (${totalErrors})`
           }
         </span>
         <div className="flex items-center gap-2">
@@ -131,17 +152,6 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
         </div>
       </AlertTitle>
       <AlertDescription className="mt-2 space-y-1">
-        {isQuotaError && (
-          <div className="space-y-1">
-            <div className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
-              <AlertCircle className="h-4 w-4" />
-              Tuya API-Tageslimit erreicht — Thermostate können nicht mehr ferngesteuert werden!
-            </div>
-            <div className="text-sm text-red-600 dark:text-red-400">
-              👉 Bitte Thermostate <strong>manuell am Gerät</strong> oder über die <strong>Tuya App</strong> auf Frostschutz stellen, bis das Limit um Mitternacht zurückgesetzt wird.
-            </div>
-          </div>
-        )}
         {isTokenError && (
           <div className="flex items-center gap-2 text-sm font-medium text-red-700 dark:text-red-300">
             <Key className="h-4 w-4" />
@@ -149,7 +159,7 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
           </div>
         )}
         
-        {offlineErrors.length > 0 && (
+        {!criticalOnly && offlineErrors.length > 0 && (
           <div className="space-y-1">
             {offlineErrors.slice(0, 3).map((error) => (
               <div key={error.id} className="flex items-center gap-2 text-sm">
@@ -169,7 +179,7 @@ export function ApiErrorBanner({ onRetry, className }: ApiErrorBannerProps) {
           </div>
         )}
 
-        {otherErrors.length > 0 && (
+        {!criticalOnly && otherErrors.length > 0 && (
           <div className="space-y-1">
             {otherErrors.slice(0, 2).map((error) => (
               <div key={error.id} className="flex items-center gap-2 text-sm">
