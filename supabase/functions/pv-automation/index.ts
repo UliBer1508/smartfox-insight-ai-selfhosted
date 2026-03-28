@@ -398,6 +398,8 @@ Deno.serve(async (req) => {
 
           const monthlyLimit = quotaData!.monthly_limit || 900;
           const dailyLimit = quotaData!.daily_limit || 33;
+          // Reserve: 2 Calls für Notfall-Frostschutz freihalten
+          const effectiveDailyLimit = Math.max(1, dailyLimit - 2);
 
           // Plausibilitäts-Check: Wenn Monats-Counter durch Bug aufgeblasen wurde (> 3x Limit),
           // auf Limit zurücksetzen damit das System beim nächsten Tageswechsel wieder funktioniert
@@ -406,7 +408,7 @@ Deno.serve(async (req) => {
             quotaData!.calls_this_month = monthlyLimit;
           }
 
-          if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= dailyLimit) {
+          if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= effectiveDailyLimit) {
             quotaExhausted = true;
             // NOTE: Do NOT switch to local mode automatically - local service not functional
             console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft (${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich) - bleibe bei Cloud`);
@@ -734,6 +736,12 @@ Deno.serve(async (req) => {
               quotaData.calls_this_month += 2;
               quotaData.calls_today += 2;
               quotaData.last_sync_at = new Date().toISOString();
+              // Re-check quota after pre-sync
+              const effectiveDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
+              if (quotaData.calls_today >= effectiveDL || quotaData.calls_this_month >= (quotaData.monthly_limit || 900)) {
+                quotaExhausted = true;
+                console.log(`[PV-Automation] ⚠️ Quota nach Pre-Sync erschöpft (${quotaData.calls_today}/${effectiveDL} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit || 900} monatlich)`);
+              }
             }
             
             // Räume neu laden mit frischen Daten
@@ -1317,7 +1325,19 @@ Deno.serve(async (req) => {
                 last_thermostat_sync: now.toISOString(),
                 heating_paused_reason: 'over_temp',
               }).eq('id', room.id);
-              if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
+              if (controlMode === 'cloud' && result.success) {
+                tuyaApiCalls++;
+                // Dynamisch prüfen ob Quota jetzt erschöpft
+                if (quotaData) {
+                  const runningDaily = quotaData.calls_today + tuyaApiCalls;
+                  const runningMonthly = quotaData.calls_this_month + tuyaApiCalls;
+                  const effDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
+                  if (runningDaily >= effDL || runningMonthly >= (quotaData.monthly_limit || 900)) {
+                    quotaExhausted = true;
+                    console.log(`[PV-Automation] ⚠️ Quota mid-run erschöpft nach ${tuyaApiCalls} Calls (over-temp stop)`);
+                  }
+                }
+              }
             }
             results.push({
               roomId: room.id,
@@ -1774,7 +1794,18 @@ Deno.serve(async (req) => {
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
             }
-            if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
+            if (controlMode === 'cloud' && result.success) {
+              tuyaApiCalls++;
+              if (quotaData) {
+                const runningDaily = quotaData.calls_today + tuyaApiCalls;
+                const runningMonthly = quotaData.calls_this_month + tuyaApiCalls;
+                const effDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
+                if (runningDaily >= effDL || runningMonthly >= (quotaData.monthly_limit || 900)) {
+                  quotaExhausted = true;
+                  console.log(`[PV-Automation] ⚠️ Quota mid-run erschöpft nach ${tuyaApiCalls} Calls (activate)`);
+                }
+              }
+            }
           }
 
           if (success || !room.tuya_device_id) {
@@ -1830,7 +1861,18 @@ Deno.serve(async (req) => {
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
             }
-            if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
+            if (controlMode === 'cloud' && result.success) {
+              tuyaApiCalls++;
+              if (quotaData) {
+                const runningDaily = quotaData.calls_today + tuyaApiCalls;
+                const runningMonthly = quotaData.calls_this_month + tuyaApiCalls;
+                const effDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
+                if (runningDaily >= effDL || runningMonthly >= (quotaData.monthly_limit || 900)) {
+                  quotaExhausted = true;
+                  console.log(`[PV-Automation] ⚠️ Quota mid-run erschöpft nach ${tuyaApiCalls} Calls (deactivate)`);
+                }
+              }
+            }
           }
 
           if (success || !room.tuya_device_id) {
