@@ -1,45 +1,51 @@
 
 
-# Analyse: Warum wird die Tuya-Quota trotzdem überschritten?
+# Fix: Quota-Counter zählt geblockte Calls mit
 
-## Ursache: Zwei kritische Bugs
+## Problem
 
-### Bug 1: `setTemperatureForMode()` ignoriert `quotaExhausted`
-Die Funktion (Zeile 462-491) prüft **nicht** ob die Quota erschöpft ist. Wenn `controlMode === 'cloud'`, wird **immer** `setDeviceTemperature()` aufgerufen — auch wenn `quotaExhausted = true`. Die Quota-Variable wird zwar gesetzt, aber nirgends als Gate vor den API-Calls verwendet.
+Der Quota-Counter (`calls_today`, `calls_this_month`) wird auch dann hochgezählt, wenn der **QUOTA-GATE** den API-Call blockiert hat. Das passiert an 3 Stellen:
 
-### Bug 2: FORCE-SYNC feuert massiv bei Low-PV
-Die Logik ab Zeile 1611-1624:
-- `syncStale` = letzter Sync > 10 Minuten alt
-- Bei `pvPower < 500W` → **jeder** Raum wird von `keep` auf `deactivate` umgeschrieben
-- Das umgeht die Skip-Logik (Zeile 1670: `!syncStale` = false)
-- **12 Räume × alle 10 Min = ~72 API-Calls pro Stunde** bei Low-PV
+- Zeile 1755: `if (controlMode === 'cloud') tuyaApiCalls++` nach `activate`
+- Zeile 1811: `if (controlMode === 'cloud') tuyaApiCalls++` nach `deactivate`  
+- Zeile 1298: `if (controlMode === 'cloud') tuyaApiCalls++` nach Over-Temp-Stop
 
-### Rechenbeispiel heute:
-- Automation läuft alle 2 Minuten = 30×/Stunde
-- Bei jedem Run: ~3-4 Räume werden FORCE-SYNC'd (je nach Timing)
-- Pre-Sync: 2 Calls alle 15 Min = ~8/Tag
-- **Ergebnis: 33er Tageslimit ist in < 1 Stunde aufgebraucht**
+Diese Zeilen prüfen nur `controlMode === 'cloud'`, nicht ob der Call tatsächlich durchging. Da die Automation alle 2 Minuten läuft und 10-12 Räume verarbeitet, werden **pro Stunde ~300 Phantom-Calls** zum Counter addiert — obwohl kein einziger realer API-Call stattfindet.
+
+**Zeile 1932-1935** persistiert dann diese falschen Zahlen:
+```
+quotaData.calls_this_month += tuyaApiCalls;
+quotaData.calls_today += tuyaApiCalls;
+```
+
+Ergebnis: 1708/33 heute laut Counter, aber real vermutlich nur ~33 echte Calls bevor die Quota griff.
 
 ## Lösung
 
-### Änderung 1: Quota-Gate in `setTemperatureForMode()`
-Wenn `quotaExhausted === true` und `controlMode === 'cloud'`:
-- Sofort `{ success: false, errorType: 'quota_exhausted' }` zurückgeben
-- **Kein** API-Call ausführen
-- DB-Updates (is_heating, target_temp) trotzdem machen für Dashboard-Konsistenz
+### Änderung 1: `tuyaApiCalls` nur bei echtem API-Call zählen
 
-### Änderung 2: FORCE-SYNC Frequenz drastisch reduzieren
-- `syncStale` Schwelle von 10 Min auf **30 Min** erhöhen
-- FORCE-SYNC nur wenn `!quotaExhausted` — bei erschöpfter Quota soll nicht force-synced werden
-- Maximal 1 FORCE-SYNC pro Run (nicht alle 12 Räume gleichzeitig)
+An allen 3 Stellen (Zeilen 1298, 1755, 1811) die Bedingung ändern:
 
-### Änderung 3: Pre-Sync bei Quota-Erschöpfung überspringen
-- Zeile 696: Zusätzliche Bedingung `&& !quotaExhausted` beim `shouldSync`-Check
+```typescript
+// ALT:
+if (controlMode === 'cloud') tuyaApiCalls++;
 
-### Änderung 4: Dashboard-Warnung
-- `ApiErrorBanner` erweitern: Bei `quota_exhausted` Fehlertyp prominente Warnung anzeigen mit Hinweis "Thermostate manuell auf Frostschutz stellen"
+// NEU:
+if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
+```
 
-### Betroffene Dateien
-1. `supabase/functions/pv-automation/index.ts` — Quota-Gate, FORCE-SYNC Limits, Pre-Sync Skip
-2. `src/components/heating/ApiErrorBanner.tsx` — Quota-Warnung im Dashboard
+Nur erfolgreiche Calls verbrauchen echte Quota. Geblockte Calls (quota_exhausted, config errors) dürfen den Counter nicht erhöhen.
+
+### Änderung 2: Quota-Counter zurücksetzen
+
+Da der Counter jetzt massiv aufgeblasen ist, muss er beim nächsten Tageswechsel korrekt auf 0 zurückgesetzt werden. Die bestehende Reset-Logik (Zeile 394-397) funktioniert bereits — aber der aufgeblähte `calls_this_month` (5328) bleibt bis zum Monatswechsel falsch und blockiert weiterhin alles.
+
+Zusätzliche Sicherheit: Wenn `quotaExhausted` bereits `true` ist am Anfang des Runs, die Schleife über alle Räume **komplett überspringen** (Early Return nach Budget/Pre-Sync), da alle API-Calls sowieso geblockt werden und nur den Counter weiter aufblasen.
+
+### Änderung 3: Monats-Counter korrigieren
+
+Da `calls_this_month = 5328` weit über dem Limit liegt und bis Monatsende blockiert, muss der Wert einmalig auf einen realistischen Wert zurückgesetzt werden. Dies kann durch eine Plausibilitätsprüfung beim Laden erfolgen: Wenn `calls_this_month > monthly_limit * 3`, auf `monthly_limit` zurücksetzen (konservativ, blockiert erstmal weiter, wird aber beim Tageswechsel korrekt).
+
+### Betroffene Datei
+`supabase/functions/pv-automation/index.ts`
 
