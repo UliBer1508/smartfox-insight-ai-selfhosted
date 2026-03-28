@@ -401,16 +401,22 @@ Deno.serve(async (req) => {
           // Reserve: 2 Calls für Notfall-Frostschutz freihalten
           const effectiveDailyLimit = Math.max(1, dailyLimit - 2);
 
-          // Plausibilitäts-Check: Wenn Monats-Counter durch Bug aufgeblasen wurde (> 3x Limit),
-          // auf Limit zurücksetzen damit das System beim nächsten Tageswechsel wieder funktioniert
-          if (quotaData!.calls_this_month > monthlyLimit * 3) {
+          // Plausibilitäts-Check: Tages-Counter kann nie höher als die Anzahl der Cron-Runs × max Calls sein
+          // Bei 2-Min-Intervall = max 720 Runs/Tag, aber realistisch max ~50 API-Calls/Tag
+          // Wenn Tages-Counter > 2x daily_limit → wurde durch Bug aufgeblasen → auf daily_limit zurücksetzen
+          if (quotaData!.calls_today > dailyLimit * 2) {
+            console.log(`[PV-Automation] ⚠️ Tages-Counter unplausibel hoch (${quotaData!.calls_today}/${dailyLimit}) - reset auf ${dailyLimit}`);
+            quotaData!.calls_today = dailyLimit;
+          }
+
+          // Plausibilitäts-Check: Monats-Counter
+          if (quotaData!.calls_this_month > monthlyLimit * 2) {
             console.log(`[PV-Automation] ⚠️ Monats-Counter unplausibel hoch (${quotaData!.calls_this_month}/${monthlyLimit}) - reset auf ${monthlyLimit}`);
             quotaData!.calls_this_month = monthlyLimit;
           }
 
           if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= effectiveDailyLimit) {
             quotaExhausted = true;
-            // NOTE: Do NOT switch to local mode automatically - local service not functional
             console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft (${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich) - bleibe bei Cloud`);
           } else {
             console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
