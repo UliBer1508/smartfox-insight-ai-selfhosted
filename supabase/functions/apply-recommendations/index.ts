@@ -385,6 +385,52 @@ Deno.serve(async (req) => {
 
       console.log(`[apply-recommendations] Control mode: ${controlMode}, localServiceActive=${localServiceActive}`);
 
+      // ============= QUOTA CHECK =============
+      let quotaExhausted = false;
+      let quotaData: { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null = null;
+      
+      if (controlMode === 'cloud') {
+        const { data: quotaSetting } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'tuya_api_quota')
+          .maybeSingle();
+        
+        if (quotaSetting?.value) {
+          quotaData = quotaSetting.value as typeof quotaData;
+          const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+          const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+          
+          if (quotaData!.month !== currentMonth) { quotaData!.calls_this_month = 0; quotaData!.month = currentMonth; }
+          if (quotaData!.today !== wienDate) { quotaData!.calls_today = 0; quotaData!.today = wienDate; }
+          
+          const monthlyLimit = quotaData!.monthly_limit || 900;
+          const dailyLimit = quotaData!.daily_limit || 33;
+          const effectiveDailyLimit = Math.max(1, dailyLimit - 2);
+          
+          // Plausibility checks
+          if (quotaData!.calls_today > dailyLimit * 2) { quotaData!.calls_today = dailyLimit; }
+          if (quotaData!.calls_this_month > monthlyLimit * 2) { quotaData!.calls_this_month = monthlyLimit; }
+          
+          if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= effectiveDailyLimit) {
+            quotaExhausted = true;
+            console.log(`[apply-recommendations] ⚠️ Quota erschöpft (${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich)`);
+          }
+        }
+      }
+
+      if (quotaExhausted) {
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Tuya API Quota erschöpft - keine Cloud-Calls möglich',
+          applied: 0,
+          skipped: rooms?.length || 0,
+          quotaExhausted: true,
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       // Get heating settings for cooldown interval
       const { data: settingsData } = await supabase
         .from('heating_settings')
