@@ -397,16 +397,26 @@ Deno.serve(async (req) => {
           }
 
           const monthlyLimit = quotaData!.monthly_limit || 900;
-          const dailyLimit = quotaData!.daily_limit || 33;
+          const configuredDailyLimit = quotaData!.daily_limit || 33;
+          
+          // DYNAMISCHES TAGESBUDGET: Verbleibendes Monatsbudget / verbleibende Tage
+          const now2 = new Date();
+          const daysInMonth = new Date(now2.getFullYear(), now2.getMonth() + 1, 0).getDate();
+          const wienDay = parseInt(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna', day: 'numeric' }).format(now2));
+          const remainingDays = Math.max(1, daysInMonth - wienDay + 1); // inkl. heute
+          const remainingMonthlyBudget = Math.max(0, monthlyLimit - quotaData!.calls_this_month);
+          const dynamicDailyLimit = Math.max(1, Math.floor(remainingMonthlyBudget / remainingDays));
+          
+          // Verwende das kleinere von konfiguriertem und dynamischem Limit
+          const dailyLimit = Math.min(configuredDailyLimit, dynamicDailyLimit);
+          
           // Reserve: 2 Calls für Notfall-Frostschutz freihalten
           const effectiveDailyLimit = Math.max(1, dailyLimit - 2);
 
-          // Plausibilitäts-Check: Tages-Counter kann nie höher als die Anzahl der Cron-Runs × max Calls sein
-          // Bei 2-Min-Intervall = max 720 Runs/Tag, aber realistisch max ~50 API-Calls/Tag
-          // Wenn Tages-Counter > 2x daily_limit → wurde durch Bug aufgeblasen → auf daily_limit zurücksetzen
-          if (quotaData!.calls_today > dailyLimit * 2) {
-            console.log(`[PV-Automation] ⚠️ Tages-Counter unplausibel hoch (${quotaData!.calls_today}/${dailyLimit}) - reset auf ${dailyLimit}`);
-            quotaData!.calls_today = dailyLimit;
+          // Plausibilitäts-Check: Tages-Counter
+          if (quotaData!.calls_today > configuredDailyLimit * 2) {
+            console.log(`[PV-Automation] ⚠️ Tages-Counter unplausibel hoch (${quotaData!.calls_today}/${configuredDailyLimit}) - reset auf ${configuredDailyLimit}`);
+            quotaData!.calls_today = configuredDailyLimit;
           }
 
           // Plausibilitäts-Check: Monats-Counter
@@ -417,9 +427,9 @@ Deno.serve(async (req) => {
 
           if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= effectiveDailyLimit) {
             quotaExhausted = true;
-            console.log(`[PV-Automation] ⚠️ Quota laut Counter erschöpft (${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich) - bleibe bei Cloud`);
+            console.log(`[PV-Automation] ⚠️ Quota erschöpft (${quotaData!.calls_today}/${dailyLimit} heute [dynamisch: ${dynamicDailyLimit}, konfig: ${configuredDailyLimit}], ${quotaData!.calls_this_month}/${monthlyLimit} monatlich, ${remainingDays} Tage übrig)`);
           } else {
-            console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute, ${quotaData!.calls_this_month}/${monthlyLimit} monatlich`);
+            console.log(`[PV-Automation] Quota: ${quotaData!.calls_today}/${dailyLimit} heute [dynamisch: ${dynamicDailyLimit}], ${quotaData!.calls_this_month}/${monthlyLimit} monatlich, ${remainingDays} Tage übrig`);
           }
         }
 
