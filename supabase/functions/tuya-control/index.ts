@@ -469,6 +469,42 @@ Deno.serve(async (req) => {
         });
       }
 
+      // QUOTA GATE: Check before making any Tuya API call
+      const { data: quotaSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_api_quota')
+        .maybeSingle();
+      
+      let quotaBlocked = false;
+      if (quotaSetting?.value) {
+        const qd = quotaSetting.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string };
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+        if (qd.month !== currentMonth) { qd.calls_this_month = 0; qd.month = currentMonth; }
+        if (qd.today !== wienDate) { qd.calls_today = 0; qd.today = wienDate; }
+        const ml = qd.monthly_limit || 900;
+        const dl = qd.daily_limit || 33;
+        if (qd.calls_today > dl * 2) qd.calls_today = dl;
+        if (qd.calls_this_month > ml * 2) qd.calls_this_month = ml;
+        if (qd.calls_this_month >= ml || qd.calls_today >= Math.max(1, dl - 2)) {
+          quotaBlocked = true;
+        }
+      }
+
+      if (quotaBlocked) {
+        console.log('[tuya-control] ⛔ set-temp blocked: Tuya API quota exhausted');
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Tuya API Quota erschöpft - Thermostate können nicht ferngesteuert werden. Bitte manuell am Gerät oder über die Tuya App steuern.',
+          quotaExhausted: true,
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const { deviceId, temperature, roomId } = await req.json();
       
       if (!deviceId || temperature === undefined) {
@@ -476,6 +512,22 @@ Deno.serve(async (req) => {
       }
 
       await setDeviceTemperature(accessId, accessSecret, deviceId, temperature);
+
+      // Track quota: 1 API call for set-temp
+      if (quotaSetting?.value) {
+        const qd = quotaSetting.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null };
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+        if (qd.month !== currentMonth) { qd.calls_this_month = 0; qd.month = currentMonth; }
+        if (qd.today !== wienDate) { qd.calls_today = 0; qd.today = wienDate; }
+        qd.calls_today++;
+        qd.calls_this_month++;
+        await supabase.from('system_settings')
+          .update({ value: qd, updated_at: now.toISOString() })
+          .eq('key', 'tuya_api_quota');
+        console.log(`[tuya-control] Quota nach set-temp: ${qd.calls_today}/${qd.daily_limit} heute, ${qd.calls_this_month}/${qd.monthly_limit} monatlich`);
+      }
 
       // Update room in database if roomId provided
       if (roomId) {
