@@ -633,6 +633,16 @@ Deno.serve(async (req) => {
       try {
         batchStatus = await getBatchDeviceStatus(accessId, accessSecret, deviceIds);
         console.log(`[sync-all] Batch API: 1 call for ${deviceIds.length} devices (saved ${deviceIds.length - 1} API calls)`);
+        // Track quota: batch sync = 2 API calls (token + batch status)
+        if (syncQuotaData) {
+          syncQuotaData.calls_today += 2;
+          syncQuotaData.calls_this_month += 2;
+          syncQuotaData.last_sync_at = new Date().toISOString();
+          await supabase.from('system_settings')
+            .update({ value: syncQuotaData, updated_at: new Date().toISOString() })
+            .eq('key', 'tuya_api_quota');
+          console.log(`[tuya-control] Quota nach sync-all: ${syncQuotaData.calls_today}/${syncQuotaData.daily_limit} heute, ${syncQuotaData.calls_this_month}/${syncQuotaData.monthly_limit} monatlich`);
+        }
       } catch (batchError) {
         console.error('[sync-all] Batch API failed:', batchError);
         return new Response(JSON.stringify({ 
