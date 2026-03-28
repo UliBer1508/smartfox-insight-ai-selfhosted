@@ -469,6 +469,42 @@ Deno.serve(async (req) => {
         });
       }
 
+      // QUOTA GATE: Check before making any Tuya API call
+      const { data: quotaSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_api_quota')
+        .maybeSingle();
+      
+      let quotaBlocked = false;
+      if (quotaSetting?.value) {
+        const qd = quotaSetting.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string };
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+        if (qd.month !== currentMonth) { qd.calls_this_month = 0; qd.month = currentMonth; }
+        if (qd.today !== wienDate) { qd.calls_today = 0; qd.today = wienDate; }
+        const ml = qd.monthly_limit || 900;
+        const dl = qd.daily_limit || 33;
+        if (qd.calls_today > dl * 2) qd.calls_today = dl;
+        if (qd.calls_this_month > ml * 2) qd.calls_this_month = ml;
+        if (qd.calls_this_month >= ml || qd.calls_today >= Math.max(1, dl - 2)) {
+          quotaBlocked = true;
+        }
+      }
+
+      if (quotaBlocked) {
+        console.log('[tuya-control] ⛔ set-temp blocked: Tuya API quota exhausted');
+        return new Response(JSON.stringify({
+          success: false,
+          error: 'Tuya API Quota erschöpft - Thermostate können nicht ferngesteuert werden. Bitte manuell am Gerät oder über die Tuya App steuern.',
+          quotaExhausted: true,
+        }), {
+          status: 429,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       const { deviceId, temperature, roomId } = await req.json();
       
       if (!deviceId || temperature === undefined) {
@@ -476,6 +512,22 @@ Deno.serve(async (req) => {
       }
 
       await setDeviceTemperature(accessId, accessSecret, deviceId, temperature);
+
+      // Track quota: 1 API call for set-temp
+      if (quotaSetting?.value) {
+        const qd = quotaSetting.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null };
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+        if (qd.month !== currentMonth) { qd.calls_this_month = 0; qd.month = currentMonth; }
+        if (qd.today !== wienDate) { qd.calls_today = 0; qd.today = wienDate; }
+        qd.calls_today++;
+        qd.calls_this_month++;
+        await supabase.from('system_settings')
+          .update({ value: qd, updated_at: now.toISOString() })
+          .eq('key', 'tuya_api_quota');
+        console.log(`[tuya-control] Quota nach set-temp: ${qd.calls_today}/${qd.daily_limit} heute, ${qd.calls_this_month}/${qd.monthly_limit} monatlich`);
+      }
 
       // Update room in database if roomId provided
       if (roomId) {
@@ -530,6 +582,39 @@ Deno.serve(async (req) => {
         });
       }
 
+      // QUOTA GATE for sync-all (counts as 2 API calls: token + batch status)
+      const { data: syncQuotaSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_api_quota')
+        .maybeSingle();
+      
+      let syncQuotaData = syncQuotaSetting?.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null;
+      if (syncQuotaData) {
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+        if (syncQuotaData.month !== currentMonth) { syncQuotaData.calls_this_month = 0; syncQuotaData.month = currentMonth; }
+        if (syncQuotaData.today !== wienDate) { syncQuotaData.calls_today = 0; syncQuotaData.today = wienDate; }
+        if (syncQuotaData.calls_today > (syncQuotaData.daily_limit || 33) * 2) syncQuotaData.calls_today = syncQuotaData.daily_limit || 33;
+        if (syncQuotaData.calls_this_month > (syncQuotaData.monthly_limit || 900) * 2) syncQuotaData.calls_this_month = syncQuotaData.monthly_limit || 900;
+        
+        const ml = syncQuotaData.monthly_limit || 900;
+        const dl = syncQuotaData.daily_limit || 33;
+        if (syncQuotaData.calls_this_month >= ml || syncQuotaData.calls_today >= Math.max(1, dl - 2)) {
+          console.log(`[tuya-control] ⛔ sync-all blocked: quota exhausted (${syncQuotaData.calls_today}/${dl} today, ${syncQuotaData.calls_this_month}/${ml} monthly)`);
+          // Return DB data instead
+          const results = rooms.map(r => ({
+            roomId: r.id, name: r.name,
+            currentTemp: r.current_temp, targetTemp: r.target_temp,
+            isHeating: r.is_heating, synced: false, quotaExhausted: true,
+          }));
+          return new Response(JSON.stringify({ success: true, results, quotaExhausted: true }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
       // Get current total consumption and PV power for analysis
       const { data: latestReading } = await supabase
         .from('energy_readings')
@@ -548,6 +633,16 @@ Deno.serve(async (req) => {
       try {
         batchStatus = await getBatchDeviceStatus(accessId, accessSecret, deviceIds);
         console.log(`[sync-all] Batch API: 1 call for ${deviceIds.length} devices (saved ${deviceIds.length - 1} API calls)`);
+        // Track quota: batch sync = 2 API calls (token + batch status)
+        if (syncQuotaData) {
+          syncQuotaData.calls_today += 2;
+          syncQuotaData.calls_this_month += 2;
+          syncQuotaData.last_sync_at = new Date().toISOString();
+          await supabase.from('system_settings')
+            .update({ value: syncQuotaData, updated_at: new Date().toISOString() })
+            .eq('key', 'tuya_api_quota');
+          console.log(`[tuya-control] Quota nach sync-all: ${syncQuotaData.calls_today}/${syncQuotaData.daily_limit} heute, ${syncQuotaData.calls_this_month}/${syncQuotaData.monthly_limit} monatlich`);
+        }
       } catch (batchError) {
         console.error('[sync-all] Batch API failed:', batchError);
         return new Response(JSON.stringify({ 
