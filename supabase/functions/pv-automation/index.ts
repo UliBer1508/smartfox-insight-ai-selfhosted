@@ -399,6 +399,13 @@ Deno.serve(async (req) => {
           const monthlyLimit = quotaData!.monthly_limit || 900;
           const dailyLimit = quotaData!.daily_limit || 33;
 
+          // Plausibilitäts-Check: Wenn Monats-Counter durch Bug aufgeblasen wurde (> 3x Limit),
+          // auf Limit zurücksetzen damit das System beim nächsten Tageswechsel wieder funktioniert
+          if (quotaData!.calls_this_month > monthlyLimit * 3) {
+            console.log(`[PV-Automation] ⚠️ Monats-Counter unplausibel hoch (${quotaData!.calls_this_month}/${monthlyLimit}) - reset auf ${monthlyLimit}`);
+            quotaData!.calls_this_month = monthlyLimit;
+          }
+
           if (quotaData!.calls_this_month >= monthlyLimit || quotaData!.calls_today >= dailyLimit) {
             quotaExhausted = true;
             // NOTE: Do NOT switch to local mode automatically - local service not functional
@@ -1242,6 +1249,21 @@ Deno.serve(async (req) => {
       // now ist bereits oben im Budget-Code definiert
       let tuyaApiCalls = 0; // Track API calls for logging
 
+      // Early Return: Wenn Quota bereits erschöpft, Raum-Loop überspringen
+      // da alle API-Calls sowieso geblockt werden und nur den Counter aufblasen würden
+      if (quotaExhausted && controlMode === 'cloud') {
+        console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett (${rooms.length} Räume)`);
+        for (const room of rooms) {
+          results.push({
+            roomId: room.id,
+            roomName: room.name,
+            action: 'skip',
+            message: 'Quota erschöpft - keine API-Calls möglich',
+            mlBased: false,
+          });
+        }
+      } else
+
       for (const room of rooms) {
         // automation_enabled controls ONLY ML recommendations, not basic time-based logic
         const useMLDecisions = room.automation_enabled === true;
@@ -1295,7 +1317,7 @@ Deno.serve(async (req) => {
                 last_thermostat_sync: now.toISOString(),
                 heating_paused_reason: 'over_temp',
               }).eq('id', room.id);
-              if (controlMode === 'cloud') tuyaApiCalls++;
+              if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
             }
             results.push({
               roomId: room.id,
@@ -1752,7 +1774,7 @@ Deno.serve(async (req) => {
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
             }
-            if (controlMode === 'cloud') tuyaApiCalls++;
+            if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
           }
 
           if (success || !room.tuya_device_id) {
@@ -1808,7 +1830,7 @@ Deno.serve(async (req) => {
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
             }
-            if (controlMode === 'cloud') tuyaApiCalls++;
+            if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
           }
 
           if (success || !room.tuya_device_id) {
