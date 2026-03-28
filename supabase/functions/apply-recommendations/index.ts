@@ -601,8 +601,22 @@ Deno.serve(async (req) => {
               continue;
             }
           } else {
-            // CLOUD MODE: Use Tuya Cloud API
+            // CLOUD MODE: Use Tuya Cloud API with quota tracking
+            if (quotaExhausted) {
+              results.skipped.push({ roomId: room.id, name: room.name, reason: 'Quota mid-run erschöpft' });
+              continue;
+            }
             await setDeviceTemperature(accessId!, accessSecret!, room.tuya_device_id!, safeTemp);
+            // Track this API call
+            if (quotaData) {
+              quotaData.calls_today++;
+              quotaData.calls_this_month++;
+              const effDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
+              if (quotaData.calls_today >= effDL || quotaData.calls_this_month >= (quotaData.monthly_limit || 900)) {
+                quotaExhausted = true;
+                console.log(`[apply-recommendations] ⚠️ Quota mid-run erschöpft`);
+              }
+            }
           }
 
           // Update room in database
