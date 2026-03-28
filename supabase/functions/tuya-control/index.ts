@@ -582,6 +582,39 @@ Deno.serve(async (req) => {
         });
       }
 
+      // QUOTA GATE for sync-all (counts as 2 API calls: token + batch status)
+      const { data: syncQuotaSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_api_quota')
+        .maybeSingle();
+      
+      let syncQuotaData = syncQuotaSetting?.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null;
+      if (syncQuotaData) {
+        const now = new Date();
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+        const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
+        if (syncQuotaData.month !== currentMonth) { syncQuotaData.calls_this_month = 0; syncQuotaData.month = currentMonth; }
+        if (syncQuotaData.today !== wienDate) { syncQuotaData.calls_today = 0; syncQuotaData.today = wienDate; }
+        if (syncQuotaData.calls_today > (syncQuotaData.daily_limit || 33) * 2) syncQuotaData.calls_today = syncQuotaData.daily_limit || 33;
+        if (syncQuotaData.calls_this_month > (syncQuotaData.monthly_limit || 900) * 2) syncQuotaData.calls_this_month = syncQuotaData.monthly_limit || 900;
+        
+        const ml = syncQuotaData.monthly_limit || 900;
+        const dl = syncQuotaData.daily_limit || 33;
+        if (syncQuotaData.calls_this_month >= ml || syncQuotaData.calls_today >= Math.max(1, dl - 2)) {
+          console.log(`[tuya-control] ⛔ sync-all blocked: quota exhausted (${syncQuotaData.calls_today}/${dl} today, ${syncQuotaData.calls_this_month}/${ml} monthly)`);
+          // Return DB data instead
+          const results = rooms.map(r => ({
+            roomId: r.id, name: r.name,
+            currentTemp: r.current_temp, targetTemp: r.target_temp,
+            isHeating: r.is_heating, synced: false, quotaExhausted: true,
+          }));
+          return new Response(JSON.stringify({ success: true, results, quotaExhausted: true }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+      }
+
       // Get current total consumption and PV power for analysis
       const { data: latestReading } = await supabase
         .from('energy_readings')
