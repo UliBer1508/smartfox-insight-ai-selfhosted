@@ -657,7 +657,14 @@ Deno.serve(async (req) => {
         }
       }
 
-      console.log(`[apply-recommendations] Applied: ${results.applied.length}, Skipped: ${results.skipped.length}, Errors: ${results.errors.length}`);
+      // Persist quota after all calls
+      if (quotaData) {
+        await supabase.from('system_settings')
+          .update({ value: quotaData, updated_at: new Date().toISOString() })
+          .eq('key', 'tuya_api_quota');
+      }
+
+      console.log(`[apply-recommendations] Applied: ${results.applied.length}, Skipped: ${results.skipped.length}, Errors: ${results.errors.length}${quotaData ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich` : ''}`);
 
       return new Response(JSON.stringify({
         success: true,
