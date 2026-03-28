@@ -1,51 +1,60 @@
 
 
-# Fix: Quota-Counter zählt geblockte Calls mit
+# Fix: Monatliche Quota wird nicht dynamisch überwacht
 
 ## Problem
 
-Der Quota-Counter (`calls_today`, `calls_this_month`) wird auch dann hochgezählt, wenn der **QUOTA-GATE** den API-Call blockiert hat. Das passiert an 3 Stellen:
+Die Quota wird nur **einmal am Anfang** des Runs geprüft (Zeile 409). Während der Verarbeitung der Räume wird `quotaExhausted` **nie aktualisiert**. Das bedeutet:
 
-- Zeile 1755: `if (controlMode === 'cloud') tuyaApiCalls++` nach `activate`
-- Zeile 1811: `if (controlMode === 'cloud') tuyaApiCalls++` nach `deactivate`  
-- Zeile 1298: `if (controlMode === 'cloud') tuyaApiCalls++` nach Over-Temp-Stop
-
-Diese Zeilen prüfen nur `controlMode === 'cloud'`, nicht ob der Call tatsächlich durchging. Da die Automation alle 2 Minuten läuft und 10-12 Räume verarbeitet, werden **pro Stunde ~300 Phantom-Calls** zum Counter addiert — obwohl kein einziger realer API-Call stattfindet.
-
-**Zeile 1932-1935** persistiert dann diese falschen Zahlen:
-```
-quotaData.calls_this_month += tuyaApiCalls;
-quotaData.calls_today += tuyaApiCalls;
-```
-
-Ergebnis: 1708/33 heute laut Counter, aber real vermutlich nur ~33 echte Calls bevor die Quota griff.
+1. **Mid-Run Überschreitung**: Bei 33 Daily-Limit und 12 Räumen — wenn der Run mit 30/33 startet, werden trotzdem alle 12 Räume verarbeitet → 42/33 am Ende
+2. **Pre-Sync zählt nicht zum Gate**: Der Pre-Sync addiert 2 Calls (Zeile 734), aber `quotaExhausted` bleibt `false`
+3. **Kein Schutz vor Monats-Überschreitung im laufenden Run**: `calls_this_month` wird hochgezählt, aber nie gegen `monthlyLimit` re-geprüft
 
 ## Lösung
 
-### Änderung 1: `tuyaApiCalls` nur bei echtem API-Call zählen
+### Änderung 1: Dynamische Quota-Prüfung nach jedem erfolgreichen Call
 
-An allen 3 Stellen (Zeilen 1298, 1755, 1811) die Bedingung ändern:
+Nach jeder `tuyaApiCalls++` Stelle und nach Pre-Sync die laufenden Zähler gegen die Limits prüfen und `quotaExhausted` dynamisch auf `true` setzen:
 
 ```typescript
-// ALT:
-if (controlMode === 'cloud') tuyaApiCalls++;
-
-// NEU:
-if (controlMode === 'cloud' && result.success) tuyaApiCalls++;
+if (controlMode === 'cloud' && result.success) {
+  tuyaApiCalls++;
+  // Dynamisch prüfen ob Quota jetzt erschöpft
+  if (quotaData) {
+    const runningTotal = quotaData.calls_today + tuyaApiCalls;
+    const runningMonthly = quotaData.calls_this_month + tuyaApiCalls;
+    if (runningTotal >= (quotaData.daily_limit || 33) || runningMonthly >= (quotaData.monthly_limit || 900)) {
+      quotaExhausted = true;
+      console.log(`[PV-Automation] ⚠️ Quota mid-run erschöpft nach ${tuyaApiCalls} Calls`);
+    }
+  }
+}
 ```
 
-Nur erfolgreiche Calls verbrauchen echte Quota. Geblockte Calls (quota_exhausted, config errors) dürfen den Counter nicht erhöhen.
+### Änderung 2: Pre-Sync Quota-Update ins Gate einspeisen
 
-### Änderung 2: Quota-Counter zurücksetzen
+Nach Pre-Sync (Zeile 734-735) ebenfalls `quotaExhausted` re-evaluieren:
 
-Da der Counter jetzt massiv aufgeblasen ist, muss er beim nächsten Tageswechsel korrekt auf 0 zurückgesetzt werden. Die bestehende Reset-Logik (Zeile 394-397) funktioniert bereits — aber der aufgeblähte `calls_this_month` (5328) bleibt bis zum Monatswechsel falsch und blockiert weiterhin alles.
+```typescript
+if (quotaData) {
+  quotaData.calls_this_month += 2;
+  quotaData.calls_today += 2;
+  // Re-check quota after sync
+  if (quotaData.calls_today >= (quotaData.daily_limit || 33) || 
+      quotaData.calls_this_month >= (quotaData.monthly_limit || 900)) {
+    quotaExhausted = true;
+  }
+}
+```
 
-Zusätzliche Sicherheit: Wenn `quotaExhausted` bereits `true` ist am Anfang des Runs, die Schleife über alle Räume **komplett überspringen** (Early Return nach Budget/Pre-Sync), da alle API-Calls sowieso geblockt werden und nur den Counter weiter aufblasen.
+### Änderung 3: Budget-Reserve für Sicherheit
 
-### Änderung 3: Monats-Counter korrigieren
+Statt `>=` Limit als Gate, eine Reserve von 2 Calls einbauen (für evtl. Nacht-Frost-Schutz):
 
-Da `calls_this_month = 5328` weit über dem Limit liegt und bis Monatsende blockiert, muss der Wert einmalig auf einen realistischen Wert zurückgesetzt werden. Dies kann durch eine Plausibilitätsprüfung beim Laden erfolgen: Wenn `calls_this_month > monthly_limit * 3`, auf `monthly_limit` zurücksetzen (konservativ, blockiert erstmal weiter, wird aber beim Tageswechsel korrekt).
+```typescript
+const effectiveDailyLimit = dailyLimit - 2; // 2 Reserve für Notfall
+```
 
 ### Betroffene Datei
-`supabase/functions/pv-automation/index.ts`
+`supabase/functions/pv-automation/index.ts` — 3 Stellen für dynamische Quota + Pre-Sync + Reserve
 
