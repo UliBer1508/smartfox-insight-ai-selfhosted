@@ -180,11 +180,9 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="text-xs w-6"></TableHead>
                       <TableHead className="text-xs">Raum</TableHead>
                       <TableHead className="text-xs w-16">Prio</TableHead>
-                      <TableHead className="text-xs">Device ID</TableHead>
-                      <TableHead className="text-xs">Local Key</TableHead>
-                      <TableHead className="text-xs">Local IP</TableHead>
                       <TableHead className="text-xs">Temp</TableHead>
                       <TableHead className="text-xs">Ziel</TableHead>
                       <TableHead className="text-xs w-28">Fortschritt</TableHead>
@@ -196,64 +194,89 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                   <TableBody>
                     {tuyaRooms.map(room => {
                       const mode = getHeatingMode(room);
+                      const isExpanded = expandedRows.has(room.id);
                       return (
-                        <TableRow key={`${room.id}-${room.priority}`}>
-                          <TableCell className="text-xs font-medium">{room.name}</TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={12}
-                              defaultValue={room.priority ?? 5}
-                              className="w-14 h-7 text-xs px-1 text-center"
-                              onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
-                            />
-                          </TableCell>
-                          <TableCell>{room.tuya_device_id ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
-                          <TableCell>{room.local_key ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
-                          <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
-                          <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
-                          <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>
-                          <TableCell>
-                            {(() => {
-                              const progress = getProgress(room);
-                              if (!progress) return '—';
-                              return (
-                                <div className="flex items-center gap-1.5">
-                                  <div className="w-16 h-2 rounded-full bg-muted overflow-hidden">
-                                    <div
-                                      className={`h-full rounded-full transition-all ${getProgressColor(progress.diff)}`}
-                                      style={{ width: `${progress.percent}%` }}
-                                    />
+                        <>
+                          <TableRow key={`${room.id}-${room.priority}`} className="cursor-pointer" onClick={() => toggleRow(room.id)}>
+                            <TableCell className="px-1">
+                              {isExpanded 
+                                ? <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" /> 
+                                : <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />}
+                            </TableCell>
+                            <TableCell className="text-xs font-medium">{room.name}</TableCell>
+                            <TableCell onClick={e => e.stopPropagation()}>
+                              <Input
+                                type="number"
+                                min={1}
+                                max={12}
+                                defaultValue={room.priority ?? 5}
+                                className="w-14 h-7 text-xs px-1 text-center"
+                                onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
+                              />
+                            </TableCell>
+                            <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
+                            <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>
+                            <TableCell>
+                              {(() => {
+                                const progress = getProgress(room);
+                                if (!progress) return '—';
+                                return (
+                                  <div className="flex items-center gap-1.5">
+                                    <div className="w-16 h-2 rounded-full bg-muted overflow-hidden">
+                                      <div
+                                        className={`h-full rounded-full transition-all ${getProgressColor(progress.diff)}`}
+                                        style={{ width: `${progress.percent}%` }}
+                                      />
+                                    </div>
+                                    <span className={`text-[10px] font-medium ${progress.diff <= 0.2 ? 'text-green-500' : 'text-muted-foreground'}`}>
+                                      {progress.diff <= 0.2 ? '✓' : `-${progress.diff}°`}
+                                    </span>
                                   </div>
-                                  <span className={`text-[10px] font-medium ${progress.diff <= 0.2 ? 'text-green-500' : 'text-muted-foreground'}`}>
-                                    {progress.diff <= 0.2 ? '✓' : `-${progress.diff}°`}
-                                  </span>
-                                </div>
-                              );
-                            })()}
-                          </TableCell>
-                          <TableCell>
-                            {mode ? (
-                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium w-fit ${mode.color}`}>
-                                <mode.icon className="w-3 h-3" />
-                                {mode.label}
-                              </span>
-                            ) : '—'}
-                          </TableCell>
-                          <TableCell>
-                            {(() => {
-                              const status = getHeatingStatus(room);
-                              return (
-                                <span className="flex items-center gap-1 text-xs">
-                                  <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
-                                  {status.label}
+                                );
+                              })()}
+                            </TableCell>
+                            <TableCell>
+                              {mode ? (
+                                <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium w-fit ${mode.color}`}>
+                                  <mode.icon className="w-3 h-3" />
+                                  {mode.label}
                                 </span>
-                              );
-                            })()}
-                          </TableCell>
-                          <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
-                        </TableRow>
+                              ) : '—'}
+                            </TableCell>
+                            <TableCell>
+                              {(() => {
+                                const status = getHeatingStatus(room);
+                                return (
+                                  <span className="flex items-center gap-1 text-xs">
+                                    <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
+                                    {status.label}
+                                  </span>
+                                );
+                              })()}
+                            </TableCell>
+                            <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
+                          </TableRow>
+                          {isExpanded && (
+                            <TableRow key={`${room.id}-details`} className="bg-muted/30 hover:bg-muted/30">
+                              <TableCell colSpan={9} className="py-2 px-4">
+                                <div className="flex items-center gap-6 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    Device ID: {room.tuya_device_id ? <Check className="w-3.5 h-3.5 text-success" /> : <X className="w-3.5 h-3.5 text-destructive" />}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    Local Key: {room.local_key ? <Check className="w-3.5 h-3.5 text-success" /> : <X className="w-3.5 h-3.5 text-destructive" />}
+                                  </span>
+                                  <span className="font-mono">
+                                    IP: {room.thermostat_local_ip || '—'}
+                                  </span>
+                                  {room.heating_power_w && (
+                                    <span>Leistung: {room.heating_power_w}W</span>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </>
                       );
                     })}
                   </TableBody>
