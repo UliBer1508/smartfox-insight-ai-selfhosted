@@ -172,19 +172,17 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                         )}
                       </div>
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
                       {nightTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
                       {ecoTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
                       {comfortTemp}°
                     </td>
-                    <td className="text-center py-2">
-                      <Badge variant="outline" className="text-xs px-1.5">
-                        {room.priority || '-'}
-                      </Badge>
+                    <td className="text-center py-2 text-xs font-mono text-muted-foreground">
+                      {room.priority || '-'}
                     </td>
                     <td className="text-center py-2">
                       {room.pv_auto_enabled ? (
