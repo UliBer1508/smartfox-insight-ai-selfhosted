@@ -519,12 +519,19 @@ Deno.serve(async (req) => {
           return { success: false, errorType: 'quota_exhausted', errorMessage: 'Tuya API Quota erschöpft - kein Cloud-Call möglich' };
         }
         if (quotaExhausted && pvPriorityMode) {
-          if (pvPriorityCalls >= PV_PRIORITY_MAX_CALLS) {
-            console.log(`[PV-Automation] ⛔ PV-Priority-Limit erreicht (${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS})`);
-            return { success: false, errorType: 'quota_exhausted', errorMessage: 'PV-Priority-Limit erreicht' };
+          // Nur Aufheiz-Calls (>= eco_temp) zählen gegen PV-Priority-Limit
+          const nightTempRef = settings?.night_temp || 17;
+          const isHeatingCall = temperature > nightTempRef + 0.5;
+          if (isHeatingCall) {
+            if (pvPriorityCalls >= PV_PRIORITY_MAX_CALLS) {
+              console.log(`[PV-Automation] ⛔ PV-Priority-Limit erreicht (${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS})`);
+              return { success: false, errorType: 'quota_exhausted', errorMessage: 'PV-Priority-Limit erreicht' };
+            }
+            pvPriorityCalls++;
+            console.log(`[PV-Automation] ⚡ PV-Priority-Call ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS}: ${deviceId} → ${temperature}°C (Aufheizen)`);
+          } else {
+            console.log(`[PV-Automation] 🔽 PV-Priority-Deaktivierung (kein Limit): ${deviceId} → ${temperature}°C`);
           }
-          pvPriorityCalls++;
-          console.log(`[PV-Automation] ⚡ PV-Priority-Call ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS}: ${deviceId} → ${temperature}°C`);
         }
         if (!tuyaAccessId || !tuyaAccessSecret) {
           return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
@@ -1067,7 +1074,10 @@ Deno.serve(async (req) => {
         const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
         const currentTemp = rp.room.current_temp || 0;
         
-        if (currentTemp < ecoTemp - 0.3) {
+        const nightTemp = rp.room.night_temp || settings?.night_temp || 17;
+        // Wenn eco == night, macht Phase 1 keinen Sinn → direkt zu Phase 2 (Komfort)
+        const ecoIsUseful = ecoTemp > nightTemp + 0.3;
+        if (ecoIsUseful && (currentTemp < ecoTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp <= nightTemp))) {
           // Raum braucht eco
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;
@@ -1106,7 +1116,7 @@ Deno.serve(async (req) => {
         const currentTemp = rp.room.current_temp || 0;
         
         // Raum ist >= eco aber < comfort → auf comfort upgraden
-        if (currentTemp >= ecoTemp - 0.3 && currentTemp < comfortTemp - 0.3) {
+        if (currentTemp >= ecoTemp - 0.3 && (currentTemp < comfortTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp < comfortTemp))) {
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;
             roomBudgetStatus.set(rp.room.id, {
@@ -1700,10 +1710,10 @@ Deno.serve(async (req) => {
                 
                 if (targetLevel === 'comfort' || targetLevel === 'super_comfort') {
                   // Phase 2: Auf Komfort heizen
-                  if (currentRoomTemp < comfortTemp - 0.3) {
+                  if (currentRoomTemp < comfortTemp - 0.3 || currentTargetTemp < comfortTemp) {
                     action = 'activate';
                     targetTemp = targetLevel === 'super_comfort' ? comfortTemp + 1 : comfortTemp;
-                    reasoning = `☀️ Phase 2: Komfort ${targetTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget OK: ${budgetStatus.reason})`;
+                    reasoning = `☀️ Phase 2: Komfort ${targetTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Thermostat ${currentTargetTemp}°C, Budget OK: ${budgetStatus.reason})`;
                   } else {
                     action = 'keep';
                     targetTemp = comfortTemp;
@@ -1711,10 +1721,18 @@ Deno.serve(async (req) => {
                   }
                 } else if (targetLevel === 'eco') {
                   // Phase 1: Auf Eco heizen
-                  if (currentRoomTemp < ecoTemp - 0.3) {
+                  const nightTempRoom = room.night_temp || settings?.night_temp || 17;
+                  const ecoEqualsNight = ecoTemp <= nightTempRoom + 0.3;
+                  
+                  if (ecoEqualsNight && currentTargetTemp < comfortTemp) {
+                    // eco == night → Eco setzen ist sinnlos, direkt auf Komfort
+                    action = 'activate';
+                    targetTemp = comfortTemp;
+                    reasoning = `☀️ Eco=Nacht → direkt Komfort ${comfortTemp}°C (Thermostat ${currentTargetTemp}°C, Raum ${currentRoomTemp.toFixed(1)}°C)`;
+                  } else if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
                     action = 'activate';
                     targetTemp = ecoTemp;
-                    reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget OK: ${budgetStatus.reason})`;
+                    reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Thermostat ${currentTargetTemp}°C, Budget OK: ${budgetStatus.reason})`;
                   } else {
                     // Eco erreicht, aber kein Budget für Komfort
                     action = 'keep';
