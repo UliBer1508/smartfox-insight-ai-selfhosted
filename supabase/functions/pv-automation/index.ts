@@ -964,7 +964,7 @@ Deno.serve(async (req) => {
           
           // Separates Komfort-Budget: NUR echter Überschuss (gridExport + bereits heizend)
           // Kein Toleranz-Bonus, kein Prognose-Bonus — nur was wirklich da ist
-          const comfortBudget = Math.max(0, gridExport + currentlyHeatingPower);
+          comfortBudget = Math.max(0, gridExport + currentlyHeatingPower);
           console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W (nur echter Überschuss)`);
         } else if (gridExport > 200) {
           // Wenig PV-Produktion ABER gridExport vorhanden
