@@ -219,7 +219,7 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
 
         {/* Current status info */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pt-2 border-t">
-          <span>PV-Überschuss: <span className="font-mono text-foreground">{currentSurplus !== null ? `${currentSurplus}W` : '—'}</span></span>
+          <span>PV-Überschuss: <span className="font-mono text-foreground">{currentSurplus !== null ? `${Math.round(currentSurplus)}W` : '—'}</span></span>
           <span>Batterie: <span className="font-mono text-foreground">{batterySoc !== null ? `${batterySoc}%` : '—'}</span></span>
           <span>Schwelle An: <span className="font-mono">{thresholdOn}W</span></span>
           <span>Schwelle Aus: <span className="font-mono">{thresholdOff}W</span></span>
