@@ -1105,10 +1105,13 @@ Deno.serve(async (req) => {
       console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === Restbudget: ${budgetAfterEco}W`);
       for (const rp of roomsWithPriority) {
         if (roomBudgetStatus.has(rp.room.id)) {
-          // Raum wurde in Phase 1 schon auf eco gesetzt oder ist blockiert
-          // Überspringen, es sei denn er ist bereits >= eco und braucht komfort
           const existing = roomBudgetStatus.get(rp.room.id)!;
-          if (existing.targetLevel !== 'none' || !existing.allowedToHeat) continue;
+          // Räume auf Eco dürfen auf Komfort upgraded werden (kein Extra-Budget nötig)
+          if (existing.targetLevel === 'eco' && existing.allowedToHeat) {
+            // Weiter zur Komfort-Prüfung — Budget bereits allokiert
+          } else if (existing.targetLevel !== 'none' || !existing.allowedToHeat) {
+            continue;
+          }
         }
         
         const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
@@ -1117,15 +1120,18 @@ Deno.serve(async (req) => {
         
         // Raum ist >= eco aber < comfort → auf comfort upgraden
         if (currentTemp >= ecoTemp - 0.3 && (currentTemp < comfortTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp < comfortTemp))) {
-          if (usedBudget + rp.heatingPower <= availableBudget) {
-            usedBudget += rp.heatingPower;
+          const alreadyBudgeted = roomBudgetStatus.has(rp.room.id) && 
+            roomBudgetStatus.get(rp.room.id)!.targetLevel === 'eco';
+          
+          if (alreadyBudgeted || usedBudget + rp.heatingPower <= availableBudget) {
+            if (!alreadyBudgeted) usedBudget += rp.heatingPower;
             roomBudgetStatus.set(rp.room.id, {
               allowedToHeat: true,
-              reason: `Komfort-Phase (${usedBudget}/${availableBudget}W)`,
+              reason: `Komfort-Phase${alreadyBudgeted ? ' (Eco→Komfort Upgrade)' : ''} (${usedBudget}/${availableBudget}W)`,
               shouldRotate: false,
               targetLevel: 'comfort'
             });
-            console.log(`[PV-Automation] Phase 2: ${rp.room.name} → komfort (${currentTemp.toFixed(1)}°C < ${comfortTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
+            console.log(`[PV-Automation] Phase 2: ${rp.room.name} → komfort${alreadyBudgeted ? ' (Upgrade von Eco)' : ''} (${currentTemp.toFixed(1)}°C < ${comfortTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
           } else {
             // Kein Budget für Komfort — auf eco halten
             if (!roomBudgetStatus.has(rp.room.id)) {
