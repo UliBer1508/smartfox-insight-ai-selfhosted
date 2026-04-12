@@ -54,7 +54,17 @@ const getHeatingMode = (room: Room) => {
 
 export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const isMobile = useIsMobile();
+
+  const toggleRow = (roomId: string) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(roomId)) next.delete(roomId);
+      else next.add(roomId);
+      return next;
+    });
+  };
   const tuyaRooms = rooms.filter(r => r.tuya_device_id).sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99));
   if (tuyaRooms.length === 0) return null;
 
