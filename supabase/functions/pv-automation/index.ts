@@ -955,19 +955,16 @@ Deno.serve(async (req) => {
           // Basis-Budget: gridExport + bereits heizend + Toleranz
           let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
           
-          // PV-Prognose-Bonus: Bei guter Vorhersage mehr Budget für Eco
-          // > 15 kWh: alle Räume sollen Eco bekommen (großes Budget)
-          // > 8 kWh: mittleres Extra-Budget
-          // < 8 kWh: nur gridExport nutzen (kein Bonus)
-          let forecastBonus = 0;
-          if (expectedPvKwh >= 15) {
-            forecastBonus = 3000; // Viel PV erwartet → großzügig heizen
-          } else if (expectedPvKwh >= 8) {
-            forecastBonus = 1500; // Mittlere PV → moderater Bonus
-          }
+          // KEIN Prognose-Bonus mehr! Komfort-Heizung nur bei echtem PV-Überschuss.
+          // Eco-Budget: Basis (gridExport + heizend + Toleranz) reicht für Eco.
+          // Komfort-Budget: Nur der echte gridExport (ohne Bonus) bestimmt ob Komfort möglich ist.
+          // So wird die Batterie nicht durch Prognose-basiertes Heizen leergesaugt.
+          availableBudget = Math.max(0, baseBudget);
           
-          availableBudget = Math.max(0, baseBudget + forecastBonus);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W + Prognose-Bonus ${forecastBonus}W (${expectedPvKwh} kWh) = ${availableBudget}W`);
+          // Separates Komfort-Budget: NUR echter Überschuss (gridExport + bereits heizend)
+          // Kein Toleranz-Bonus, kein Prognose-Bonus — nur was wirklich da ist
+          const comfortBudget = Math.max(0, gridExport + currentlyHeatingPower);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W (nur echter Überschuss)`);
         } else if (gridExport > 200) {
           // Wenig PV-Produktion ABER gridExport vorhanden
           // → gridExport für Eco nutzen (z.B. Batterie speist ins Netz)
