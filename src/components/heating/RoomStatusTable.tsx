@@ -13,6 +13,22 @@ interface RoomStatusTableProps {
   onSavePriority?: (roomId: string, priority: number) => void;
 }
 
+const getProgress = (room: Room) => {
+  if (room.current_temp == null || room.target_temp == null) return null;
+  const night = room.night_temp ?? 16;
+  const range = room.target_temp - night;
+  if (range <= 0) return { percent: 100, diff: 0 };
+  const percent = Math.min(100, Math.max(0, ((room.current_temp - night) / range) * 100));
+  const diff = Math.round((room.target_temp - room.current_temp) * 10) / 10;
+  return { percent, diff };
+};
+
+const getProgressColor = (diff: number) => {
+  if (diff <= 0.2) return 'bg-green-500';
+  if (diff <= 1.0) return 'bg-orange-400';
+  return 'bg-red-400';
+};
+
 const getHeatingMode = (room: Room) => {
   if (room.target_temp == null) return null;
   const night = room.night_temp ?? 16;
@@ -116,6 +132,23 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           <span className="font-mono text-[10px]">{room.thermostat_local_ip}</span>
                         )}
                       </div>
+                      {(() => {
+                        const progress = getProgress(room);
+                        if (!progress) return null;
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${getProgressColor(progress.diff)}`}
+                                style={{ width: `${progress.percent}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-medium min-w-[3rem] text-right ${progress.diff <= 0.2 ? 'text-green-500' : 'text-muted-foreground'}`}>
+                              {progress.diff <= 0.2 ? '✓' : `-${progress.diff}°`}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -132,6 +165,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                       <TableHead className="text-xs">Local IP</TableHead>
                       <TableHead className="text-xs">Temp</TableHead>
                       <TableHead className="text-xs">Ziel</TableHead>
+                      <TableHead className="text-xs w-28">Fortschritt</TableHead>
                       <TableHead className="text-xs">Modus</TableHead>
                       <TableHead className="text-xs">Heizung</TableHead>
                       <TableHead className="text-xs">Auto</TableHead>
@@ -158,6 +192,25 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
                           <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
                           <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>
+                          <TableCell>
+                            {(() => {
+                              const progress = getProgress(room);
+                              if (!progress) return '—';
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-16 h-2 rounded-full bg-muted overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all ${getProgressColor(progress.diff)}`}
+                                      style={{ width: `${progress.percent}%` }}
+                                    />
+                                  </div>
+                                  <span className={`text-[10px] font-medium ${progress.diff <= 0.2 ? 'text-green-500' : 'text-muted-foreground'}`}>
+                                    {progress.diff <= 0.2 ? '✓' : `-${progress.diff}°`}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell>
                             {mode ? (
                               <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium w-fit ${mode.color}`}>
