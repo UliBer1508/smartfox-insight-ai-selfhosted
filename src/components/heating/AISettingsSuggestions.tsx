@@ -69,24 +69,26 @@ export function AISettingsSuggestions() {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Brain className="w-5 h-5 text-primary" />
-            KI-Einstellungsvorschläge
-          </CardTitle>
-          <CardDescription>
-            Analysiert deine Daten und schlägt optimale Einstellungen vor
-          </CardDescription>
+      <CardHeader className="space-y-3">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Brain className="w-5 h-5 text-primary shrink-0" />
+              KI-Einstellungsvorschläge
+            </CardTitle>
+            <CardDescription className="mt-1">
+              Analysiert deine Daten und schlägt optimale Einstellungen vor
+            </CardDescription>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {suggestions.length > 0 && unappliedCount > 0 && (
             <Button size="sm" variant="outline" onClick={applyAll}>
               <Sparkles className="h-4 w-4 mr-1" />
               Alle ({unappliedCount})
             </Button>
           )}
-          <Button size="sm" onClick={fetchSuggestions} disabled={isLoading}>
+          <Button size="sm" onClick={fetchSuggestions} disabled={isLoading} className="w-full sm:w-auto">
             {isLoading ? (
               <Loader2 className="h-4 w-4 mr-1 animate-spin" />
             ) : (

@@ -103,30 +103,32 @@ export function HeatingHistoryChart({ rooms }: HeatingHistoryChartProps) {
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <div className="flex items-center gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <BarChart3 className="h-4 w-4" />
-            Heizhistorie
-          </CardTitle>
-          {hasData && (
-            <span className="text-xs text-muted-foreground">
-              ({totalEnergy.toFixed(1)} kWh gesamt)
-            </span>
-          )}
-        </div>
-        <div className="flex gap-1">
-          {[7, 14, 30].map((d) => (
-            <Button
-              key={d}
-              variant={days === d ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setDays(d)}
-              className="h-7 px-2 text-xs"
-            >
-              {d}d
-            </Button>
-          ))}
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 min-w-0">
+            <CardTitle className="flex items-center gap-2 text-base whitespace-nowrap">
+              <BarChart3 className="h-4 w-4 shrink-0" />
+              Heizhistorie
+            </CardTitle>
+            {hasData && (
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                ({totalEnergy.toFixed(1)} kWh)
+              </span>
+            )}
+          </div>
+          <div className="flex gap-1 shrink-0">
+            {[7, 14, 30].map((d) => (
+              <Button
+                key={d}
+                variant={days === d ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setDays(d)}
+                className="h-7 px-2 text-xs"
+              >
+                {d}d
+              </Button>
+            ))}
+          </div>
         </div>
       </CardHeader>
       <CardContent>
