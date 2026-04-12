@@ -713,8 +713,8 @@ Deno.serve(async (req) => {
       // ============= PV-PRIORITY-MODUS =============
       // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
-      if (quotaExhausted && controlMode === 'cloud' && !localServiceActive) {
-        if (gridExportForPriority > 3000 && batterySoc > 90) {
+      if (quotaExhausted && controlMode === 'cloud') {
+        if (gridExportForPriority > 2000) {
           pvPriorityMode = true;
           console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
         } else {
