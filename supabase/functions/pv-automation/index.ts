@@ -2059,6 +2059,8 @@ Deno.serve(async (req) => {
         results,
         tuyaApiCalls,
         quotaExhausted,
+        pvPriorityMode,
+        pvPriorityCalls,
         quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
         evaluatedEvents: evaluationResult?.evaluated || 0
       }), {
