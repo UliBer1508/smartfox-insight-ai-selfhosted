@@ -737,6 +737,7 @@ Deno.serve(async (req) => {
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
           });
+        }
       }
 
       const minBatterySoc = settings?.min_battery_soc || 20;
