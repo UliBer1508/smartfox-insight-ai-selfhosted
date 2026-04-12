@@ -869,12 +869,18 @@ Deno.serve(async (req) => {
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
       const { data: pvForecast } = await supabase
         .from('pv_forecasts')
-        .select('expected_kwh, hourly_watts')
+        .select('expected_kwh, hourly_watts, sunset')
         .eq('date', today)
         .single();
 
       const expectedPvKwh = pvForecast?.expected_kwh || 0;
       const hourlyWatts = (pvForecast?.hourly_watts || {}) as Record<string, number>;
+      
+      // Sonnenuntergang erkennen für Batterie-Reserve-Logik
+      const sunsetStr = pvForecast?.sunset as string | null; // z.B. "19:45:00"
+      const sunsetHour = sunsetStr ? parseInt(sunsetStr.split(':')[0], 10) : 20; // Fallback 20:00
+      const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '06:00');
+      const afterSunset = currentWienHour >= sunsetHour;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
       const boostDelta = settings?.pv_boost_temp_delta || 2;
