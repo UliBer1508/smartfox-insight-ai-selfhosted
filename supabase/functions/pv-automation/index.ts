@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
       let quotaExhausted = false;
       let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
       let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 3)
-      const PV_PRIORITY_MAX_CALLS = 3;
+      const PV_PRIORITY_MAX_CALLS = 6;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
@@ -919,16 +919,19 @@ Deno.serve(async (req) => {
       
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
-          // PV-Optimiert: Budget = tatsächlicher Grid-Export + dynamische Toleranz
-          // gridExport = was wirklich ins Netz fließt, NACH Abzug aller Verbraucher
-          // Dynamische Toleranz: 20% des gridExport (min 200W) — bei hohem Export können mehr Räume gleichzeitig heizen
+          // PV-Optimiert: Budget = gridExport + Leistung bereits heizender Räume + Toleranz
+          // Begründung: gridExport zeigt nur den REST-Export. Räume die bereits heizen
+          // verbrauchen PV-Strom der nicht mehr im Export erscheint. Das tatsächliche
+          // PV-Budget für Heizung ist gridExport + was bereits geheizt wird.
           budgetMode = 'pv_optimized';
+          const currentlyHeatingPower = rooms
+            .filter(r => r.is_heating)
+            .reduce((sum, r) => sum + (r.calculated_power_w || r.heating_power_w || 800), 0);
           const dynamicTolerance = Math.max(powerBudgetTolerance, Math.round(gridExport * 0.20));
-          availableBudget = Math.max(0, gridExport + dynamicTolerance);
-          console.log(`[PV-Automation] PV-Budget basiert auf gridExport: ${gridExport}W + Toleranz ${dynamicTolerance}W (20% oder min ${powerBudgetTolerance}W) = ${availableBudget}W`);
+          availableBudget = Math.max(0, gridExport + currentlyHeatingPower + dynamicTolerance);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W`);
         } else {
           // KEIN PV → kein Heizen, Budget = 0
-          // Thermostate bleiben auf aktuellem Wert, kein Netzstrom für Heizung
           budgetMode = 'grid_sequential';
           availableBudget = 0;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - KEIN Heizen, Budget=0W`);
@@ -1012,11 +1015,16 @@ Deno.serve(async (req) => {
         allowedToHeat: boolean; 
         reason: string; 
         shouldRotate: boolean;
+        targetLevel: 'eco' | 'comfort' | 'super_comfort' | 'none';
       }>();
       
-      // Eine einzige Runde: Alle Räume in Prioritäts-Reihenfolge prüfen
+      // ============= 2-PHASEN BUDGET-ZUWEISUNG =============
+      // Phase 1: Eco-Runde — alle Räume unter eco auf eco bringen
+      // Phase 2: Komfort-Runde — mit Restbudget Räume auf komfort bringen
+      // Keine Batterie-Bedingung! Einzige Bedingung: Reicht das PV-Budget?
+      
+      // Erst Rotation/Pause prüfen für alle Räume
       for (const rp of roomsWithPriority) {
-        // Rotation prüfen (nur für heizende Räume)
         if (rp.isCurrentlyHeating) {
           const shouldRotate = rp.heatingDurationMinutes >= roomRotationMinutes && 
             roomsWithPriority.some(other => {
@@ -1034,37 +1042,112 @@ Deno.serve(async (req) => {
             roomBudgetStatus.set(rp.room.id, {
               allowedToHeat: false,
               reason: `Rotation nach ${Math.round(rp.heatingDurationMinutes)} Min`,
-              shouldRotate: true
+              shouldRotate: true,
+              targetLevel: 'none'
             });
             continue;
           }
         }
         
-        // Pause prüfen (nur für nicht-heizende Räume)
         if (!rp.isCurrentlyHeating && rp.waitTimeMinutes < minRoomPauseMinutes && rp.room.last_heating_end) {
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: false,
             reason: `Pause: noch ${Math.ceil(minRoomPauseMinutes - rp.waitTimeMinutes)} Min`,
-            shouldRotate: false
+            shouldRotate: false,
+            targetLevel: 'none'
           });
-          continue;
+        }
+      }
+      
+      // Phase 1: ECO-Runde
+      console.log(`[PV-Automation] === PHASE 1: ECO-RUNDE === Budget: ${availableBudget}W`);
+      for (const rp of roomsWithPriority) {
+        if (roomBudgetStatus.has(rp.room.id)) continue; // Rotation/Pause
+        
+        const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
+        const currentTemp = rp.room.current_temp || 0;
+        
+        if (currentTemp < ecoTemp - 0.3) {
+          // Raum braucht eco
+          if (usedBudget + rp.heatingPower <= availableBudget) {
+            usedBudget += rp.heatingPower;
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: true,
+              reason: `Eco-Phase (${usedBudget}/${availableBudget}W)`,
+              shouldRotate: false,
+              targetLevel: 'eco'
+            });
+            console.log(`[PV-Automation] Phase 1: ${rp.room.name} → eco (${currentTemp.toFixed(1)}°C < ${ecoTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
+          } else {
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: false,
+              reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
+              shouldRotate: false,
+              targetLevel: 'none'
+            });
+          }
+        }
+        // Räume >= eco werden in Phase 1 nicht verarbeitet (kommen in Phase 2)
+      }
+      
+      // Phase 2: KOMFORT-Runde — mit Restbudget
+      const budgetAfterEco = availableBudget - usedBudget;
+      console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === Restbudget: ${budgetAfterEco}W`);
+      for (const rp of roomsWithPriority) {
+        if (roomBudgetStatus.has(rp.room.id)) {
+          // Raum wurde in Phase 1 schon auf eco gesetzt oder ist blockiert
+          // Überspringen, es sei denn er ist bereits >= eco und braucht komfort
+          const existing = roomBudgetStatus.get(rp.room.id)!;
+          if (existing.targetLevel !== 'none' || !existing.allowedToHeat) continue;
         }
         
-        // Budget-Check (für alle Räume gleich)
-        if (usedBudget + rp.heatingPower <= availableBudget) {
-          usedBudget += rp.heatingPower;
-          const status = rp.isCurrentlyHeating ? 'Weiter heizen' : 'Aktiviert';
+        const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
+        const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
+        const currentTemp = rp.room.current_temp || 0;
+        
+        // Raum ist >= eco aber < comfort → auf comfort upgraden
+        if (currentTemp >= ecoTemp - 0.3 && currentTemp < comfortTemp - 0.3) {
+          if (usedBudget + rp.heatingPower <= availableBudget) {
+            usedBudget += rp.heatingPower;
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: true,
+              reason: `Komfort-Phase (${usedBudget}/${availableBudget}W)`,
+              shouldRotate: false,
+              targetLevel: 'comfort'
+            });
+            console.log(`[PV-Automation] Phase 2: ${rp.room.name} → komfort (${currentTemp.toFixed(1)}°C < ${comfortTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
+          } else {
+            // Kein Budget für Komfort — auf eco halten
+            if (!roomBudgetStatus.has(rp.room.id)) {
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: true,
+                reason: `Eco halten (kein Komfort-Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W)`,
+                shouldRotate: false,
+                targetLevel: 'eco'
+              });
+            }
+          }
+        } else if (currentTemp >= comfortTemp - 0.3) {
+          // Raum ist bereits >= comfort → halten
+          if (!roomBudgetStatus.has(rp.room.id)) {
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: true,
+              reason: `Komfort erreicht (${currentTemp.toFixed(1)}°C)`,
+              shouldRotate: false,
+              targetLevel: 'comfort'
+            });
+          }
+        }
+      }
+      
+      // Räume die in keiner Phase verarbeitet wurden (z.B. bereits >= eco, Budget reicht nicht für komfort)
+      for (const rp of roomsWithPriority) {
+        if (!roomBudgetStatus.has(rp.room.id)) {
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: true,
-            reason: `${status} (${usedBudget}/${availableBudget}W)`,
-            shouldRotate: false
-          });
-        } else {
-          const action = rp.isCurrentlyHeating ? 'Gestoppt' : 'Kein Budget';
-          roomBudgetStatus.set(rp.room.id, {
-            allowedToHeat: false,
-            reason: `${action}: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
-            shouldRotate: false
+            reason: `Standard (${rp.room.current_temp?.toFixed(1)}°C)`,
+            shouldRotate: false,
+            targetLevel: 'eco'
           });
         }
       }
