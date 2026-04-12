@@ -4,7 +4,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
-import { Check, X, Thermometer, ChevronDown, Moon, Zap, Sun } from 'lucide-react';
+import { Check, X, Thermometer, ChevronDown, Moon, Zap, Sun, Clock } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 
@@ -27,6 +27,17 @@ const getProgressColor = (diff: number) => {
   if (diff <= 0.2) return 'bg-green-500';
   if (diff <= 1.0) return 'bg-orange-400';
   return 'bg-red-400';
+};
+
+const getHeatingStatus = (room: Room): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
+  if (room.is_heating) {
+    return { label: 'Heizt', dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
+  }
+  // "Wartend": target is set, current temp is below target (hysteresis zone)
+  if (room.target_temp != null && room.current_temp != null && room.target_temp - room.current_temp > 0.3) {
+    return { label: 'Wartend', dotClass: 'bg-orange-400 animate-pulse', badgeClass: 'bg-orange-400/10 text-orange-500', icon: Clock };
+  }
+  return { label: 'Aus', dotClass: 'bg-muted-foreground/40', badgeClass: 'bg-muted text-muted-foreground' };
 };
 
 const getHeatingMode = (room: Room) => {
@@ -89,14 +100,15 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                               {mode.label}
                             </span>
                           )}
-                          <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${
-                            room.is_heating 
-                              ? 'bg-destructive/10 text-destructive' 
-                              : 'bg-muted text-muted-foreground'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${room.is_heating ? 'bg-destructive' : 'bg-muted-foreground/40'}`} />
-                            {room.is_heating ? 'Heizt' : 'Aus'}
-                          </span>
+                          {(() => {
+                            const status = getHeatingStatus(room);
+                            return (
+                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
+                                {status.label}
+                              </span>
+                            );
+                          })()}
                           {room.automation_enabled && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Auto</span>
                           )}
@@ -220,10 +232,15 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             ) : '—'}
                           </TableCell>
                           <TableCell>
-                            <span className="flex items-center gap-1 text-xs">
-                              <span className={`w-2 h-2 rounded-full ${room.is_heating ? 'bg-destructive' : 'bg-muted-foreground/30'}`} />
-                              {room.is_heating ? 'An' : 'Aus'}
-                            </span>
+                            {(() => {
+                              const status = getHeatingStatus(room);
+                              return (
+                                <span className="flex items-center gap-1 text-xs">
+                                  <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
+                                  {status.label}
+                                </span>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         </TableRow>
