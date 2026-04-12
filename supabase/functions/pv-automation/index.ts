@@ -1075,7 +1075,9 @@ Deno.serve(async (req) => {
         const currentTemp = rp.room.current_temp || 0;
         
         const nightTemp = rp.room.night_temp || settings?.night_temp || 17;
-        if (currentTemp < ecoTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp <= nightTemp)) {
+        // Wenn eco == night, macht Phase 1 keinen Sinn → direkt zu Phase 2 (Komfort)
+        const ecoIsUseful = ecoTemp > nightTemp + 0.3;
+        if (ecoIsUseful && (currentTemp < ecoTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp <= nightTemp))) {
           // Raum braucht eco
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;
