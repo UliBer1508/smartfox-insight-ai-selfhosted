@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
       let quotaExhausted = false;
       let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
       let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 5)
-      const PV_PRIORITY_MAX_CALLS = 3;
+      const PV_PRIORITY_MAX_CALLS = 5;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
@@ -721,12 +721,17 @@ Deno.serve(async (req) => {
       // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
       if (quotaExhausted && controlMode === 'cloud') {
-        if (gridExportForPriority > 1500 && batterySoc >= 90) {
+        // Dynamische PV-Priority-Schwelle basierend auf Batterie-SOC
+        const pvPriorityActive = 
+          (batterySoc >= 95 && gridExportForPriority > 500) ||
+          (batterySoc >= 90 && batterySoc < 95 && gridExportForPriority > 1000);
+        
+        if (pvPriorityActive) {
           pvPriorityMode = true;
           console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
         } else {
           // Quota erschöpft und kein PV-Priority → sofort zurückkehren ohne DB-Writes
-          console.log(`[PV-Automation] ⚠️ Quota erschöpft, kein PV-Priority (Export ${gridExportForPriority}W < 1500W oder SOC ${batterySoc}% < 90%) → SOFORT-RETURN`);
+          console.log(`[PV-Automation] ⚠️ Quota erschöpft, kein PV-Priority (Export ${gridExportForPriority}W, SOC ${batterySoc}%) → SOFORT-RETURN`);
           return new Response(JSON.stringify({
             success: true,
             message: 'Quota erschöpft - übersprungen (kein PV-Priority)',
