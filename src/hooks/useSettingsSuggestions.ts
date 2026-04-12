@@ -13,6 +13,40 @@ export interface SettingSuggestion {
   applied?: boolean;
 }
 
+const GLOBAL_KEYS = new Set([
+  'comfort_temp', 'eco_temp', 'night_temp', 'min_battery_soc', 'target_battery_soc',
+  'pv_surplus_threshold_on', 'pv_surplus_threshold_off', 'hotwater_min_surplus_w',
+  'hotwater_schedule_start', 'hotwater_schedule_end', 'hotwater_enabled',
+  'night_start_time', 'night_end_time', 'night_cycling_enabled', 'avg_night_cycles_per_room',
+  'pv_boost_temp_delta', 'night_heating_mode', 'estrich_storage_enabled',
+  'power_budget_enabled', 'max_grid_heating_power_w',
+]);
+
+const ROOM_KEYS = new Set([
+  'comfort_temp', 'eco_temp', 'night_temp', 'pv_boost_max_temp', 'solar_limit_temp',
+]);
+
+const KEY_MAPPING: Record<string, string> = {
+  soll_temp: 'target_temp',
+  ziel_temp: 'target_temp',
+  min_pv_surplus: 'hotwater_min_surplus_w',
+  pv_threshold_on: 'pv_surplus_threshold_on',
+  pv_threshold_off: 'pv_surplus_threshold_off',
+  battery_min_soc: 'min_battery_soc',
+  battery_target_soc: 'target_battery_soc',
+  nacht_temp: 'night_temp',
+  komfort_temp: 'comfort_temp',
+};
+
+function resolveKey(key: string, category: string): string | null {
+  let resolved = KEY_MAPPING[key] || key;
+  const whitelist = category === 'room_temp' ? ROOM_KEYS : GLOBAL_KEYS;
+  if (whitelist.has(resolved)) return resolved;
+  // target_temp is valid for rooms but not in the room whitelist above — allow it
+  if (category === 'room_temp' && resolved === 'target_temp') return resolved;
+  return null;
+}
+
 export function useSettingsSuggestions() {
   const [suggestions, setSuggestions] = useState<SettingSuggestion[]>([]);
   const [overallAnalysis, setOverallAnalysis] = useState('');
@@ -40,6 +74,13 @@ export function useSettingsSuggestions() {
 
   const applySuggestion = useCallback(async (suggestion: SettingSuggestion) => {
     try {
+      const resolvedKey = resolveKey(suggestion.setting_key, suggestion.category);
+      if (!resolvedKey) {
+        toast.warning(`Unbekannte Einstellung "${suggestion.setting_key}" — wird übersprungen`);
+        setSuggestions(prev => prev.map(s => s === suggestion ? { ...s, applied: false } : s));
+        return false;
+      }
+
       const value = parseValue(suggestion.suggested_value);
 
       if (suggestion.category === 'room_temp' && suggestion.room_name) {
