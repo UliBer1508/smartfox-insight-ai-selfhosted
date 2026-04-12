@@ -132,6 +132,23 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           <span className="font-mono text-[10px]">{room.thermostat_local_ip}</span>
                         )}
                       </div>
+                      {(() => {
+                        const progress = getProgress(room);
+                        if (!progress) return null;
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${getProgressColor(progress.diff)}`}
+                                style={{ width: `${progress.percent}%` }}
+                              />
+                            </div>
+                            <span className={`text-xs font-medium min-w-[3rem] text-right ${progress.diff <= 0.2 ? 'text-green-500' : 'text-muted-foreground'}`}>
+                              {progress.diff <= 0.2 ? '✓' : `-${progress.diff}°`}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })}
@@ -148,6 +165,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                       <TableHead className="text-xs">Local IP</TableHead>
                       <TableHead className="text-xs">Temp</TableHead>
                       <TableHead className="text-xs">Ziel</TableHead>
+                      <TableHead className="text-xs w-28">Fortschritt</TableHead>
                       <TableHead className="text-xs">Modus</TableHead>
                       <TableHead className="text-xs">Heizung</TableHead>
                       <TableHead className="text-xs">Auto</TableHead>
@@ -174,6 +192,25 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           <TableCell className="text-xs font-mono">{room.thermostat_local_ip || '-'}</TableCell>
                           <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
                           <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>
+                          <TableCell>
+                            {(() => {
+                              const progress = getProgress(room);
+                              if (!progress) return '—';
+                              return (
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-16 h-2 rounded-full bg-muted overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full transition-all ${getProgressColor(progress.diff)}`}
+                                      style={{ width: `${progress.percent}%` }}
+                                    />
+                                  </div>
+                                  <span className={`text-[10px] font-medium ${progress.diff <= 0.2 ? 'text-green-500' : 'text-muted-foreground'}`}>
+                                    {progress.diff <= 0.2 ? '✓' : `-${progress.diff}°`}
+                                  </span>
+                                </div>
+                              );
+                            })()}
+                          </TableCell>
                           <TableCell>
                             {mode ? (
                               <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full font-medium w-fit ${mode.color}`}>
