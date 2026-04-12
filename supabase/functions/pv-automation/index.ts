@@ -759,10 +759,10 @@ Deno.serve(async (req) => {
             const syncResult = await syncResponse.json();
             console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
             
-            // Quota: Sync = 2 API calls (token + batch status)
+            // Quota: Sync = 1 API call (Token ist gecached, nur batch status zählt)
             if (quotaData) {
-              quotaData.calls_this_month += 2;
-              quotaData.calls_today += 2;
+              quotaData.calls_this_month += 1;
+              quotaData.calls_today += 1;
               quotaData.last_sync_at = new Date().toISOString();
               // Re-check quota after pre-sync
               const effectiveDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
