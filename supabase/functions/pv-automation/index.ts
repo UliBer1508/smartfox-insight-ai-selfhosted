@@ -1298,10 +1298,9 @@ Deno.serve(async (req) => {
       // now ist bereits oben im Budget-Code definiert
       let tuyaApiCalls = 0; // Track API calls for logging
 
-      // Early Return: Wenn Quota bereits erschöpft, Raum-Loop überspringen
-      // da alle API-Calls sowieso geblockt werden und nur den Counter aufblasen würden
-      if (quotaExhausted && controlMode === 'cloud') {
-        console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett (${rooms.length} Räume)`);
+      // Early Return: Wenn Quota erschöpft UND kein PV-Priority-Modus, Raum-Loop überspringen
+      if (quotaExhausted && controlMode === 'cloud' && !pvPriorityMode) {
+        console.log(`[PV-Automation] ⚠️ Quota erschöpft (kein PV-Priority) - überspringe Raum-Verarbeitung komplett (${rooms.length} Räume)`);
         for (const room of rooms) {
           results.push({
             roomId: room.id,
