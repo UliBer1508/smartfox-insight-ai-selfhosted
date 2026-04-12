@@ -923,6 +923,9 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Grundlast schätzen (Verbrauch ohne Heizung, typisch 400-600W)
+      const baseLoad = 500; // TODO: könnte aus Verbrauchs-Analyse kommen
+      
       // ============= PV-TAGESPROGNOSE: Verbleibende Energie berechnen =============
       // Summe der prognostizierten Watt von jetzt bis Sonnenuntergang
       let remainingPvForecastWh = 0;
