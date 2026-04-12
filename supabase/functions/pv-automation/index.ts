@@ -1721,7 +1721,15 @@ Deno.serve(async (req) => {
                   }
                 } else if (targetLevel === 'eco') {
                   // Phase 1: Auf Eco heizen
-                  if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
+                  const nightTempRoom = room.night_temp || settings?.night_temp || 17;
+                  const ecoEqualsNight = ecoTemp <= nightTempRoom + 0.3;
+                  
+                  if (ecoEqualsNight && currentTargetTemp < comfortTemp) {
+                    // eco == night → Eco setzen ist sinnlos, direkt auf Komfort
+                    action = 'activate';
+                    targetTemp = comfortTemp;
+                    reasoning = `☀️ Eco=Nacht → direkt Komfort ${comfortTemp}°C (Thermostat ${currentTargetTemp}°C, Raum ${currentRoomTemp.toFixed(1)}°C)`;
+                  } else if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
                     action = 'activate';
                     targetTemp = ecoTemp;
                     reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Thermostat ${currentTargetTemp}°C, Budget OK: ${budgetStatus.reason})`;
