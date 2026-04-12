@@ -939,6 +939,7 @@ Deno.serve(async (req) => {
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
+      let comfortBudget = 999999; // Komfort-Budget: nur echter Überschuss
       
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
