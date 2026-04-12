@@ -513,9 +513,18 @@ Deno.serve(async (req) => {
           return { success: true };
         }
         // QUOTA-GATE: Block cloud API calls when quota is exhausted
-        if (quotaExhausted) {
+        // EXCEPTION: PV-Priority-Modus erlaubt begrenzte Calls bei hohem PV-Überschuss
+        if (quotaExhausted && !pvPriorityMode) {
           console.log(`[PV-Automation] ⛔ QUOTA-GATE: Cloud API call blocked for device ${deviceId} → ${temperature}°C`);
           return { success: false, errorType: 'quota_exhausted', errorMessage: 'Tuya API Quota erschöpft - kein Cloud-Call möglich' };
+        }
+        if (quotaExhausted && pvPriorityMode) {
+          if (pvPriorityCalls >= PV_PRIORITY_MAX_CALLS) {
+            console.log(`[PV-Automation] ⛔ PV-Priority-Limit erreicht (${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS})`);
+            return { success: false, errorType: 'quota_exhausted', errorMessage: 'PV-Priority-Limit erreicht' };
+          }
+          pvPriorityCalls++;
+          console.log(`[PV-Automation] ⚡ PV-Priority-Call ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS}: ${deviceId} → ${temperature}°C`);
         }
         if (!tuyaAccessId || !tuyaAccessSecret) {
           return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
