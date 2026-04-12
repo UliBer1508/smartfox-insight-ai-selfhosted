@@ -318,6 +318,9 @@ Deno.serve(async (req) => {
       // ============= TUYA API QUOTA + KANAL-GESUNDHEIT =============
       let quotaData: { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null = null;
       let quotaExhausted = false;
+      let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
+      let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 3)
+      const PV_PRIORITY_MAX_CALLS = 3;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
