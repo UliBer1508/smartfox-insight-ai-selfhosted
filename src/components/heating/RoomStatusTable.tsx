@@ -100,14 +100,15 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                               {mode.label}
                             </span>
                           )}
-                          <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${
-                            room.is_heating 
-                              ? 'bg-destructive/10 text-destructive' 
-                              : 'bg-muted text-muted-foreground'
-                          }`}>
-                            <span className={`w-1.5 h-1.5 rounded-full ${room.is_heating ? 'bg-destructive' : 'bg-muted-foreground/40'}`} />
-                            {room.is_heating ? 'Heizt' : 'Aus'}
-                          </span>
+                          {(() => {
+                            const status = getHeatingStatus(room);
+                            return (
+                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
+                                {status.label}
+                              </span>
+                            );
+                          })()}
                           {room.automation_enabled && (
                             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">Auto</span>
                           )}
@@ -231,10 +232,15 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             ) : '—'}
                           </TableCell>
                           <TableCell>
-                            <span className="flex items-center gap-1 text-xs">
-                              <span className={`w-2 h-2 rounded-full ${room.is_heating ? 'bg-destructive' : 'bg-muted-foreground/30'}`} />
-                              {room.is_heating ? 'An' : 'Aus'}
-                            </span>
+                            {(() => {
+                              const status = getHeatingStatus(room);
+                              return (
+                                <span className="flex items-center gap-1 text-xs">
+                                  <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
+                                  {status.label}
+                                </span>
+                              );
+                            })()}
                           </TableCell>
                           <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
                         </TableRow>
