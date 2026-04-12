@@ -1135,10 +1135,7 @@ Deno.serve(async (req) => {
       }
       
       // Phase 2: KOMFORT-Runde — NUR mit echtem PV-Überschuss (kein Prognose-Bonus)
-      // comfortBudget wird nur im pv_optimized Modus verwendet, sonst availableBudget
-      const effectiveComfortBudget = budgetMode === 'pv_optimized' 
-        ? (comfortBudget || availableBudget) 
-        : availableBudget;
+      const effectiveComfortBudget = comfortBudget;
       let usedComfortBudget = usedBudget; // Start mit dem was Eco schon verbraucht
       const budgetAfterEco = effectiveComfortBudget - usedBudget;
       console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === Restbudget: ${budgetAfterEco}W (nur echter Überschuss, kein Prognose-Bonus)`);
