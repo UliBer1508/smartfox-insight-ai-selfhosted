@@ -919,6 +919,7 @@ Deno.serve(async (req) => {
       const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
+      const batteryPower = reading.battery_power || 0; // positiv=laden, negativ=entladen
 
       // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
@@ -944,9 +945,6 @@ Deno.serve(async (req) => {
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
           // PV-Optimiert: Budget = gridExport + Leistung bereits heizender Räume + Toleranz
-          // Begründung: gridExport zeigt nur den REST-Export. Räume die bereits heizen
-          // verbrauchen PV-Strom der nicht mehr im Export erscheint. Das tatsächliche
-          // PV-Budget für Heizung ist gridExport + was bereits geheizt wird.
           budgetMode = 'pv_optimized';
           const currentlyHeatingPower = rooms
             .filter(r => r.is_heating)
@@ -956,16 +954,23 @@ Deno.serve(async (req) => {
           // Basis-Budget: gridExport + bereits heizend + Toleranz
           let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
           
-          // KEIN Prognose-Bonus mehr! Komfort-Heizung nur bei echtem PV-Überschuss.
-          // Eco-Budget: Basis (gridExport + heizend + Toleranz) reicht für Eco.
-          // Komfort-Budget: Nur der echte gridExport (ohne Bonus) bestimmt ob Komfort möglich ist.
-          // So wird die Batterie nicht durch Prognose-basiertes Heizen leergesaugt.
+          // Batterie-Schutz: Wenn Batterie entlädt, ist das Budget zu hoch geschätzt
+          // Batterie-Entladung bedeutet: PV reicht nicht für alles → Budget reduzieren
+          if (batteryPower < 0) {
+            const batteryDrain = Math.abs(batteryPower);
+            baseBudget = Math.max(0, baseBudget - batteryDrain);
+            console.log(`[PV-Automation] ⚡ Batterie-Korrektur: ${batteryDrain}W Entladung → Eco-Budget reduziert auf ${baseBudget}W`);
+          }
+          
           availableBudget = Math.max(0, baseBudget);
           
           // Separates Komfort-Budget: NUR echter Überschuss (gridExport + bereits heizend)
-          // Kein Toleranz-Bonus, kein Prognose-Bonus — nur was wirklich da ist
-          comfortBudget = Math.max(0, gridExport + currentlyHeatingPower);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W (nur echter Überschuss)`);
+          let rawComfortBudget = gridExport + currentlyHeatingPower;
+          if (batteryPower < 0) {
+            rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
+          }
+          comfortBudget = Math.max(0, rawComfortBudget);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W - Batterie-Korrektur ${batteryPower < 0 ? Math.abs(batteryPower) : 0}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W`);
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
