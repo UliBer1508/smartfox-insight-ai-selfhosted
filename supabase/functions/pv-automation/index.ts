@@ -318,6 +318,9 @@ Deno.serve(async (req) => {
       // ============= TUYA API QUOTA + KANAL-GESUNDHEIT =============
       let quotaData: { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null = null;
       let quotaExhausted = false;
+      let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
+      let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 3)
+      const PV_PRIORITY_MAX_CALLS = 3;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
@@ -510,9 +513,18 @@ Deno.serve(async (req) => {
           return { success: true };
         }
         // QUOTA-GATE: Block cloud API calls when quota is exhausted
-        if (quotaExhausted) {
+        // EXCEPTION: PV-Priority-Modus erlaubt begrenzte Calls bei hohem PV-Überschuss
+        if (quotaExhausted && !pvPriorityMode) {
           console.log(`[PV-Automation] ⛔ QUOTA-GATE: Cloud API call blocked for device ${deviceId} → ${temperature}°C`);
           return { success: false, errorType: 'quota_exhausted', errorMessage: 'Tuya API Quota erschöpft - kein Cloud-Call möglich' };
+        }
+        if (quotaExhausted && pvPriorityMode) {
+          if (pvPriorityCalls >= PV_PRIORITY_MAX_CALLS) {
+            console.log(`[PV-Automation] ⛔ PV-Priority-Limit erreicht (${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS})`);
+            return { success: false, errorType: 'quota_exhausted', errorMessage: 'PV-Priority-Limit erreicht' };
+          }
+          pvPriorityCalls++;
+          console.log(`[PV-Automation] ⚡ PV-Priority-Call ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS}: ${deviceId} → ${temperature}°C`);
         }
         if (!tuyaAccessId || !tuyaAccessSecret) {
           return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
@@ -696,6 +708,19 @@ Deno.serve(async (req) => {
 
       const surplus = -reading.power_io;
       const batterySoc = reading.battery_soc || 0;
+      const gridExportForPriority = Math.max(0, -reading.power_io);
+
+      // ============= PV-PRIORITY-MODUS =============
+      // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
+      // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
+      if (quotaExhausted && controlMode === 'cloud' && !localServiceActive) {
+        if (gridExportForPriority > 3000 && batterySoc > 90) {
+          pvPriorityMode = true;
+          console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
+        } else {
+          console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett (${rooms?.length || 0} Räume)`);
+        }
+      }
 
       const minBatterySoc = settings?.min_battery_soc || 20;
       const thresholdOn = settings?.pv_surplus_threshold_on || DEFAULT_PV_SURPLUS_THRESHOLD_ON;
@@ -728,7 +753,7 @@ Deno.serve(async (req) => {
         if (!quotaData?.last_sync_at) return true;
         const lastSync = new Date(quotaData.last_sync_at).getTime();
         const minutesSinceSync = (Date.now() - lastSync) / (1000 * 60);
-        return minutesSinceSync >= 15;
+        return minutesSinceSync >= 30; // 30 Minuten statt 15 → spart ~50% Sync-Quota
       })();
 
       if (shouldSync) {
@@ -747,10 +772,10 @@ Deno.serve(async (req) => {
             const syncResult = await syncResponse.json();
             console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
             
-            // Quota: Sync = 2 API calls (token + batch status)
+            // Quota: Sync = 1 API call (Token ist gecached, nur batch status zählt)
             if (quotaData) {
-              quotaData.calls_this_month += 2;
-              quotaData.calls_today += 2;
+              quotaData.calls_this_month += 1;
+              quotaData.calls_today += 1;
               quotaData.last_sync_at = new Date().toISOString();
               // Re-check quota after pre-sync
               const effectiveDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
@@ -1273,10 +1298,9 @@ Deno.serve(async (req) => {
       // now ist bereits oben im Budget-Code definiert
       let tuyaApiCalls = 0; // Track API calls for logging
 
-      // Early Return: Wenn Quota bereits erschöpft, Raum-Loop überspringen
-      // da alle API-Calls sowieso geblockt werden und nur den Counter aufblasen würden
-      if (quotaExhausted && controlMode === 'cloud') {
-        console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett (${rooms.length} Räume)`);
+      // Early Return: Wenn Quota erschöpft UND kein PV-Priority-Modus, Raum-Loop überspringen
+      if (quotaExhausted && controlMode === 'cloud' && !pvPriorityMode) {
+        console.log(`[PV-Automation] ⚠️ Quota erschöpft (kein PV-Priority) - überspringe Raum-Verarbeitung komplett (${rooms.length} Räume)`);
         for (const room of rooms) {
           results.push({
             roomId: room.id,
@@ -2023,7 +2047,8 @@ Deno.serve(async (req) => {
       const quotaInfo = quotaData 
         ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich`
         : '';
-      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}${quotaInfo}${quotaExhausted ? ' ⚠️ QUOTA-FALLBACK aktiv' : ''}`);
+      const pvPriorityInfo = pvPriorityMode ? ` | ⚡ PV-Priority: ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS} Calls` : '';
+      console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}${quotaInfo}${pvPriorityInfo}${quotaExhausted && !pvPriorityMode ? ' ⚠️ QUOTA-FALLBACK aktiv' : ''}`);
 
       return new Response(JSON.stringify({
         success: true,
@@ -2034,6 +2059,8 @@ Deno.serve(async (req) => {
         results,
         tuyaApiCalls,
         quotaExhausted,
+        pvPriorityMode,
+        pvPriorityCalls,
         quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
         evaluatedEvents: evaluationResult?.evaluated || 0
       }), {
