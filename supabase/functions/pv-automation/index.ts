@@ -725,8 +725,18 @@ Deno.serve(async (req) => {
           pvPriorityMode = true;
           console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
         } else {
-          console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett`);
-        }
+          // Quota erschöpft und kein PV-Priority → sofort zurückkehren ohne DB-Writes
+          console.log(`[PV-Automation] ⚠️ Quota erschöpft, kein PV-Priority (Export ${gridExportForPriority}W < 1500W oder SOC ${batterySoc}% < 90%) → SOFORT-RETURN`);
+          return new Response(JSON.stringify({
+            success: true,
+            message: 'Quota erschöpft - übersprungen (kein PV-Priority)',
+            quotaExhausted: true,
+            pvPriorityMode: false,
+            tuyaApiCalls: 0,
+            quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
       }
 
       const minBatterySoc = settings?.min_battery_soc || 20;
