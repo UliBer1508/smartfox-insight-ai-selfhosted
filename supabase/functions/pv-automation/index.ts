@@ -935,13 +935,34 @@ Deno.serve(async (req) => {
             .filter(r => r.is_heating)
             .reduce((sum, r) => sum + (r.calculated_power_w || r.heating_power_w || 800), 0);
           const dynamicTolerance = Math.max(powerBudgetTolerance, Math.round(gridExport * 0.20));
-          availableBudget = Math.max(0, gridExport + currentlyHeatingPower + dynamicTolerance);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W`);
+          
+          // Basis-Budget: gridExport + bereits heizend + Toleranz
+          let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
+          
+          // PV-Prognose-Bonus: Bei guter Vorhersage mehr Budget für Eco
+          // > 15 kWh: alle Räume sollen Eco bekommen (großes Budget)
+          // > 8 kWh: mittleres Extra-Budget
+          // < 8 kWh: nur gridExport nutzen (kein Bonus)
+          let forecastBonus = 0;
+          if (expectedPvKwh >= 15) {
+            forecastBonus = 3000; // Viel PV erwartet → großzügig heizen
+          } else if (expectedPvKwh >= 8) {
+            forecastBonus = 1500; // Mittlere PV → moderater Bonus
+          }
+          
+          availableBudget = Math.max(0, baseBudget + forecastBonus);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W + Prognose-Bonus ${forecastBonus}W (${expectedPvKwh} kWh) = ${availableBudget}W`);
+        } else if (gridExport > 200) {
+          // Wenig PV-Produktion ABER gridExport vorhanden
+          // → gridExport für Eco nutzen (z.B. Batterie speist ins Netz)
+          budgetMode = 'grid_sequential';
+          availableBudget = Math.max(0, gridExport);
+          console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
         } else {
-          // KEIN PV → kein Heizen, Budget = 0
+          // KEIN PV und kein gridExport → kein Heizen
           budgetMode = 'grid_sequential';
           availableBudget = 0;
-          console.log(`[PV-Automation] Wenig PV (${pvPower}W < 500W) - KEIN Heizen, Budget=0W`);
+          console.log(`[PV-Automation] Wenig PV (${pvPower}W) und kein gridExport → KEIN Heizen, Budget=0W`);
         }
       }
       
