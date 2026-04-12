@@ -1,42 +1,50 @@
 
 
-# Warum die KI frei erfundene Settings generiert
+# Warum die Räume trotz 6.5kW Export nicht auf Komfort schalten
 
 ## Ursache
 
-Zeile 271 der Edge Function:
-```
-setting_key: { type: "string", description: "Der Einstellungsschlüssel z.B. comfort_temp, night_temp, hotwater_schedule_start" }
-```
+Das System erkennt den Überschuss korrekt und **will** schalten, aber die Tuya API-Quota ist erschöpft:
 
-Das ist ein **freier String** — die KI bekommt nur 3 Beispiele als Hinweis und erfindet den Rest. Gemini sieht die DB-Spalten nicht und generiert deutsche Bezeichnungen wie `soll_temp`, `heizleistung`, `min_pv_surplus`.
+- **Monatslimit**: 900 Calls
+- **Bereits verbraucht**: 374 (41% nach 12 von 30 Tagen)
+- **Dynamisches Tagesbudget**: 526 Rest / 19 Tage = 27 - 2 Reserve = **25 Calls/Tag**
+- **Heute verbraucht**: **32 Calls** → Budget überschritten
 
-Zusätzlich fehlt im Frontend (`useSettingsSuggestions.ts`) jede Validierung — ein ungültiger Key wird direkt an Supabase geschickt, wo das Update stillschweigend scheitert.
+Das eigentliche Problem ist strukturell: Bei 12 Räumen und einem 2-Minuten-Intervall reichen 25 Calls pro Tag nicht aus. Ein einziger Sync aller 12 Thermostate verbraucht 12 Calls — nach 2 Syncs + ein paar Temperatur-Änderungen ist das Tagesbudget weg.
 
-## Lösung
+## Lösung: Intelligenteres API-Budget-Management
 
-### Änderung 1: Tool-Schema mit striktem Enum (Edge Function)
+### Änderung 1: Sync nur für Räume mit Änderungsbedarf
 
-`supabase/functions/generate-settings-suggestions/index.ts`
+**`supabase/functions/pv-automation/index.ts`**
 
-`setting_key` von `type: "string"` auf `type: "string", enum: [...]` ändern, mit zwei getrennten Beschreibungen:
+Statt alle 12 Thermostate blind zu syncen, nur die Räume kontaktieren bei denen sich die Zieltemperatur tatsächlich ändert. Der Pre-Sync (Status lesen) sollte seltener stattfinden (z.B. alle 30 Minuten statt alle 5) und nur Räume betreffen die gerade heizen oder geschaltet werden sollen.
 
-**Global (heating_settings):** `comfort_temp`, `eco_temp`, `night_temp`, `min_battery_soc`, `target_battery_soc`, `pv_surplus_threshold_on`, `pv_surplus_threshold_off`, `hotwater_min_surplus_w`, `hotwater_schedule_start`, `hotwater_schedule_end`, `hotwater_enabled`, `night_start_time`, `night_end_time`, `night_cycling_enabled`, `avg_night_cycles_per_room`, `pv_boost_temp_delta`, `night_heating_mode`, `estrich_storage_enabled`, `power_budget_enabled`, `max_grid_heating_power_w`
+### Änderung 2: Batch-Temperatur-Befehle gruppieren
 
-**Room (rooms, bei category=room_temp):** `comfort_temp`, `eco_temp`, `night_temp`, `pv_boost_max_temp`, `solar_limit_temp`
+Aktuell wird pro Raum ein eigener API-Call gemacht. Stattdessen:
+- Nur Räume verarbeiten, die tatsächlich eine Temperatur-Änderung brauchen (Differenz >= 0.5°C)
+- "Keine Änderung nötig" Räume überspringen ohne API-Call
+- Dadurch sinkt der Verbrauch von ~12 Calls pro Zyklus auf 2-4
 
-Im System-Prompt diese Listen zusätzlich als Text wiederholen, damit Gemini sie doppelt verankert hat.
+### Änderung 3: PV-Überschuss-Priorität bei Quota-Knappheit
 
-### Änderung 2: Whitelist-Validierung im Frontend
+Wenn das Tagesbudget unter 30% ist ABER hoher PV-Überschuss vorliegt (>3kW Export, Batterie >90%):
+- Trotzdem die **Top-3 Prioritäts-Räume** auf Komfort schalten (max 3 Calls)
+- Sync überspringen — nur schreiben, nicht lesen
+- Damit wird das PV-Potenzial genutzt statt Strom ins Netz zu verschenken
 
-`src/hooks/useSettingsSuggestions.ts`
+### Änderung 4: Tages-Counter-Reset prüfen
 
-- Zwei Whitelists definieren (global + room)
-- Vor jedem DB-Update prüfen ob `setting_key` gültig ist
-- Key-Mapping für häufige KI-Fehler: `soll_temp` → `target_temp`, `ziel_temp` → `target_temp`, `min_pv_surplus` → `hotwater_min_surplus_w`
-- Bei ungültigem Key: Toast-Warnung und Vorschlag als fehlgeschlagen markieren
+Der Counter steht auf 32, aber es ist unklar ob wirklich 32 erfolgreiche API-Calls stattfanden oder ob der Counter durch fehlgeschlagene Calls aufgebläht wurde. Sicherstellen dass nur erfolgreiche Calls gezählt werden (das wurde laut Memory bereits implementiert — prüfen ob es korrekt funktioniert).
 
 ### Betroffene Dateien
-1. `supabase/functions/generate-settings-suggestions/index.ts` — Enum im Tool-Schema + Prompt-Ergänzung
-2. `src/hooks/useSettingsSuggestions.ts` — Whitelist + Mapping + Fehlerbehandlung
+1. `supabase/functions/pv-automation/index.ts` — Sync-Optimierung, PV-Priorität bei Quota-Knappheit, selektivere API-Calls
+
+### Technische Details
+- Pre-Sync Intervall von 5 auf 30 Minuten erhöhen
+- Temperatur-Änderungen nur senden wenn Differenz >= 0.5°C
+- Neuer Modus `quota_low_pv_priority`: Bei <30% Tagesbudget + >3kW Export werden max 3 priorisierte Räume geschaltet
+- Geschätzter Effekt: Tagesverbrauch sinkt von ~30-40 auf ~10-15 Calls
 
