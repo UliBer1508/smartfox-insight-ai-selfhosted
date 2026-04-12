@@ -869,12 +869,18 @@ Deno.serve(async (req) => {
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
       const { data: pvForecast } = await supabase
         .from('pv_forecasts')
-        .select('expected_kwh, hourly_watts')
+        .select('expected_kwh, hourly_watts, sunset')
         .eq('date', today)
         .single();
 
       const expectedPvKwh = pvForecast?.expected_kwh || 0;
       const hourlyWatts = (pvForecast?.hourly_watts || {}) as Record<string, number>;
+      
+      // Sonnenuntergang erkennen für Batterie-Reserve-Logik
+      const sunsetStr = pvForecast?.sunset as string | null; // z.B. "19:45:00"
+      const sunsetHour = sunsetStr ? parseInt(sunsetStr.split(':')[0], 10) : 20; // Fallback 20:00
+      const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '06:00');
+      const afterSunset = currentWienHour >= sunsetHour;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
       const boostDelta = settings?.pv_boost_temp_delta || 2;
@@ -937,6 +943,18 @@ Deno.serve(async (req) => {
       // Grundlast schätzen (Verbrauch ohne Heizung, typisch 400-600W)
       const baseLoad = 500; // TODO: könnte aus Verbrauchs-Analyse kommen
       
+      // Eco-Räume zählen die noch unter Eco-Temperatur sind
+      const ecoRoomsRemaining = rooms.filter(r => {
+        const ecoTemp = r.eco_temp || settings?.eco_temp || 19;
+        return r.automation_enabled && (r.current_temp || 0) < ecoTemp;
+      }).length;
+      
+      // Batterie-Abend-Reserve: Nach Sonnenuntergang darf Batterie für Eco genutzt werden
+      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > 50;
+      if (batteryEcoReserveAllowed) {
+        console.log(`[PV-Automation] 🌅 Abend-Modus: ${ecoRoomsRemaining} Räume unter Eco, SOC ${batterySoc}% > 50% → Batterie-Reserve für Eco freigegeben (bis SOC 50%)`);
+      }
+
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
@@ -954,28 +972,42 @@ Deno.serve(async (req) => {
           // Basis-Budget: gridExport + bereits heizend + Toleranz
           let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
           
-          // Batterie-Schutz: Wenn Batterie entlädt, ist das Budget zu hoch geschätzt
-          // Batterie-Entladung bedeutet: PV reicht nicht für alles → Budget reduzieren
+          // Batterie-Schutz: Wenn Batterie entlädt, Budget reduzieren
+          // ABER: Tagsüber immer aktiv, nach Sunset nur für Komfort (nicht für Eco)
           if (batteryPower < 0) {
             const batteryDrain = Math.abs(batteryPower);
-            baseBudget = Math.max(0, baseBudget - batteryDrain);
-            console.log(`[PV-Automation] ⚡ Batterie-Korrektur: ${batteryDrain}W Entladung → Eco-Budget reduziert auf ${baseBudget}W`);
+            if (!batteryEcoReserveAllowed) {
+              // Tagsüber oder SOC <= 50%: Batterie-Korrektur für ALLES (Eco + Komfort)
+              baseBudget = Math.max(0, baseBudget - batteryDrain);
+              console.log(`[PV-Automation] ⚡ Batterie-Korrektur: ${batteryDrain}W Entladung → Eco-Budget reduziert auf ${baseBudget}W`);
+            } else {
+              // Nach Sunset + SOC > 50%: Eco-Budget NICHT reduzieren (Batterie für Eco erlaubt)
+              console.log(`[PV-Automation] 🌅 Batterie-Korrektur für Eco aufgehoben: ${batteryDrain}W Entladung erlaubt (Abend-Reserve, SOC ${batterySoc}%)`);
+            }
           }
           
           availableBudget = Math.max(0, baseBudget);
           
-          // Separates Komfort-Budget: NUR echter Überschuss (gridExport + bereits heizend)
+          // Separates Komfort-Budget: IMMER strikt — Batterie nie für Komfort
           let rawComfortBudget = gridExport + currentlyHeatingPower;
           if (batteryPower < 0) {
             rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
           }
           comfortBudget = Math.max(0, rawComfortBudget);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W - Batterie-Korrektur ${batteryPower < 0 ? Math.abs(batteryPower) : 0}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W`);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}) | Komfort-Budget: ${comfortBudget}W`);
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
           comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
+        } else if (batteryEcoReserveAllowed) {
+          // Nach Sunset, kein PV, aber Batterie-Reserve für Eco erlaubt
+          budgetMode = 'grid_sequential';
+          // Budget = was die Batterie liefern kann (typisch 2000-3000W Entladeleistung)
+          const batteryDischargePower = Math.abs(batteryPower) > 0 ? Math.abs(batteryPower) : 2000;
+          availableBudget = batteryDischargePower;
+          comfortBudget = 0; // Kein Komfort aus Batterie!
+          console.log(`[PV-Automation] 🌅 Abend-Modus: Kein PV, Batterie-Reserve für Eco → Budget ${availableBudget}W (nur Eco, kein Komfort)`);
         } else {
           budgetMode = 'grid_sequential';
           availableBudget = 0;
