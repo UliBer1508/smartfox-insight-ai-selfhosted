@@ -91,13 +91,13 @@ export function useSettingsSuggestions() {
           toast.error(`Raum "${suggestion.room_name}" nicht gefunden`);
           return false;
         }
-        const { error } = await supabase.from('rooms').update({ [suggestion.setting_key]: value }).eq('id', room.id);
+        const { error } = await supabase.from('rooms').update({ [resolvedKey]: value }).eq('id', room.id);
         if (error) throw error;
       } else {
         // Update global heating_settings
         const { data: settings } = await supabase.from('heating_settings').select('id').limit(1).single();
         if (!settings) throw new Error('Keine Einstellungen gefunden');
-        const { error } = await supabase.from('heating_settings').update({ [suggestion.setting_key]: value }).eq('id', settings.id);
+        const { error } = await supabase.from('heating_settings').update({ [resolvedKey]: value }).eq('id', settings.id);
         if (error) throw error;
       }
 
@@ -105,7 +105,7 @@ export function useSettingsSuggestions() {
       setSuggestions(prev => prev.map(s => 
         s === suggestion ? { ...s, applied: true } : s
       ));
-      toast.success(`${suggestion.setting_key} auf ${suggestion.suggested_value} geändert`);
+      toast.success(`${resolvedKey} auf ${suggestion.suggested_value} geändert`);
       return true;
     } catch (error) {
       console.error('Failed to apply suggestion:', error);
