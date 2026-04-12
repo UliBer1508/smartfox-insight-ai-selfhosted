@@ -29,6 +29,17 @@ const getProgressColor = (diff: number) => {
   return 'bg-red-400';
 };
 
+const getHeatingStatus = (room: Room): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
+  if (room.is_heating) {
+    return { label: 'Heizt', dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
+  }
+  // "Wartend": target is set, current temp is below target (hysteresis zone)
+  if (room.target_temp != null && room.current_temp != null && room.target_temp - room.current_temp > 0.3) {
+    return { label: 'Wartend', dotClass: 'bg-orange-400 animate-pulse', badgeClass: 'bg-orange-400/10 text-orange-500', icon: Clock };
+  }
+  return { label: 'Aus', dotClass: 'bg-muted-foreground/40', badgeClass: 'bg-muted text-muted-foreground' };
+};
+
 const getHeatingMode = (room: Room) => {
   if (room.target_temp == null) return null;
   const night = room.night_temp ?? 16;
