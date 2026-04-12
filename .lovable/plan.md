@@ -1,80 +1,76 @@
 
 
-# Fix: Zimmer Luis & Luca bleiben auf Nacht statt Eco/Komfort geheizt zu werden
+# Fix: Phase-2-Komfort-Upgrade für Räume die in Phase 1 Eco bekamen
 
-## Problem-Analyse
+## Problem (eine Zeile)
 
-Aktueller Zustand laut Datenbank:
-- **Zimmer Luis** (Prio 3): `target_temp = 18.5°C`, `current_temp = 19.8°C`, `eco_temp = 18.5`, `night_temp = 18.5`, `comfort_temp = 20`
-- **Zimmer Luca** (Prio 4): `target_temp = 18.5°C`, `current_temp = 20.2°C`, `eco_temp = 18.5`, `night_temp = 18.5`, `comfort_temp = 20`
+Zeile 1111 in der Phase-2-Schleife:
+```typescript
+if (existing.targetLevel !== 'none' || !existing.allowedToHeat) continue;
+```
+Das überspringt **alle** Räume mit `targetLevel === 'eco'` — also genau die Räume aus Phase 1, die als nächstes auf Komfort upgraded werden sollten.
 
-**Problem 1 — "Komfort erreicht" obwohl Thermostat auf Nacht steht:**
-Die 2-Phasen-Logik prüft nur `current_temp` gegen `comfort_temp - 0.3`:
-- Luis: 19.8 >= 19.7 → "Komfort erreicht" → `action = 'keep'` → target_temp bleibt 18.5°C
-- Luca: 20.2 >= 19.7 → "Komfort erreicht" → `action = 'keep'` → target_temp bleibt 18.5°C
-
-Das System hält die Räume für "warm genug" und ändert den Thermostat nicht. Aber der Thermostat steht auf 18.5°C — die Räume kühlen auf 18.5°C ab!
-
-**Problem 2 — `eco_temp = night_temp = 18.5°C`:**
-Wenn eco und night identisch sind, kann das System nicht unterscheiden ob ein Raum "auf Eco geheizt" oder "auf Nacht" steht. Die Phase-1-Logik überspringt den Raum ("already >= eco"), Phase 2 sagt "Komfort erreicht" — und niemand stellt den Thermostat um.
-
-**Problem 3 — PV-Priority Calls werden für Deaktivierung verschwendet:**
-Der einzige PV-Priority-Call ging an Wirtschaftsraum (18°C deaktivieren), statt an Räume die aufgeheizt werden müssen.
+**Beispiel Bad Uli:**
+- Phase 1: Bad Uli → Eco (600W Budget verbraucht) ✅
+- Phase 2: `targetLevel === 'eco'` → `'eco' !== 'none'` → **skip** ❌
+- Bad Uli bleibt auf Eco, obwohl Budget für Komfort da wäre
 
 ## Lösung
 
-### 1. Thermostat-Zieltemperatur in die Budget-Logik einbeziehen
-Die 2-Phasen-Logik muss nicht nur `current_temp` prüfen, sondern auch `target_temp`. Wenn ein Raum zwar warm genug ist, aber der Thermostat auf `night_temp` steht, muss der Thermostat trotzdem auf `eco_temp` bzw. `comfort_temp` gestellt werden.
+**Datei: `supabase/functions/pv-automation/index.ts`**, Zeilen ~1107-1112
 
-**Datei: `supabase/functions/pv-automation/index.ts`**
-
-In der Eco-Runde (Zeile ~1070) und Komfort-Runde (Zeile ~1109) zusätzlich prüfen: Steht der Thermostat (`target_temp`) noch auf `night_temp`? Dann muss er auf eco/comfort gesetzt werden, auch wenn die Raumtemperatur bereits stimmt.
+Phase 2 muss Räume mit `targetLevel === 'eco'` zulassen und auf Komfort upgraden. Da diese Räume bereits Budget verbrauchen (heizen ja schon), ist **kein zusätzliches Budget** nötig — der Thermostat wird nur höher gestellt.
 
 ```typescript
-// Phase 1: Eco-Runde — NEUE Logik
-if (currentTemp < ecoTemp - 0.3 || rp.room.target_temp <= rp.room.night_temp) {
-  // Raum braucht eco (entweder zu kalt ODER Thermostat steht noch auf Nacht)
-  ...
+// Vorher (Zeile 1107-1112):
+if (roomBudgetStatus.has(rp.room.id)) {
+  const existing = roomBudgetStatus.get(rp.room.id)!;
+  if (existing.targetLevel !== 'none' || !existing.allowedToHeat) continue;
 }
 
-// Phase 2: Komfort-Runde — NEUE Logik  
-if (currentTemp >= ecoTemp - 0.3 && (currentTemp < comfortTemp - 0.3 || rp.room.target_temp < comfortTemp)) {
-  // Raum braucht comfort upgrade
-  ...
-}
-```
-
-### 2. "Keep" bei niedrigem Thermostat-Target korrigieren
-In der PV-Heizlogik (Zeile ~1701-1735): Wenn `action = 'keep'` aber `target_temp < eco_temp`, dann `action = 'activate'` setzen:
-
-```typescript
-if (targetLevel === 'comfort') {
-  if (currentRoomTemp < comfortTemp - 0.3 || currentTargetTemp < comfortTemp) {
-    action = 'activate';
-    targetTemp = comfortTemp;
-    ...
-  }
-} else if (targetLevel === 'eco') {
-  if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
-    action = 'activate';
-    targetTemp = ecoTemp;
-    ...
+// Nachher:
+if (roomBudgetStatus.has(rp.room.id)) {
+  const existing = roomBudgetStatus.get(rp.room.id)!;
+  // Räume auf Eco dürfen auf Komfort upgraded werden (kein Extra-Budget nötig)
+  if (existing.targetLevel === 'eco' && existing.allowedToHeat) {
+    // Weiter zur Komfort-Prüfung — Budget bereits allokiert
+  } else if (existing.targetLevel !== 'none' || !existing.allowedToHeat) {
+    continue;
   }
 }
 ```
 
-### 3. PV-Priority: Aufheiz-Calls priorisieren vor Deaktivierungen
-Deaktivierungen (Wirtschaftsraum → 18°C) sollen keine PV-Priority-Calls verbrauchen. PV-Priority ist für das **Aufheizen** reserviert.
+Zusätzlich in der Komfort-Budget-Prüfung (Zeile ~1120): Wenn der Raum bereits aus Phase 1 Budget hat, **kein erneutes `usedBudget += heatingPower`**:
 
-**Änderung in der Tuya-Call-Funktion (~Zeile 520-528):**
-PV-Priority-Counter nur bei `activate`-Aktionen hochzählen, nicht bei `deactivate`.
+```typescript
+const alreadyBudgeted = roomBudgetStatus.has(rp.room.id) && 
+  roomBudgetStatus.get(rp.room.id)!.targetLevel === 'eco';
 
-### Betroffene Datei
-- `supabase/functions/pv-automation/index.ts` (3 Stellen anpassen)
+if (alreadyBudgeted || usedBudget + rp.heatingPower <= availableBudget) {
+  if (!alreadyBudgeted) usedBudget += rp.heatingPower;
+  roomBudgetStatus.set(rp.room.id, {
+    allowedToHeat: true,
+    reason: `Komfort-Phase (${usedBudget}/${availableBudget}W)`,
+    shouldRotate: false,
+    targetLevel: 'comfort'
+  });
+}
+```
 
-### Auswirkung nach Deploy
-- Nächster Zyklus erkennt: Zimmer Luis hat `target_temp = 18.5` < `comfort_temp = 20` → muss auf 20°C gesetzt werden
-- Zimmer Luca ebenso
-- PV-Priority-Calls werden für Aufheizung verwendet, nicht für Deaktivierung
-- Reihenfolge bleibt: Bad Uli (1), Zimmer Uli (2), Zimmer Luis (3), Zimmer Luca (4), ...
+## Ergebnis bei ~1800W Budget
+
+```text
+Phase 1 (Eco):
+  Bad Uli (600W) → Eco      [600/1800W]
+  Zimmer Uli (1200W) → Eco  [1800/1800W]
+  Büro → kein Budget
+
+Phase 2 (Komfort):
+  Bad Uli → Komfort ✅ (bereits budgetiert, kein Extra)
+  Zimmer Uli → Komfort ✅ (bereits budgetiert, kein Extra)
+  Büro → kein Budget
+```
+
+## Betroffene Datei
+- `supabase/functions/pv-automation/index.ts` — Zeilen ~1107-1135
 
