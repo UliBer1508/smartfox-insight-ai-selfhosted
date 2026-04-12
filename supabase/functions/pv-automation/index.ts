@@ -1690,61 +1690,47 @@ Deno.serve(async (req) => {
                 }
                 console.log(`[PV-Automation] ${room.name}: GRID-HEIZEN - ${reasoning}`);
               } else {
-                // ============= 4-STUFEN PV-HEIZLOGIK =============
-                // Jede Stufe prüft gridExport >= heatingPower → NIE Netzstrom!
+                // ============= 2-PHASEN PV-HEIZLOGIK =============
+                // targetLevel wurde in der Budget-Zuweisung bestimmt (eco oder comfort)
+                // Keine Batterie-Bedingung! Budget = gridExport + heizende Räume + Toleranz
                 const rp = roomsWithPriority.find(r => r.room.id === room.id);
                 const roomHeatingPower = rp?.heatingPower || 800;
-                const budgetStatus = roomBudgetStatus.get(room.id);
-                const exportCoversRoom = budgetStatus?.allowedToHeat === true;
-                console.log(`[PV-Automation] ${room.name}: Budget-Check → ${exportCoversRoom ? '✅' : '❌'} (${budgetStatus?.reason || 'kein Status'}, Leistung: ${roomHeatingPower}W)`);
-                const batteryFull = batterySoc >= 95;
+                const targetLevel = budgetStatus.targetLevel;
+                console.log(`[PV-Automation] ${room.name}: 2-Phasen-Check → Level: ${targetLevel} (${budgetStatus.reason}, ${roomHeatingPower}W)`);
                 
-                if (currentRoomTemp <= ecoTemp - 0.3) {
-                  // STUFE 1: Unter eco_temp → auf eco heizen (wenn Export reicht)
-                  if (exportCoversRoom) {
+                if (targetLevel === 'comfort' || targetLevel === 'super_comfort') {
+                  // Phase 2: Auf Komfort heizen
+                  if (currentRoomTemp < comfortTemp - 0.3) {
                     action = 'activate';
-                    targetTemp = ecoTemp;
-                    reasoning = `☀️ Stufe 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Export ${gridExport}W >= Heizleistung ${roomHeatingPower}W)`;
-                  } else {
-                    action = 'keep';
-                    targetTemp = ecoTemp;
-                    reasoning = `⏸️ Eco warten (Export ${gridExport}W < Heizleistung ${roomHeatingPower}W → kein Netzstrom)`;
-                  }
-                } else if (currentRoomTemp <= comfortTemp - 0.3 && exportCoversRoom && batteryFull) {
-                  // STUFE 2: Bei eco, Batterie voll, Budget erlaubt → auf comfort heizen
-                  // Kein Warmwasser-Check nötig: Smartfox steuert WW eigenständig, gridExport ist bereits Netto-Überschuss
-                  action = 'activate';
-                  targetTemp = comfortTemp;
-                  reasoning = `☀️ Stufe 2: Komfort ${comfortTemp}°C (Batterie ${batterySoc}%, Budget OK, Export ${gridExport}W)`;
-                } else if (allRoomsAtComfort && exportCoversRoom && batteryFull && currentRoomTemp >= comfortTemp - 0.3) {
-                  // STUFE 3: Alle auf comfort, immer noch Export → Super-Comfort (+1°C)
-                  // Nur für den Raum mit der höchsten Priorität
-                  const highestPriorityRoom = roomsWithPriority[0];
-                  if (highestPriorityRoom && highestPriorityRoom.room.id === room.id) {
-                    action = 'activate';
-                    targetTemp = comfortTemp + 1;
-                    reasoning = `🔥 Stufe 3: Super-Komfort ${comfortTemp + 1}°C (alle Räume ≥ comfort, Export ${gridExport}W, Batterie ${batterySoc}%)`;
+                    targetTemp = targetLevel === 'super_comfort' ? comfortTemp + 1 : comfortTemp;
+                    reasoning = `☀️ Phase 2: Komfort ${targetTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget OK: ${budgetStatus.reason})`;
                   } else {
                     action = 'keep';
                     targetTemp = comfortTemp;
-                    reasoning = `✅ Komfort erreicht (${currentRoomTemp.toFixed(1)}°C), Super-Komfort nur für Prio-Raum`;
+                    reasoning = `✅ Komfort erreicht (${currentRoomTemp.toFixed(1)}°C ≥ ${comfortTemp}°C)`;
                   }
-                } else {
-                  // STUFE 4: Halten — ABER falsches Target korrigieren
-                  if (currentTargetTemp < ecoTemp - 1 && exportCoversRoom) {
+                } else if (targetLevel === 'eco') {
+                  // Phase 1: Auf Eco heizen
+                  if (currentRoomTemp < ecoTemp - 0.3) {
                     action = 'activate';
                     targetTemp = ecoTemp;
-                    reasoning = `🔧 Target-Korrektur: Thermostat bei ${currentTargetTemp}°C statt ${ecoTemp}°C → korrigiere auf Eco`;
+                    reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Budget OK: ${budgetStatus.reason})`;
+                  } else {
+                    // Eco erreicht, aber kein Budget für Komfort
+                    action = 'keep';
+                    targetTemp = ecoTemp;
+                    reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), kein Komfort-Budget`;
+                  }
+                } else {
+                  // Fallback: Target-Korrektur wenn Thermostat zu niedrig
+                  if (currentTargetTemp < ecoTemp - 1) {
+                    action = 'activate';
+                    targetTemp = ecoTemp;
+                    reasoning = `🔧 Target-Korrektur: Thermostat bei ${currentTargetTemp}°C → ${ecoTemp}°C`;
                   } else {
                     action = 'keep';
                     targetTemp = currentRoomTemp >= ecoTemp ? ecoTemp : currentTargetTemp;
-                    if (!exportCoversRoom && currentRoomTemp >= ecoTemp - 0.3) {
-                      reasoning = `✅ Eco erreicht (${currentRoomTemp.toFixed(1)}°C), Export ${gridExport}W < ${roomHeatingPower}W → halten`;
-                    } else if (!batteryFull) {
-                      reasoning = `⏸️ Batterie erst ${batterySoc}% (< 95%) → kein Komfort-Heizen`;
-                    } else {
-                      reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
-                    }
+                    reasoning = `✅ Halten (${currentRoomTemp.toFixed(1)}°C)`;
                   }
                 }
                 console.log(`[PV-Automation] ${room.name}: PV-HEIZEN - ${reasoning}`);
