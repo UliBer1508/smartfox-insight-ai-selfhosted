@@ -740,7 +740,7 @@ Deno.serve(async (req) => {
         if (!quotaData?.last_sync_at) return true;
         const lastSync = new Date(quotaData.last_sync_at).getTime();
         const minutesSinceSync = (Date.now() - lastSync) / (1000 * 60);
-        return minutesSinceSync >= 15;
+        return minutesSinceSync >= 30; // 30 Minuten statt 15 → spart ~50% Sync-Quota
       })();
 
       if (shouldSync) {
