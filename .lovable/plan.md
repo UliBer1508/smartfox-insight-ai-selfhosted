@@ -1,34 +1,32 @@
 
 
-# Bug-Fix: PV-Automation crasht — `rooms` wird vor Deklaration verwendet
+# Fix: PV-Priority-Modus vereinfachen — nur Grid-Export zählt
 
 ## Problem
-Die pv-automation Edge Function crasht bei **jedem Aufruf** mit:
-```
-ReferenceError: Cannot access 'rooms' before initialization
-```
+Die aktuelle PV-Priority-Bedingung (Zeile 716-717) hat zwei Blocker:
+1. `!localServiceActive` verhindert Aktivierung, obwohl `controlMode === 'cloud'`
+2. `batterySoc > 90` ist irrelevant — die Batterie kann nicht beeinflusst werden. Was zählt ist nur, wie viel ins Netz exportiert wird (`gridExportForPriority`)
+3. `gridExportForPriority > 3000` ist zu hoch — bei 2kW+ Export lohnt es sich bereits zu heizen
 
-**Ursache:** Zeile 721 referenziert `rooms?.length` **bevor** die Variable auf Zeile 735 mit `let` deklariert wird. JavaScript's Temporal Dead Zone verhindert den Zugriff.
-
-Das bedeutet: **Kein Raum wird aktuell geheizt** — weder Eco noch Komfort. Deshalb bleibt Bad Uli auf Eco stehen (der letzte Wert bevor der Fehler auftrat).
-
-## Fix
+## Lösung (2 Änderungen in Zeile 716-717)
 
 ### Datei: `supabase/functions/pv-automation/index.ts`
 
-**Zeile 721** — die Referenz auf `rooms` durch `'unbekannt'` oder `0` ersetzen, da die Raumdaten zu diesem Zeitpunkt noch nicht geladen sind:
-
 ```typescript
-// Vorher (Zeile 721):
-console.log(`... (${rooms?.length || 0} Räume)`);
+// Vorher (Zeile 716-717):
+if (quotaExhausted && controlMode === 'cloud' && !localServiceActive) {
+  if (gridExportForPriority > 3000 && batterySoc > 90) {
 
 // Nachher:
-console.log(`... überspringe Raum-Verarbeitung komplett`);
+if (quotaExhausted && controlMode === 'cloud') {
+  if (gridExportForPriority > 2000) {
 ```
 
-Das ist ein Ein-Zeilen-Fix, der den Crash behebt. Danach läuft die 2-Phasen-Logik (Eco → Komfort) wieder korrekt und Bad Uli wird sequentiell auf die richtige Stufe geheizt.
+**Änderungen:**
+- `!localServiceActive` entfernt — blockiert fälschlich im Cloud-Modus
+- `batterySoc > 90` entfernt — Batterie ist nicht steuerbar, nur der Export zählt
+- Schwelle von 3000W auf **2000W** gesenkt — bei 2kW+ Export wird PV-Strom verschenkt
 
-### Deployment
-- Edge Function `pv-automation` neu deployen
-- Beim nächsten 2-Minuten-Zyklus werden die Räume wieder korrekt verarbeitet
+### Auswirkung
+Bei >2kW Grid-Export wird PV-Priority aktiviert und bis zu 6 API-Calls erlaubt, um die Top-Prioritäts-Räume auf Komfort zu stellen — unabhängig von Batterie-Stand oder Quota.
 
