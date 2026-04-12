@@ -897,9 +897,10 @@ Deno.serve(async (req) => {
       const { wienHour: currentHourForForecast } = isNightTime('22:00', '06:00');
       if (currentHourForForecast >= 8 && Object.keys(hourlyWatts).length > 0) {
         // Summe der prognostizierten Wh bis zur aktuellen Stunde
+        // BUG-FIX: hourly_watts Keys sind "2026-04-12 07:00:00", nicht "7"
         let forecastSoFarWh = 0;
         for (let h = 6; h < currentHourForForecast; h++) {
-          const key = String(h);
+          const key = `${today} ${h.toString().padStart(2, '0')}:00:00`;
           forecastSoFarWh += (hourlyWatts[key] || 0);
         }
         
@@ -922,6 +923,67 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Grundlast schätzen (Verbrauch ohne Heizung, typisch 400-600W)
+      const baseLoad = 500; // TODO: könnte aus Verbrauchs-Analyse kommen
+      
+      // ============= PV-TAGESPROGNOSE: Verbleibende Energie berechnen =============
+      // Summe der prognostizierten Watt von jetzt bis Sonnenuntergang
+      let remainingPvForecastWh = 0;
+      const sunriseStr2 = pvForecast?.sunrise as string | null;
+      const sunriseHour = sunriseStr2 ? parseInt(sunriseStr2.split(':')[0], 10) : 6;
+      const hoursUntilSunset = Math.max(0, sunsetHour - currentWienHour);
+      
+      if (!afterSunset) {
+        for (let h = currentWienHour; h < sunsetHour; h++) {
+          const key = `${today} ${h.toString().padStart(2, '0')}:00:00`;
+          remainingPvForecastWh += (hourlyWatts[key] || 0);
+        }
+      }
+      
+      // Korrigieren mit Prognose-Genauigkeit und Grundlast abziehen
+      const remainingPvForHeatingWh = Math.max(0, 
+        (remainingPvForecastWh * forecastAccuracy) - (baseLoad * hoursUntilSunset)
+      );
+      
+      // ============= ECO-ENERGIEBEDARF ALLER RÄUME =============
+      let totalEcoEnergyNeededWh = 0;
+      const ecoRoomDetails: Array<{name: string, neededWh: number, tempDiff: number}> = [];
+      
+      for (const room of rooms) {
+        if (!room.automation_enabled) continue;
+        const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
+        const currentTemp = room.current_temp || 0;
+        if (currentTemp >= ecoTemp) continue;
+        
+        const tempDiff = ecoTemp - currentTemp;
+        const heatingPower = room.calculated_power_w || room.heating_power_w || 800;
+        
+        // ML-Features für genauere Schätzung nutzen
+        const mlFeature = mlFeatures.find(f => f.room_id === room.id);
+        let energyNeededWh: number;
+        
+        if (mlFeature?.energy_per_degree_wh && mlFeature.energy_per_degree_wh > 0) {
+          energyNeededWh = tempDiff * mlFeature.energy_per_degree_wh;
+        } else {
+          // Fallback: heatingPower × geschätzte Dauer (ca. 45 Min pro Grad)
+          const estimatedMinutes = tempDiff * 45;
+          energyNeededWh = (heatingPower * estimatedMinutes) / 60;
+        }
+        
+        totalEcoEnergyNeededWh += energyNeededWh;
+        ecoRoomDetails.push({ name: room.name, neededWh: Math.round(energyNeededWh), tempDiff: Math.round(tempDiff * 10) / 10 });
+      }
+      
+      const pvSufficientForEco = remainingPvForHeatingWh >= totalEcoEnergyNeededWh;
+      console.log(`[PV-Automation] 📊 Tagesprognose: PV-Rest=${(remainingPvForHeatingWh/1000).toFixed(1)}kWh, Eco-Bedarf=${(totalEcoEnergyNeededWh/1000).toFixed(1)}kWh → ${pvSufficientForEco ? '✅ REICHT' : '⚠️ REICHT NICHT'} | Accuracy=${(forecastAccuracy*100).toFixed(0)}%`);
+      if (ecoRoomDetails.length > 0) {
+        console.log(`[PV-Automation] 📊 Eco-Räume: ${ecoRoomDetails.map(r => `${r.name} (${r.tempDiff}°→${r.neededWh}Wh)`).join(', ')}`);
+      }
+      
+      // Aktuelle Stunden-Prognose für Mindest-Budget
+      const currentHourForecastW = hourlyWatts[`${today} ${currentWienHour.toString().padStart(2, '0')}:00:00`] || 0;
+      const currentHourForecastCorrected = currentHourForecastW * forecastAccuracy;
+
       const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
@@ -940,21 +1002,6 @@ Deno.serve(async (req) => {
       const roomRotationMinutes = settings?.room_rotation_minutes || 30;
       const minRoomPauseMinutes = settings?.min_room_pause_minutes || 15;
       
-      // Grundlast schätzen (Verbrauch ohne Heizung, typisch 400-600W)
-      const baseLoad = 500; // TODO: könnte aus Verbrauchs-Analyse kommen
-      
-      // Eco-Räume zählen die noch unter Eco-Temperatur sind
-      const ecoRoomsRemaining = rooms.filter(r => {
-        const ecoTemp = r.eco_temp || settings?.eco_temp || 19;
-        return r.automation_enabled && (r.current_temp || 0) < ecoTemp;
-      }).length;
-      
-      // Batterie-Abend-Reserve: Nach Sonnenuntergang darf Batterie für Eco genutzt werden
-      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > 50;
-      if (batteryEcoReserveAllowed) {
-        console.log(`[PV-Automation] 🌅 Abend-Modus: ${ecoRoomsRemaining} Räume unter Eco, SOC ${batterySoc}% > 50% → Batterie-Reserve für Eco freigegeben (bis SOC 50%)`);
-      }
-
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
@@ -971,6 +1018,15 @@ Deno.serve(async (req) => {
           
           // Basis-Budget: gridExport + bereits heizend + Toleranz
           let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
+          
+          // Prognose-Mindest-Budget für Eco: Wenn Tagesprognose reicht, mindestens Stunden-Prognose nutzen
+          if (pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+            const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
+            if (forecastMinBudget > baseBudget) {
+              console.log(`[PV-Automation] ☀️ Prognose-Budget: Tages-PV reicht für Eco → Mindest-Budget ${Math.round(forecastMinBudget)}W (Stunden-Prognose ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W) statt aktuell ${Math.round(baseBudget)}W`);
+              baseBudget = forecastMinBudget;
+            }
+          }
           
           // Batterie-Schutz: Wenn Batterie entlädt, Budget reduzieren
           // ABER: Tagsüber immer aktiv, nach Sunset nur für Komfort (nicht für Eco)
@@ -994,12 +1050,19 @@ Deno.serve(async (req) => {
             rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
           }
           comfortBudget = Math.max(0, rawComfortBudget);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}) | Komfort-Budget: ${comfortBudget}W`);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}) | Komfort-Budget: ${comfortBudget}W`);
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
           comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
+        } else if (!afterSunset && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
+          // Tagsüber, wenig aktueller PV-Export, aber Tagesprognose reicht für Eco
+          // → Mindest-Budget aus Stunden-Prognose erlauben (sequentielles Heizen)
+          budgetMode = 'grid_sequential';
+          availableBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
+          comfortBudget = 0; // Kein Komfort bei wenig aktuellem Überschuss
+          console.log(`[PV-Automation] ☀️ Wenig PV aktuell (${pvPower}W) aber Tagesprognose reicht → Eco-Budget aus Prognose: ${Math.round(availableBudget)}W (Stunde: ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W)`);
         } else if (batteryEcoReserveAllowed) {
           // Nach Sunset, kein PV, aber Batterie-Reserve für Eco erlaubt
           budgetMode = 'grid_sequential';
