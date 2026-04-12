@@ -13,6 +13,22 @@ interface RoomStatusTableProps {
   onSavePriority?: (roomId: string, priority: number) => void;
 }
 
+const getProgress = (room: Room) => {
+  if (room.current_temp == null || room.target_temp == null) return null;
+  const night = room.night_temp ?? 16;
+  const range = room.target_temp - night;
+  if (range <= 0) return { percent: 100, diff: 0 };
+  const percent = Math.min(100, Math.max(0, ((room.current_temp - night) / range) * 100));
+  const diff = Math.round((room.target_temp - room.current_temp) * 10) / 10;
+  return { percent, diff };
+};
+
+const getProgressColor = (diff: number) => {
+  if (diff <= 0.2) return 'bg-green-500';
+  if (diff <= 1.0) return 'bg-orange-400';
+  return 'bg-red-400';
+};
+
 const getHeatingMode = (room: Room) => {
   if (room.target_temp == null) return null;
   const night = room.night_temp ?? 16;
