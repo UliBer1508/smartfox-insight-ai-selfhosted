@@ -708,6 +708,19 @@ Deno.serve(async (req) => {
 
       const surplus = -reading.power_io;
       const batterySoc = reading.battery_soc || 0;
+      const gridExportForPriority = Math.max(0, -reading.power_io);
+
+      // ============= PV-PRIORITY-MODUS =============
+      // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
+      // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
+      if (quotaExhausted && controlMode === 'cloud' && !localServiceActive) {
+        if (gridExportForPriority > 3000 && batterySoc > 90) {
+          pvPriorityMode = true;
+          console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
+        } else {
+          console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett (${rooms?.length || 0} Räume)`);
+        }
+      }
 
       const minBatterySoc = settings?.min_battery_soc || 20;
       const thresholdOn = settings?.pv_surplus_threshold_on || DEFAULT_PV_SURPLUS_THRESHOLD_ON;
