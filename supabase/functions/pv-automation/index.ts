@@ -967,15 +967,14 @@ Deno.serve(async (req) => {
           comfortBudget = Math.max(0, gridExport + currentlyHeatingPower);
           console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W (nur echter Überschuss)`);
         } else if (gridExport > 200) {
-          // Wenig PV-Produktion ABER gridExport vorhanden
-          // → gridExport für Eco nutzen (z.B. Batterie speist ins Netz)
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
+          comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
         } else {
-          // KEIN PV und kein gridExport → kein Heizen
           budgetMode = 'grid_sequential';
           availableBudget = 0;
+          comfortBudget = 0;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) und kein gridExport → KEIN Heizen, Budget=0W`);
         }
       }
