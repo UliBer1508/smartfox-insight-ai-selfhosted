@@ -320,7 +320,7 @@ Deno.serve(async (req) => {
       let quotaExhausted = false;
       let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
       let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 3)
-      const PV_PRIORITY_MAX_CALLS = 6;
+      const PV_PRIORITY_MAX_CALLS = 3;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
@@ -721,11 +721,22 @@ Deno.serve(async (req) => {
       // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
       if (quotaExhausted && controlMode === 'cloud') {
-        if (gridExportForPriority > 500) {
+        if (gridExportForPriority > 1500 && batterySoc >= 90) {
           pvPriorityMode = true;
           console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
         } else {
-          console.log(`[PV-Automation] ⚠️ Quota erschöpft - überspringe Raum-Verarbeitung komplett`);
+          // Quota erschöpft und kein PV-Priority → sofort zurückkehren ohne DB-Writes
+          console.log(`[PV-Automation] ⚠️ Quota erschöpft, kein PV-Priority (Export ${gridExportForPriority}W < 1500W oder SOC ${batterySoc}% < 90%) → SOFORT-RETURN`);
+          return new Response(JSON.stringify({
+            success: true,
+            message: 'Quota erschöpft - übersprungen (kein PV-Priority)',
+            quotaExhausted: true,
+            pvPriorityMode: false,
+            tuyaApiCalls: 0,
+            quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
         }
       }
 
@@ -760,7 +771,7 @@ Deno.serve(async (req) => {
         if (!quotaData?.last_sync_at) return true;
         const lastSync = new Date(quotaData.last_sync_at).getTime();
         const minutesSinceSync = (Date.now() - lastSync) / (1000 * 60);
-        return minutesSinceSync >= 30; // 30 Minuten statt 15 → spart ~50% Sync-Quota
+        return minutesSinceSync >= 120; // 120 Minuten statt 30 → drastische Quota-Ersparnis
       })();
 
       if (shouldSync) {
@@ -779,10 +790,10 @@ Deno.serve(async (req) => {
             const syncResult = await syncResponse.json();
             console.log(`[PV-Automation] Pre-sync erfolgreich: ${syncResult.results?.length || 0} Räume synchronisiert`);
             
-            // Quota: Sync = 1 API call (Token ist gecached, nur batch status zählt)
+            // Quota: Sync = 2 API calls (Token-Refresh + Batch-Status)
             if (quotaData) {
-              quotaData.calls_this_month += 1;
-              quotaData.calls_today += 1;
+              quotaData.calls_this_month += 2;
+              quotaData.calls_today += 2;
               quotaData.last_sync_at = new Date().toISOString();
               // Re-check quota after pre-sync
               const effectiveDL = Math.max(1, (quotaData.daily_limit || 33) - 2);
@@ -812,7 +823,7 @@ Deno.serve(async (req) => {
           syncFailed = true;
         }
       } else if (controlMode === 'cloud') {
-        console.log(`[PV-Automation] Pre-sync übersprungen (Throttle: nächster Sync in ${quotaData?.last_sync_at ? Math.max(0, 15 - Math.round((Date.now() - new Date(quotaData.last_sync_at).getTime()) / 60000)) : '?'} Min)`);
+        console.log(`[PV-Automation] Pre-sync übersprungen (Throttle: nächster Sync in ${quotaData?.last_sync_at ? Math.max(0, 120 - Math.round((Date.now() - new Date(quotaData.last_sync_at).getTime()) / 60000)) : '?'} Min)`);
       }
 
       // 4. Load ML features
@@ -1813,7 +1824,7 @@ Deno.serve(async (req) => {
         // ============= STALE-SYNC-CHECK: Force-Push wenn letzter Sync alt ist =============
         const lastSyncTime = room.last_thermostat_sync ? new Date(room.last_thermostat_sync).getTime() : 0;
         const syncAgeMs = Date.now() - lastSyncTime;
-        const syncStale = syncAgeMs > 30 * 60 * 1000; // >30 Minuten (erhöht von 10 um Quota zu schonen)
+        const syncStale = syncAgeMs > 60 * 60 * 1000; // >60 Minuten (erhöht von 30 um Quota zu schonen)
 
         // Kritischer Sicherheitsfall: Bei wenig PV + altem Sync IMMER mindestens Eco/Nacht neu pushen
         // ABER: Nicht wenn Quota erschöpft — dann würde der API-Call sowieso blockiert
