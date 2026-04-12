@@ -128,25 +128,25 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
         </div>
 
         {/* Room temperature table */}
-        <div className="overflow-x-auto -mx-4 px-4">
+        <div className="-mx-4 px-4">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-muted-foreground">
-                <th className="text-left py-2 font-medium">Raum</th>
-                <th className="text-center py-2 font-medium w-16">
+                <th className="text-left py-2 font-medium text-xs">Raum</th>
+                <th className="text-center py-2 font-medium w-10">
                   <Moon className="h-3 w-3 inline text-blue-400" />
                 </th>
-                <th className="text-center py-2 font-medium w-16">
+                <th className="text-center py-2 font-medium w-10">
                   <Zap className="h-3 w-3 inline text-yellow-500" />
                 </th>
-                <th className="text-center py-2 font-medium w-16">
+                <th className="text-center py-2 font-medium w-10">
                   <Sun className="h-3 w-3 inline text-orange-500" />
                 </th>
-                <th className="text-center py-2 font-medium w-12">Prio</th>
-                <th className="text-center py-2 font-medium w-10" title="PV-Automatik">
+                <th className="text-center py-2 font-medium w-8 text-xs">Prio</th>
+                <th className="text-center py-2 font-medium w-8" title="PV-Automatik">
                   <Sun className="h-3 w-3 inline text-amber-500" />
                 </th>
-                <th className="text-center py-2 font-medium w-10" title="KI-Empfehlung">
+                <th className="text-center py-2 font-medium w-8" title="KI-Empfehlung">
                   <Bot className="h-3 w-3 inline text-purple-500" />
                 </th>
               </tr>
@@ -166,7 +166,7 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                   <tr key={room.id} className="border-b border-muted/50 last:border-0">
                     <td className="py-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium truncate max-w-[120px]">{room.name}</span>
+                        <span className="font-medium truncate max-w-[100px] text-xs">{room.name}</span>
                         {room.is_heating && (
                           <span className="text-orange-500 animate-pulse">🔥</span>
                         )}
