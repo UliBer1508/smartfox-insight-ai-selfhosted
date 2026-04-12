@@ -939,6 +939,7 @@ Deno.serve(async (req) => {
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
+      let comfortBudget = 999999; // Komfort-Budget: nur echter Überschuss
       
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
@@ -955,29 +956,25 @@ Deno.serve(async (req) => {
           // Basis-Budget: gridExport + bereits heizend + Toleranz
           let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
           
-          // PV-Prognose-Bonus: Bei guter Vorhersage mehr Budget für Eco
-          // > 15 kWh: alle Räume sollen Eco bekommen (großes Budget)
-          // > 8 kWh: mittleres Extra-Budget
-          // < 8 kWh: nur gridExport nutzen (kein Bonus)
-          let forecastBonus = 0;
-          if (expectedPvKwh >= 15) {
-            forecastBonus = 3000; // Viel PV erwartet → großzügig heizen
-          } else if (expectedPvKwh >= 8) {
-            forecastBonus = 1500; // Mittlere PV → moderater Bonus
-          }
+          // KEIN Prognose-Bonus mehr! Komfort-Heizung nur bei echtem PV-Überschuss.
+          // Eco-Budget: Basis (gridExport + heizend + Toleranz) reicht für Eco.
+          // Komfort-Budget: Nur der echte gridExport (ohne Bonus) bestimmt ob Komfort möglich ist.
+          // So wird die Batterie nicht durch Prognose-basiertes Heizen leergesaugt.
+          availableBudget = Math.max(0, baseBudget);
           
-          availableBudget = Math.max(0, baseBudget + forecastBonus);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W + Prognose-Bonus ${forecastBonus}W (${expectedPvKwh} kWh) = ${availableBudget}W`);
+          // Separates Komfort-Budget: NUR echter Überschuss (gridExport + bereits heizend)
+          // Kein Toleranz-Bonus, kein Prognose-Bonus — nur was wirklich da ist
+          comfortBudget = Math.max(0, gridExport + currentlyHeatingPower);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco) | Komfort-Budget: ${comfortBudget}W (nur echter Überschuss)`);
         } else if (gridExport > 200) {
-          // Wenig PV-Produktion ABER gridExport vorhanden
-          // → gridExport für Eco nutzen (z.B. Batterie speist ins Netz)
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
+          comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
         } else {
-          // KEIN PV und kein gridExport → kein Heizen
           budgetMode = 'grid_sequential';
           availableBudget = 0;
+          comfortBudget = 0;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) und kein gridExport → KEIN Heizen, Budget=0W`);
         }
       }
@@ -1137,9 +1134,11 @@ Deno.serve(async (req) => {
         // Räume >= eco werden in Phase 1 nicht verarbeitet (kommen in Phase 2)
       }
       
-      // Phase 2: KOMFORT-Runde — mit Restbudget
-      const budgetAfterEco = availableBudget - usedBudget;
-      console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === Restbudget: ${budgetAfterEco}W`);
+      // Phase 2: KOMFORT-Runde — NUR mit echtem PV-Überschuss (kein Prognose-Bonus)
+      const effectiveComfortBudget = comfortBudget;
+      let usedComfortBudget = usedBudget; // Start mit dem was Eco schon verbraucht
+      const budgetAfterEco = effectiveComfortBudget - usedBudget;
+      console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === Restbudget: ${budgetAfterEco}W (nur echter Überschuss, kein Prognose-Bonus)`);
       for (const rp of roomsWithPriority) {
         if (roomBudgetStatus.has(rp.room.id)) {
           const existing = roomBudgetStatus.get(rp.room.id)!;
@@ -1160,15 +1159,16 @@ Deno.serve(async (req) => {
           const alreadyBudgeted = roomBudgetStatus.has(rp.room.id) && 
             roomBudgetStatus.get(rp.room.id)!.targetLevel === 'eco';
           
-          if (alreadyBudgeted || usedBudget + rp.heatingPower <= availableBudget) {
-            if (!alreadyBudgeted) usedBudget += rp.heatingPower;
+          // Komfort-Budget-Check: NUR echter Überschuss erlaubt
+          if (alreadyBudgeted || usedComfortBudget + rp.heatingPower <= effectiveComfortBudget) {
+            if (!alreadyBudgeted) { usedBudget += rp.heatingPower; usedComfortBudget += rp.heatingPower; }
             roomBudgetStatus.set(rp.room.id, {
               allowedToHeat: true,
-              reason: `Komfort-Phase${alreadyBudgeted ? ' (Eco→Komfort Upgrade)' : ''} (${usedBudget}/${availableBudget}W)`,
+              reason: `Komfort-Phase${alreadyBudgeted ? ' (Eco→Komfort Upgrade)' : ''} (${usedComfortBudget}/${effectiveComfortBudget}W)`,
               shouldRotate: false,
               targetLevel: 'comfort'
             });
-            console.log(`[PV-Automation] Phase 2: ${rp.room.name} → komfort${alreadyBudgeted ? ' (Upgrade von Eco)' : ''} (${currentTemp.toFixed(1)}°C < ${comfortTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
+            console.log(`[PV-Automation] Phase 2: ${rp.room.name} → komfort${alreadyBudgeted ? ' (Upgrade von Eco)' : ''} (${currentTemp.toFixed(1)}°C < ${comfortTemp}°C, Budget ${usedComfortBudget}/${effectiveComfortBudget}W)`);
           } else {
             // Kein Budget für Komfort — auf eco halten
             if (!roomBudgetStatus.has(rp.room.id)) {
