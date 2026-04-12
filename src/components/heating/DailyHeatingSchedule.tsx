@@ -128,25 +128,25 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
         </div>
 
         {/* Room temperature table */}
-        <div className="overflow-x-auto -mx-4 px-4">
+        <div className="-mx-4 px-4">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-muted-foreground">
-                <th className="text-left py-2 font-medium">Raum</th>
-                <th className="text-center py-2 font-medium w-16">
+                <th className="text-left py-2 font-medium text-xs">Raum</th>
+                <th className="text-center py-2 font-medium w-10">
                   <Moon className="h-3 w-3 inline text-blue-400" />
                 </th>
-                <th className="text-center py-2 font-medium w-16">
+                <th className="text-center py-2 font-medium w-10">
                   <Zap className="h-3 w-3 inline text-yellow-500" />
                 </th>
-                <th className="text-center py-2 font-medium w-16">
+                <th className="text-center py-2 font-medium w-10">
                   <Sun className="h-3 w-3 inline text-orange-500" />
                 </th>
-                <th className="text-center py-2 font-medium w-12">Prio</th>
-                <th className="text-center py-2 font-medium w-10" title="PV-Automatik">
+                <th className="text-center py-2 font-medium w-8 text-xs">Prio</th>
+                <th className="text-center py-2 font-medium w-8" title="PV-Automatik">
                   <Sun className="h-3 w-3 inline text-amber-500" />
                 </th>
-                <th className="text-center py-2 font-medium w-10" title="KI-Empfehlung">
+                <th className="text-center py-2 font-medium w-8" title="KI-Empfehlung">
                   <Bot className="h-3 w-3 inline text-purple-500" />
                 </th>
               </tr>
@@ -166,25 +166,23 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                   <tr key={room.id} className="border-b border-muted/50 last:border-0">
                     <td className="py-2">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium truncate max-w-[120px]">{room.name}</span>
+                        <span className="font-medium truncate max-w-[100px] text-xs">{room.name}</span>
                         {room.is_heating && (
                           <span className="text-orange-500 animate-pulse">🔥</span>
                         )}
                       </div>
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
                       {nightTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
                       {ecoTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
                       {comfortTemp}°
                     </td>
-                    <td className="text-center py-2">
-                      <Badge variant="outline" className="text-xs px-1.5">
-                        {room.priority || '-'}
-                      </Badge>
+                    <td className="text-center py-2 text-xs font-mono text-muted-foreground">
+                      {room.priority || '-'}
                     </td>
                     <td className="text-center py-2">
                       {room.pv_auto_enabled ? (
@@ -221,7 +219,7 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
 
         {/* Current status info */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground pt-2 border-t">
-          <span>PV-Überschuss: <span className="font-mono text-foreground">{currentSurplus !== null ? `${currentSurplus}W` : '—'}</span></span>
+          <span>PV-Überschuss: <span className="font-mono text-foreground">{currentSurplus !== null ? `${Math.round(currentSurplus)}W` : '—'}</span></span>
           <span>Batterie: <span className="font-mono text-foreground">{batterySoc !== null ? `${batterySoc}%` : '—'}</span></span>
           <span>Schwelle An: <span className="font-mono">{thresholdOn}W</span></span>
           <span>Schwelle Aus: <span className="font-mono">{thresholdOff}W</span></span>
