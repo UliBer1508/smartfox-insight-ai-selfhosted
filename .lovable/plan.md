@@ -1,50 +1,101 @@
 
 
-# Warum die Räume trotz 6.5kW Export nicht auf Komfort schalten
+# Lösungskonzept: Sequentielles 2-Phasen-Heizen
 
-## Ursache
+## Das Problem
 
-Das System erkennt den Überschuss korrekt und **will** schalten, aber die Tuya API-Quota ist erschöpft:
+Die aktuelle Logik versucht in **einer einzigen Schleife** für jeden Raum individuell zu entscheiden ob eco oder komfort — mit einer Batterie-Bedingung (>=95%) als Voraussetzung für Komfort. Das führt dazu, dass bei 6.57kW Export kein Raum auf Komfort geschaltet wird, weil:
 
-- **Monatslimit**: 900 Calls
-- **Bereits verbraucht**: 374 (41% nach 12 von 30 Tagen)
-- **Dynamisches Tagesbudget**: 526 Rest / 19 Tage = 27 - 2 Reserve = **25 Calls/Tag**
-- **Heute verbraucht**: **32 Calls** → Budget überschritten
+1. **Budget = nur gridExport** (ohne bereits heizende Räume)
+2. **Komfort braucht Batterie >=95%** (irrelevant bei hohem Export)
+3. **Kein 2-Phasen-Ansatz** — es gibt keinen "erst alle auf eco, dann alle auf komfort" Zyklus
 
-Das eigentliche Problem ist strukturell: Bei 12 Räumen und einem 2-Minuten-Intervall reichen 25 Calls pro Tag nicht aus. Ein einziger Sync aller 12 Thermostate verbraucht 12 Calls — nach 2 Syncs + ein paar Temperatur-Änderungen ist das Tagesbudget weg.
+## Die neue Logik
 
-## Lösung: Intelligenteres API-Budget-Management
+```text
+Phase 1: ECO-Runde (Priorität 1→12)
+─────────────────────────────────────
+  verfügbar = gridExport + Σ(bereits heizende Räume)
+  
+  Für jeden Raum nach Priorität:
+    Ist Raum < eco_temp?
+      → JA: Passt Heizleistung ins verbleibende Budget?
+        → JA: Setze auf eco_temp, ziehe Leistung vom Budget ab
+        → NEIN: Überspringe (kein Budget mehr)
+      → NEIN: Raum ist bereits ≥ eco, weiter
 
-### Änderung 1: Sync nur für Räume mit Änderungsbedarf
+Phase 2: KOMFORT-Runde (Priorität 1→12)
+────────────────────────────────────────
+  Nur wenn Phase 1 komplett + noch Budget übrig
+  
+  Für jeden Raum nach Priorität:
+    Ist Raum < comfort_temp?
+      → JA: Passt Heizleistung ins verbleibende Budget?
+        → JA: Setze auf comfort_temp, ziehe Leistung vom Budget ab
+        → NEIN: Überspringe
+      → NEIN: Raum ist bereits ≥ comfort, weiter
 
-**`supabase/functions/pv-automation/index.ts`**
+Phase 3: SUPER-KOMFORT (optional, wie bisher)
+──────────────────────────────────────────────
+  Nur wenn alle Räume ≥ comfort + noch Budget übrig
+```
 
-Statt alle 12 Thermostate blind zu syncen, nur die Räume kontaktieren bei denen sich die Zieltemperatur tatsächlich ändert. Der Pre-Sync (Status lesen) sollte seltener stattfinden (z.B. alle 30 Minuten statt alle 5) und nur Räume betreffen die gerade heizen oder geschaltet werden sollen.
+## Konkrete Änderungen
 
-### Änderung 2: Batch-Temperatur-Befehle gruppieren
+### Datei: `supabase/functions/pv-automation/index.ts`
 
-Aktuell wird pro Raum ein eigener API-Call gemacht. Stattdessen:
-- Nur Räume verarbeiten, die tatsächlich eine Temperatur-Änderung brauchen (Differenz >= 0.5°C)
-- "Keine Änderung nötig" Räume überspringen ohne API-Call
-- Dadurch sinkt der Verbrauch von ~12 Calls pro Zyklus auf 2-4
+**1. Budget-Berechnung korrigieren (Zeilen 920-936)**
 
-### Änderung 3: PV-Überschuss-Priorität bei Quota-Knappheit
+```
+// NEU: Budget = gridExport + Leistung aller bereits heizenden Räume + Toleranz
+const currentlyHeatingPower = rooms
+  .filter(r => r.is_heating)
+  .reduce((sum, r) => sum + (r.calculated_power_w || r.heating_power_w || 800), 0);
 
-Wenn das Tagesbudget unter 30% ist ABER hoher PV-Überschuss vorliegt (>3kW Export, Batterie >90%):
-- Trotzdem die **Top-3 Prioritäts-Räume** auf Komfort schalten (max 3 Calls)
-- Sync überspringen — nur schreiben, nicht lesen
-- Damit wird das PV-Potenzial genutzt statt Strom ins Netz zu verschenken
+const dynamicTolerance = Math.max(powerBudgetTolerance, Math.round(gridExport * 0.20));
+availableBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
+```
 
-### Änderung 4: Tages-Counter-Reset prüfen
+Begründung: Wenn Büro mit 900W heizt, erscheinen diese 900W nicht mehr im gridExport. Das tatsächlich verfügbare PV-Budget ist aber gridExport + 900W.
 
-Der Counter steht auf 32, aber es ist unklar ob wirklich 32 erfolgreiche API-Calls stattfanden oder ob der Counter durch fehlgeschlagene Calls aufgebläht wurde. Sicherstellen dass nur erfolgreiche Calls gezählt werden (das wurde laut Memory bereits implementiert — prüfen ob es korrekt funktioniert).
+**2. 4-Stufen-Logik durch 2-Phasen-Ansatz ersetzen (Zeilen 1017-1070)**
 
-### Betroffene Dateien
-1. `supabase/functions/pv-automation/index.ts` — Sync-Optimierung, PV-Priorität bei Quota-Knappheit, selektivere API-Calls
+Statt einer einzigen Budget-Schleife zwei Durchläufe:
 
-### Technische Details
-- Pre-Sync Intervall von 5 auf 30 Minuten erhöhen
-- Temperatur-Änderungen nur senden wenn Differenz >= 0.5°C
-- Neuer Modus `quota_low_pv_priority`: Bei <30% Tagesbudget + >3kW Export werden max 3 priorisierte Räume geschaltet
-- Geschätzter Effekt: Tagesverbrauch sinkt von ~30-40 auf ~10-15 Calls
+- **Phase 1 (Eco):** Alle Räume nach Priorität durchlaufen. Wenn `current_temp < eco_temp - 0.3` und Budget reicht → `allowedToHeat = true, targetLevel = 'eco'`
+- **Phase 2 (Komfort):** Restliches Budget nehmen, alle Räume erneut durchlaufen. Wenn `current_temp < comfort_temp - 0.3` und Budget reicht → `allowedToHeat = true, targetLevel = 'comfort'`
+
+Keine Batterie-Bedingung mehr für Komfort. Die einzige Bedingung ist: **Reicht der PV-Export für die Heizleistung dieses Raums?**
+
+**3. Batterie-Gate für Komfort entfernen (Zeile 1630)**
+
+Die Zeile `&& batteryFull` wird entfernt. Wenn genug gridExport da ist, wird auf Komfort geschaltet — unabhängig vom Batterie-Stand. Der Strom ist da und geht sonst verloren.
+
+**4. PV-Priority-Calls auf 6 erhöhen**
+
+Damit bei Quota-Knappheit mehr Räume profitieren.
+
+## Erwartetes Verhalten
+
+Bei 6.57kW Export + 12 Räume:
+
+```text
+Budget = 6570W (Export) + 900W (Büro heizt) + 1494W (Toleranz) = ~8964W
+
+Phase 1 (Eco):
+  Bad Uli (600W)    → eco ✓  Budget: 8364W übrig
+  Zimmer Uli (1200W)→ eco ✓  Budget: 7164W übrig
+  Luis (1000W)      → eco ✓  Budget: 6164W übrig
+  ... alle 12 Räume → eco ✓  Budget: ~1464W übrig
+
+Phase 2 (Komfort):
+  Bad Uli (600W)    → komfort ✓  Budget: 864W übrig
+  Zimmer Uli (1200W)→ komfort ✗  kein Budget
+  ... Rest wartet bis Bad Uli fertig ist
+```
+
+Beim nächsten Zyklus (2 Min später) ist Bad Uli evtl. fertig → Zimmer Uli bekommt Budget.
+
+## Betroffene Datei
+- `supabase/functions/pv-automation/index.ts`
 
