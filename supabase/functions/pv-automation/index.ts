@@ -1108,6 +1108,13 @@ Deno.serve(async (req) => {
           // → Mindest-Budget aus Stunden-Prognose erlauben (sequentielles Heizen)
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
+          // Batterie-Ladereserve auch hier abziehen
+          if (batteryPower > 0 && batterySoc < 80) {
+            const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+            const batteryReserve = Math.round(batteryPower * batteryPriority);
+            availableBudget = Math.max(0, availableBudget - batteryReserve);
+            console.log(`[PV-Automation] 🔋 Batterie-Ladereserve (forecast_seq): ${batteryReserve}W abgezogen → Budget ${Math.round(availableBudget)}W`);
+          }
           comfortBudget = 0; // Kein Komfort bei wenig aktuellem Überschuss
           console.log(`[PV-Automation] ☀️ Wenig PV aktuell (${pvPower}W) aber Tagesprognose reicht → Eco-Budget aus Prognose: ${Math.round(availableBudget)}W (Stunde: ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W)`);
         } else if (batteryEcoReserveAllowed) {
