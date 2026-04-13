@@ -1990,6 +1990,14 @@ Deno.serve(async (req) => {
         }
 
         if (action === 'keep') {
+          // DB-Sync: target_temp korrigieren wenn abweichend (ohne Tuya-Call)
+          const dbTargetDrift = Math.abs(currentTargetTemp - Number(targetTemp));
+          if (dbTargetDrift >= 0.5) {
+            await supabase.from('rooms').update({
+              target_temp: targetTemp
+            }).eq('id', room.id);
+            console.log(`[PV-Automation] ${room.name}: DB-Sync target_temp ${currentTargetTemp}→${targetTemp}°C (keep, kein API-Call)`);
+          }
           results.push({
             roomId: room.id,
             roomName: room.name,
@@ -2018,6 +2026,14 @@ Deno.serve(async (req) => {
         const shouldSkip = tempAlreadyCorrect && stateAlreadyCorrect && !needsToReduceTemp && !syncStale && !needsHeatingStop;
         
         if (shouldSkip) {
+          // DB-Sync: target_temp korrigieren wenn abweichend (ohne Tuya-Call)
+          const dbTargetDriftSkip = Math.abs(currentTargetTemp - newTargetTemp);
+          if (dbTargetDriftSkip >= 0.5) {
+            await supabase.from('rooms').update({
+              target_temp: newTargetTemp
+            }).eq('id', room.id);
+            console.log(`[PV-Automation] ${room.name}: DB-Sync target_temp ${currentTargetTemp}→${newTargetTemp}°C (skip, kein API-Call)`);
+          }
           console.log(`[PV-Automation] ${room.name}: SKIP - already at ${currentTargetTemp}°C, state=${room.pv_auto_active ? 'active' : 'inactive'}`);
           results.push({
             roomId: room.id,
