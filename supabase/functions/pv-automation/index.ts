@@ -1020,7 +1020,8 @@ Deno.serve(async (req) => {
           let baseBudget = gridExport + currentlyHeatingPower + dynamicTolerance;
           
           // Prognose-Mindest-Budget für Eco: Wenn Tagesprognose reicht, mindestens Stunden-Prognose nutzen
-          if (pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+          // Erst ab 9:00 Uhr — davor bleibt Nachtmodus aktiv
+          if (currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
             const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
             if (forecastMinBudget > baseBudget) {
               console.log(`[PV-Automation] ☀️ Prognose-Budget: Tages-PV reicht für Eco → Mindest-Budget ${Math.round(forecastMinBudget)}W (Stunden-Prognose ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W) statt aktuell ${Math.round(baseBudget)}W`);
@@ -1056,7 +1057,7 @@ Deno.serve(async (req) => {
           availableBudget = Math.max(0, gridExport);
           comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
-        } else if (!afterSunset && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
+        } else if (!afterSunset && currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
           // Tagsüber, wenig aktueller PV-Export, aber Tagesprognose reicht für Eco
           // → Mindest-Budget aus Stunden-Prognose erlauben (sequentielles Heizen)
           budgetMode = 'grid_sequential';
@@ -1510,20 +1511,20 @@ Deno.serve(async (req) => {
       // Epsilon-Greedy: Nutze gelernte Policies wenn genügend Daten vorhanden
       const policyNightStart = settings?.night_start_time || '22:00';
       const policyNightEnd = settings?.night_end_time || '08:00';
-      const { wienHour: currentWienHour } = isNightTime(policyNightStart, policyNightEnd);
+      const { wienHour: policyWienHour } = isNightTime(policyNightStart, policyNightEnd);
       
       let learnedPolicies: Map<string, any> = new Map();
       try {
         const { data: policies } = await supabase
           .from('learned_policies')
           .select('*')
-          .eq('hour_of_day', currentWienHour);
+          .eq('hour_of_day', policyWienHour);
         
         if (policies && policies.length > 0) {
           for (const p of policies) {
             learnedPolicies.set(p.room_id, p);
           }
-          console.log(`[PV-Automation] Loaded ${policies.length} learned policies for hour ${currentWienHour}`);
+          console.log(`[PV-Automation] Loaded ${policies.length} learned policies for hour ${policyWienHour}`);
         }
       } catch (policyError) {
         console.warn('[PV-Automation] Could not load learned policies:', policyError);
