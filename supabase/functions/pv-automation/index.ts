@@ -549,7 +549,7 @@ Deno.serve(async (req) => {
       // NIGHT PAUSE: Skip Tuya cloud calls during night hours to save API quota
       const nightStartTime = settings?.night_start_time || '22:00';
       const nightEndTime = settings?.night_end_time || '06:00';
-      const { isNight, wienTime } = isNightTime(nightStartTime, nightEndTime);
+      const { isNight, wienTime, wienHour: preNightWienHour } = isNightTime(nightStartTime, nightEndTime);
       
       if (isNight) {
         const nightHeatingMode = settings?.night_heating_mode || 'frost_only';
@@ -721,27 +721,49 @@ Deno.serve(async (req) => {
       // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
       if (quotaExhausted && controlMode === 'cloud') {
-        // Dynamische PV-Priority-Schwelle basierend auf Batterie-SOC
-        const pvPriorityActive = 
-          (batterySoc >= 95 && gridExportForPriority > 500) ||
-          (batterySoc >= 90 && batterySoc < 95 && gridExportForPriority > 1000);
-        
-        if (pvPriorityActive) {
-          pvPriorityMode = true;
-          console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
-        } else {
-          // Quota erschöpft und kein PV-Priority → sofort zurückkehren ohne DB-Writes
-          console.log(`[PV-Automation] ⚠️ Quota erschöpft, kein PV-Priority (Export ${gridExportForPriority}W, SOC ${batterySoc}%) → SOFORT-RETURN`);
-          return new Response(JSON.stringify({
-            success: true,
-            message: 'Quota erschöpft - übersprungen (kein PV-Priority)',
-            quotaExhausted: true,
-            pvPriorityMode: false,
-            tuyaApiCalls: 0,
-            quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
-          }), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        // Prüfe ob kritische Eco-Transition nötig ist (Räume noch auf Nacht-Temp nach 9:00)
+        let needsCriticalEcoTransition = false;
+        if (preNightWienHour >= 9) {
+          const { data: ecoCheckRooms } = await supabase
+            .from('rooms')
+            .select('id, target_temp, eco_temp, tuya_device_id, automation_enabled')
+            .not('tuya_device_id', 'is', null)
+            .eq('automation_enabled', true);
+          
+          needsCriticalEcoTransition = (ecoCheckRooms || []).some(r => {
+            const currentTarget = Number(r.target_temp) || 0;
+            const ecoTemp = r.eco_temp || 19;
+            return currentTarget < ecoTemp - 1;
           });
+        }
+
+        if (needsCriticalEcoTransition) {
+          // Eco-Übergang ist Pflicht — Quota-Limit für diese kritische Transition ignorieren
+          console.log(`[PV-Automation] 🔥 KRITISCHE ECO-TRANSITION: ${preNightWienHour}:xx, Räume noch auf Nacht → Quota-Override für Eco`);
+          quotaExhausted = false;
+        } else {
+          // Dynamische PV-Priority-Schwelle basierend auf Batterie-SOC
+          const pvPriorityActive = 
+            (batterySoc >= 95 && gridExportForPriority > 500) ||
+            (batterySoc >= 90 && batterySoc < 95 && gridExportForPriority > 1000);
+          
+          if (pvPriorityActive) {
+            pvPriorityMode = true;
+            console.log(`[PV-Automation] ⚡ PV-PRIORITY-MODUS aktiviert: ${gridExportForPriority}W Export, ${batterySoc}% Batterie → max ${PV_PRIORITY_MAX_CALLS} Calls erlaubt trotz Quota`);
+          } else {
+            // Quota erschöpft und kein PV-Priority → sofort zurückkehren ohne DB-Writes
+            console.log(`[PV-Automation] ⚠️ Quota erschöpft, kein PV-Priority (Export ${gridExportForPriority}W, SOC ${batterySoc}%) → SOFORT-RETURN`);
+            return new Response(JSON.stringify({
+              success: true,
+              message: 'Quota erschöpft - übersprungen (kein PV-Priority)',
+              quotaExhausted: true,
+              pvPriorityMode: false,
+              tuyaApiCalls: 0,
+              quotaStatus: quotaData ? { today: quotaData.calls_today, dailyLimit: quotaData.daily_limit, month: quotaData.calls_this_month, monthlyLimit: quotaData.monthly_limit } : null,
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+            });
+          }
         }
       }
 
