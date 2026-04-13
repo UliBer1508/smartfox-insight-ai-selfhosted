@@ -980,6 +980,12 @@ Deno.serve(async (req) => {
         console.log(`[PV-Automation] 📊 Eco-Räume: ${ecoRoomDetails.map(r => `${r.name} (${r.tempDiff}°→${r.neededWh}Wh)`).join(', ')}`);
       }
       
+      // Anzahl der Räume die noch auf Eco gebracht werden müssen
+      const ecoRoomsRemaining = ecoRoomDetails.length;
+      
+      // Nach Sonnenuntergang: Batterie-Reserve für Eco erlaubt wenn SOC > 50%
+      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > 50;
+      
       // Aktuelle Stunden-Prognose für Mindest-Budget
       const currentHourForecastW = hourlyWatts[`${today} ${currentWienHour.toString().padStart(2, '0')}:00:00`] || 0;
       const currentHourForecastCorrected = currentHourForecastW * forecastAccuracy;
