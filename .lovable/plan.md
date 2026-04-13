@@ -1,88 +1,34 @@
 
 
-## Analyse: Warum wird Batteriestrom für Heizung verwendet?
+## Plan: Batterie-Vorzeichen-Bug fixen (Smartfox-Konvention)
 
-### Aktuelle Situation (08:10 UTC / 10:10 Wien)
+### Problem
+Die gesamte Batterie-Logik in `pv-automation/index.ts` hat die **Vorzeichen-Konvention vertauscht**. Der Kommentar in Zeile 1018 sagt "positiv=laden, negativ=entladen", aber Smartfox meldet:
+- **Negativ = Batterie lädt** (SOC steigt)
+- **Positiv = Batterie entlädt** (SOC sinkt)
 
-| Wert | Messung |
-|------|---------|
-| PV-Produktion | ~1700W |
-| Batterie-SOC | **11%** (kritisch!) |
-| Batterie-Power | +550W (lädt, aber langsam) |
-| Grid (power_io) | ~0W |
-| Consumption | ~2200W |
-
-### Was passiert
-
-Die Automation vergibt ein **Prognose-Budget von 1539W** für Eco-Heizung, obwohl der Grid-Export **0W** beträgt:
-
-```text
-PV (1700W)
-├── Grundlast:    ~500W
-├── Batterie-Ladung: ~550W (bei 11% SOC!)
-└── Heizung (Budget): Bad Uli 600W + Büro 900W = 1500W
-    ──────────────────
-    SUMME:           ~2550W > 1700W PV
-    → Fehlende ~850W kommen vom Netz oder Batterie stoppt Ladung
-```
-
-Die Batterie lädt nur mit ~550W statt mit voller Leistung (~3000W möglich), weil die Heizung den PV-Strom "stiehlt".
-
-### Ursache im Code (Zeilen 1050-1058)
-
-Das `forecastMinBudget` berechnet: `Stunden-Prognose (2039W) - Grundlast (500W) = 1539W`
-
-**Problem:** Dieses Budget ignoriert den Batterie-Ladebedarf komplett. Es wird nicht geprüft:
-- Wie voll ist die Batterie?
-- Wie viel PV-Leistung braucht die Batterie zum Laden?
-- Sollte die Batterie bei 11% SOC Priorität haben?
-
-Der Batterie-Schutz (Zeile 1062) greift nur wenn `batteryPower < 0` (Entladung). Wenn die Batterie lädt (+550W), wird nichts abgezogen — aber die Heizung verhindert, dass die Batterie schneller laden kann.
+**Auswirkung jetzt:** Batterie lädt mit 2110W (battery_power = -2114), aber der Code denkt sie ENTLÄDT und zieht 2210W vom Budget ab. Budget sinkt von 3248W auf 1038W. Nur Bad Uli (600W) passt rein, alle anderen Räume (Zimmer Uli 1200W, Luis 1000W, Luca 1000W) werden blockiert.
 
 ### Lösung
 
-**Datei: `supabase/functions/pv-automation/index.ts`** — Zeilen 1048-1074
+**Datei: `supabase/functions/pv-automation/index.ts`**
 
-Batterie-Ladebedarf vom Prognose-Budget abziehen, wenn SOC niedrig ist:
-
+1. **Zeile 1018**: Kommentar korrigieren + Vorzeichen einmal am Eingang invertieren:
 ```typescript
-// Nach Zeile 1048 (baseBudget Berechnung):
-
-// Batterie-Ladereserve: Bei niedrigem SOC PV-Kapazität für Batterie reservieren
-if (batteryPower > 0 && batterySoc < 80) {
-  // Batterie lädt gerade — diese Leistung vom Budget abziehen
-  // Bei SOC < 30%: volle Ladeleistung reservieren
-  // Bei SOC 30-80%: anteilig reduzieren
-  const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
-  const batteryReserve = Math.round(batteryPower * batteryPriority);
-  baseBudget = Math.max(0, baseBudget - batteryReserve);
-  console.log(`[PV-Automation] 🔋 Batterie-Ladereserve: ${batteryReserve}W abgezogen (SOC ${batterySoc}%, lädt ${Math.round(batteryPower)}W, Priorität ${(batteryPriority*100).toFixed(0)}%) → Budget ${Math.round(baseBudget)}W`);
-}
+const rawBatteryPower = reading.battery_power || 0;
+// Smartfox-Konvention: negativ=laden, positiv=entladen
+// Normalisierung: positiv=laden, negativ=entladen (für Budget-Logik)
+const batteryPower = -rawBatteryPower;
 ```
 
-**Gleiche Logik auch für `grid_sequential` Modus** (Zeile 1088-1094):
+2. **Alle abhängigen Stellen** (Lines 1061, 1073, 1089, 1098, 1112, 1124) bleiben **unverändert** — sie sind korrekt formuliert WENN positiv=laden gilt, was durch die Invertierung jetzt stimmt.
 
-```typescript
-// availableBudget ebenfalls um Batterie-Ladereserve reduzieren
-if (batteryPower > 0 && batterySoc < 80) {
-  const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
-  const batteryReserve = Math.round(batteryPower * batteryPriority);
-  availableBudget = Math.max(0, availableBudget - batteryReserve);
-}
-```
-
-### Auswirkung
-
-Bei aktuellem Zustand (SOC 11%, Batterie lädt 550W):
-- `batteryPriority` = 1.0 (SOC < 30%)
-- `batteryReserve` = 550W
-- Neues Budget: 1539 - 550 = **989W**
-- Nur **ein Raum** kann heizen (Bad Uli 600W oder Büro 900W), nicht beide gleichzeitig
-- Die restlichen ~1100W PV gehen in die Batterie → schnellere Ladung
-
-Bei SOC 60%: `batteryPriority` = 0.4, Reserve = 220W → mehr Budget für Heizung
-Bei SOC 80%+: keine Reserve → volles Budget
+### Auswirkung nach Fix
+- Batterie lädt 2110W → `batteryPower = +2110` (positiv = laden)
+- Line 1061: `batteryPower > 0 && batterySoc < 80` → SOC ist 89.5% (>80) → **keine Reserve abgezogen** ✓
+- Line 1073: `batteryPower < 0` → false → **keine Entladungs-Korrektur** ✓
+- Budget bleibt bei ~3248W → Bad Uli (600) + Zimmer Uli (1200) + Zimmer Luis (1000) passen alle rein
 
 ### Betroffene Datei
-- `supabase/functions/pv-automation/index.ts` — Zeilen 1048-1058 und 1088-1094
+- `supabase/functions/pv-automation/index.ts` — Zeile 1018 (eine Zeile ändern)
 
