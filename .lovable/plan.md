@@ -1,28 +1,49 @@
 
 
-## Plan: analyze-patterns von Lovable AI auf Google Gemini umstellen
+## Plan: DB target_temp bei "keep"-Entscheidungen synchronisieren
 
 ### Problem
-Die Edge Function `analyze-patterns` ist die **einzige** Funktion, die noch den Lovable AI Gateway (`ai.gateway.lovable.dev` + `LOVABLE_API_KEY`) verwendet. Alle anderen Functions (z.B. `generate-settings-suggestions`) nutzen bereits Google Gemini direkt über `GOOGLE_AI_API_KEY`. Da die Lovable-Credits erschöpft sind (402-Fehler), funktioniert die KI-Analyse nicht.
+Die UI zeigt falsche Modi an (z.B. "Komfort" statt "Eco"), weil `target_temp` in der DB nur aktualisiert wird wenn ein Tuya API-Call erfolgt. Bei `action === 'keep'` oder `action === 'skip'` wird die DB **nicht** aktualisiert — die alten Werte bleiben stehen.
+
+Beispiele aus der DB jetzt:
+- Kinder Bad: `target_temp=20` (zeigt Komfort), aber Automation sagt "Eco halten" → sollte 19 sein
+- Flur: `target_temp=20`, sollte Eco (19) sein  
+- Haustür: `target_temp=20`, sollte Eco (19) sein
+
+### Ursache
+In `pv-automation/index.ts`:
+- Zeile 1992-2001: Bei `action === 'keep'` wird nur ein Result gepusht, **kein DB-Update**
+- Zeile 2020-2031: Bei `shouldSkip` ebenfalls kein DB-Update
+- Die berechnete `targetTemp` geht verloren
 
 ### Lösung
 
-**Datei: `supabase/functions/analyze-patterns/index.ts`** — `callAI`-Funktion (Zeilen 26-69) ersetzen
+**Datei: `supabase/functions/pv-automation/index.ts`**
 
-Die bestehende Implementierung aus `generate-settings-suggestions` 1:1 übernehmen:
+1. **Bei `action === 'keep'` (Zeile 1992-2001)**: Nach dem Result-Push ein DB-Update einfügen, das `target_temp` auf die berechnete `targetTemp` setzt — aber **nur wenn** sich der Wert um mehr als 0.5°C vom DB-Wert unterscheidet (um unnötige Writes zu vermeiden):
 
-1. **API-Key**: `LOVABLE_API_KEY` → `GOOGLE_AI_API_KEY`
-2. **URL**: `ai.gateway.lovable.dev/v1/chat/completions` → `generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`
-3. **Request-Format**: OpenAI-Stil → Gemini-Stil (messages → contents/parts, system → systemInstruction, tools → functionDeclarations)
-4. **Response-Konvertierung**: Gemini-Response (`candidates[0].content.parts`) wird in OpenAI-kompatibles Format umgewandelt (`choices[0].message`), damit der gesamte nachgelagerte Parsing-Code (Zeilen 798-850) unverändert funktioniert
+```typescript
+if (action === 'keep') {
+  // DB-Sync: target_temp korrigieren wenn abweichend (ohne Tuya-Call)
+  const dbTargetDrift = Math.abs(currentTargetTemp - Number(targetTemp));
+  if (dbTargetDrift >= 0.5) {
+    await supabase.from('rooms').update({
+      target_temp: targetTemp
+    }).eq('id', room.id);
+    console.log(`[PV-Automation] ${room.name}: DB-Sync target_temp ${currentTargetTemp}→${targetTemp}°C (keep, kein API-Call)`);
+  }
+  results.push({ ... });
+  continue;
+}
+```
 
-**Zusätzlich**: Kommentar am Dateianfang aktualisieren: `AI PROVIDER: Google Gemini (direkt)` statt `Lovable AI Gateway`
+2. **Bei `shouldSkip` (Zeile 2020-2031)**: Gleiche Logik — DB-target_temp korrigieren falls abweichend.
 
-### Keine weiteren Änderungen nötig
-- `generate-settings-suggestions` nutzt bereits Gemini direkt
-- Alle anderen Edge Functions (`pv-automation`, `evaluate-decision` etc.) machen keine eigenen AI-Calls
-- Der Frontend-Code referenziert nirgends Lovable AI
+### Auswirkung
+- Kein zusätzlicher Tuya API-Call (nur DB-Write)
+- UI zeigt sofort den korrekten Modus an
+- Kostet keine Quota
 
 ### Betroffene Datei
-- `supabase/functions/analyze-patterns/index.ts` — Zeilen 7-69 (Provider-Kommentar + callAI-Funktion)
+- `supabase/functions/pv-automation/index.ts` — Zeilen 1992-2001 und 2020-2031
 
