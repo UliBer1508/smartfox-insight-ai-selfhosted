@@ -1057,6 +1057,17 @@ Deno.serve(async (req) => {
             }
           }
           
+          // Batterie-Ladereserve: Bei niedrigem SOC PV-Kapazität für Batterie reservieren
+          if (batteryPower > 0 && batterySoc < 80) {
+            // Batterie lädt gerade — diese Leistung vom Budget abziehen
+            // Bei SOC < 30%: volle Ladeleistung reservieren
+            // Bei SOC 30-80%: anteilig reduzieren
+            const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+            const batteryReserve = Math.round(batteryPower * batteryPriority);
+            baseBudget = Math.max(0, baseBudget - batteryReserve);
+            console.log(`[PV-Automation] 🔋 Batterie-Ladereserve: ${batteryReserve}W abgezogen (SOC ${batterySoc}%, lädt ${Math.round(batteryPower)}W, Priorität ${(batteryPriority*100).toFixed(0)}%) → Budget ${Math.round(baseBudget)}W`);
+          }
+          
           // Batterie-Schutz: Wenn Batterie entlädt, Budget reduzieren
           // ABER: Tagsüber immer aktiv, nach Sunset nur für Komfort (nicht für Eco)
           if (batteryPower < 0) {
