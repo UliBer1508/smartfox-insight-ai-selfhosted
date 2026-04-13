@@ -1015,7 +1015,10 @@ Deno.serve(async (req) => {
       const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
-      const batteryPower = reading.battery_power || 0; // positiv=laden, negativ=entladen
+      const rawBatteryPower = reading.battery_power || 0;
+      // Smartfox-Konvention: negativ=laden, positiv=entladen
+      // Normalisierung: positiv=laden, negativ=entladen (für Budget-Logik)
+      const batteryPower = -rawBatteryPower;
 
       // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
