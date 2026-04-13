@@ -408,7 +408,7 @@ Deno.serve(async (req) => {
           const wienDay = parseInt(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna', day: 'numeric' }).format(now2));
           const remainingDays = Math.max(1, daysInMonth - wienDay + 1); // inkl. heute
           const remainingMonthlyBudget = Math.max(0, monthlyLimit - quotaData!.calls_this_month);
-          const dynamicDailyLimit = Math.max(1, Math.floor(remainingMonthlyBudget / remainingDays));
+          const dynamicDailyLimit = Math.max(30, Math.floor(remainingMonthlyBudget / remainingDays));
           
           // Verwende das kleinere von konfiguriertem und dynamischem Limit
           const dailyLimit = Math.min(configuredDailyLimit, dynamicDailyLimit);
