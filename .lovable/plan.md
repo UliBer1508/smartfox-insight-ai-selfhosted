@@ -1,49 +1,88 @@
 
 
-## Plan: DB target_temp bei "keep"-Entscheidungen synchronisieren
+## Analyse: Warum wird Batteriestrom für Heizung verwendet?
 
-### Problem
-Die UI zeigt falsche Modi an (z.B. "Komfort" statt "Eco"), weil `target_temp` in der DB nur aktualisiert wird wenn ein Tuya API-Call erfolgt. Bei `action === 'keep'` oder `action === 'skip'` wird die DB **nicht** aktualisiert — die alten Werte bleiben stehen.
+### Aktuelle Situation (08:10 UTC / 10:10 Wien)
 
-Beispiele aus der DB jetzt:
-- Kinder Bad: `target_temp=20` (zeigt Komfort), aber Automation sagt "Eco halten" → sollte 19 sein
-- Flur: `target_temp=20`, sollte Eco (19) sein  
-- Haustür: `target_temp=20`, sollte Eco (19) sein
+| Wert | Messung |
+|------|---------|
+| PV-Produktion | ~1700W |
+| Batterie-SOC | **11%** (kritisch!) |
+| Batterie-Power | +550W (lädt, aber langsam) |
+| Grid (power_io) | ~0W |
+| Consumption | ~2200W |
 
-### Ursache
-In `pv-automation/index.ts`:
-- Zeile 1992-2001: Bei `action === 'keep'` wird nur ein Result gepusht, **kein DB-Update**
-- Zeile 2020-2031: Bei `shouldSkip` ebenfalls kein DB-Update
-- Die berechnete `targetTemp` geht verloren
+### Was passiert
+
+Die Automation vergibt ein **Prognose-Budget von 1539W** für Eco-Heizung, obwohl der Grid-Export **0W** beträgt:
+
+```text
+PV (1700W)
+├── Grundlast:    ~500W
+├── Batterie-Ladung: ~550W (bei 11% SOC!)
+└── Heizung (Budget): Bad Uli 600W + Büro 900W = 1500W
+    ──────────────────
+    SUMME:           ~2550W > 1700W PV
+    → Fehlende ~850W kommen vom Netz oder Batterie stoppt Ladung
+```
+
+Die Batterie lädt nur mit ~550W statt mit voller Leistung (~3000W möglich), weil die Heizung den PV-Strom "stiehlt".
+
+### Ursache im Code (Zeilen 1050-1058)
+
+Das `forecastMinBudget` berechnet: `Stunden-Prognose (2039W) - Grundlast (500W) = 1539W`
+
+**Problem:** Dieses Budget ignoriert den Batterie-Ladebedarf komplett. Es wird nicht geprüft:
+- Wie voll ist die Batterie?
+- Wie viel PV-Leistung braucht die Batterie zum Laden?
+- Sollte die Batterie bei 11% SOC Priorität haben?
+
+Der Batterie-Schutz (Zeile 1062) greift nur wenn `batteryPower < 0` (Entladung). Wenn die Batterie lädt (+550W), wird nichts abgezogen — aber die Heizung verhindert, dass die Batterie schneller laden kann.
 
 ### Lösung
 
-**Datei: `supabase/functions/pv-automation/index.ts`**
+**Datei: `supabase/functions/pv-automation/index.ts`** — Zeilen 1048-1074
 
-1. **Bei `action === 'keep'` (Zeile 1992-2001)**: Nach dem Result-Push ein DB-Update einfügen, das `target_temp` auf die berechnete `targetTemp` setzt — aber **nur wenn** sich der Wert um mehr als 0.5°C vom DB-Wert unterscheidet (um unnötige Writes zu vermeiden):
+Batterie-Ladebedarf vom Prognose-Budget abziehen, wenn SOC niedrig ist:
 
 ```typescript
-if (action === 'keep') {
-  // DB-Sync: target_temp korrigieren wenn abweichend (ohne Tuya-Call)
-  const dbTargetDrift = Math.abs(currentTargetTemp - Number(targetTemp));
-  if (dbTargetDrift >= 0.5) {
-    await supabase.from('rooms').update({
-      target_temp: targetTemp
-    }).eq('id', room.id);
-    console.log(`[PV-Automation] ${room.name}: DB-Sync target_temp ${currentTargetTemp}→${targetTemp}°C (keep, kein API-Call)`);
-  }
-  results.push({ ... });
-  continue;
+// Nach Zeile 1048 (baseBudget Berechnung):
+
+// Batterie-Ladereserve: Bei niedrigem SOC PV-Kapazität für Batterie reservieren
+if (batteryPower > 0 && batterySoc < 80) {
+  // Batterie lädt gerade — diese Leistung vom Budget abziehen
+  // Bei SOC < 30%: volle Ladeleistung reservieren
+  // Bei SOC 30-80%: anteilig reduzieren
+  const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+  const batteryReserve = Math.round(batteryPower * batteryPriority);
+  baseBudget = Math.max(0, baseBudget - batteryReserve);
+  console.log(`[PV-Automation] 🔋 Batterie-Ladereserve: ${batteryReserve}W abgezogen (SOC ${batterySoc}%, lädt ${Math.round(batteryPower)}W, Priorität ${(batteryPriority*100).toFixed(0)}%) → Budget ${Math.round(baseBudget)}W`);
 }
 ```
 
-2. **Bei `shouldSkip` (Zeile 2020-2031)**: Gleiche Logik — DB-target_temp korrigieren falls abweichend.
+**Gleiche Logik auch für `grid_sequential` Modus** (Zeile 1088-1094):
+
+```typescript
+// availableBudget ebenfalls um Batterie-Ladereserve reduzieren
+if (batteryPower > 0 && batterySoc < 80) {
+  const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+  const batteryReserve = Math.round(batteryPower * batteryPriority);
+  availableBudget = Math.max(0, availableBudget - batteryReserve);
+}
+```
 
 ### Auswirkung
-- Kein zusätzlicher Tuya API-Call (nur DB-Write)
-- UI zeigt sofort den korrekten Modus an
-- Kostet keine Quota
+
+Bei aktuellem Zustand (SOC 11%, Batterie lädt 550W):
+- `batteryPriority` = 1.0 (SOC < 30%)
+- `batteryReserve` = 550W
+- Neues Budget: 1539 - 550 = **989W**
+- Nur **ein Raum** kann heizen (Bad Uli 600W oder Büro 900W), nicht beide gleichzeitig
+- Die restlichen ~1100W PV gehen in die Batterie → schnellere Ladung
+
+Bei SOC 60%: `batteryPriority` = 0.4, Reserve = 220W → mehr Budget für Heizung
+Bei SOC 80%+: keine Reserve → volles Budget
 
 ### Betroffene Datei
-- `supabase/functions/pv-automation/index.ts` — Zeilen 1992-2001 und 2020-2031
+- `supabase/functions/pv-automation/index.ts` — Zeilen 1048-1058 und 1088-1094
 
