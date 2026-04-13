@@ -1094,6 +1094,13 @@ Deno.serve(async (req) => {
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
+          // Batterie-Ladereserve auch hier abziehen
+          if (batteryPower > 0 && batterySoc < 80) {
+            const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+            const batteryReserve = Math.round(batteryPower * batteryPriority);
+            availableBudget = Math.max(0, availableBudget - batteryReserve);
+            console.log(`[PV-Automation] 🔋 Batterie-Ladereserve (grid_seq): ${batteryReserve}W abgezogen → Budget ${Math.round(availableBudget)}W`);
+          }
           comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
         } else if (!afterSunset && currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
