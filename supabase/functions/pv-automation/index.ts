@@ -204,6 +204,48 @@ interface TuyaResult {
   }
 }
 
+// Set device mode separately (e.g. 'home' for manual mode)
+// Called hourly to prevent internal thermostat schedules from overriding
+async function setDeviceModeHome(
+  accessId: string,
+  accessSecret: string,
+  deviceId: string
+): Promise<TuyaResult> {
+  try {
+    const token = await getAccessToken(accessId, accessSecret);
+    const timestamp = Date.now().toString();
+    const path = `/v1.0/devices/${deviceId}/commands`;
+    
+    const commands = [{ code: 'mode', value: 'home' }];
+    const body = { commands };
+    const bodyStr = JSON.stringify(body);
+    const contentHash = await sha256Hash(bodyStr);
+    const stringToSign = ['POST', contentHash, '', path].join('\n');
+    const signStr = accessId + token + timestamp + stringToSign;
+    const sign = await hmacSha256(accessSecret, signStr);
+
+    const response = await fetch(`https://openapi.tuyaeu.com${path}`, {
+      method: 'POST',
+      headers: {
+        'client_id': accessId,
+        'access_token': token,
+        'sign': sign,
+        'sign_method': 'HMAC-SHA256',
+        't': timestamp,
+        'Content-Type': 'application/json',
+      },
+      body: bodyStr,
+    });
+
+    const result = await response.json();
+    console.log(`[Tuya] ${deviceId} mode->home: success=${result.success}, code=${result.code}`);
+    return { success: result.success === true, errorMessage: result.msg };
+  } catch (error) {
+    console.error(`[Tuya] Mode error for ${deviceId}:`, error);
+    return { success: false, errorType: 'tuya_api', errorMessage: String(error) };
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
