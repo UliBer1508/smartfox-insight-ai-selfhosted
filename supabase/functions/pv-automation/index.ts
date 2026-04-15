@@ -140,8 +140,7 @@ interface TuyaResult {
 }
 
 // Set device temperature - TGP508 only supports temp_set via Cloud API
-// NOTE: Mode command ('home') removed - causes Error 2008 on TGP508 thermostats
-// Thermostats in "Programmiermodus" (auto) follow Cloud temp_set commands
+// Mode 'home' = non-programmable (manual) on TGP508 — prevents internal schedules from overriding
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
@@ -153,8 +152,11 @@ async function setDeviceTemperature(
     const timestamp = Date.now().toString();
     const path = `/v1.0/devices/${deviceId}/commands`;
     
-    // Only send temp_set - mode command not supported by TGP508 Cloud API
-    const commands = [{ code: 'temp_set', value: Math.round(temperature * 10) }];
+    // Send mode:'home' alongside temp_set to force manual mode
+    const commands = [
+      { code: 'mode', value: 'home' },
+      { code: 'temp_set', value: Math.round(temperature * 10) }
+    ];
     
     const body = { commands };
     const bodyStr = JSON.stringify(body);
@@ -361,6 +363,14 @@ Deno.serve(async (req) => {
         if (pendingCommand?.id && Number.isFinite(pendingValue) && Math.abs(pendingValue - temperature) < 0.1) {
           return { queued: true, alreadyQueued: true };
         }
+
+        // Queue mode command first, then temperature
+        await supabase.from('thermostat_commands').insert({
+          room_id: roomId,
+          command: 'set_mode',
+          value: 0, // 'manual' mode indicator for local service
+          status: 'pending',
+        });
 
         const { error } = await supabase.from('thermostat_commands').insert({
           room_id: roomId,
