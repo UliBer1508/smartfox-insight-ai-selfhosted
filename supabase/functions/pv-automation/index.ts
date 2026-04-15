@@ -558,7 +558,7 @@ Deno.serve(async (req) => {
         // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
-          .select('id, name, tuya_device_id, target_temp, night_temp, pv_auto_active, heating_paused_reason')
+          .select('id, name, tuya_device_id, target_temp, night_temp, pv_auto_active, heating_paused_reason, last_thermostat_sync')
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
