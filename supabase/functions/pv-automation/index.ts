@@ -1704,7 +1704,12 @@ Deno.serve(async (req) => {
         console.warn('[PV-Automation] Could not load learned policies:', policyError);
       }
 
-      // 8. Hourly mode enforcement: Set all thermostats to 'home' (manual) mode
+      // 8. Process decisions
+      const results: Record<string, unknown>[] = [];
+      // now ist bereits oben im Budget-Code definiert
+      let tuyaApiCalls = 0; // Track API calls for logging
+
+      // Hourly mode enforcement: Set all thermostats to 'home' (manual) mode
       // This prevents internal TGP508 schedules from overriding remote temperatures
       // Only during daytime, once per hour, via system_settings tracking
       if (!isNight && controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
@@ -1738,11 +1743,6 @@ Deno.serve(async (req) => {
           }, { onConflict: 'key' });
         }
       }
-
-      // 9. Process decisions
-      const results: Record<string, unknown>[] = [];
-      // now ist bereits oben im Budget-Code definiert
-      let tuyaApiCalls2 = 0; // Track API calls for logging (additional temp calls)
 
       // Early Return: Wenn Quota erschöpft UND kein PV-Priority-Modus, Raum-Loop überspringen
       if (quotaExhausted && controlMode === 'cloud' && !pvPriorityMode) {
