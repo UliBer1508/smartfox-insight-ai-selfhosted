@@ -218,7 +218,7 @@ async function getBatchDeviceStatus(
   return result;
 }
 
-// Set device temperature + force mode 'home' (manual) to prevent internal schedules
+// Set device temperature - only temp_set (mode must be set separately to avoid Error 2008)
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
@@ -227,13 +227,11 @@ async function setDeviceTemperature(
 ): Promise<unknown> {
   const tempValue = Math.round(temperature * 10);
   
-  // Send mode:'home' alongside temp_set to force manual (non-programmable) mode
   const commands = [
-    { code: 'mode', value: 'home' },
     { code: 'temp_set', value: tempValue }
   ];
   
-  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue}) + mode:home`);
+  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue})`);
   
   return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
     commands

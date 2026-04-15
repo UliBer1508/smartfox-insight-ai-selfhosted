@@ -139,24 +139,21 @@ interface TuyaResult {
   errorMessage?: string;
 }
 
-// Set device temperature - TGP508 only supports temp_set via Cloud API
-// Mode 'home' = non-programmable (manual) on TGP508 — prevents internal schedules from overriding
-async function setDeviceTemperature(
-  accessId: string,
-  accessSecret: string,
-  deviceId: string,
-  temperature: number
-): Promise<TuyaResult> {
-  try {
-    const token = await getAccessToken(accessId, accessSecret);
-    const timestamp = Date.now().toString();
-    const path = `/v1.0/devices/${deviceId}/commands`;
-    
-    // Send mode:'home' alongside temp_set to force manual mode
-    const commands = [
-      { code: 'mode', value: 'home' },
-      { code: 'temp_set', value: Math.round(temperature * 10) }
-    ];
+  // Set device temperature - TGP508 only supports temp_set via Cloud API
+  async function setDeviceTemperature(
+    accessId: string,
+    accessSecret: string,
+    deviceId: string,
+    temperature: number
+  ): Promise<TuyaResult> {
+    try {
+      const token = await getAccessToken(accessId, accessSecret);
+      const timestamp = Date.now().toString();
+      const path = `/v1.0/devices/${deviceId}/commands`;
+      
+      const commands = [
+        { code: 'temp_set', value: Math.round(temperature * 10) }
+      ];
     
     const body = { commands };
     const bodyStr = JSON.stringify(body);

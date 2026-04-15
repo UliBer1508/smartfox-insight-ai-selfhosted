@@ -146,7 +146,7 @@ async function tuyaRequest(
   return data.result;
 }
 
-// Set device temperature + force mode 'home' (manual) to prevent internal schedules
+// Set device temperature - only temp_set (mode must be set separately to avoid Error 2008)
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
@@ -157,7 +157,6 @@ async function setDeviceTemperature(
   
   return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
     commands: [
-      { code: 'mode', value: 'home' },
       { code: 'temp_set', value: tempValue }
     ]
   });
