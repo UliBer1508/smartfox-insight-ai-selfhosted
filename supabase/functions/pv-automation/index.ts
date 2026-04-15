@@ -576,15 +576,26 @@ Deno.serve(async (req) => {
 
         if (nightHeatingMode === 'frost_only') {
           // FROST_ONLY: Thermostate auf Frostschutz (5°C) setzen → kein aktives Heizen
+          // WICHTIG: TGP508-Thermostate haben interne Zeitprogramme die remote-gesetzte
+          // Werte überschreiben können. Daher: periodischer Resync alle 30min.
           const FROST_TEMP = 5;
+          const RESYNC_INTERVAL_MIN = 30;
+          const now = new Date();
           
           const roomsNeedingOff = allRooms.filter(r => {
             const currentTarget = Number(r.target_temp) || 0;
-            return currentTarget > FROST_TEMP + 1; // Noch nicht auf Frostschutz
+            const lastSync = r.last_thermostat_sync ? new Date(r.last_thermostat_sync) : null;
+            const minutesSinceSync = lastSync 
+              ? (now.getTime() - lastSync.getTime()) / 60000 
+              : Infinity;
+            
+            // Resync wenn: target nicht auf Frost ODER letzter Sync > 30min her
+            // (Thermostat-interne Programme können jederzeit zurücksetzen)
+            return currentTarget > FROST_TEMP + 1 || minutesSinceSync > RESYNC_INTERVAL_MIN;
           });
 
           if (roomsNeedingOff.length === 0) {
-            console.log(`[PV-Automation] Night frost_only: all ${allRooms.length} thermostats already at frost protection`);
+            console.log(`[PV-Automation] Night frost_only: all ${allRooms.length} thermostats at frost protection, last sync <${RESYNC_INTERVAL_MIN}min`);
             return new Response(JSON.stringify({ 
               success: true, 
               message: `Nachtmodus aktiv (${wienTime}) - alle Thermostate auf Frostschutz (${FROST_TEMP}°C)`,
@@ -596,10 +607,13 @@ Deno.serve(async (req) => {
             });
           }
 
-          console.log(`[PV-Automation] Night frost_only: ${roomsNeedingOff.length}/${allRooms.length} rooms → Frostschutz ${FROST_TEMP}°C`);
+          const resyncCount = roomsNeedingOff.filter(r => Number(r.target_temp) <= FROST_TEMP + 1).length;
+          const newCount = roomsNeedingOff.length - resyncCount;
+          console.log(`[PV-Automation] Night frost_only: ${roomsNeedingOff.length}/${allRooms.length} rooms → Frostschutz ${FROST_TEMP}°C (${newCount} new, ${resyncCount} resync)`);
 
           for (const room of roomsNeedingOff) {
-            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)`);
+            const isResync = Number(room.target_temp) <= FROST_TEMP + 1;
+            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)${isResync ? ' [RESYNC]' : ''}`);
             
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
@@ -618,9 +632,21 @@ Deno.serve(async (req) => {
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
-              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `frost_${FROST_TEMP}°C` });
+              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: isResync ? `resync_frost_${FROST_TEMP}°C` : `frost_${FROST_TEMP}°C` });
             } else {
               console.error(`[PV-Automation] Night frost: Failed ${room.name}: ${result.errorMessage}`);
+              // Bei Fehler: DB-target NICHT auf 5°C belassen/setzen, damit der Raum
+              // beim nächsten Zyklus erneut versucht wird
+              if (!isResync) {
+                // Nur bei neuen Räumen: target zurücksetzen auf aktuellen Wert
+                // damit die Automation erkennt, dass noch nicht umgestellt wurde
+                const fallbackTemp = Number(room.target_temp) || 20;
+                await supabase.from('rooms').update({
+                  target_temp: fallbackTemp,
+                  heating_paused_reason: `night_frost_failed: ${result.errorMessage}`,
+                  updated_at: new Date().toISOString()
+                }).eq('id', room.id);
+              }
               nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: result.errorMessage });
             }
           }
