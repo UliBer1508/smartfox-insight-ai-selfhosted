@@ -218,22 +218,22 @@ async function getBatchDeviceStatus(
   return result;
 }
 
-// Set device temperature - TGP508 only supports temp_set via Cloud API
-// NOTE: Mode command ('home') removed - causes Error 2008 on TGP508 thermostats
-// Thermostats in "Programmiermodus" (auto) follow Cloud temp_set commands
+// Set device temperature + force mode 'home' (manual) to prevent internal schedules
 async function setDeviceTemperature(
   accessId: string,
   accessSecret: string,
   deviceId: string,
   temperature: number
 ): Promise<unknown> {
-  // Temperature is in 0.1°C units for Tuya thermostats (e.g., 190 = 19.0°C)
   const tempValue = Math.round(temperature * 10);
   
-  // Only send temp_set - mode command not supported by TGP508 Cloud API
-  const commands = [{ code: 'temp_set', value: tempValue }];
+  // Send mode:'home' alongside temp_set to force manual (non-programmable) mode
+  const commands = [
+    { code: 'mode', value: 'home' },
+    { code: 'temp_set', value: tempValue }
+  ];
   
-  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue})`);
+  console.log(`[Tuya] Setting device ${deviceId} temp to ${temperature}°C (value: ${tempValue}) + mode:home`);
   
   return await tuyaRequest(accessId, accessSecret, 'POST', `/v1.0/devices/${deviceId}/commands`, {
     commands

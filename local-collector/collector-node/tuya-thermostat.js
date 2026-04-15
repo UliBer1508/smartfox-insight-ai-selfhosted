@@ -109,6 +109,13 @@ class ThermostatController {
         throw new Error(`Temperatur ${temperature}°C außerhalb des gültigen Bereichs (5-35°C)`);
       }
       
+      // Zuerst Modus auf 'manual' setzen, um interne Zeitprogramme zu deaktivieren
+      await device.set({
+        dps: DPS.MODE,
+        set: 'manual'
+      });
+      
+      // Dann Zieltemperatur setzen
       await device.set({
         dps: DPS.TARGET_TEMP,
         set: tempValue
@@ -116,7 +123,7 @@ class ThermostatController {
       
       await device.disconnect();
       
-      console.log(`[TuyAPI] ${deviceConfig.name}: Temperatur auf ${temperature}°C gesetzt`);
+      console.log(`[TuyAPI] ${deviceConfig.name}: Modus=manual, Temperatur=${temperature}°C gesetzt`);
       return { success: true };
     } catch (error) {
       // Retry logic
