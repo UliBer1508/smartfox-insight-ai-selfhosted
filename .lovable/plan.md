@@ -1,48 +1,42 @@
 
 
-## Problem: Error 2008 blockiert alle Temperatur-Befehle
+## Plan: Räume manuell auf Komfort setzen (Quota-Workaround)
 
-### Ursache
-Die letzte Änderung (kombiniertes `mode: 'home'` + `temp_set` im selben Commands-Array) wird von den TGP508-Thermostaten **nicht unterstützt**. Error 2008 = "command or value not support". Dadurch schlagen **alle** Temperatur-Befehle fehl → Räume bleiben auf Nacht-Werten.
+### Problem
+Die Tuya Cloud API Quota (30 Calls/Tag) ist aufgebraucht. Die pv-automation berechnet korrekt Eco/Komfort-Ziele, kann aber keine Befehle senden. Viele Räume stehen noch auf 5°C oder 18°C in der DB.
 
-### Lösung: Zwei separate API-Calls statt einem kombinierten
+### Lösung: DB-Update + Lokale Commands queuen
 
-**Strategie:** `mode: 'home'` als **separaten Call VOR** dem `temp_set` senden. Der Endpoint `/set-mode-all` in `tuya-control` macht das bereits erfolgreich mit `setDeviceMode()`.
+**1. DB-Migration: Alle Räume auf Komfort-Temperatur setzen**
 
-**Änderungen in 3 Edge Functions:**
-
-1. **`supabase/functions/pv-automation/index.ts`** (Zeile 156-159):
-   - `setDeviceTemperature` zurück auf nur `temp_set`
-   - Neue Funktion `setDeviceMode(deviceId, 'home')` als separater API-Call
-   - Vor dem ersten `temp_set` eines Zyklus einmal `mode: 'home'` senden
-   - **Quota-Optimierung:** Mode nur 1x pro Raum pro Stunde senden (nicht bei jedem 2-Min-Zyklus)
-
-2. **`supabase/functions/tuya-control/index.ts`** (gleiche Änderung):
-   - `setDeviceTemperature` Commands-Array zurück auf nur `[{ code: 'temp_set', value }]`
-   - Mode-Setzung bleibt als separater Endpoint `/set-mode-all`
-
-3. **`supabase/functions/apply-recommendations/index.ts`** (gleiche Änderung)
-
-**Konkret für `setDeviceTemperature`:**
-```typescript
-// VORHER (Error 2008):
-const commands = [
-  { code: 'mode', value: 'home' },
-  { code: 'temp_set', value: Math.round(temperature * 10) }
-];
-
-// NACHHER (funktioniert):
-const commands = [
-  { code: 'temp_set', value: Math.round(temperature * 10) }
-];
+```sql
+UPDATE rooms SET target_temp = comfort_temp WHERE target_temp < comfort_temp;
 ```
 
-**Mode-Setzung in pv-automation:** Einmal zu Beginn des Tageszyklus (09:00) und danach stündlich alle Thermostate auf `mode: 'home'` setzen — als separater API-Call pro Gerät. Das kostet max 12 extra Calls/Stunde, verhindert aber dass interne Programme überschreiben.
+Das setzt alle 12 Räume sofort auf ihre jeweilige Komfort-Temperatur (19-22°C).
 
-**Lokaler Modus:** Bleibt unverändert (DPS-Befehle können sequentiell gesendet werden).
+**2. Thermostat-Commands für lokalen Collector queuen**
+
+Für jeden Raum mit `tuya_device_id` einen `set_temp`-Befehl in `thermostat_commands` einfügen:
+
+```sql
+INSERT INTO thermostat_commands (room_id, command, value, status)
+SELECT id, 'set_temp', comfort_temp, 'pending'
+FROM rooms WHERE tuya_device_id IS NOT NULL;
+```
+
+Falls der lokale Collector läuft, werden diese Commands ausgeführt — ohne API-Quota.
+
+**3. Zusätzlich: `set_mode` Commands queuen**
+
+```sql
+INSERT INTO thermostat_commands (room_id, command, value, status)
+SELECT id, 'set_mode', 0, 'pending'
+FROM rooms WHERE tuya_device_id IS NOT NULL;
+```
 
 ### Auswirkung
-- Temperatur-Befehle funktionieren sofort wieder
-- Räume werden auf eco/comfort gesetzt wenn Budget vorhanden
-- Mode wird stündlich separat erzwungen statt bei jedem temp_set
+- DB zeigt sofort korrekte Komfort-Werte
+- Lokaler Collector (falls aktiv) setzt die physischen Thermostate
+- Kein API-Quota-Verbrauch
 
