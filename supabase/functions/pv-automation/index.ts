@@ -139,24 +139,21 @@ interface TuyaResult {
   errorMessage?: string;
 }
 
-// Set device temperature - TGP508 only supports temp_set via Cloud API
-// Mode 'home' = non-programmable (manual) on TGP508 — prevents internal schedules from overriding
-async function setDeviceTemperature(
-  accessId: string,
-  accessSecret: string,
-  deviceId: string,
-  temperature: number
-): Promise<TuyaResult> {
-  try {
-    const token = await getAccessToken(accessId, accessSecret);
-    const timestamp = Date.now().toString();
-    const path = `/v1.0/devices/${deviceId}/commands`;
-    
-    // Send mode:'home' alongside temp_set to force manual mode
-    const commands = [
-      { code: 'mode', value: 'home' },
-      { code: 'temp_set', value: Math.round(temperature * 10) }
-    ];
+  // Set device temperature - TGP508 only supports temp_set via Cloud API
+  async function setDeviceTemperature(
+    accessId: string,
+    accessSecret: string,
+    deviceId: string,
+    temperature: number
+  ): Promise<TuyaResult> {
+    try {
+      const token = await getAccessToken(accessId, accessSecret);
+      const timestamp = Date.now().toString();
+      const path = `/v1.0/devices/${deviceId}/commands`;
+      
+      const commands = [
+        { code: 'temp_set', value: Math.round(temperature * 10) }
+      ];
     
     const body = { commands };
     const bodyStr = JSON.stringify(body);
@@ -204,6 +201,48 @@ async function setDeviceTemperature(
       errorType: 'tuya_api', 
       errorMessage: String(error) 
     };
+  }
+}
+
+// Set device mode separately (e.g. 'home' for manual mode)
+// Called hourly to prevent internal thermostat schedules from overriding
+async function setDeviceModeHome(
+  accessId: string,
+  accessSecret: string,
+  deviceId: string
+): Promise<TuyaResult> {
+  try {
+    const token = await getAccessToken(accessId, accessSecret);
+    const timestamp = Date.now().toString();
+    const path = `/v1.0/devices/${deviceId}/commands`;
+    
+    const commands = [{ code: 'mode', value: 'home' }];
+    const body = { commands };
+    const bodyStr = JSON.stringify(body);
+    const contentHash = await sha256Hash(bodyStr);
+    const stringToSign = ['POST', contentHash, '', path].join('\n');
+    const signStr = accessId + token + timestamp + stringToSign;
+    const sign = await hmacSha256(accessSecret, signStr);
+
+    const response = await fetch(`https://openapi.tuyaeu.com${path}`, {
+      method: 'POST',
+      headers: {
+        'client_id': accessId,
+        'access_token': token,
+        'sign': sign,
+        'sign_method': 'HMAC-SHA256',
+        't': timestamp,
+        'Content-Type': 'application/json',
+      },
+      body: bodyStr,
+    });
+
+    const result = await response.json();
+    console.log(`[Tuya] ${deviceId} mode->home: success=${result.success}, code=${result.code}`);
+    return { success: result.success === true, errorMessage: result.msg };
+  } catch (error) {
+    console.error(`[Tuya] Mode error for ${deviceId}:`, error);
+    return { success: false, errorType: 'tuya_api', errorMessage: String(error) };
   }
 }
 
@@ -1669,6 +1708,41 @@ Deno.serve(async (req) => {
       const results: Record<string, unknown>[] = [];
       // now ist bereits oben im Budget-Code definiert
       let tuyaApiCalls = 0; // Track API calls for logging
+
+      // Hourly mode enforcement: Set all thermostats to 'home' (manual) mode
+      // This prevents internal TGP508 schedules from overriding remote temperatures
+      // Only during daytime, once per hour, via system_settings tracking
+      if (!isNight && controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
+        const modeKey = 'last_mode_home_hour';
+        const { data: modeSetting } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', modeKey)
+          .maybeSingle();
+        
+        const lastModeHour = modeSetting?.value as number | null;
+        
+        if (lastModeHour !== currentWienHour) {
+          console.log(`[PV-Automation] 🏠 Stündlicher Mode-Sync: Setze alle Thermostate auf mode:home (Stunde ${currentWienHour})`);
+          let modeSuccessCount = 0;
+          
+          for (const room of rooms) {
+            if (!room.tuya_device_id) continue;
+            const modeResult = await setDeviceModeHome(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id);
+            if (modeResult.success) modeSuccessCount++;
+            tuyaApiCalls++;
+          }
+          
+          console.log(`[PV-Automation] Mode-Sync: ${modeSuccessCount}/${rooms.filter(r => r.tuya_device_id).length} erfolgreich`);
+          
+          // Track the hour so we don't repeat
+          await supabase.from('system_settings').upsert({
+            key: modeKey,
+            value: currentWienHour,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'key' });
+        }
+      }
 
       // Early Return: Wenn Quota erschöpft UND kein PV-Priority-Modus, Raum-Loop überspringen
       if (quotaExhausted && controlMode === 'cloud' && !pvPriorityMode) {
