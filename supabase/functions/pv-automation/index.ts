@@ -1709,40 +1709,9 @@ Deno.serve(async (req) => {
       // now ist bereits oben im Budget-Code definiert
       let tuyaApiCalls = 0; // Track API calls for logging
 
-      // Hourly mode enforcement: Set all thermostats to 'home' (manual) mode
-      // This prevents internal TGP508 schedules from overriding remote temperatures
-      // Only during daytime, once per hour, via system_settings tracking
-      if (!isNight && controlMode === 'cloud' && tuyaAccessId && tuyaAccessSecret) {
-        const modeKey = 'last_mode_home_hour';
-        const { data: modeSetting } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', modeKey)
-          .maybeSingle();
-        
-        const lastModeHour = modeSetting?.value as number | null;
-        
-        if (lastModeHour !== currentWienHour) {
-          console.log(`[PV-Automation] 🏠 Stündlicher Mode-Sync: Setze alle Thermostate auf mode:home (Stunde ${currentWienHour})`);
-          let modeSuccessCount = 0;
-          
-          for (const room of rooms) {
-            if (!room.tuya_device_id) continue;
-            const modeResult = await setDeviceModeHome(tuyaAccessId, tuyaAccessSecret, room.tuya_device_id);
-            if (modeResult.success) modeSuccessCount++;
-            tuyaApiCalls++;
-          }
-          
-          console.log(`[PV-Automation] Mode-Sync: ${modeSuccessCount}/${rooms.filter(r => r.tuya_device_id).length} erfolgreich`);
-          
-          // Track the hour so we don't repeat
-          await supabase.from('system_settings').upsert({
-            key: modeKey,
-            value: currentWienHour,
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'key' });
-        }
-      }
+      // NOTE: Hourly mode-sync ('home') removed — TGP508 thermostats reject
+      // the `mode` code with API error 2008 ("command not supported").
+      // Setting only `temp_set` works reliably and is sufficient for control.
 
       // Early Return: Wenn Quota erschöpft UND kein PV-Priority-Modus, Raum-Loop überspringen
       if (quotaExhausted && controlMode === 'cloud' && !pvPriorityMode) {
