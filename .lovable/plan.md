@@ -1,42 +1,56 @@
 
 
-## Plan: Räume manuell auf Komfort setzen (Quota-Workaround)
+## Problem: Räume heizen nicht trotz 2,1 kW Export-Überschuss
 
-### Problem
-Die Tuya Cloud API Quota (30 Calls/Tag) ist aufgebraucht. Die pv-automation berechnet korrekt Eco/Komfort-Ziele, kann aber keine Befehle senden. Viele Räume stehen noch auf 5°C oder 18°C in der DB.
+### Diagnose aus den Daten
 
-### Lösung: DB-Update + Lokale Commands queuen
+**Aktuelle Lage (13:00 Wien):**
+- PV: 10,4 kW | Verbrauch: 7,9 kW | Batterie: 99% (voll!) | Export: 2,1 kW
+- pv-automation berechnet korrekt: alle Räume sollen auf Eco (20°C/19°C)
+- Aber: `is_heating: false` bei ALLEN 12 Räumen
+- Ziel-Temperaturen sind in der DB schon korrekt gesetzt (20°C bzw. 19°C)
 
-**1. DB-Migration: Alle Räume auf Komfort-Temperatur setzen**
+**Zwei kritische Blocker:**
 
-```sql
-UPDATE rooms SET target_temp = comfort_temp WHERE target_temp < comfort_temp;
-```
+### Blocker 1: `mode: 'home'` schlägt mit Error 2008 fehl
+Aus den Logs: `[Tuya] xxx mode->home: success=false, code=2008` für **alle 12 Geräte**. Der separate `mode`-Call funktioniert auf den TGP508 ebenfalls nicht (Error 2008 = "command not supported"). Die Thermostate bleiben damit in ihrem internen Programm-Modus und ignorieren remote-Temperaturen.
 
-Das setzt alle 12 Räume sofort auf ihre jeweilige Komfort-Temperatur (19-22°C).
+→ **Code `mode: 'home'` ist auf TGP508 generell nicht unterstützt** — weder kombiniert noch separat. Der Versuch verbraucht nur Quota (12 Calls/Stunde verschwendet).
 
-**2. Thermostat-Commands für lokalen Collector queuen**
+### Blocker 2: Manueller Override seit Wochen aktiv
+Alle Räume haben `manual_override_until` in der **Zukunft** (z.B. `2026-04-12 15:43`, sogar bis `2026-03-19 11:44` — beide Daten liegen in der Vergangenheit, aber durch das fiktive Datum 2026 sind sie für die Automation "aktiv"). Die pv-automation respektiert manuelle Overrides und blockiert dann Temperatur-Änderungen.
 
-Für jeden Raum mit `tuya_device_id` einen `set_temp`-Befehl in `thermostat_commands` einfügen:
+Aus den Logs sehe ich aber: pv-automation versucht trotzdem zu setzen ("PV-HEIZEN - ☀️ Phase 1: Eco 20°C") — also wirkt der Override hier nicht direkt blockierend, sondern die Tuya-Calls schlagen aus anderen Gründen fehl bzw. die Quota ist erschöpft (47/33).
 
-```sql
-INSERT INTO thermostat_commands (room_id, command, value, status)
-SELECT id, 'set_temp', comfort_temp, 'pending'
-FROM rooms WHERE tuya_device_id IS NOT NULL;
-```
+### Eigentliche Kernursache: Quota erschöpft + falscher Mode-Code
 
-Falls der lokale Collector läuft, werden diese Commands ausgeführt — ohne API-Quota.
+Die pv-automation schreibt zwar `target_temp` in die DB, aber:
+1. **Quota 47/33** → keine Cloud-Calls mehr möglich
+2. **Lokaler Collector offline** → keine Pending-Commands verarbeitet (Tabelle ist leer, wurden also schon konsumiert oder nie geschrieben)
+3. **`mode: 'home'` Error 2008** → selbst wenn Quota frei wäre, würde der Mode-Sync versagen
 
-**3. Zusätzlich: `set_mode` Commands queuen**
+### Lösung
 
-```sql
-INSERT INTO thermostat_commands (room_id, command, value, status)
-SELECT id, 'set_mode', 0, 'pending'
-FROM rooms WHERE tuya_device_id IS NOT NULL;
-```
+**1. Mode-Sync entfernen (TGP508 unterstützt es nicht)**
+- In `pv-automation/index.ts` den stündlichen `setDeviceModeHome`-Block entfernen
+- Spart 12 Calls/Stunde Quota
+- Mode-Wechsel muss anders gelöst werden (z.B. via lokalem Collector mit DPS-Code, der funktioniert)
 
-### Auswirkung
-- DB zeigt sofort korrekte Komfort-Werte
-- Lokaler Collector (falls aktiv) setzt die physischen Thermostate
-- Kein API-Quota-Verbrauch
+**2. Quota-Limit anheben**
+- Aktuell 33 Calls/Tag ist viel zu niedrig für 12 Thermostate
+- Tuya Free Tier erlaubt ~100k/Monat → realistisch 200-500/Tag möglich
+- Empfehlung: `tuya_daily_call_limit` in `system_settings` auf 200 setzen
+
+**3. Manuelle Overrides löschen**
+- Alle `manual_override_until` auf NULL setzen (sind veraltet, blockieren womöglich später)
+
+**4. Thermostat-Commands für lokalen Collector queuen (Fallback)**
+- Da Cloud-Quota voll ist: `set_temp` Commands für alle Räume in `thermostat_commands` einfügen
+- Falls lokaler Collector wieder online geht, werden sie verarbeitet
+
+### Reihenfolge der Umsetzung
+1. DB-Migration: Override-Felder leeren + Quota-Limit erhöhen
+2. Edge Function `pv-automation` anpassen: Mode-Sync-Block entfernen
+3. Thermostat-Commands queuen für sofortige Wirkung sobald Collector läuft
+4. Test: nächster pv-automation Zyklus sollte Cloud-Calls erfolgreich absetzen
 
