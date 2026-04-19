@@ -1095,6 +1095,33 @@ Deno.serve(async (req) => {
       // Normalisierung: positiv=laden, negativ=entladen (für Budget-Logik)
       const batteryPower = -rawBatteryPower;
 
+      // ============= PV-TREND (5-Min) =============
+      // Automatisch berechnet, nicht konfigurierbar. Wird in Bonus + Tolerante Deaktivierung verwendet.
+      let pvTrend = 0; // W (positiv = steigend)
+      try {
+        const { data: trendData } = await supabase
+          .from('energy_readings')
+          .select('pv_power, timestamp')
+          .gte('timestamp', new Date(Date.now() - 6 * 60 * 1000).toISOString())
+          .order('timestamp', { ascending: false })
+          .limit(10);
+        if (trendData && trendData.length >= 2) {
+          const pvNow = trendData[0]?.pv_power ?? pvPower;
+          const pvOld = trendData[trendData.length - 1]?.pv_power ?? pvNow;
+          pvTrend = Math.round((pvNow - pvOld));
+          console.log(`[PV-TREND] ${trendData.length} samples, jetzt=${pvNow}W vor 5min=${pvOld}W → Trend=${pvTrend > 0 ? '+' : ''}${pvTrend}W`);
+        }
+      } catch (e) {
+        console.log(`[PV-TREND] Berechnung fehlgeschlagen: ${e}`);
+      }
+
+      // ============= BATTERIE-RESERVE FÜR NACHVERBRAUCH =============
+      const batteryReserveSoc = settings?.battery_reserve_for_night_soc ?? 60;
+      const batteryBufferEnabled = settings?.battery_buffer_enabled !== false;
+      const batteryBufferBonusW = settings?.battery_buffer_bonus_w ?? 500;
+      const tolerantDeactivationEnabled = settings?.tolerant_deactivation_enabled !== false;
+      const socAboveReserve = batterySoc - batteryReserveSoc;
+
       // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
       // Calculate grid export (negative power_io means export)
