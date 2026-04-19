@@ -29,9 +29,10 @@ const getProgressColor = (diff: number) => {
   return 'bg-red-400';
 };
 
-const getHeatingStatus = (room: Room): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
+const getHeatingStatus = (room: Room, power?: number): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
   if (room.is_heating) {
-    return { label: 'Heizt', dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
+    const label = power && power > 0 ? `Heizt · ${power}W` : 'Heizt';
+    return { label, dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
   }
   // "Wartend": target is set, current temp is below target (hysteresis zone)
   if (room.target_temp != null && room.current_temp != null && room.target_temp - room.current_temp > 0.3) {
