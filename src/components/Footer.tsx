@@ -14,7 +14,7 @@ export function Footer() {
     : null;
 
   return (
-    <footer className="border-t bg-card/30 backdrop-blur-sm mt-auto pb-20 md:pb-4">
+    <footer className="relative z-10 mt-auto shrink-0 border-t bg-card/30 pb-20 backdrop-blur-sm md:pb-4">
       <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
         <div>
           © {year} Fronius Smart AI. Alle Rechte vorbehalten.
