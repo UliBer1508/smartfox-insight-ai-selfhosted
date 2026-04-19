@@ -1,28 +1,63 @@
 
-Befund: Footer fehlt in Published, ist aber in Preview sichtbar. Code (`Layout.tsx`, `App.tsx`) ist korrekt — Footer ist global eingebunden. Das ist erneut das **Caching-Problem**: Published läuft mit altem Build ohne die globale Layout-Änderung.
 
-Ursache: Frontend-Änderungen werden NICHT automatisch live geschaltet. Sie erfordern **Publish → Update**. Zusätzlich cached die PWA (Service Worker) das alte Bundle aggressiv.
+## Befund
 
-Lösung — 2 Schritte für dich:
+Root-Cause der Diskrepanz Preview↔Published ist nicht ein einzelner Bug, sondern die Kombination aus:
 
-**Schritt 1: Publish → Update klicken**
-- Desktop: Top-rechts Button „Publish" → „Update"
-- Mobile: „..." unten rechts → „Publish" → „Update"
-- Warten bis „Live" angezeigt wird
+1. **Service Worker (vite-plugin-pwa)** mit aggressivem Caching: navigation handler `NetworkFirst` mit 3s Timeout liefert bei kleinster Latenz das **gecachte alte HTML** aus → alte JS-Bundles werden geladen → fehlende Komponenten (Footer/Settings).
+2. **Komplexe Update-Kette**: `controllerchange` → reload, `localStorage` Build-ID, `setInterval(60s)` updates, `useServiceWorkerUpdate` Banner. Mehrere Reload-Trigger konkurrieren → Race Conditions, Worker bleibt aktiv.
+3. **Frontend-Deploys nicht automatisch live**: Lovable benötigt explizites „Publish → Update". Bis dahin läuft auf der `.lovable.app`-Domain ein älterer Build, parallel dazu cached der bereits installierte SW dessen Bundle.
+4. Der Code an sich (`Layout.tsx`, `App.tsx`, `Footer.tsx`) ist korrekt — beweisbar durch Preview-Sichtbarkeit.
 
-**Schritt 2: Cache auf Published leeren**
-- Browser: Strg+Shift+R (Hard Reload)
-- PWA (installiert): App deinstallieren, neu von `smartfox-insight-ai.lovable.app` installieren
-- Alternativ: DevTools (F12) → Application → Service Workers → „Unregister" → Reload
+User-Entscheidung: **„Immer aktuell" > Offline.**
 
-Verifikation:
-- Footer mit „© 2026 Fronius Smart AI" + Build-Hash erscheint unten auf allen Seiten (auch Login)
-- Build-Hash auf Published muss mit Preview übereinstimmen
+## Lösung — PWA auf Installable-Only reduzieren (kein Service Worker)
 
-Keine Code-Änderung nötig — der Code ist bereits korrekt. Es ist ein reines Deployment-/Cache-Thema.
+Lovable-Doku ist explizit: für „Add to Home Screen"-Installierbarkeit braucht es **keinen** Service Worker, nur ein Manifest. Service Worker sind die alleinige Ursache aller Stale-Cache-Probleme.
 
-Falls nach Update + Hard-Reload immer noch kein Footer auf Published erscheint, dann liegt ein anderes Problem vor (z.B. Service Worker liefert komplett alten Bundle aus). In dem Fall könnte ich:
-- Den Service Worker so anpassen, dass er bei jedem Update zwingend selbst entlädt und neu lädt (`skipWaiting` + `clientsClaim` + auto-reload-on-update)
-- Eine sichtbare „Neue Version verfügbar — jetzt laden"-Banner einbauen
+### Änderungen
 
-Sag Bescheid, ob nach Schritt 1+2 der Footer da ist, oder ob ich den auto-reload-Mechanismus härter machen soll.
+**1. `vite.config.ts`** — `VitePWA`-Plugin komplett entfernen. Stattdessen statisches `public/manifest.webmanifest` (bleibt installierbar). `__BUILD_TIME__` define bleibt.
+
+**2. `public/manifest.webmanifest`** (neu) — derselbe Inhalt wie bisher generiert (Name, Icons, `display: standalone`, Shortcuts).
+
+**3. `src/main.tsx`** — alle SW-Logik entfernen. Stattdessen einmaliger **„SW-Killer"**: jeder Client unregistert beim Start alle bestehenden SWs und löscht alle Caches. Das erlöst auch alle bereits installierten Clients beim nächsten Besuch.
+
+```ts
+// Aggressiv: alle SW killen + alle Caches leeren, immer
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister()));
+}
+if ('caches' in window) {
+  caches.keys().then(ks => ks.forEach(k => caches.delete(k)));
+}
+```
+
+**4. `src/hooks/useServiceWorkerUpdate.ts`** — zu No-Op (oder löschen + Header.tsx anpassen, Update-Banner entfernen).
+
+**5. `src/components/energy/Header.tsx`** — `useServiceWorkerUpdate`-Import + Banner entfernen.
+
+**6. `package.json`** — `vite-plugin-pwa` Dependency entfernen.
+
+**7. Footer-Sichtbarkeits-Fix mitnehmen** — Footer läuft trotzdem rein, weil schon korrekt eingebunden. Auf Login-Seite (`/auth`) und NotFound ebenfalls aktiv via `Layout`. Verifikation per Build-Hash im Footer bleibt.
+
+### Ergebnis
+
+- Published `.lovable.app` lädt **immer** das frische `index.html` direkt vom Server (kein SW dazwischen).
+- Bestehende Nutzer mit altem SW: beim ersten Besuch wird ihr SW unregistert + Caches geleert → ab dem **zweiten** Besuch garantiert frischer Build (oder einmaliger Hard-Reload reicht).
+- App bleibt installierbar (Manifest vorhanden), aber **ohne Offline-Fallback** — bewusste Entscheidung des Users.
+- „Publish → Update" bleibt notwendig für jedes Frontend-Deployment (Lovable-Plattform-Verhalten, nicht änderbar).
+
+### Ablauf nach Implementierung
+
+1. Code-Änderungen werden gepusht.
+2. **Du** klickst „Publish → Update".
+3. Auf Published einmal Hard-Reload (Strg+Shift+R) — danach läuft der neue Code, SW ist deinstalliert.
+4. Alle weiteren Deploys gehen ohne Cache-Tricks live, sobald „Update" geklickt wurde.
+
+### Was nicht geändert wird
+
+- Datenbank, Edge Functions, Heizungs-/PV-Logik: unverändert.
+- iOS-Splash-Screens, Theme-Color, Manifest-Icons: bleiben (über statisches Manifest + index.html Meta-Tags).
+- Copy/Footer-Layout: bleibt wie zuletzt korrigiert.
+
