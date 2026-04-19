@@ -464,7 +464,6 @@ const Index = () => {
           />
         )}
       </main>
-      <Footer />
     </div>
   );
 };
