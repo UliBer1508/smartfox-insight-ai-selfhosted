@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Room } from '@/types/room';
+import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
