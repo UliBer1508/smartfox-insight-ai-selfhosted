@@ -1,904 +1,558 @@
-# Energie-Management-System - Vollständige Dokumentation
+# 🔴 MASTER-DOKUMENTATION — Energiemanagement-System
 
-> **🔴 WICHTIG FÜR DIE ENTWICKLUNG:** Diese Dokumentation enthält alle System-Details,
-> Architektur-Entscheidungen und die Änderungshistorie. Bei jeder Änderung MUSS 
-> das Changelog (Sektion 12) aktualisiert werden!
-
-**Letzte Aktualisierung:** 12.01.2026  
-**Version:** 2.2
-**Projekt-ID:** tvqmhdpcixkfsudxughs
-
----
-
-## 1. System-Architektur
-
-### Übersicht
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              HARDWARE LAYER                                  │
-├─────────────────┬─────────────────┬─────────────────────────────────────────┤
-│  Smartfox       │  Fronius        │  Tuya Thermostate (TGP508)              │
-│  Energy Manager │  Wechselrichter │  - Wohnzimmer, Schlafzimmer, etc.       │
-│  /all Endpoint  │  Solar API      │  - temp_current, temp_set, switch       │
-└────────┬────────┴────────┬────────┴─────────────────────────────────────────┘
-         │                 │                              ▲
-         ▼                 ▼                              │
-┌─────────────────────────────────────────────┐          │
-│         LOKALER COLLECTOR                    │          │
-│  Python (collector.py) oder                  │          │
-│  Node.js (collector-node/index.js)           │          │
-│  - Polling alle 30 Sekunden                  │          │
-│  - Berechnet Verbrauch, PV, Batterie         │          │
-└────────────────────┬────────────────────────┘          │
-                     │                                    │
-                     ▼                                    │
-┌─────────────────────────────────────────────────────────┴───────────────────┐
-│                         SUPABASE CLOUD BACKEND                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  DATENBANK (PostgreSQL)                                                      │
-│  ├── energy_readings      - Rohe Messwerte (30s Intervall)                  │
-│  ├── hourly_aggregates    - Stündliche Zusammenfassungen                    │
-│  ├── daily_patterns       - Tages-Statistiken                               │
-│  ├── rooms                - Räume mit Thermostat-Status                     │
-│  ├── room_heating_logs    - Heizungs-Events                                 │
-│  ├── room_recommendations - PV-basierte Empfehlungen                        │
-│  ├── pv_forecasts         - PV-Prognosen (forecast.solar)                   │
-│  ├── heating_settings     - Globale Heizungseinstellungen                   │
-│  ├── smartfox_settings    - Geräte-IP Konfiguration                         │
-│  ├── data_retention_settings - Datenaufbewahrung                            │
-│  └── detected_patterns    - Erkannte Verbrauchsmuster                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  EDGE FUNCTIONS                                                              │
-│  ├── pv-automation        - PV-Überschuss Heizungssteuerung                 │
-│  ├── tuya-control         - Tuya API Integration                            │
-│  ├── fetch-pv-forecast    - PV-Prognose von forecast.solar                  │
-│  ├── aggregate-energy-data- Daten-Aggregation & Cleanup                     │
-│  ├── analyze-patterns     - Muster-Erkennung                                │
-│  └── apply-recommendations- Empfehlungen auf Thermostate anwenden           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  REALTIME SUBSCRIPTIONS                                                      │
-│  └── energy_readings      - Live-Updates an PWA                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-                     │
-                     ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           PWA FRONTEND                                       │
-│  React + TypeScript + Vite + Tailwind CSS                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  SEITEN                                                                      │
-│  └── Index.tsx (4 Tabs: Dashboard, Einstellungen, Analyse, Heizung)         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  ENERGIE-KOMPONENTEN                                                         │
-│  ├── EnergyFlowDiagram    - Animiertes Energiefluss-Diagramm                │
-│  ├── PowerStats           - PV-Leistung und Verbrauch                       │
-│  ├── ConsumptionExplainer - Verbrauchs-Erklärungen                          │
-│  ├── BatteryHistoryChart  - Batterie-SOC Verlauf                            │
-│  ├── ConnectionStatus     - Collector-Verbindungsstatus                     │
-│  └── EnergyChart          - Zeitreihen-Diagramm                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  HEIZUNGS-KOMPONENTEN                                                        │
-│  ├── HeatingDashboard       - Übersicht aller Räume                          │
-│  ├── DailyHeatingSchedule   - Tagesprogramm mit 4 Modi & Temperaturen        │
-│  ├── LearningProgress       - Kompakter ML-Status (Collapsible)              │
-│  ├── RoomManager            - Raum-Verwaltung                                │
-│  ├── ThermostatCard         - Einzelner Thermostat                           │
-│  ├── PvForecastCard         - PV-Prognose Anzeige                            │
-│  └── RoomRecommendations    - Heiz-Empfehlungen                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  HEIZUNGS-MODI                                                               │
-│  ├── Nacht      - 22:00-06:00, night_temp (17-18°C)                         │
-│  ├── Eco        - Tagsüber Standard, eco_temp (19-20°C)                     │
-│  ├── Komfort    - PV >= 500W, comfort_temp (21-22°C)                        │
-│  └── Batterie   - SOC < 20%, erzwingt eco_temp                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  AUTOMATIK-SCHALTER (pro Raum)                                               │
-│  ├── pv_auto_enabled      - Zeit-/Überschuss-basierte Schaltung (☀️)        │
-│  └── automation_enabled   - ML-Empfehlungen aktiviert (🤖)                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  PWA FEATURES                                                                │
-│  ├── Offline-fähig (Service Worker)                                         │
-│  ├── Installierbar (iOS, Android, Windows)                                  │
-│  ├── Auto-Update Check (alle 5 Minuten)                                     │
-│  └── Push-Benachrichtigungen (geplant)                                      │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+> ## ⚠️ PFLICHT FÜR JEDE ÄNDERUNG
+> **Bevor du Code änderst, MUSST du dieses Dokument lesen.**
+> Das Konzept hier ist die Wahrheit — Code wird daran angepasst, NICHT umgekehrt.
+>
+> **Workflow bei jeder Änderung:**
+> 1. Relevante Sektion in dieser Doku lesen → Konzept verstehen
+> 2. Implementieren — bestehende Logik **erweitern, nicht überschreiben**
+> 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
+> 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
+>
+> **Letzte Aktualisierung:** 2026-04-19 · **Version:** 3.0 · **Projekt:** tvqmhdpcixkfsudxughs
 
 ---
 
-## 2. Lokaler Collector
-
-### 2.1 Python-Version (`local-collector/collector.py`)
-
-**Voraussetzungen:**
-- Python 3.10+
-- Netzwerkzugriff auf Smartfox/Fronius
-- Internetverbindung für Supabase
-
-**Installation:**
-```bash
-cd local-collector
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-cp config.example.json config.json
-# config.json bearbeiten
-python collector.py
-```
-
-**Konfiguration (`config.json`):**
-```json
-{
-  "smartfox_ip": "192.168.188.45",
-  "fronius_ip": "192.168.188.64",
-  "polling_interval": 30,
-  "supabase_url": "https://tvqmhdpcixkfsudxughs.supabase.co",
-  "supabase_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
-
-**Funktionsweise:**
-1. `fetch_smartfox(ip)` - Ruft `/all` Endpoint ab
-   - Liefert: `power_in`, `power_out`, `PvPower[]`, `PvEnergy[]`, `outputs[]`
-2. `fetch_fronius_data(ip)` - Ruft Solar API ab
-   - Liefert: `P_Akku`, `SOC`, `P_Grid`, `P_PV`, `P_Load`
-3. `save_reading()` - Speichert kombinierte Daten in `energy_readings`
-
-### 2.2 Node.js-Version (`local-collector/collector-node/index.js`)
-
-**Vorteile:**
-- Kompilierbar zu `.exe` für Windows
-- Kein Python erforderlich
-- Dynamisches Polling-Intervall aus Datenbank
-
-**Installation:**
-```bash
-cd local-collector/collector-node
-npm install
-node create-config.bat  # Interaktive Konfiguration
-npm start
-```
-
-**Oder als .exe:**
-```bash
-npm run build
-# dist/smartfox-collector.exe + config.json kopieren
-```
-
-**Aktuelle Implementierung (Fronius-Only):**
-```javascript
-async function fetchFroniusData() {
-  const response = await httpGet(
-    `http://${config.fronius.ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`
-  );
-  const site = response.Body.Data.Site;
-  const inverters = response.Body.Data.Inverters;
-  
-  return {
-    battery_soc: inverters['1']?.SOC || 0,
-    pv_power: Math.abs(site.P_PV || 0),
-    grid_power: site.P_Grid || 0,
-    load_power: Math.abs(site.P_Load || 0),
-    battery_power: site.P_Akku || 0,
-  };
-}
-```
-
-### 2.3 Gespeicherte Messwerte
-
-| Feld | Beschreibung | Quelle |
-|------|--------------|--------|
-| `timestamp` | Zeitstempel der Messung | Collector |
-| `power_io` | Netz-Leistung (+Bezug, -Einspeisung) | Fronius P_Grid |
-| `energy_in` | Kumulierte Energie-Bezug (kWh) | Smartfox (0 wenn nur Fronius) |
-| `energy_out` | Kumulierte Energie-Einspeisung (kWh) | Smartfox (0 wenn nur Fronius) |
-| `battery_soc` | Batterie-Ladezustand (%) | Fronius SOC |
-| `battery_power` | Batterie-Leistung (+Laden, -Entladen) | Fronius P_Akku |
-| `pv_power` | PV-Erzeugung (W) | Fronius P_PV |
-| `consumption` | Hausverbrauch (W) | Fronius P_Load |
+## Inhalt
+1. [Hardware & Topologie](#1-hardware--topologie)
+2. [Datenpipeline & Polling](#2-datenpipeline--polling)
+3. [Datenbank-Schema (Kernkonzepte)](#3-datenbank-schema-kernkonzepte)
+4. [PV-Automation: 4-Stufen-Logik](#4-pv-automation-4-stufen-logik)
+5. [Eco- vs. Komfort-Budget](#5-eco--vs-komfort-budget)
+6. [Batterie-Reserve & Puffer](#6-batterie-reserve--puffer)
+7. [Mikro-Budget & Soft-Rotation](#7-mikro-budget--soft-rotation)
+8. [Tolerante Deaktivierung](#8-tolerante-deaktivierung)
+9. [Nacht- vs. Tagbetrieb](#9-nacht--vs-tagbetrieb)
+10. [Tuya-Steuerung & Quota-Schutz](#10-tuya-steuerung--quota-schutz)
+11. [Sicherheits-Gates & Ghost-Heating-Prevention](#11-sicherheits-gates--ghost-heating-prevention)
+12. [Machine Learning & AI](#12-machine-learning--ai)
+13. [PV-Forecast & Wetter](#13-pv-forecast--wetter)
+14. [Edge Functions Übersicht](#14-edge-functions-übersicht)
+15. [Frontend-Architektur](#15-frontend-architektur)
+16. [PWA & Service Worker](#16-pwa--service-worker)
+17. [Sicherheit & RLS](#17-sicherheit--rls)
+18. [Bekannte Limitierungen](#18-bekannte-limitierungen)
+19. [Entscheidungsprotokoll](#19-entscheidungsprotokoll)
+20. [Changelog](#20-changelog)
 
 ---
 
-## 3. Datenbank-Schema
+## 1. Hardware & Topologie
 
-### 3.1 energy_readings (Rohdaten)
+| Komponente | Spezifikation | Schnittstelle |
+|---|---|---|
+| **PV-Anlage** | 15.8 kWp, Süd, 35° Neigung | Forecast.Solar API |
+| **Batterie** | 13.8 kWh (Fronius-verwaltet) | Fronius API (P_Akku, SOC) |
+| **Smartfox Energy Manager** | 192.168.188.45 | `/all` HTTP-Endpoint |
+| **Fronius Wechselrichter** | 192.168.188.64 | `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` |
+| **Tuya Thermostate** | 12 × TGP508 (MAC 3C:0B:59) | Tuya Cloud (Cloud-Modus) ODER Port 6668 (Lokal-Modus) |
+| **Standort** | 47.24983°N, 12.25415°E (Österreich), Europe/Vienna | — |
 
-```sql
-CREATE TABLE energy_readings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
-  power_io NUMERIC NOT NULL,           -- Netz-Leistung
-  energy_in NUMERIC NOT NULL,          -- Bezug kWh
-  energy_out NUMERIC NOT NULL,         -- Einspeisung kWh
-  battery_soc NUMERIC,                 -- Batterie %
-  battery_power NUMERIC,               -- Batterie W
-  pv_power NUMERIC,                    -- PV W
-  consumption NUMERIC,                 -- Verbrauch W
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### 3.2 rooms (Räume mit Thermostaten)
-
-```sql
-CREATE TABLE rooms (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  thermostat_type TEXT DEFAULT 'TGP508',
-  orientation TEXT,                    -- 'nord', 'süd', 'ost', 'west'
-  has_solar_gain BOOLEAN DEFAULT false,
-  floor_area_m2 NUMERIC,
-  comfort_temp NUMERIC DEFAULT 21,
-  eco_temp NUMERIC DEFAULT 19,
-  night_temp NUMERIC DEFAULT 17,
-  priority INTEGER DEFAULT 2,
-  heating_power_w NUMERIC,
-  
-  -- Tuya Integration
-  tuya_device_id TEXT,
-  thermostat_ip TEXT,
-  current_temp NUMERIC,
-  target_temp NUMERIC,
-  is_heating BOOLEAN DEFAULT false,
-  last_thermostat_sync TIMESTAMPTZ,
-  
-  -- PV-Automatik
-  pv_auto_enabled BOOLEAN DEFAULT false,
-  pv_auto_active BOOLEAN DEFAULT false,
-  pv_auto_last_change TIMESTAMPTZ,
-  
-  -- Automatik-Steuerung
-  automation_enabled BOOLEAN DEFAULT false,
-  last_auto_change TIMESTAMPTZ,
-  
-  -- Verbrauchsanalyse
-  estimated_kwh_per_degree NUMERIC,
-  last_heating_duration_min INTEGER,
-  avg_heating_cycles_per_day NUMERIC,
-  
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### 3.3 heating_settings (Globale Einstellungen)
-
-```sql
-CREATE TABLE heating_settings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  
-  -- PV-Anlage
-  pv_capacity_kwp NUMERIC DEFAULT 15.8,
-  battery_capacity_kwh NUMERIC DEFAULT 13.8,
-  
-  -- Batterie-Schwellwerte
-  min_battery_soc NUMERIC DEFAULT 20,
-  target_battery_soc NUMERIC DEFAULT 80,
-  
-  -- Temperaturen
-  comfort_temp NUMERIC DEFAULT 21,
-  eco_temp NUMERIC DEFAULT 19,
-  night_temp NUMERIC DEFAULT 18,
-  preheat_hours NUMERIC DEFAULT 2,
-  
-  -- Standort (für PV-Forecast)
-  latitude NUMERIC DEFAULT 47.24983,
-  longitude NUMERIC DEFAULT 12.25415,
-  roof_azimuth INTEGER DEFAULT 0,
-  roof_declination INTEGER DEFAULT 35,
-  
-  -- PV-Automatik Schwellwerte
-  pv_surplus_threshold_on INTEGER DEFAULT 500,   -- Heizen EIN bei 500W+
-  pv_surplus_threshold_off INTEGER DEFAULT 200,  -- Heizen AUS unter 200W
-  min_switch_interval_min INTEGER DEFAULT 5,
-  
-  -- Fußbodenheizung
-  floor_heating_response_hours NUMERIC DEFAULT 2,
-  estrich_storage_enabled BOOLEAN DEFAULT true,
-  
-  -- E-Auto
-  car_charging_enabled BOOLEAN DEFAULT false,
-  car_min_charge_power_w INTEGER DEFAULT 1380,
-  
-  -- Warmwasser (Smartfox-gesteuert)
-  hotwater_enabled BOOLEAN DEFAULT true,
-  hotwater_power_w INTEGER DEFAULT 2800,
-  hotwater_min_surplus_w INTEGER DEFAULT 1000,
-  hotwater_schedule_start TEXT DEFAULT '10:00',
-  hotwater_schedule_end TEXT DEFAULT '16:00',
-  
-  -- Verbraucher-Priorität
-  consumer_priority TEXT DEFAULT 'battery,heating,car',
-  
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### 3.4 pv_forecasts (PV-Prognosen)
-
-```sql
-CREATE TABLE pv_forecasts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  date DATE NOT NULL,
-  expected_kwh NUMERIC DEFAULT 0,
-  hourly_watts JSONB DEFAULT '{}',     -- {"06:00": 100, "07:00": 500, ...}
-  sunrise TIME,
-  sunset TIME,
-  fetched_at TIMESTAMPTZ DEFAULT now(),
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### 3.5 data_retention_settings (Datenaufbewahrung)
-
-```sql
-CREATE TABLE data_retention_settings (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  polling_interval_seconds INTEGER DEFAULT 300,
-  raw_data_retention_days INTEGER DEFAULT 7,
-  hourly_retention_days INTEGER DEFAULT 90,
-  auto_cleanup_enabled BOOLEAN DEFAULT true,
-  last_cleanup_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now()
-);
-```
+**Thermostat-Inventar:** 11 statische IPs (192.168.188.42, .43, .61–.69, .79). 10 Local Keys verfügbar.
 
 ---
 
-## 4. Edge Functions
+## 2. Datenpipeline & Polling
 
-### 4.1 pv-automation
-
-**Zweck:** Aktiviert/deaktiviert Heizung basierend auf PV-Überschuss
-
-**Trigger:** Manuell oder via Cron-Job
-
-**Logik:**
 ```
-1. Lade letzte Energiemessung
-2. Berechne PV-Überschuss = pv_power - consumption + battery_power
-3. Prüfe: battery_soc >= min_battery_soc (z.B. 20%)
-4. Für jeden Raum mit pv_auto_enabled = true:
-   - Wenn Überschuss >= threshold_on (500W) UND nicht bereits aktiv:
-     → Setze comfort_temp via Tuya
-     → pv_auto_active = true
-   - Wenn Überschuss < threshold_off (200W) UND aktiv:
-     → Setze eco_temp via Tuya
-     → pv_auto_active = false
-   - Prüfe min_switch_interval_min zwischen Änderungen
-5. Aktualisiere rooms-Tabelle mit neuem Status
+Smartfox + Fronius
+    ↓ (60s Polling)
+Local Collector (Node.js, im LAN)
+    ↓ (HTTP zu Supabase)
+energy_readings (1-Min-Granularität)
+    ↓
+Frontend (30-60s Polling, KEIN Realtime)
 ```
 
-### 4.2 tuya-control
+**Wichtige Regeln:**
+- **Polling-Intervall:** 60s (kein Supabase-Realtime — verursachte PGRST002-Fehler)
+- **Lokaler Collector** ist erforderlich (CORS verhindert direktes Browser-Polling von LAN-Geräten)
+- **Zwei separate Prozesse:** Fronius-Collector (Daten) und Tuya-Local-Service (Thermostat-Steuerung) sind strikt getrennt
+- **Smartfox-Inversion:** `power_io` ist invertiert (negativ = Bezug). Battery-Konvention: positiv = Laden
+- **Smartfox Relay-Daten:** `power_smartfox` und `relay_status` (jsonb) erfassen versteckte Boiler-Lasten
 
-**Zweck:** Kommunikation mit Tuya Cloud API
-
-**Aktionen:**
-- `list` - Alle Geräte abrufen
-- `status` - Status eines Geräts abrufen
-- `set-temp` - Temperatur setzen
-- `sync` - Alle Thermostat-Status synchronisieren
-
-**Secrets:**
-- `TUYA_ACCESS_ID`
-- `TUYA_ACCESS_SECRET`
-
-**Tuya API-Signatur:**
-```javascript
-const stringToSign = [
-  clientId,
-  timestamp,
-  signStr,
-  'GET\n' + contentHash + '\n\n' + url
-].join('');
-
-const sign = crypto
-  .createHmac('sha256', clientSecret)
-  .update(stringToSign)
-  .digest('hex')
-  .toUpperCase();
-```
-
-### 4.3 fetch-pv-forecast
-
-**Zweck:** Holt PV-Prognose von forecast.solar
-
-**API-Aufruf:**
-```
-https://api.forecast.solar/estimate/{lat}/{lon}/{dec}/{az}/{kwp}
-```
-
-**Parameter aus heating_settings:**
-- `latitude`, `longitude` - Standort
-- `roof_declination` - Dachneigung (0-90°)
-- `roof_azimuth` - Ausrichtung (-180 bis 180°, 0=Süd)
-- `pv_capacity_kwp` - Anlagenleistung
-
-**Speichert:**
-- `expected_kwh` - Erwartete Tagesproduktion
-- `hourly_watts` - Stündliche Prognose als JSON
-- `sunrise`, `sunset` - Sonnenauf-/untergang
-
-### 4.4 aggregate-energy-data
-
-**Zweck:** Konsolidiert alte Daten, löscht Rohdaten
-
-**Ablauf:**
-1. Rohdaten älter als `raw_data_retention_days` (7 Tage):
-   → Aggregiere zu `hourly_aggregates`
-   → Lösche Rohdaten
-2. Stündliche Daten älter als `hourly_retention_days` (90 Tage):
-   → Aggregiere zu `daily_patterns`
-   → Lösche stündliche Daten
-3. Aktualisiere `last_cleanup_at`
-
-### 4.5 analyze-patterns
-
-**Zweck:** Erkennt Verbrauchsmuster mittels AI
-
-**Funktionen:**
-- Tägliche Lastspitzen identifizieren
-- Wiederkehrende Muster erkennen
-- Heizungsempfehlungen generieren
-
-**Analyse-Modi mit Heizungstyp-Unterstützung:**
-- `optimize_decision` - ML-basierte Entscheidungen mit Heizungstyp
-- `room_heating_optimization` - Raumspezifische Optimierung mit Heizungstyp
-- `heating_optimization` - 6-Perioden-Heizplan mit Heizungstyp
-- `daily_pattern` - Tagesanalyse mit Heizungstyp-Info
-- `weekly_comparison` - Wochenvergleich mit Heizungstyp-Info
-
-**Heizungstyp-Erkennung:**
-```typescript
-const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
-const heatingTypeLabels = {
-  'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
-  'heat_pump': 'Wärmepumpe',
-  'water': 'Wasserbasierte Heizung'
-};
-// Bei direct_electric: "KEINE Wärmepumpen-Tipps!"
-```
-
-### 4.6 apply-recommendations
-
-**Zweck:** Wendet berechnete Empfehlungen auf Thermostate an
-
-**Ablauf:**
-1. Lade aktuelle `room_recommendations` für heute
-2. Prüfe aktuelle Zeit gegen Empfehlungs-Zeitfenster
-3. Setze empfohlene Temperatur via Tuya
-4. Logge Event in `room_heating_logs`
+**Aufbewahrung (`cleanup_old_data` täglich):**
+- Rohdaten `energy_readings`: 7 Tage
+- Stundenaggregate `hourly_aggregates`: 90 Tage
+- Tagesmuster `daily_patterns`: unbegrenzt
+- `thermostat_commands` >1 Tag: gelöscht
+- `api_errors` resolved: gelöscht
 
 ---
 
-## 5. Frontend Hooks
+## 3. Datenbank-Schema (Kernkonzepte)
 
-### 5.1 useSmartfoxData
+**Quelle der Wahrheit für Heiz-Status:** `room_heating_logs` (NICHT `rooms.is_heating` — letzteres kann veralten).
+- `event_type`: `heating_start`, `heating_stop`, `pv_activate`, `pv_deactivate`, `manual_set`
+- Aktive Räume = `heating_start` ohne nachfolgendes `heating_stop`
 
-```typescript
-// Lädt Energiedaten mit Realtime-Updates
-const { currentReading, readings, isConnected, lastError, refresh } = useSmartfoxData();
-```
+**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (ML), `pv_auto_enabled` (PV-Logik), `manual_override_until`, `tuya_device_id`, `local_key`.
 
-- Lädt letzte 100 Messwerte
-- Realtime-Subscription auf INSERT-Events
-- Verbindungsstatus basierend auf letztem Timestamp
+**Heating Settings (Auszug):**
+- `night_start_time`, `night_end_time` (default 22:00–06:00, real genutzt 20:00–09:00)
+- `night_heating_mode`: `frost_only` (5°C) | `maintain` (night_temp)
+- `target_battery_soc` (40%): Trigger für Heizstart morgens
+- `min_battery_soc` (20%): absolute Untergrenze
+- `battery_reserve_for_night_soc` (60%): Schutz für Abendverbrauch
+- `battery_buffer_enabled`, `battery_buffer_bonus_w` (500W)
+- `tolerant_deactivation_enabled` (true)
+- `micro_budget_enabled`, `micro_budget_min_battery_soc` (80%), `micro_heat_duration_min` (5)
+- `pv_surplus_threshold_on/off` (500W / 200W)
+- `min_room_pause_minutes` (15), `room_rotation_minutes` (30)
+- `power_budget_tolerance_w` (200), `max_grid_heating_power_w` (2000)
 
-### 5.2 useHeatingSettings
-
-```typescript
-const { settings, saveSettings, isLoading } = useHeatingSettings();
-```
-
-- Lädt/speichert globale Heizungseinstellungen
-- Alle Felder aus `heating_settings` Tabelle
-
-### 5.3 useRooms
-
-```typescript
-const { 
-  rooms, 
-  isLoading, 
-  loadRooms, 
-  createRoom, 
-  updateRoom, 
-  deleteRoom,
-  togglePvAuto,
-  setTemperature 
-} = useRooms();
-```
-
-- CRUD für Räume
-- PV-Automatik toggeln
-- Temperatur via Tuya setzen
-
-### 5.4 usePvForecast
-
-```typescript
-const { 
-  forecasts, 
-  todayForecast, 
-  tomorrowForecast, 
-  fetchForecast, 
-  isLoading 
-} = usePvForecast();
-```
-
-- Lädt PV-Prognosen für die nächsten 7 Tage
-- Ruft `fetch-pv-forecast` Edge Function auf
-
-### 5.5 useConsumptionAnalysis
-
-```typescript
-const { 
-  activeConsumers, 
-  isHotwaterActive, 
-  isHeatingActive,
-  explanation 
-} = useConsumptionAnalysis(currentReading, rooms, settings);
-```
-
-- Analysiert aktuelle Verbraucher
-- Prüft Warmwasser-Zeitplan
-- Erklärt hohen Verbrauch
-
-### 5.6 useServiceWorkerUpdate
-
-```typescript
-const { 
-  showUpdatePrompt, 
-  updateApp, 
-  dismissUpdate 
-} = useServiceWorkerUpdate();
-```
-
-- Prüft alle 5 Minuten auf Updates
-- Prüft bei App-Focus
-- Zeigt Update-Banner
+**Battery Daily Tracking (`battery_daily_tracking`, unique pro Datum):**
+- `soc_at_heating_start` (~09:00), `soc_at_heating_end` (17–19 Uhr), `soc_at_morning`
+- `min_soc_during_night`, `night_consumption_kwh`, `heating_battery_used_kwh`
 
 ---
 
-## 6. PWA-Konfiguration
+## 4. PV-Automation: 4-Stufen-Logik
 
-### vite.config.ts
+`pv-automation` läuft alle 2 Minuten (pg_cron Heartbeat). Kumulatives Budget — keine Momentaufnahme.
 
-```typescript
-VitePWA({
-  registerType: 'prompt',
-  includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'pwa-*.png'],
-  manifest: {
-    name: 'Energiemonitor',
-    short_name: 'Energie',
-    theme_color: '#0ea5e9',
-    background_color: '#0f172a',
-    display: 'standalone',
-    start_url: '/',
-  },
-  workbox: {
-    skipWaiting: true,          // Sofortige Aktivierung
-    clientsClaim: true,         // Alle Tabs übernehmen
-    globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-    runtimeCaching: [
-      {
-        urlPattern: /^https:\/\/.*supabase\.co\/.*/i,
-        handler: 'NetworkFirst',
-        options: {
-          cacheName: 'supabase-cache',
-          expiration: { maxEntries: 50, maxAgeSeconds: 300 }
-        }
-      }
-    ]
-  }
-})
+### Stufe 1: Sicherheits-Gates (sequentiell, jeder kann blockieren)
+1. **Übertemperatur:** `currentRoomTemp >= target + 0.3` → Hysterese-Stop
+2. **Solar-Limit:** `currentRoomTemp >= solar_limit_temp` (passiver Solargewinn)
+3. **Manual Override:** `manual_override_until > now()` → unbedingt respektieren
+4. **Hard PV Gate:** `pv_power < 500W` UND `forecast_kwh < 5` → ALLE Heizungen blockiert
+5. **Battery Reserve Hard-Stop:** SOC < `min_battery_soc` (20%) → Stop
+6. **Quota Exhausted:** Tuya-Quota erreicht → keine Schreib-Operationen
+
+### Stufe 2: Phase 1 — Eco für alle Prio-Räume
+- Sortiert nach Priorität (1 → 12)
+- Pro Raum: `usedBudget + heatingPower <= availableBudget` → aktivieren mit `eco_temp`
+- Wenn überschritten: prüfe **Tolerante Deaktivierung** (siehe §8) für bereits heizende Räume
+
+### Stufe 3: Phase 2 — Komfort-Upgrades
+- NUR für Räume die schon in Phase 1 aktiv sind
+- Strikt: `comfortBudget = gridExport` (kein Batterie-Bonus, kein Trend-Bonus)
+- Upgrade von `eco_temp` → `comfort_temp` nur wenn Komfort-Budget reicht
+
+### Stufe 4: Physische Soll-Korrektur
+- Vergleicht DB-`target_temp` mit physischem Tuya-Wert
+- Bei Abweichung: Push via Tuya → verhindert Ghost-Heating
+
+**Reihenfolge zwingend:** 1 → 2 → 3 → 4. Phase 2 darf NIE vor Phase 1 für andere Räume laufen.
+
+---
+
+## 5. Eco- vs. Komfort-Budget
+
+### Eco-Budget (`availableBudget`) — flexibel
+```
+availableBudget = gridExport
+                + currentlyHeatingPower      // bereits heizende Räume zurückrechnen
+                + dynamicTolerance           // power_budget_tolerance_w
+                ± batterieKorrektur          // siehe unten
+                + prognoseBonus              // 0 / 400 / 800 / 1500W (gestuft)
+                + batteriePuffer             // 0–500W (siehe §6)
+                + pvTrendBonus               // +300W bei Trend > +500W
 ```
 
----
+**Batterie-Korrektur:**
+- Bei Entladung (`battery_power < 0`): availableBudget reduzieren
+- Bei SOC < 80%: Ladereserve abziehen
 
-## 7. Secrets & Konfiguration
+**Prognose-Bonus** (nur Eco, nur tagsüber ≥9 Uhr):
+| Bedingung | Bonus |
+|---|---|
+| PV-Rest ≥ 3× Eco-Bedarf UND SOC ≥ 50% | +1500W |
+| PV-Rest ≥ 2× Eco-Bedarf UND SOC ≥ 60% | +800W |
+| PV-Rest ≥ 1.5× Eco-Bedarf UND SOC ≥ 70% | +400W |
 
-### Supabase Secrets (Edge Functions)
-
-| Secret | Beschreibung |
-|--------|--------------|
-| `TUYA_ACCESS_ID` | Tuya IoT Cloud Access ID |
-| `TUYA_ACCESS_SECRET` | Tuya IoT Cloud Secret |
-| `SUPABASE_URL` | Automatisch gesetzt |
-| `SUPABASE_SERVICE_ROLE_KEY` | Automatisch gesetzt |
-
-### Lokaler Collector (config.json)
-
-| Feld | Beschreibung | Beispiel |
-|------|--------------|----------|
-| `smartfox_ip` | IP des Smartfox Energy Manager | `192.168.188.45` |
-| `fronius_ip` | IP des Fronius Wechselrichters | `192.168.188.64` |
-| `polling_interval` | Abfrageintervall in Sekunden | `30` |
-| `supabase_url` | Supabase Projekt-URL | `https://xxx.supabase.co` |
-| `supabase_key` | Supabase Anon Key | `eyJ...` |
+### Komfort-Budget (`comfortBudget`) — strikt
+```
+comfortBudget = gridExport     // NUR echter Export, keine Boni
+```
+Niemals Batterie, Prognose, Trend oder Reserve einbeziehen. Komfort-Heizen darf nie Netzbezug verursachen.
 
 ---
 
-## 8. Hardware-Anforderungen
+## 6. Batterie-Reserve & Puffer
 
-### Smartfox Energy Manager
+**Ziel:** Batterie als Reserve für Abend-/Nachtverbrauch schützen — nicht für Heizung leerziehen.
 
-**API-Endpoint:** `http://{ip}/all`
+### Reserve (`battery_reserve_for_night_soc`, default 60%)
+- Schutz-Untergrenze für Abendnutzung
+- Mikro-Budget Untergrenze wird dynamisch erhöht: `microMinSoc = max(micro_budget_min_battery_soc, reserve + 20)`
 
-**Response-Format:**
-```json
-{
-  "power_in": 1500,
-  "power_out": 0,
-  "energy_in": 12345.6,
-  "energy_out": 9876.5,
-  "PvPower": [3500, 0],
-  "PvEnergy": [1234.5, 0],
-  "outputs": [true, false, false, false]
-}
+### Batterie-Puffer (gestuft, nur wenn `battery_buffer_enabled`)
+`socAboveReserve = batterySoc - battery_reserve_for_night_soc`
+
+| Δ ≥ | Anteil von `battery_buffer_bonus_w` |
+|---|---|
+| 35 | 100% |
+| 25 | 60% |
+| > 20 | 30% |
+
+**Doppel-Gate für Puffer-Aktivierung:**
+- `remainingPvForHeatingWh ≥ totalEcoEnergyNeededWh`
+- `pvTrend ≥ -300W`
+
+### PV-Trend (5-Min-Vergleich, automatisch)
+- Trend > +500W → Bonus +300W zum Eco-Budget
+- Trend < -200W → blockiert Tolerante Deaktivierung
+- Trend < -300W → blockiert Batterie-Puffer
+
+### Validierung (`validate-battery-reserve`, täglich 09:05)
+Schreibt nach `system_settings.battery_reserve_validation`:
+- `ok` (Reserve gehalten)
+- `increase_reserve_to_X` (knapp verfehlt)
+- `decrease_reserve_to_X` (zu konservativ — Reserve am Morgen weit überschritten)
+
+---
+
+## 7. Mikro-Budget & Soft-Rotation
+
+**Trigger:** `0 < availableBudget < minRoomPower` UND `batterySoc >= microMinSoc`
+
+**Auswahl:** 1 Raum nach Score = `Priorität × 100 + Defizit × 10 + PauseMinuten`
+
+**Aktivierung:** `target_temp = eco_temp` + `system_settings.last_micro_rotation_at = {ts, room_id, ended:false}`
+
+**Soft-Beendigung:** Nach `micro_heat_duration_min` (5) aktiv beenden:
+- `target_temp = night_temp`
+- Status: `ended:true`, `ended_at: now()`
+
+**Cooldown** (`room_rotation_minutes`, 30): zählt ab `ended_at`, nicht ab Aktivierung. Kein neuer Mikro-Raum solange `ended === false`.
+
+**Manual Override** blockiert sowohl Aktivierung als auch Soft-Beendigung.
+
+---
+
+## 8. Tolerante Deaktivierung
+
+**Greift NUR in Phase-1-Eco-Loop, NUR für bereits heizende Räume bei kurzem Budget-Einbruch.**
+
+```ts
+const overshoot = (usedBudget + rp.heatingPower) - availableBudget;
+const tolerate =
+     tolerant_deactivation_enabled
+  && rp.isCurrentlyHeating          // nicht für Neuaktivierungen
+  && pvSufficientForEco             // Tagesprognose reicht
+  && pvTrend >= -200                // PV nicht im Einbruch
+  && overshoot <= max(300, heatingPower * 0.4);  // Stacking-Schutz
 ```
 
-### Fronius Wechselrichter
+**Verhalten:**
+- Bei Wolke (kurzer PV-Dip): Raum heizt durch → keine Tuya-Calls
+- Bei Sonnenuntergang (Trend < -200W): harter Cutoff wie ohne Toleranz
+- Selbstbegrenzend: max ~3 Räume × 300W = 900W über Budget
 
-**API-Endpoint:** `http://{ip}/solar_api/v1/GetPowerFlowRealtimeData.fcg`
+**Quota-Ersparnis:** Pro toleriertem Raum 2 Tuya-Calls eingespart (Deaktivierung + spätere Reaktivierung).
 
-**Response-Format:**
-```json
-{
-  "Body": {
-    "Data": {
-      "Site": {
-        "P_Grid": -500,      // Negativ = Einspeisung
-        "P_Load": 1200,      // Hausverbrauch
-        "P_PV": 3500,        // PV-Erzeugung
-        "P_Akku": 800        // Positiv = Laden
-      },
-      "Inverters": {
-        "1": {
-          "SOC": 75          // Batterie-Ladezustand %
-        }
-      }
-    }
-  }
-}
+**Logging:** `[TOLERANT-DEACTIVATION]` pro Raum, `[TUYA-QUOTA-RUN]` Run-Counter.
+
+---
+
+## 9. Nacht- vs. Tagbetrieb
+
+**Nachtfenster:** 20:00–09:00 (Europe/Vienna)
+
+**Heizstart strikt um 09:00** — vorher KEIN aktives Heizen (Frostschutz ausgenommen).
+
+### Nacht-Heizmodi (`night_heating_mode`)
+- `frost_only` (default): Thermostate auf 5°C → nur Frostschutz
+- `maintain`: Thermostate auf `night_temp` → Wärme halten
+
+### Morgenstart-Trigger
+- Bei `batterySoc >= target_battery_soc` (40%) UND Zeit ≥ 09:00 → Heizen erlaubt
+- Bei Batterie < 40%: warten bis PV-Produktion ausreichend
+
+### Suppression
+- ML-Empfehlungen (`analyze-patterns`) sind im Nachtfenster komplett unterdrückt
+- Bei Übergang Nacht→Tag: Einmalige Sync-Aktion am Thermostat
+
+### Hysterese (Anti-Flapping)
+- Heizung **OFF**: bei `currentTemp >= targetTemp + 0.3°C`
+- Heizung **ON**: bei `currentTemp <= targetTemp - 0.2°C`
+
+---
+
+## 10. Tuya-Steuerung & Quota-Schutz
+
+**Quota-Limit:** 30 Calls/Tag (Minimal-Subscription).
+
+### Dual-Modus (manuell umschaltbar via `useControlMode`)
+| Modus | Befehlsweg | Vorteile |
+|---|---|---|
+| **Cloud** | Edge Function `tuya-control` → Tuya IoT Cloud API | Standortunabhängig |
+| **Local** | DB-Tabelle `thermostat_commands` → Local Service (Port 6668) | Keine Quota |
+
+**Kein automatischer Failover** — User muss bewusst umschalten.
+
+### Quota-Schutzmechanismen (alle aktiv)
+1. **`tempAlreadyCorrect`-Gate:** Bei korrekter Soll-Temp → kein Call
+2. **Cooldown-Gate:** `min_room_pause_minutes` (15)
+3. **120-Min Cloud-Sync:** Begrenzt redundante Sync-Calls
+4. **Quota-Check:** Bei Erschöpfung → alle Schreib-Ops blockiert
+5. **Tolerante Deaktivierung:** Spart Cycling-Calls bei wechselhaftem Wetter
+
+### TGP508 DPS-Mapping (alphanumerisch erforderlich)
+- `mode`, `temp_set`, `temp_current`, `switch`, `work_state`
+
+### Push-All Funktion
+Manueller Sync aller 12 Thermostate (Settings) — überschreibt physische Werte mit DB-Targets.
+
+### API-Error-Logging
+- `api_errors`-Tabelle (mit `device_id`, `error_code`, `retry_count`, `is_acknowledged`)
+- Banner exklusiv im Heating-Dashboard (`ApiErrorBanner`)
+- 3-Strike-Retry, dann Eskalation
+
+### Subscription-Monitoring
+Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
+
+---
+
+## 11. Sicherheits-Gates & Ghost-Heating-Prevention
+
+**Ghost Heating** = Hardware heizt obwohl DB sagt "Aus". Drei Mechanismen:
+
+1. **Stufe 4 Tagesziel-Korrektur:** Vergleicht DB- mit physischem Wert, korrigiert Abweichungen
+2. **Hysterese-Stop:** `temp >= target + 0.3°C` → garantiert Ausschalten
+3. **Sicherheits-Gates** (Übertemp, Solar-Limit, Manual Override) prüfen unabhängig vom Budget
+
+**Aktive-Heizung-Quelle:** Dashboard zeigt aktive Heizungen aus `room_heating_logs` (echte Events), nicht aus `rooms.is_heating` (kann lügen).
+
+---
+
+## 12. Machine Learning & AI
+
+**AI-Provider:** **Direkte Google Gemini API** (`gemini-2.5-flash`). Keine Lovable AI Gateway. Secret: `GEMINI_API_KEY`.
+
+### Komponenten
+- **`analyze-patterns`** — generiert Empfehlungen, im Nachtfenster suppressed
+- **`ml-feature-extraction`** (täglich) — rekonstruiert Heizzyklen aus `room_heating_logs`, schreibt `room_ml_features`
+- **`evaluate-decision`** — bewertet vergangene Entscheidungen (Reward-Funktion)
+- **`update-learned-policies`** (täglich 19:30 UTC) — aggregiert zu `learned_policies`
+- **`generate-settings-suggestions`** — KI-Vorschläge für Heating-Settings (whitelisted)
+
+### Reward-Funktion
+- Action-Bonus für korrekte Entscheidungen
+- 10% Penalty pro Wh Netzbezug
+- Korrigiert Negativ-Bias gegen "Ausschalten"
+
+### Architektur-Grenze
+**AI empfiehlt Setpoints — Kern-Budget-Logik (§4–8) ist die finale Filter.** AI kann Reward-Funktion nicht selbst korrigieren.
+
+### Whitelist-Schutz
+`generate-settings-suggestions` nutzt strikte Tool-Schemas mit Enums → verhindert Halluzinationen.
+
+---
+
+## 13. PV-Forecast & Wetter
+
+### Forecast.Solar (`fetch-pv-forecast`, täglich 06:00)
 ```
-
-### Tuya Thermostate (TGP508)
-
-**Datenpunkte:**
-| DP | Name | Beschreibung |
-|----|------|--------------|
-| 1 | switch | Thermostat Ein/Aus |
-| 2 | temp_set | Ziel-Temperatur (×10) |
-| 3 | temp_current | Aktuelle Temperatur (×10) |
-| 4 | mode | Modus (manual, auto, eco) |
-| 5 | work_state | Heizstatus (heating, idle) |
-
----
-
-## 9. Typische Workflows
-
-### Täglicher Betrieb
-
-1. **Collector läuft kontinuierlich**
-   - Speichert alle 30 Sekunden Messwerte
-   - Prüft Polling-Intervall aus Datenbank
-
-2. **PWA zeigt Echtzeit-Daten**
-   - Realtime-Subscription auf `energy_readings`
-   - Automatische UI-Updates
-
-3. **PV-Automatik (manuell oder cron)**
-   - Prüft PV-Überschuss
-   - Aktiviert/deaktiviert Heizung nach Schwellwerten
-
-4. **Nächtliche Aggregation**
-   - `aggregate-energy-data` bereinigt alte Daten
-   - Konsolidiert zu Stunden- und Tages-Aggregaten
-
-### Heizungs-Optimierung
-
-1. **PV-Forecast abrufen**
-   - Täglich morgens von forecast.solar
-   - Speichert stündliche Prognose
-
-2. **Empfehlungen berechnen**
-   - `analyze-patterns` analysiert Muster
-   - Generiert optimale Heizperioden
-
-3. **Empfehlungen anwenden**
-   - `apply-recommendations` setzt Temperaturen
-   - Loggt alle Änderungen
-
----
-
-## 10. Troubleshooting
-
-### Collector verbindet nicht
-
-1. **Smartfox testen:** `curl http://SMARTFOX-IP/all`
-2. **Fronius testen:** `curl http://FRONIUS-IP/solar_api/v1/GetPowerFlowRealtimeData.fcg`
-3. **Supabase testen:** Ping-Test zur Supabase-URL
-
-### Keine Daten in PWA
-
-1. **Verbindungsstatus prüfen** (ConnectionStatus-Komponente)
-2. **Collector-Logs prüfen**
-3. **Supabase-Logs prüfen** (Edge Function Logs)
-
-### PV-Automatik funktioniert nicht
-
-1. **Schwellwerte prüfen** in `heating_settings`
-2. **Batterie-SOC prüfen** (min 20%)
-3. **Räume prüfen:** `pv_auto_enabled = true`?
-4. **Tuya-Credentials prüfen**
-
-### Update nicht sichtbar
-
-1. **5 Minuten warten** oder App neu fokussieren
-2. **Update-Banner prüfen** (oben in der App)
-3. **Browser-Cache leeren** (Entwicklertools → Application → Storage → Clear)
-
----
-
-## 11. Entwicklung
-
-### Lokale Entwicklung
-
-```bash
-npm install
-npm run dev
+https://api.forecast.solar/estimate/47.24983/12.25415/35/0/15.8
 ```
+Speichert in `pv_forecasts`:
+- `expected_kwh`, `hourly_watts` (jsonb), `sunrise`, `sunset`
 
-### Edge Functions testen
+**Sunrise/Sunset abgeleitet** aus erstem/letztem Watt-Wert >0.
 
-```bash
-# In Supabase Dashboard oder via Lovable Cloud
-supabase functions serve function-name
-```
+**ISO-Timestamp Matching:** Bug behoben — Schlüssel werden präzise verglichen.
 
-### Collector testen
-
-```bash
-cd local-collector/collector-node
-npm start
-```
+### Wetter (`fetch-weather`, Open-Meteo)
+`weather_data`: Temperatur, Bewölkung, Strahlung (direkt + diffus), Wind, Niederschlag.
 
 ---
 
-## 12. Änderungshistorie (Changelog)
+## 14. Edge Functions Übersicht
 
-> **Bei jeder Änderung hier dokumentieren!**
+| Function | Zweck | Trigger | Auth |
+|---|---|---|---|
+| `pv-automation` | Heizungssteuerung 4-Stufen | pg_cron 2-Min Heartbeat | hybrid (anon/service_role JWT-decode) |
+| `validate-battery-reserve` | Reserve-Tagesvalidierung | pg_cron 09:05 | service_role |
+| `tuya-control` | Cloud API Wrapper | manuell + automation | hybrid |
+| `fetch-pv-forecast` | Forecast.Solar | pg_cron 06:00 | service_role |
+| `fetch-weather` | Open-Meteo | regelmäßig | service_role |
+| `aggregate-energy-data` | Daten-Cleanup | pg_cron 03:00 UTC | service_role |
+| `analyze-patterns` | ML-Empfehlungen | manuell + cron | hybrid |
+| `apply-recommendations` | Policy → Thermostat | nach analyze-patterns | hybrid |
+| `ml-feature-extraction` | Zyklus-Features | täglich | service_role |
+| `evaluate-decision` | Reward-Berechnung | pro Decision | service_role |
+| `update-learned-policies` | Policy-Aggregation | pg_cron 19:30 UTC | service_role |
+| `generate-settings-suggestions` | KI-Settings-Vorschläge | manuell | hybrid |
+| `monitor-solar-heating` | Solar-Event-Erkennung | regelmäßig | service_role |
+| `analyze-solar-gain` | Passiver Solargewinn | regelmäßig | service_role |
+| `calculate-heating-power` | Power-Kalibrierung | regelmäßig | service_role |
 
-### Januar 2026
-
-#### 12.01.2026 - Heizungstyp-Konsistenz
-- **analyze-patterns erweitert** - Alle 5 Analyse-Modi übergeben jetzt `heating_type` an die KI
-- **Wärmepumpen-Tipps eliminiert** - Explizite Anweisung verhindert irrelevante Empfehlungen bei `direct_electric`
-- **Default-Settings erweitert** - `heating_type`, `total_heating_power_w`, `night_cycling_enabled`, `avg_night_cycles_per_room`
-
-#### 09.01.2026 - Sicherheitsimplementierung
-- **RLS aktiviert** auf allen 10 Tabellen die zuvor keine RLS hatten
-- **Alte Policies entfernt** (18 unsichere "Allow All" Policies)
-- **Neue einheitliche Policies erstellt** für alle 18 Tabellen
-- **Security-Findings dokumentiert** und als nicht-relevant markiert
-- **System-Dokumentation erweitert** mit Sicherheitsmodell und Changelog
-
-#### 09.01.2026 - Heizungsverbrauch-Korrektur
-- **Mitternachtsberechnung korrigiert** in `useHeatingConsumption.ts`
-- Heizzyklen die über Mitternacht laufen werden jetzt proportional aufgeteilt
-- `energy_estimate_wh` und `duration_minutes` werden korrekt zum jeweiligen Tag zugeordnet
-
-#### [Frühere Änderungen]
-- PV-Automatik mit Schwellwerten implementiert
-- Tuya-Integration für Thermostate (TGP508)
-- PWA mit Offline-Support und Auto-Update
-- Datenretention-System mit Aggregation
-- Pattern-Analyse mit AI (Lovable AI)
-- Lokaler Collector (Python und Node.js)
+**Routing-Robustheit:** `/check` und Root-Pfad beide unterstützt.
 
 ---
 
-## 13. Sicherheitsmodell
+## 15. Frontend-Architektur
 
-### Authentifizierung
+**Stack:** React 18 + Vite 5 + Tailwind v3 + TypeScript + shadcn/ui.
 
-| Aspekt | Implementierung |
-|--------|-----------------|
-| Methode | Email/Passwort |
-| Provider | Supabase Auth (via Lovable Cloud) |
-| Auto-Confirm | Aktiviert für Email-Signups |
-| Registrierung | Nur für Familienmitglieder (privat) |
+### Seiten
+- `Index.tsx` — 4 Tabs: Dashboard, Einstellungen, Analyse, Heizung
+- `Auth.tsx` — Email/Passwort + Google OAuth
+- `Install.tsx` — PWA-Installationsanleitung
 
-### Row Level Security (RLS)
+### Wichtige Hooks
+| Hook | Zweck |
+|---|---|
+| `useSmartfoxData` | Polling 30–60s `energy_readings` |
+| `useHeatingSettings` | CRUD `heating_settings` |
+| `useRooms` | CRUD Räume + PV-Auto-Toggle |
+| `usePvForecast` | 7-Tage-Forecast |
+| `useActiveHeatingRooms` | Aktive aus `room_heating_logs` |
+| `useBatteryHistory` | Dynamic limits (heute 2k, Woche 5k, Monat 10k) |
+| `useControlMode` | Cloud vs. Local Toggle |
+| `useTuyaConnectionTest` | 3-Step Diagnostic |
+| `usePushAllTemps` | Sync aller 12 Thermostate |
+| `useServiceWorkerUpdate` | Update-Banner alle 5 Min |
 
-**Konzept:** Einfaches Single-Household-Modell
+### UI-Standards
+- **Default Light Theme** (#ffffff)
+- **Mobile-First PWA**, Bottom-Tab-Bar
+- **Kein `overflow-hidden` auf `<main>`** (Scroll-Bug-Prevention)
+- **Heizung-Charts:** Stacked Bars sortiert nach Total
+- **Status-Indikatoren:** Progressbalken (night→target = 0%–100%) + Waiting-Badges
+- **Room-Manager-Dialog:** max-height 85vh
+- **Energy-Breakdown:** Battery, Heating, Baseload getrennt
+- **Active-Heating-Focus:** Live W/kW vor Historie
 
-| Benutzertyp | Zugriff |
-|-------------|---------|
-| Unauthentifiziert | ❌ Kein Zugriff |
-| Authentifiziert | ✅ Voller Zugriff auf alle Daten |
-| Edge Functions (service_role) | ✅ Voller Zugriff (RLS umgangen) |
+---
 
-**Begründung für dieses einfache Modell:**
-- Private Familien-App ohne externe Benutzer
-- Keine öffentliche Registrierung möglich
-- Alle Familienmitglieder sollen alle Energiedaten sehen und steuern können
-- Kein Multi-Tenant-Szenario erforderlich
+## 16. PWA & Service Worker
 
-### RLS Policies (Stand: 09.01.2026)
+**Manifest:** `name=Energiemonitor`, `display=standalone`, `start_url=/`
 
-Alle 18 Tabellen haben eine einheitliche Policy:
+**Workbox:**
+- `skipWaiting: true`, `clientsClaim: true`
+- `runtimeCaching`: Supabase = NetworkFirst (5 Min, 50 Entries)
+
+**Update-Strategie:**
+- `useServiceWorkerUpdate`: prüft alle 5 Min + bei Focus
+- Update-Banner oben (mobile: vor Bottom-Tabs)
+- Offline-Fallback: `public/offline.html`
+
+---
+
+## 17. Sicherheit & RLS
+
+**Modell:** Single-Household, alle authentifizierten User = volle Rechte.
 
 ```sql
 CREATE POLICY "Authenticated users full access"
-ON public.<table_name>
-FOR ALL
-TO authenticated
-USING (true)
-WITH CHECK (true);
+  ON public.<table> FOR ALL TO authenticated
+  USING (auth.uid() IS NOT NULL)
+  WITH CHECK (auth.uid() IS NOT NULL);
 ```
 
-**Betroffene Tabellen:**
-1. `consumer_logs`
-2. `daily_patterns`
-3. `data_retention_settings`
-4. `detected_patterns`
-5. `energy_daily_costs`
-6. `energy_readings`
-7. `heating_recommendations`
-8. `heating_settings`
-9. `hourly_aggregates`
-10. `learning_events`
-11. `pv_forecasts`
-12. `room_heating_logs`
-13. `room_ml_features`
-14. `room_recommendations`
-15. `room_temperature_samples`
-16. `rooms`
-17. `smartfox_settings`
-18. `weather_data`
+### Anon-Policies (gezielt für Local Collector)
+- `energy_readings`: INSERT
+- `rooms`, `thermostat_commands`, `system_settings`, `data_retention_settings`: SELECT/UPDATE
+- `api_errors`, `battery_daily_tracking`: INSERT/UPDATE/SELECT
 
-### Ignorierte Security-Findings
+### Spalten-Schutz
+Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `local_key` ändern.
 
-| Finding | Kategorie | Begründung |
-|---------|-----------|------------|
-| GPS-Koordinaten in `heating_settings` | Location Exposure | Nur authentifizierte Familienmitglieder haben Zugriff; für PV-Forecast benötigt |
-| `USING (true)` in allen Policies | Permissive Policy | Bewusste Entscheidung für Single-Household-System ohne Multi-Tenant-Anforderung |
+### Auth
+- Email/Passwort + Google OAuth
+- Auto-Confirm Email-Signups: deaktiviert (sofern nicht explizit gewünscht)
+- Roles in **separater Tabelle** `user_roles` (nie auf `profiles` oder `auth.users`)
 
 ---
 
-## 14. Entscheidungsprotokoll
+## 18. Bekannte Limitierungen
 
-> Dokumentiert wichtige Architektur-Entscheidungen mit Begründung
+| Bereich | Limit | Workaround |
+|---|---|---|
+| Tuya Cloud Quota | 30 Calls/Tag | Local Mode + Tolerante Deaktivierung |
+| Forecast.Solar | 12 Anfragen/h Free | 1× täglich abrufen |
+| Smartfox kWh-Werte | Unzuverlässig | Nur Fronius nutzen |
+| Browser → LAN | CORS-Block | Lokaler Collector-Service |
+| Realtime | PGRST002-Fehler | 30–60s Polling stattdessen |
+| AI Reward Self-Correction | Nicht möglich | Manuelle Reward-Updates |
+
+---
+
+## 19. Entscheidungsprotokoll
 
 | Entscheidung | Begründung | Datum |
-|--------------|------------|-------|
-| **Heizungstyp in KI-Prompts** | Verhindert irrelevante Wärmepumpen-Tipps; direkte elektrische Fußbodenheizung erfordert andere Optimierungsstrategien | 12.01.2026 |
-| **Fronius-Only Collector** | Smartfox liefert keine zuverlässigen kumulierten Energiewerte; Fronius P_Grid/P_PV/P_Load sind genauer | 01/2026 |
-| **Simple RLS statt User-ID-basiert** | Single-Household-App, keine Multi-Tenant-Anforderung, alle Familienmitglieder brauchen vollen Zugriff | 09.01.2026 |
-| **PV-Automatik mit Hysterese** | Zwei Schwellwerte (on/off) verhindern häufiges Schalten bei schwankender Solarproduktion | Initial |
-| **Lokaler Collector statt Cloud-Polling** | Smartfox/Fronius nur im LAN erreichbar, kein Cloud-Zugriff möglich | Initial |
-| **PWA statt Native App** | Plattformübergreifend (iOS/Android/Windows), einfache Updates, keine App-Store-Zulassung nötig | Initial |
-| **Tuya Cloud API statt lokale Steuerung** | TGP508 Thermostate haben keine lokale API, nur Tuya Cloud | Initial |
-| **30-Sekunden Polling-Intervall** | Kompromiss zwischen Echtzeit-Gefühl und Datenvolumen | Initial |
-| **Datenretention mit Aggregation** | Rohdaten 7 Tage, stündlich 90 Tage, täglich unbegrenzt - spart Speicherplatz | Initial |
+|---|---|---|
+| Direkte Gemini API statt Lovable AI Gateway | Kostenkontrolle, Modell-Pinning | — |
+| Polling 30–60s statt Realtime | PGRST002 Schema-Cache-Fehler | 2026-Q1 |
+| Single-Household RLS (USING true) | Familien-App, kein Multi-Tenant | 2026-01-09 |
+| Lokaler Collector | LAN-Geräte nicht extern erreichbar | initial |
+| Dual-Modus (Cloud+Local) ohne Auto-Failover | User-Kontrolle über Quota-Strategie | 2026-Q1 |
+| Tolerante Deaktivierung (Phase 1) | Tuya-Quota-Schonung bei wechselhaftem Wetter | 2026-04-19 |
+| Batterie-Reserve 60% | Schutz Abendverbrauch, validiert via Cron | 2026-04 |
+| `room_heating_logs` als Heiz-Wahrheit | `rooms.is_heating` veraltet manchmal | — |
+| Solar-Gain-Logik entfernt | Thermostate handhaben passiv autom. | — |
+| Battery-Protection-Modus entfernt | Heizen darf Netz nutzen wenn nötig | — |
+| Komfort strikt = nur gridExport | Verhindert Netzbezug für Komfort-Heizen | — |
+| Mikro-Budget mit Soft-Rotation | Verhindert Cooldown-Kollision | — |
+| Hysterese 0.3/0.2°C | Anti-Flapping ohne Komfort-Verlust | — |
 
 ---
 
-## 15. Bekannte Einschränkungen
+## 20. Changelog
 
-| Bereich | Einschränkung | Workaround |
-|---------|---------------|------------|
-| Smartfox-Daten | Keine zuverlässigen kumulierten kWh-Werte | Nur Fronius-Daten verwenden |
-| Tuya-API | Rate-Limiting bei zu vielen Anfragen | Min. 5 Minuten zwischen Temperaturänderungen |
-| PV-Forecast | forecast.solar Free-Tier: 12 Anfragen/Stunde | Nur einmal täglich abrufen |
-| Offline-Modus | Nur Lesezugriff auf gecachte Daten | Thermostat-Steuerung benötigt Online |
+> **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-04-19 — Tolerante Deaktivierung (Phase 1)
+- `pv-automation/index.ts`: Phase-1-Loop um Toleranz-Block erweitert
+- Bedingungen: `isCurrentlyHeating` + `pvSufficientForEco` + `pvTrend ≥ -200` + `overshoot ≤ max(300, hp×0.4)`
+- Logging: `[TOLERANT-DEACTIVATION]`, `[TUYA-QUOTA-RUN]`
+- Memory: `mem://arch/pv-automation-budget-logic-v2` aktualisiert
+
+### 2026-04 — Batterie-Reserve für Nachverbrauch
+- 4 neue Felder in `heating_settings`: `battery_reserve_for_night_soc`, `battery_buffer_enabled`, `battery_buffer_bonus_w`, `tolerant_deactivation_enabled`
+- Neue Tabelle `battery_daily_tracking` (date unique) mit RLS für Anon-Collector
+- Neue Edge Function `validate-battery-reserve` (pg_cron 09:05)
+- UI: `BatteryReserveStatus`-Widget + Settings-Card
+- PV-Trend Bonus +300W bei Trend > +500W (5-Min-Vergleich)
+- Mikro-Budget Untergrenze dynamisch: `max(micro_min_soc, reserve+20)`
+- Batterie-Puffer gestuft (30/60/100%) mit Doppel-Gate
+
+### 2026-Q1 — 4-Stufen-Logik & Predictive Planning
+- `pv-automation`: kumulatives Budget statt Momentaufnahme
+- Phase 1 (Eco) für alle Prio-Räume vor Phase 2 (Komfort)
+- Forecast-basierte Eco-Bonus-Tiers (1500/800/400W)
+- Hard PV Gate (<500W + <5kWh)
+
+### 2026-01-12 — Heizungstyp-Konsistenz
+- `analyze-patterns`: alle 5 Modi übergeben `heating_type`
+- Wärmepumpen-Tipps bei `direct_electric` eliminiert
+
+### 2026-01-09 — RLS-Hardening
+- 18 Tabellen einheitliche Authenticated-Policy
+- Spalten-Schutz Trigger für `rooms.tuya_device_id`/`local_key`
+- Anon-Policies gezielt für Collector-Tabellen
+
+### Initial / laufend
+- PV-Automatik mit Hysterese
+- Tuya TGP508 Cloud + Local Integration (Port 6668)
+- PWA + Service Worker
+- Lokaler Collector (Python + Node.js)
+- ML-Feedback-Loop (`learned_policies`, daily 19:30)
+- Heatmap & Energie-Breakdown UI
+- Mikro-Budget mit Soft-Rotation
+- Tuya-Quota-Schutz (5 Mechanismen)
 
 ---
 
-## 16. Kontakt & Links
+## 📌 Quick-Reference für Memory-Files
 
-- **Lovable Cloud Projekt-ID:** `tvqmhdpcixkfsudxughs`
-- **PV-Forecast API:** https://forecast.solar
-- **Tuya IoT Platform:** https://iot.tuya.com
+Detaillierte Spec-Dateien unter `mem://`:
+- `arch/pv-automation-budget-logic-v2` — Budget-Mathematik
+- `arch/pv-automation-strategy-v2` — Phase 1/2 Reihenfolge
+- `arch/automation-heartbeat-architecture` — 2-Min pg_cron
+- `features/heating/four-stage-pv-optimization-logic` — 4 Stufen
+- `features/heating/safety-gate-low-pv-logic` — Hard PV Gate
+- `features/heating/night-frost-protection-mode` — Nacht-Modi
+- `features/heating/thermostat-hysteresis-logic` — 0.3/0.2°C
+- `features/heating/dual-control-mode-architecture` — Cloud/Local
+- `integration/tuya/api-quota-management-v2` — Quota-Schutz
+- `integration/tuya-tgp508-dps-mapping` — DPS-Codes
+- `data-pipeline/ml-feature-extraction-logic` — Zyklus-Rekonstruktion
+- `arch/timezone-standardization` — Europe/Vienna
+
+**Vollständiger Index:** `.lovable/memory/index.md`
