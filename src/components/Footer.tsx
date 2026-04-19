@@ -27,6 +27,12 @@ export function Footer() {
               <span>Build {new Date(buildTime).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}</span>
             </>
           )}
+          {buildHash && (
+            <>
+              <span className="opacity-50">·</span>
+              <span title="Build-Hash zur Verifikation des aktiven Bundles">#{buildHash}</span>
+            </>
+          )}
         </div>
       </div>
     </footer>
