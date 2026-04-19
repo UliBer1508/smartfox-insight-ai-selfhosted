@@ -2726,6 +2726,8 @@ Deno.serve(async (req) => {
         ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich`
         : '';
       const pvPriorityInfo = pvPriorityMode ? ` | ⚡ PV-Priority: ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS} Calls` : '';
+      const tolerantInfo = typeof tolerantSavedCalls !== 'undefined' && tolerantSavedCalls > 0 ? ` | 🛡️ Tolerant gespart: ~${tolerantSavedCalls} Deaktivierungen` : '';
+      console.log(`[TUYA-QUOTA-RUN] ${tuyaApiCalls} Tuya-Calls in diesem Run${tolerantInfo}`);
       console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}${quotaInfo}${pvPriorityInfo}${quotaExhausted && !pvPriorityMode ? ' ⚠️ QUOTA-FALLBACK aktiv' : ''}`);
 
       return new Response(JSON.stringify({
