@@ -1,9 +1,8 @@
-import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, RefreshCw, X, LogOut } from 'lucide-react';
+import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
-import { useServiceWorkerUpdate } from '@/hooks/useServiceWorkerUpdate';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 
@@ -23,7 +22,6 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
   const { isInstallable, isInstalled, promptInstall } = usePWAInstall();
   const { isOnline, getOfflineMinutes } = useOnlineStatus();
-  const { showUpdatePrompt, updateApp, dismissUpdate } = useServiceWorkerUpdate();
   const { signOut } = useAuth();
   const isMobile = useIsMobile();
 
@@ -39,22 +37,8 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
 
   return (
     <>
-      {/* Update Banner */}
-      {showUpdatePrompt && (
-        <div className="fixed top-0 left-0 right-0 bg-primary text-primary-foreground py-2 px-4 flex items-center justify-center gap-3 z-[100] shadow-lg safe-area-top">
-          <RefreshCw className="w-4 h-4 animate-spin" />
-          <span className="text-sm font-medium">Neue Version verfügbar!</span>
-          <Button size="sm" variant="secondary" onClick={updateApp} className="h-7 text-xs">
-            Jetzt aktualisieren
-          </Button>
-          <Button size="sm" variant="ghost" onClick={dismissUpdate} className="h-7 w-7 p-0 hover:bg-primary-foreground/20">
-            <X className="w-4 h-4" />
-          </Button>
-        </div>
-      )}
-      
       {/* Top Header */}
-      <header className={`border-b bg-card/50 backdrop-blur-sm sticky z-50 safe-area-top ${showUpdatePrompt ? 'top-10' : 'top-0'}`}>
+      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50 safe-area-top">
         <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 md:gap-3 min-w-0">

@@ -1,0 +1,38 @@
+{
+  "id": "/",
+  "name": "Fronius Smart AI",
+  "short_name": "Fronius AI",
+  "description": "KI-gestütztes Energie-Management mit Fronius-Integration und intelligenter Heizungssteuerung.",
+  "lang": "de",
+  "dir": "ltr",
+  "theme_color": "#16a34a",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/?source=pwa",
+  "categories": ["utilities", "productivity"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/pwa-144x144.png", "sizes": "144x144", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-384x384.png", "sizes": "384x384", "type": "image/png", "purpose": "any" },
+    { "src": "/pwa-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/maskable-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "short_name": "Dashboard",
+      "url": "/",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Heizung",
+      "short_name": "Heizung",
+      "url": "/?tab=heating",
+      "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}
