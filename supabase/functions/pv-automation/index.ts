@@ -1382,6 +1382,7 @@ Deno.serve(async (req) => {
       
       // Tracking für Budget-Verbrauch
       let usedBudget = 0;
+      let tolerantSavedCalls = 0;
       const roomBudgetStatus = new Map<string, { 
         allowedToHeat: boolean; 
         reason: string; 
@@ -1453,12 +1454,34 @@ Deno.serve(async (req) => {
             });
             console.log(`[PV-Automation] Phase 1: ${rp.room.name} → eco (${currentTemp.toFixed(1)}°C < ${ecoTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
           } else {
-            roomBudgetStatus.set(rp.room.id, {
-              allowedToHeat: false,
-              reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
-              shouldRotate: false,
-              targetLevel: 'none'
-            });
+            // NEU: Tolerante Deaktivierung — bereits heizende Räume nicht bei kurzem Budget-Einbruch abschalten
+            const overshoot = (usedBudget + rp.heatingPower) - availableBudget;
+            const overshootTolerable = overshoot <= Math.max(300, Math.round(rp.heatingPower * 0.4));
+            const trendStable = pvTrend >= -200;
+            const tolerate = tolerantDeactivationEnabled
+              && rp.isCurrentlyHeating
+              && pvSufficientForEco
+              && trendStable
+              && overshootTolerable;
+
+            if (tolerate) {
+              usedBudget += rp.heatingPower;
+              tolerantSavedCalls++;
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: true,
+                reason: `Eco-Toleranz (Overshoot ${overshoot}W, Trend ${pvTrend}W, Prognose ok)`,
+                shouldRotate: false,
+                targetLevel: 'eco'
+              });
+              console.log(`[TOLERANT-DEACTIVATION] ${rp.room.name}: Heizt weiter trotz Budget-Overshoot ${overshoot}W (Trend ${pvTrend}W ≥ -200, Prognose reicht, ${usedBudget}/${availableBudget}W)`);
+            } else {
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: false,
+                reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
+                shouldRotate: false,
+                targetLevel: 'none'
+              });
+            }
           }
         }
         // Räume >= eco werden in Phase 1 nicht verarbeitet (kommen in Phase 2)
@@ -2703,6 +2726,8 @@ Deno.serve(async (req) => {
         ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich`
         : '';
       const pvPriorityInfo = pvPriorityMode ? ` | ⚡ PV-Priority: ${pvPriorityCalls}/${PV_PRIORITY_MAX_CALLS} Calls` : '';
+      const tolerantInfo = typeof tolerantSavedCalls !== 'undefined' && tolerantSavedCalls > 0 ? ` | 🛡️ Tolerant gespart: ~${tolerantSavedCalls} Deaktivierungen` : '';
+      console.log(`[TUYA-QUOTA-RUN] ${tuyaApiCalls} Tuya-Calls in diesem Run${tolerantInfo}`);
       console.log(`[PV-Automation] Complete. Tuya API calls: ${tuyaApiCalls}${quotaInfo}${pvPriorityInfo}${quotaExhausted && !pvPriorityMode ? ' ⚠️ QUOTA-FALLBACK aktiv' : ''}`);
 
       return new Response(JSON.stringify({
