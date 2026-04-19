@@ -63,7 +63,14 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
               </div>
               <div className="min-w-0">
                 <h1 className="text-base md:text-xl font-bold tracking-tight truncate">Fronius Smart AI</h1>
-                <p className="text-[10px] md:text-xs text-muted-foreground hidden sm:block">Energie-Management & KI-Analyse</p>
+                <p className="text-[10px] md:text-xs text-muted-foreground hidden sm:block">
+                  Energie-Management & KI-Analyse
+                  {typeof __BUILD_TIME__ !== 'undefined' && (
+                    <span className="ml-2 opacity-60">
+                      · Build {new Date(__BUILD_TIME__).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}
+                    </span>
+                  )}
+                </p>
               </div>
               {!isOnline && (
                 <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive text-[10px] flex-shrink-0">
