@@ -18,7 +18,7 @@ export function ConnectionStatus({
   onRefresh 
 }: ConnectionStatusProps) {
   return (
-    <div className="flex items-center gap-4 px-4 py-2 rounded-lg bg-card border">
+    <div className="flex flex-wrap items-center gap-2 sm:gap-4 px-4 py-2 rounded-lg bg-card border">
       <div className={cn(
         'flex items-center gap-2 px-3 py-1 rounded-full text-sm',
         isConnected 
