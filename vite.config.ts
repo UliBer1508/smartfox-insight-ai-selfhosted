@@ -65,8 +65,8 @@ export default defineConfig(({ mode }) => ({
         ]
       },
       workbox: {
-        skipWaiting: true,
-        clientsClaim: true,
+        skipWaiting: false,
+        clientsClaim: false,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api/, /^\/supabase/, /^\/offline\.html/],
