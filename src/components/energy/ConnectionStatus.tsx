@@ -39,7 +39,7 @@ export function ConnectionStatus({
       </div>
 
       {lastUpdate && (
-        <div className="text-sm text-muted-foreground">
+        <div className="text-sm text-muted-foreground min-w-0 flex-shrink">
           {new Date(lastUpdate).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Berlin' })} ({formatDistanceToNow(new Date(lastUpdate), { addSuffix: true, locale: de })})
         </div>
       )}
@@ -54,7 +54,7 @@ export function ConnectionStatus({
         variant="ghost" 
         size="sm" 
         onClick={onRefresh}
-        className="ml-auto"
+        className="ml-auto flex-shrink-0"
         title="Daten neu laden"
       >
         <RefreshCw className="w-4 h-4" />
