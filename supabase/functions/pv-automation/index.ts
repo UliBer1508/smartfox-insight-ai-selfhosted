@@ -1162,13 +1162,33 @@ Deno.serve(async (req) => {
           
           availableBudget = Math.max(0, baseBudget);
           
-          // Separates Komfort-Budget: IMMER strikt — Batterie nie für Komfort
+          // ============= GESTUFTER PROGNOSE-BONUS (nur Eco, mit SOC-Gates) =============
+          // Wenn PV-Tagesprognose den Eco-Bedarf deutlich übersteigt UND Batterie Reserve hat,
+          // wird das Eco-Budget hochgestuft, damit auch bei wenig Live-Export geheizt werden kann.
+          // Komfort bleibt strikt — kein Bonus für Komfort.
+          let prognoseBonus = 0;
+          if (currentWienHour >= 9 && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+            const ratio = remainingPvForHeatingWh / totalEcoEnergyNeededWh;
+            if (ratio >= 3 && batterySoc >= 50) {
+              prognoseBonus = 1500;
+            } else if (ratio >= 2 && batterySoc >= 60) {
+              prognoseBonus = 800;
+            } else if (ratio >= 1.5 && batterySoc >= 70) {
+              prognoseBonus = 400;
+            }
+            if (prognoseBonus > 0) {
+              availableBudget += prognoseBonus;
+              console.log(`[PV-Automation] 📈 Prognose-Bonus: +${prognoseBonus}W (Ratio=${ratio.toFixed(1)}x, SOC=${batterySoc}%) → Eco-Budget=${availableBudget}W`);
+            }
+          }
+          
+          // Separates Komfort-Budget: IMMER strikt — Batterie nie für Komfort, KEIN Prognose-Bonus
           let rawComfortBudget = gridExport + currentlyHeatingPower;
           if (batteryPower < 0) {
             rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
           }
           comfortBudget = Math.max(0, rawComfortBudget);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}) | Komfort-Budget: ${comfortBudget}W`);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}) | Komfort-Budget: ${comfortBudget}W`);
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
