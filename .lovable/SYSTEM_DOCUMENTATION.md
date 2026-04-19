@@ -293,6 +293,15 @@ const tolerate =
 ### TGP508 DPS-Mapping (alphanumerisch erforderlich)
 - `mode`, `temp_set`, `temp_current`, `switch`, `work_state`
 
+### Lokaler Service – Robustheit (Hybrid v2)
+`local-collector/collector-node/tuya-thermostat.js` implementiert:
+1. **Per-Device Command-Queue** (`enqueue`) — serialisiert alle Operationen pro `device_id`, verhindert hängende Promises bei parallelem Zugriff (Sync + PV-Automation)
+2. **Connect-Timeout 5s** (`safeConnect`) — bricht ewig hängende `connect()`-Aufrufe bei toter IP ab
+3. **Garantiertes Disconnect** (`safeDisconnect` im `finally`) — verhindert half-open TCP-Verbindungen, auch im Fehlerpfad
+4. **Retry 3× mit Exponential Backoff** (1s, 2s, 3s) innerhalb der Queue, mit Disconnect zwischen Retries
+5. **DPS-Mapping beibehalten:** `MODE='1'` (string auto/manual/off), `TARGET_TEMP='2'` (×10), `CURRENT_TEMP='3'` (×10), `HEATING='4'` (read-only)
+6. **setTemperature-Sequenz:** erst `mode='manual'` (deaktiviert interne Zeitprogramme), dann `target_temp` × 10
+
 ### Push-All Funktion
 Manueller Sync aller 12 Thermostate (Settings) — überschreibt physische Werte mit DB-Targets.
 
