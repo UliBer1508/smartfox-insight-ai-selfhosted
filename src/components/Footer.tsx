@@ -1,0 +1,24 @@
+export function Footer() {
+  const version = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+  const buildTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : null;
+  const year = new Date().getFullYear();
+
+  return (
+    <footer className="border-t bg-card/30 backdrop-blur-sm mt-8 pb-20 md:pb-4">
+      <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
+        <div>
+          © {year} Fronius Smart AI. Alle Rechte vorbehalten.
+        </div>
+        <div className="flex items-center gap-2 font-mono">
+          <span>v{version}</span>
+          {buildTime && (
+            <>
+              <span className="opacity-50">·</span>
+              <span>Build {new Date(buildTime).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}</span>
+            </>
+          )}
+        </div>
+      </div>
+    </footer>
+  );
+}
