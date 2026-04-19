@@ -1453,12 +1453,34 @@ Deno.serve(async (req) => {
             });
             console.log(`[PV-Automation] Phase 1: ${rp.room.name} → eco (${currentTemp.toFixed(1)}°C < ${ecoTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
           } else {
-            roomBudgetStatus.set(rp.room.id, {
-              allowedToHeat: false,
-              reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
-              shouldRotate: false,
-              targetLevel: 'none'
-            });
+            // NEU: Tolerante Deaktivierung — bereits heizende Räume nicht bei kurzem Budget-Einbruch abschalten
+            const overshoot = (usedBudget + rp.heatingPower) - availableBudget;
+            const overshootTolerable = overshoot <= Math.max(300, Math.round(rp.heatingPower * 0.4));
+            const trendStable = pvTrend >= -200;
+            const tolerate = tolerantDeactivationEnabled
+              && rp.isCurrentlyHeating
+              && pvSufficientForEco
+              && trendStable
+              && overshootTolerable;
+
+            if (tolerate) {
+              usedBudget += rp.heatingPower;
+              tolerantSavedCalls++;
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: true,
+                reason: `Eco-Toleranz (Overshoot ${overshoot}W, Trend ${pvTrend}W, Prognose ok)`,
+                shouldRotate: false,
+                targetLevel: 'eco'
+              });
+              console.log(`[TOLERANT-DEACTIVATION] ${rp.room.name}: Heizt weiter trotz Budget-Overshoot ${overshoot}W (Trend ${pvTrend}W ≥ -200, Prognose reicht, ${usedBudget}/${availableBudget}W)`);
+            } else {
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: false,
+                reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
+                shouldRotate: false,
+                targetLevel: 'none'
+              });
+            }
           }
         }
         // Räume >= eco werden in Phase 1 nicht verarbeitet (kommen in Phase 2)
