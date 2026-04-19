@@ -1382,6 +1382,7 @@ Deno.serve(async (req) => {
       
       // Tracking für Budget-Verbrauch
       let usedBudget = 0;
+      let tolerantSavedCalls = 0;
       const roomBudgetStatus = new Map<string, { 
         allowedToHeat: boolean; 
         reason: string; 
