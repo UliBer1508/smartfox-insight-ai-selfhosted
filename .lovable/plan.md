@@ -1,49 +1,28 @@
 
-Ziel: Footer zuverlässig sichtbar machen – nicht nur im Dashboard, sondern auch auf Seiten wie Login/Published, und ihn sauber am Seitenende platzieren.
+Befund: Footer fehlt in Published, ist aber in Preview sichtbar. Code (`Layout.tsx`, `App.tsx`) ist korrekt — Footer ist global eingebunden. Das ist erneut das **Caching-Problem**: Published läuft mit altem Build ohne die globale Layout-Änderung.
 
-Befund aus dem Code:
-- `Footer` wird aktuell nur in `src/pages/Index.tsx` gerendert.
-- Auf `Auth`, `Install` und `NotFound` gibt es keinen Footer.
-- Das erklärt direkt, warum in der Published-Version beim Login kein Footer erscheint.
-- Zusätzlich ist das Seitenlayout nicht als `flex-col` aufgebaut; dadurch ist der Footer nicht als echter Seitenabschluss verankert.
-- `src/App.css` enthält noch das Vite-Default-`#root`-Layout (`max-width`, `padding`, `text-align`), das für ein Full-App-Layout störend ist und bereinigt werden sollte.
+Ursache: Frontend-Änderungen werden NICHT automatisch live geschaltet. Sie erfordern **Publish → Update**. Zusätzlich cached die PWA (Service Worker) das alte Bundle aggressiv.
 
-Geplanter Fix:
-1. Gemeinsames App-Layout einführen
-- Footer aus `Index.tsx` herauslösen.
-- In `App.tsx` ein gemeinsames Seitenlayout verwenden, damit der Footer global verfügbar ist.
-- Auth-abhängige Seiten können den Footer ebenfalls anzeigen, ohne ihn mehrfach pro Seite einzubauen.
+Lösung — 2 Schritte für dich:
 
-2. Seitenlayout auf echten Footer-Flow umstellen
-- Haupt-Wrapper als `min-h-screen flex flex-col`.
-- Inhaltsbereich als `flex-1`.
-- Footer mit `mt-auto`, damit er bei kurzen Seiten unten klebt und bei langen Seiten normal nach dem Content kommt.
+**Schritt 1: Publish → Update klicken**
+- Desktop: Top-rechts Button „Publish" → „Update"
+- Mobile: „..." unten rechts → „Publish" → „Update"
+- Warten bis „Live" angezeigt wird
 
-3. Vite-Default-CSS entschärfen
-- `src/App.css` bereinigen bzw. die störenden `#root`-Defaults entfernen:
-  - kein `max-width: 1280px`
-  - kein globales `padding: 2rem`
-  - kein `text-align: center`
-- So kann die App das Full-Width-Dashboard und den Footer korrekt ausfüllen.
+**Schritt 2: Cache auf Published leeren**
+- Browser: Strg+Shift+R (Hard Reload)
+- PWA (installiert): App deinstallieren, neu von `smartfox-insight-ai.lovable.app` installieren
+- Alternativ: DevTools (F12) → Application → Service Workers → „Unregister" → Reload
 
-4. Mobile/PWA-Abstände prüfen
-- Bestehende Bottom-Nav-Abstände beibehalten, damit der Footer nicht von der mobilen Tab-Bar überdeckt wird.
-- Footer-Padding nur dort belassen, wo es für Mobile/PWA nötig ist.
+Verifikation:
+- Footer mit „© 2026 Fronius Smart AI" + Build-Hash erscheint unten auf allen Seiten (auch Login)
+- Build-Hash auf Published muss mit Preview übereinstimmen
 
-Betroffene Dateien:
-- `src/App.tsx`
-- `src/pages/Index.tsx`
-- `src/pages/Auth.tsx` oder gemeinsames Layout statt lokaler Einbindung
-- ggf. `src/pages/Install.tsx`
-- ggf. `src/pages/NotFound.tsx`
-- `src/App.css`
-- eventuell kleine Klasse in `src/components/Footer.tsx`
+Keine Code-Änderung nötig — der Code ist bereits korrekt. Es ist ein reines Deployment-/Cache-Thema.
 
-Ergebnis nach Umsetzung:
-- Footer erscheint auch in der Published-Version auf dem Login-Screen.
-- Footer ist auf allen relevanten Seiten sichtbar.
-- Footer sitzt stabil am unteren Seitenende.
-- Kein versteckendes Alt-CSS vom Vite-Starter mehr.
+Falls nach Update + Hard-Reload immer noch kein Footer auf Published erscheint, dann liegt ein anderes Problem vor (z.B. Service Worker liefert komplett alten Bundle aus). In dem Fall könnte ich:
+- Den Service Worker so anpassen, dass er bei jedem Update zwingend selbst entlädt und neu lädt (`skipWaiting` + `clientsClaim` + auto-reload-on-update)
+- Eine sichtbare „Neue Version verfügbar — jetzt laden"-Banner einbauen
 
-Technische Notiz:
-Wenn du den Footer nur im eingeloggten Bereich willst, setze ich trotzdem das Flex-Layout um und füge ihn gezielt in `Auth.tsx` zusätzlich hinzu. Wenn du ihn wirklich global willst, ist ein gemeinsames Layout in `App.tsx` die sauberste Lösung.
+Sag Bescheid, ob nach Schritt 1+2 der Footer da ist, oder ob ich den auto-reload-Mechanismus härter machen soll.
