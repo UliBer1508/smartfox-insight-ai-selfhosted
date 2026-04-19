@@ -1,89 +1,61 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRegisterSW } from 'virtual:pwa-register/react';
 
+/**
+ * PWA update flow.
+ *
+ * Strategy: vite-plugin-pwa is configured with `registerType: 'autoUpdate'` +
+ * `skipWaiting` + `clientsClaim`. That means a new SW takes over automatically
+ * on next load. We additionally surface a visible "reload now" banner whenever
+ * a new SW activates while the user is currently in the app, so they get the
+ * fresh UI without having to manually close/reopen the tab.
+ *
+ * In preview/iframe contexts (see src/main.tsx), no SW is registered at all,
+ * so this hook becomes a no-op there.
+ */
 export const useServiceWorkerUpdate = () => {
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false);
-  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
-  const intervalRef = useRef<number | null>(null);
-  const timeoutRef = useRef<number | null>(null);
+  const initialControllerRef = useRef<ServiceWorker | null>(null);
 
-  const {
-    needRefresh: [needRefresh, setNeedRefresh],
-    updateServiceWorker,
-  } = useRegisterSW({
-    onRegisteredSW(swUrl, r) {
-      console.log('SW registered:', swUrl);
-      registrationRef.current = r || null;
-
-      const checkForWaitingWorker = async () => {
-        if (!r) return;
-
-        try {
-          await r.update();
-
-          if (r.waiting) {
-            setNeedRefresh(true);
-            setShowUpdatePrompt(true);
-          }
-        } catch (error) {
-          console.error('SW update check failed:', error);
-        }
-      };
-      
-      if (r) {
-        intervalRef.current = window.setInterval(checkForWaitingWorker, 5 * 60 * 1000);
-        timeoutRef.current = window.setTimeout(checkForWaitingWorker, 10 * 1000);
-      }
-    },
-    onRegisterError(error) {
-      console.error('SW registration error:', error);
-    },
-  });
-
-  // Check for updates when app becomes visible
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && registrationRef.current) {
-        registrationRef.current.update().then(() => {
-          if (registrationRef.current?.waiting) {
-            setNeedRefresh(true);
-            setShowUpdatePrompt(true);
-          }
-        }).catch((error) => {
-          console.error('SW visibility update check failed:', error);
-        });
+    if (typeof window === 'undefined') return;
+    if (!('serviceWorker' in navigator)) return;
+
+    // Remember the SW that controlled the page at load time.
+    initialControllerRef.current = navigator.serviceWorker.controller;
+
+    const onControllerChange = () => {
+      // A new SW has taken control. If we already had a controller before,
+      // it means the app was upgraded in-place → prompt user to reload.
+      if (initialControllerRef.current) {
+        setShowUpdatePrompt(true);
       }
     };
 
-    document.addEventListener('visibilitychange', handleVisibilityChange);
+    navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+
+    // Also poll for updates when tab becomes visible again.
+    const onVisibility = () => {
+      if (document.visibilityState !== 'visible') return;
+      navigator.serviceWorker.getRegistration().then((reg) => {
+        reg?.update().catch(() => {});
+      });
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
     return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-
-      if (intervalRef.current !== null) {
-        window.clearInterval(intervalRef.current);
-      }
-
-      if (timeoutRef.current !== null) {
-        window.clearTimeout(timeoutRef.current);
-      }
+      navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, []);
 
-  useEffect(() => {
-    if (needRefresh) {
-      setShowUpdatePrompt(true);
-    }
-  }, [needRefresh]);
-
   const updateApp = useCallback(() => {
-    updateServiceWorker(true);
     setShowUpdatePrompt(false);
-  }, [updateServiceWorker]);
+    window.location.reload();
+  }, []);
 
   const dismissUpdate = useCallback(() => {
     setShowUpdatePrompt(false);
-    setNeedRefresh(false);
-  }, [setNeedRefresh]);
+  }, []);
 
   return {
     showUpdatePrompt,
