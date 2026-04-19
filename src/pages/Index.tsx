@@ -18,7 +18,7 @@ import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
-import { Footer } from '@/components/Footer';
+
 
 
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
