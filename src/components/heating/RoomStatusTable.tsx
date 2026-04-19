@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Room } from '@/types/room';
+import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -29,9 +29,10 @@ const getProgressColor = (diff: number) => {
   return 'bg-red-400';
 };
 
-const getHeatingStatus = (room: Room): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
+const getHeatingStatus = (room: Room, power?: number): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
   if (room.is_heating) {
-    return { label: 'Heizt', dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
+    const label = power && power > 0 ? `Heizt · ${power}W` : 'Heizt';
+    return { label, dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
   }
   // "Wartend": target is set, current temp is below target (hysteresis zone)
   if (room.target_temp != null && room.current_temp != null && room.target_temp - room.current_temp > 0.3) {
@@ -95,6 +96,17 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
+            {(() => {
+              const heatingRooms = tuyaRooms.filter(r => r.is_heating);
+              const totalPower = heatingRooms.reduce((sum, r) => sum + getEffectiveHeatingPower(r), 0);
+              if (heatingRooms.length === 0) return null;
+              return (
+                <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
+                  Aktuell heizen: <strong className="text-foreground">{heatingRooms.length} {heatingRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
+                  {totalPower > 0 && <> · <strong className="text-foreground">{Math.round(totalPower).toLocaleString('de-DE')} W</strong></>}
+                </div>
+              );
+            })()}
             {isMobile ? (
               <div className="divide-y">
                 {tuyaRooms.map(room => {
@@ -111,7 +123,8 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             </span>
                           )}
                           {(() => {
-                            const status = getHeatingStatus(room);
+                            const power = room.is_heating ? Math.round(getEffectiveHeatingPower(room)) : 0;
+                            const status = getHeatingStatus(room, power);
                             return (
                               <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
@@ -245,7 +258,8 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             </TableCell>
                             <TableCell>
                               {(() => {
-                                const status = getHeatingStatus(room);
+                                const power = room.is_heating ? Math.round(getEffectiveHeatingPower(room)) : 0;
+                                const status = getHeatingStatus(room, power);
                                 return (
                                   <span className="flex items-center gap-1 text-xs">
                                     <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
