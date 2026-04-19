@@ -269,6 +269,60 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </div>
           </div>
 
+          {/* Mikro-Budget Modus */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Zap className="w-4 h-4" />
+              Mikro-Budget Modus
+            </h3>
+            <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="micro_budget"
+                  checked={formData.micro_budget_enabled !== false}
+                  onCheckedChange={(checked) => handleChange('micro_budget_enabled', checked)}
+                />
+                <Label htmlFor="micro_budget" className="text-sm">
+                  Mikro-Budget aktivieren
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Bei kleinem PV-Überschuss (z.B. 200W) wird rotierend ein Raum für kurze Zeit aktiviert.
+                Batterie dient als Puffer (Mindest-SOC nötig).
+              </p>
+
+              {formData.micro_budget_enabled !== false && (
+                <div className="grid md:grid-cols-2 gap-4 mt-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="micro_min_soc">Min. Batterie-SOC (%)</Label>
+                    <Input
+                      id="micro_min_soc"
+                      type="number"
+                      min="50"
+                      max="100"
+                      step="5"
+                      value={formData.micro_budget_min_battery_soc ?? 80}
+                      onChange={(e) => handleChange('micro_budget_min_battery_soc', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Ab diesem SOC darf Batterie puffern</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="micro_duration">Heizdauer pro Zyklus (Min)</Label>
+                    <Input
+                      id="micro_duration"
+                      type="number"
+                      min="3"
+                      max="15"
+                      value={formData.micro_heat_duration_min ?? 5}
+                      onChange={(e) => handleChange('micro_heat_duration_min', parseInt(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Wie lange ein Raum pro Rotation heizt</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* PV-Automatik Schwellwerte */}
           <div className="border-t pt-4">
             <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
