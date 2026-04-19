@@ -1,5 +1,7 @@
+import { APP_VERSION } from "@/lib/version";
+
 export function Footer() {
-  const version = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '1.0.0';
+  const version = APP_VERSION;
   const buildTime = typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : null;
   const year = new Date().getFullYear();
 
