@@ -64,12 +64,10 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
               className="absolute inset-y-0 left-0 bg-destructive/30"
               style={{ width: `${reserve}%` }}
             />
-            {/* Puffer-Zone (gelb, eingeschränkt) */}
             <div
-              className="absolute inset-y-0 bg-yellow-500/30"
+              className="absolute inset-y-0 bg-muted"
               style={{ left: `${reserve}%`, width: `${bufferZone - reserve}%` }}
             />
-            {/* Aktueller SOC marker */}
             {currentSoc !== undefined && (
               <div
                 className="absolute inset-y-0 w-1 bg-primary"
@@ -79,7 +77,7 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
             <span className="text-destructive">Reserve {reserve}%</span>
-            <span className="text-yellow-600">Puffer-Grenze {bufferZone}%</span>
+            <span>Puffer-Grenze {bufferZone}%</span>
           </div>
         </div>
 
@@ -87,9 +85,9 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
         {validation && morningSoc !== null && morningSoc !== undefined ? (
           <div className="flex items-start gap-2 text-xs pt-2 border-t">
             {held ? (
-              <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+              <CheckCircle2 className="w-4 h-4 text-primary shrink-0 mt-0.5" />
             ) : (
-              <AlertTriangle className="w-4 h-4 text-yellow-600 shrink-0 mt-0.5" />
+              <AlertTriangle className="w-4 h-4 text-destructive shrink-0 mt-0.5" />
             )}
             <div className="space-y-0.5">
               <div>
@@ -109,8 +107,8 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
                 </div>
               )}
               {validation.suggestion && validation.suggestion !== 'ok' && (
-                <div className="text-yellow-700 dark:text-yellow-400">
-                  Empfehlung: {validation.suggestion.replace('_', ' ')}
+                <div className="text-destructive">
+                  Empfehlung: {validation.suggestion.replace(/_/g, ' ')}
                 </div>
               )}
             </div>
