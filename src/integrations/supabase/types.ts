@@ -74,6 +74,45 @@ export type Database = {
           },
         ]
       }
+      battery_daily_tracking: {
+        Row: {
+          created_at: string | null
+          date: string
+          heating_battery_used_kwh: number | null
+          id: string
+          min_soc_during_night: number | null
+          night_consumption_kwh: number | null
+          soc_at_heating_end: number | null
+          soc_at_heating_start: number | null
+          soc_at_morning: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          date: string
+          heating_battery_used_kwh?: number | null
+          id?: string
+          min_soc_during_night?: number | null
+          night_consumption_kwh?: number | null
+          soc_at_heating_end?: number | null
+          soc_at_heating_start?: number | null
+          soc_at_morning?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          date?: string
+          heating_battery_used_kwh?: number | null
+          id?: string
+          min_soc_during_night?: number | null
+          night_consumption_kwh?: number | null
+          soc_at_heating_end?: number | null
+          soc_at_heating_start?: number | null
+          soc_at_morning?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       consumer_logs: {
         Row: {
           avg_power_w: number | null
@@ -356,7 +395,10 @@ export type Database = {
       heating_settings: {
         Row: {
           avg_night_cycles_per_room: number | null
+          battery_buffer_bonus_w: number | null
+          battery_buffer_enabled: boolean | null
           battery_capacity_kwh: number
+          battery_reserve_for_night_soc: number | null
           car_charging_enabled: boolean | null
           car_min_charge_power_w: number | null
           comfort_temp: number
@@ -400,12 +442,16 @@ export type Database = {
           roof_declination: number | null
           room_rotation_minutes: number | null
           target_battery_soc: number
+          tolerant_deactivation_enabled: boolean | null
           total_heating_power_w: number | null
           updated_at: string
         }
         Insert: {
           avg_night_cycles_per_room?: number | null
+          battery_buffer_bonus_w?: number | null
+          battery_buffer_enabled?: boolean | null
           battery_capacity_kwh?: number
+          battery_reserve_for_night_soc?: number | null
           car_charging_enabled?: boolean | null
           car_min_charge_power_w?: number | null
           comfort_temp?: number
@@ -449,12 +495,16 @@ export type Database = {
           roof_declination?: number | null
           room_rotation_minutes?: number | null
           target_battery_soc?: number
+          tolerant_deactivation_enabled?: boolean | null
           total_heating_power_w?: number | null
           updated_at?: string
         }
         Update: {
           avg_night_cycles_per_room?: number | null
+          battery_buffer_bonus_w?: number | null
+          battery_buffer_enabled?: boolean | null
           battery_capacity_kwh?: number
+          battery_reserve_for_night_soc?: number | null
           car_charging_enabled?: boolean | null
           car_min_charge_power_w?: number | null
           comfort_temp?: number
@@ -498,6 +548,7 @@ export type Database = {
           roof_declination?: number | null
           room_rotation_minutes?: number | null
           target_battery_soc?: number
+          tolerant_deactivation_enabled?: boolean | null
           total_heating_power_w?: number | null
           updated_at?: string
         }

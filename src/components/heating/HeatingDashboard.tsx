@@ -15,6 +15,7 @@ import { useAutomation } from '@/hooks/useAutomation';
 import { useApiErrors } from '@/hooks/useApiErrors';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
+import { BatteryReserveStatus } from './BatteryReserveStatus';
 import { PvForecastCard } from './PvForecastCard';
 import { RoomRecommendations } from './RoomRecommendations';
 import { ThermostatCard } from './ThermostatCard';
@@ -343,6 +344,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           isRefreshing={isFetching}
           pvCapacity={settings.pv_capacity_kwp}
         />
+
+        <BatteryReserveStatus currentSoc={latestSoc ?? undefined} />
 
       </div>
 

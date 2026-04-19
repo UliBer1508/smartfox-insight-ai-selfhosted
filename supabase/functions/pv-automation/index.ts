@@ -1095,6 +1095,59 @@ Deno.serve(async (req) => {
       // Normalisierung: positiv=laden, negativ=entladen (für Budget-Logik)
       const batteryPower = -rawBatteryPower;
 
+      // ============= PV-TREND (5-Min) =============
+      // Automatisch berechnet, nicht konfigurierbar. Wird in Bonus + Tolerante Deaktivierung verwendet.
+      let pvTrend = 0; // W (positiv = steigend)
+      try {
+        const { data: trendData } = await supabase
+          .from('energy_readings')
+          .select('pv_power, timestamp')
+          .gte('timestamp', new Date(Date.now() - 6 * 60 * 1000).toISOString())
+          .order('timestamp', { ascending: false })
+          .limit(10);
+        if (trendData && trendData.length >= 2) {
+          const pvNow = trendData[0]?.pv_power ?? pvPower;
+          const pvOld = trendData[trendData.length - 1]?.pv_power ?? pvNow;
+          pvTrend = Math.round((pvNow - pvOld));
+          console.log(`[PV-TREND] ${trendData.length} samples, jetzt=${pvNow}W vor 5min=${pvOld}W → Trend=${pvTrend > 0 ? '+' : ''}${pvTrend}W`);
+        }
+      } catch (e) {
+        console.log(`[PV-TREND] Berechnung fehlgeschlagen: ${e}`);
+      }
+
+      // ============= BATTERIE-RESERVE FÜR NACHVERBRAUCH =============
+      const batteryReserveSoc = settings?.battery_reserve_for_night_soc ?? 60;
+      const batteryBufferEnabled = settings?.battery_buffer_enabled !== false;
+      const batteryBufferBonusW = settings?.battery_buffer_bonus_w ?? 500;
+      const tolerantDeactivationEnabled = settings?.tolerant_deactivation_enabled !== false;
+      const socAboveReserve = batterySoc - batteryReserveSoc;
+
+      // ============= TÄGLICHES SOC-TRACKING =============
+      try {
+        const trackToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' });
+        const wienHourNow = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false }));
+        const wienMinuteNow = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', minute: '2-digit' }));
+        const { data: existing } = await supabase
+          .from('battery_daily_tracking')
+          .select('soc_at_heating_start, soc_at_heating_end')
+          .eq('date', trackToday)
+          .maybeSingle();
+        if (wienHourNow === 9 && wienMinuteNow < 30 && !existing?.soc_at_heating_start) {
+          await supabase.from('battery_daily_tracking').upsert({
+            date: trackToday, soc_at_heating_start: batterySoc,
+          }, { onConflict: 'date' });
+          console.log(`[BATTERY-TRACK] Heizstart-SOC erfasst: ${batterySoc}%`);
+        }
+        if (wienHourNow >= 17 && wienHourNow <= 19 && !existing?.soc_at_heating_end) {
+          await supabase.from('battery_daily_tracking').upsert({
+            date: trackToday, soc_at_heating_end: batterySoc,
+          }, { onConflict: 'date' });
+          console.log(`[BATTERY-TRACK] Heizende-SOC erfasst: ${batterySoc}%`);
+        }
+      } catch (e) {
+        console.log(`[BATTERY-TRACK] Snapshot fehlgeschlagen: ${e}`);
+      }
+
       // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
       // Calculate grid export (negative power_io means export)
@@ -1182,13 +1235,38 @@ Deno.serve(async (req) => {
             }
           }
           
+          // ============= BATTERIE-PUFFER (Eco-Budget, mit Reserve-Schutz) =============
+          // Nur wenn SOC weit über Reserve UND Prognose den Tagesbedarf deckt UND Trend nicht stark fallend.
+          // Skaliert in 3 Stufen je nach Abstand zur Reserve.
+          let batteryBuffer = 0;
+          if (batteryBufferEnabled
+              && socAboveReserve > 20
+              && remainingPvForHeatingWh >= totalEcoEnergyNeededWh
+              && pvTrend >= -300) {
+            if (socAboveReserve >= 35) batteryBuffer = batteryBufferBonusW;
+            else if (socAboveReserve >= 25) batteryBuffer = Math.round(batteryBufferBonusW * 0.6);
+            else batteryBuffer = Math.round(batteryBufferBonusW * 0.3);
+            availableBudget += batteryBuffer;
+            console.log(`[BATTERY-BUFFER] +${batteryBuffer}W (SOC=${batterySoc}% / Reserve=${batteryReserveSoc}% → Δ=${socAboveReserve}, PV-Rest≥Bedarf, Trend=${pvTrend}W) → Eco-Budget=${availableBudget}W`);
+          } else if (batteryBufferEnabled && socAboveReserve > 20) {
+            console.log(`[BATTERY-BUFFER] Gesperrt: PV-Rest<Bedarf (${(remainingPvForHeatingWh/1000).toFixed(1)}/${(totalEcoEnergyNeededWh/1000).toFixed(1)}kWh) oder Trend=${pvTrend}W`);
+          }
+
+          // ============= PV-TREND BONUS (Eco-Budget) =============
+          let trendBonus = 0;
+          if (pvTrend > 500) {
+            trendBonus = 300;
+            availableBudget += trendBonus;
+            console.log(`[PV-TREND] +${trendBonus}W Trend-Bonus (Trend=+${pvTrend}W) → Eco-Budget=${availableBudget}W`);
+          }
+          
           // Separates Komfort-Budget: IMMER strikt — Batterie nie für Komfort, KEIN Prognose-Bonus
           let rawComfortBudget = gridExport + currentlyHeatingPower;
           if (batteryPower < 0) {
             rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
           }
           comfortBudget = Math.max(0, rawComfortBudget);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}) | Komfort-Budget: ${comfortBudget}W`);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus > 0 ? ` +Trend ${trendBonus}W` : ''}) | Komfort-Budget: ${comfortBudget}W`);
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
@@ -1412,7 +1490,9 @@ Deno.serve(async (req) => {
       // Dann läuft Cooldown (room_rotation_minutes), dann nächster Raum.
       // Batterie SOC >= settings.micro_budget_min_battery_soc dient als Puffer.
       const microBudgetEnabled = settings?.micro_budget_enabled !== false; // default true
-      const microMinSoc = settings?.micro_budget_min_battery_soc ?? 80;
+      // Dynamische Untergrenze: max(eingestellter SOC, Reserve+20)
+      const microMinSocBase = settings?.micro_budget_min_battery_soc ?? 80;
+      const microMinSoc = Math.max(microMinSocBase, batteryReserveSoc + 20);
       const microHeatDuration = settings?.micro_heat_duration_min ?? 5;
 
       // ── Soft-Rotation: aktiven Mikro-Raum nach Zeit-Limit beenden ──
