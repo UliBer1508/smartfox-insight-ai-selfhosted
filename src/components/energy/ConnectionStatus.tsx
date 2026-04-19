@@ -18,7 +18,7 @@ export function ConnectionStatus({
   onRefresh 
 }: ConnectionStatusProps) {
   return (
-    <div className="flex items-center gap-4 px-4 py-2 rounded-lg bg-card border">
+    <div className="flex flex-wrap items-center gap-2 sm:gap-4 px-4 py-2 rounded-lg bg-card border">
       <div className={cn(
         'flex items-center gap-2 px-3 py-1 rounded-full text-sm',
         isConnected 
@@ -39,7 +39,7 @@ export function ConnectionStatus({
       </div>
 
       {lastUpdate && (
-        <div className="text-sm text-muted-foreground">
+        <div className="text-sm text-muted-foreground min-w-0 flex-shrink">
           {new Date(lastUpdate).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit', timeZone: 'Europe/Berlin' })} ({formatDistanceToNow(new Date(lastUpdate), { addSuffix: true, locale: de })})
         </div>
       )}
@@ -54,7 +54,7 @@ export function ConnectionStatus({
         variant="ghost" 
         size="sm" 
         onClick={onRefresh}
-        className="ml-auto"
+        className="ml-auto flex-shrink-0"
         title="Daten neu laden"
       >
         <RefreshCw className="w-4 h-4" />
