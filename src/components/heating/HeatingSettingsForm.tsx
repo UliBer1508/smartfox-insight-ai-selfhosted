@@ -323,7 +323,84 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </div>
           </div>
 
-          {/* PV-Automatik Schwellwerte */}
+          {/* Batterie-Reserve für Nachverbrauch */}
+          <div className="border-t pt-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+              <Zap className="w-4 h-4" />
+              Batterie-Reserve für Nachverbrauch
+            </h3>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="battery_reserve">
+                  Mindest-SOC nach Heiz-Tag: {formData.battery_reserve_for_night_soc ?? 60}%
+                </Label>
+                <Input
+                  id="battery_reserve"
+                  type="range"
+                  min="40"
+                  max="80"
+                  step="5"
+                  value={formData.battery_reserve_for_night_soc ?? 60}
+                  onChange={(e) => handleChange('battery_reserve_for_night_soc', parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Diese Reserve wird für Abend-/Nachtverbrauch geschützt — Heizung darf darunter nicht entladen.
+                </p>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="battery_buffer"
+                  checked={formData.battery_buffer_enabled !== false}
+                  onCheckedChange={(checked) => handleChange('battery_buffer_enabled', checked)}
+                />
+                <Label htmlFor="battery_buffer" className="text-sm">
+                  Batterie-Puffer für Heizung aktivieren
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2 ml-6">
+                Erlaubt zusätzliches Eco-Budget aus der Batterie, wenn SOC ≥ Reserve+20% UND Tagesprognose den Bedarf deckt.
+              </p>
+
+              {formData.battery_buffer_enabled !== false && (
+                <div className="space-y-2">
+                  <Label htmlFor="battery_buffer_bonus">
+                    Max. Puffer-Bonus: {formData.battery_buffer_bonus_w ?? 500}W
+                  </Label>
+                  <Input
+                    id="battery_buffer_bonus"
+                    type="range"
+                    min="200"
+                    max="1500"
+                    step="100"
+                    value={formData.battery_buffer_bonus_w ?? 500}
+                    onChange={(e) => handleChange('battery_buffer_bonus_w', parseInt(e.target.value))}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Skaliert in 3 Stufen: 30% (SOC knapp über Reserve+20) → 60% → 100% (SOC ≥ Reserve+35).
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-2 pt-2">
+                <Switch
+                  id="tolerant_deact"
+                  checked={formData.tolerant_deactivation_enabled !== false}
+                  onCheckedChange={(checked) => handleChange('tolerant_deactivation_enabled', checked)}
+                />
+                <Label htmlFor="tolerant_deact" className="text-sm">
+                  Tolerante Deaktivierung
+                </Label>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-2 ml-6">
+                Räume bleiben bei kurzen PV-Einbrüchen aktiv (Wolkenschatten), wenn Trend stabil ist.
+              </p>
+            </div>
+          </div>
+
+
           <div className="border-t pt-4">
             <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
               <Zap className="w-4 h-4" />
