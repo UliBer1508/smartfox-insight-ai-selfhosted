@@ -1122,6 +1122,32 @@ Deno.serve(async (req) => {
       const tolerantDeactivationEnabled = settings?.tolerant_deactivation_enabled !== false;
       const socAboveReserve = batterySoc - batteryReserveSoc;
 
+      // ============= TÄGLICHES SOC-TRACKING =============
+      try {
+        const trackToday = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' });
+        const wienHourNow = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false }));
+        const wienMinuteNow = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', minute: '2-digit' }));
+        const { data: existing } = await supabase
+          .from('battery_daily_tracking')
+          .select('soc_at_heating_start, soc_at_heating_end')
+          .eq('date', trackToday)
+          .maybeSingle();
+        if (wienHourNow === 9 && wienMinuteNow < 30 && !existing?.soc_at_heating_start) {
+          await supabase.from('battery_daily_tracking').upsert({
+            date: trackToday, soc_at_heating_start: batterySoc,
+          }, { onConflict: 'date' });
+          console.log(`[BATTERY-TRACK] Heizstart-SOC erfasst: ${batterySoc}%`);
+        }
+        if (wienHourNow >= 17 && wienHourNow <= 19 && !existing?.soc_at_heating_end) {
+          await supabase.from('battery_daily_tracking').upsert({
+            date: trackToday, soc_at_heating_end: batterySoc,
+          }, { onConflict: 'date' });
+          console.log(`[BATTERY-TRACK] Heizende-SOC erfasst: ${batterySoc}%`);
+        }
+      } catch (e) {
+        console.log(`[BATTERY-TRACK] Snapshot fehlgeschlagen: ${e}`);
+      }
+
       // (Solar-Gain-Erkennung entfernt — Thermostate regeln passiven Solargewinn selbst)
 
       // Calculate grid export (negative power_io means export)
