@@ -24,9 +24,21 @@ const isPreviewHost =
 const shouldRegisterSW = !isInIframe && !isPreviewHost;
 
 if (shouldRegisterSW) {
-  // Register SW only on the real published domain
+  // Register SW only on the real published domain.
+  // onNeedRefresh: a new build is available → reload immediately so users
+  // never get stuck on a stale bundle (which was hiding new UI like Mikro-Budget).
   import("virtual:pwa-register").then(({ registerSW }) => {
-    registerSW({ immediate: true });
+    const updateSW = registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        updateSW(true);
+      },
+      onRegisteredSW(_swUrl, registration) {
+        if (registration) {
+          setInterval(() => registration.update().catch(() => {}), 60_000);
+        }
+      },
+    });
   });
 } else {
   // Aggressively clean up any previously registered SW + caches in preview/iframe
