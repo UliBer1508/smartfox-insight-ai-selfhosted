@@ -1209,13 +1209,38 @@ Deno.serve(async (req) => {
             }
           }
           
+          // ============= BATTERIE-PUFFER (Eco-Budget, mit Reserve-Schutz) =============
+          // Nur wenn SOC weit über Reserve UND Prognose den Tagesbedarf deckt UND Trend nicht stark fallend.
+          // Skaliert in 3 Stufen je nach Abstand zur Reserve.
+          let batteryBuffer = 0;
+          if (batteryBufferEnabled
+              && socAboveReserve > 20
+              && remainingPvForHeatingWh >= totalEcoEnergyNeededWh
+              && pvTrend >= -300) {
+            if (socAboveReserve >= 35) batteryBuffer = batteryBufferBonusW;
+            else if (socAboveReserve >= 25) batteryBuffer = Math.round(batteryBufferBonusW * 0.6);
+            else batteryBuffer = Math.round(batteryBufferBonusW * 0.3);
+            availableBudget += batteryBuffer;
+            console.log(`[BATTERY-BUFFER] +${batteryBuffer}W (SOC=${batterySoc}% / Reserve=${batteryReserveSoc}% → Δ=${socAboveReserve}, PV-Rest≥Bedarf, Trend=${pvTrend}W) → Eco-Budget=${availableBudget}W`);
+          } else if (batteryBufferEnabled && socAboveReserve > 20) {
+            console.log(`[BATTERY-BUFFER] Gesperrt: PV-Rest<Bedarf (${(remainingPvForHeatingWh/1000).toFixed(1)}/${(totalEcoEnergyNeededWh/1000).toFixed(1)}kWh) oder Trend=${pvTrend}W`);
+          }
+
+          // ============= PV-TREND BONUS (Eco-Budget) =============
+          let trendBonus = 0;
+          if (pvTrend > 500) {
+            trendBonus = 300;
+            availableBudget += trendBonus;
+            console.log(`[PV-TREND] +${trendBonus}W Trend-Bonus (Trend=+${pvTrend}W) → Eco-Budget=${availableBudget}W`);
+          }
+          
           // Separates Komfort-Budget: IMMER strikt — Batterie nie für Komfort, KEIN Prognose-Bonus
           let rawComfortBudget = gridExport + currentlyHeatingPower;
           if (batteryPower < 0) {
             rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
           }
           comfortBudget = Math.max(0, rawComfortBudget);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}) | Komfort-Budget: ${comfortBudget}W`);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus > 0 ? ` +Trend ${trendBonus}W` : ''}) | Komfort-Budget: ${comfortBudget}W`);
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
