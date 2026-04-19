@@ -1464,7 +1464,9 @@ Deno.serve(async (req) => {
       // Dann läuft Cooldown (room_rotation_minutes), dann nächster Raum.
       // Batterie SOC >= settings.micro_budget_min_battery_soc dient als Puffer.
       const microBudgetEnabled = settings?.micro_budget_enabled !== false; // default true
-      const microMinSoc = settings?.micro_budget_min_battery_soc ?? 80;
+      // Dynamische Untergrenze: max(eingestellter SOC, Reserve+20)
+      const microMinSocBase = settings?.micro_budget_min_battery_soc ?? 80;
+      const microMinSoc = Math.max(microMinSocBase, batteryReserveSoc + 20);
       const microHeatDuration = settings?.micro_heat_duration_min ?? 5;
 
       // ── Soft-Rotation: aktiven Mikro-Raum nach Zeit-Limit beenden ──
