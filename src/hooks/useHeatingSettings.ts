@@ -52,6 +52,10 @@ const defaultSettings: HeatingSettings = {
   pv_boost_temp_delta: 2,
   // Nacht-Heizmodus
   night_heating_mode: 'frost_only' as const,
+  // Mikro-Budget Modus
+  micro_budget_enabled: true,
+  micro_budget_min_battery_soc: 80,
+  micro_heat_duration_min: 5,
 };
 
 export function useHeatingSettings() {

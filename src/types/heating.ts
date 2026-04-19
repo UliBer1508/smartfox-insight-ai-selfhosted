@@ -65,6 +65,10 @@ export interface HeatingSettings {
   min_room_pause_minutes?: number;
   // Nacht-Heizmodus
   night_heating_mode?: 'maintain' | 'frost_only';
+  // Mikro-Budget Modus
+  micro_budget_enabled?: boolean;
+  micro_budget_min_battery_soc?: number;
+  micro_heat_duration_min?: number;
   created_at?: string;
   updated_at?: string;
 }
