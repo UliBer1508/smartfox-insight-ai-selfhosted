@@ -1479,18 +1479,23 @@ Deno.serve(async (req) => {
           const minRoomPower = Math.min(...microCandidates.map(rp => rp.heatingPower));
 
           if (availableBudget < minRoomPower && batterySoc >= microMinSoc) {
-            // Globaler Cooldown via system_settings
+            // Globaler Cooldown: läuft erst ab Beendigung des letzten Mikro-Raums (ended_at).
+            // Wenn noch nicht beendet → kein neuer Raum (alter heizt noch).
             const { data: lastMicroSetting } = await supabase
               .from('system_settings')
               .select('value')
               .eq('key', 'last_micro_rotation_at')
               .maybeSingle();
-            const lastMicroAt = (lastMicroSetting?.value as { ts?: string })?.ts;
-            const minutesSinceLastMicro = lastMicroAt
-              ? (Date.now() - new Date(lastMicroAt).getTime()) / 60000
+            const microValue = lastMicroSetting?.value as { ts?: string; ended?: boolean; ended_at?: string } | undefined;
+            const cooldownAnchor = microValue?.ended ? microValue.ended_at : microValue?.ts;
+            const stillRunning = microValue?.ts && microValue?.ended !== true;
+            const minutesSinceLastMicro = cooldownAnchor
+              ? (Date.now() - new Date(cooldownAnchor).getTime()) / 60000
               : 99999;
 
-            if (minutesSinceLastMicro >= roomRotationMinutes) {
+            if (stillRunning) {
+              console.log(`[MICRO-BUDGET] Vorheriger Mikro-Raum heizt noch — kein neuer Raum`);
+            } else if (minutesSinceLastMicro >= roomRotationMinutes) {
               // Wähle Raum: höchste Prio (kleinste Zahl) + größtes Defizit + längste Pause
               const picked = [...microCandidates].sort((a, b) => {
                 const aEco = a.room.eco_temp || settings?.eco_temp || 19;
@@ -1515,15 +1520,15 @@ Deno.serve(async (req) => {
               });
               usedBudget += picked.heatingPower;
 
-              // Setze globalen Cooldown
+              // Setze globalen Cooldown — ended:false → Soft-Rotation kann ihn nach microHeatDuration beenden
               await supabase.from('system_settings').upsert({
                 key: 'last_micro_rotation_at',
-                value: { ts: new Date().toISOString(), room_id: picked.room.id, room_name: picked.room.name }
+                value: { ts: new Date().toISOString(), room_id: picked.room.id, room_name: picked.room.name, ended: false }
               }, { onConflict: 'key' });
 
               console.log(`[MICRO-BUDGET] ${picked.room.name} aktiviert (Budget=${availableBudget}W < ${minRoomPower}W, SOC=${batterySoc}%, Dauer=${microHeatDuration}min)`);
             } else {
-              console.log(`[MICRO-BUDGET] Cooldown aktiv (${minutesSinceLastMicro.toFixed(1)}/${roomRotationMinutes} min) — überspringe Rotation`);
+              console.log(`[MICRO-BUDGET] Cooldown aktiv (${minutesSinceLastMicro.toFixed(1)}/${roomRotationMinutes} min seit Beendigung) — überspringe Rotation`);
             }
           } else if (availableBudget < minRoomPower) {
             console.log(`[MICRO-BUDGET] Pausiert: SOC ${batterySoc}% < ${microMinSoc}% (kein Batterie-Puffer)`);
