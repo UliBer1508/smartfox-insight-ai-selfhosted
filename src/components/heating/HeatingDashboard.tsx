@@ -345,6 +345,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           pvCapacity={settings.pv_capacity_kwp}
         />
 
+        <BatteryReserveStatus currentSoc={latestSoc ?? undefined} />
+
       </div>
 
       {/* Heating & Cost Overview - 2 columns */}
