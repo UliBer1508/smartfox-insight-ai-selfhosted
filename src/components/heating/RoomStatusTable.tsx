@@ -96,6 +96,17 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
+            {(() => {
+              const heatingRooms = tuyaRooms.filter(r => r.is_heating);
+              const totalPower = heatingRooms.reduce((sum, r) => sum + getEffectiveHeatingPower(r), 0);
+              if (heatingRooms.length === 0) return null;
+              return (
+                <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
+                  Aktuell heizen: <strong className="text-foreground">{heatingRooms.length} {heatingRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
+                  {totalPower > 0 && <> · <strong className="text-foreground">{Math.round(totalPower).toLocaleString('de-DE')} W</strong></>}
+                </div>
+              );
+            })()}
             {isMobile ? (
               <div className="divide-y">
                 {tuyaRooms.map(room => {
