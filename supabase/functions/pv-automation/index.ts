@@ -1386,6 +1386,85 @@ Deno.serve(async (req) => {
         }
       }
       
+      // ============= MIKRO-BUDGET MODUS =============
+      // Wenn ecoBudget > 0, aber kleiner als kleinster Raum → rotierend einen Raum für 5 Min aktivieren.
+      // Batterie SOC >= settings.micro_budget_min_battery_soc dient als Puffer.
+      // Verhindert "niemand heizt"-Stillstand bei kleinem Export-Überschuss (z.B. 200W).
+      const microBudgetEnabled = settings?.micro_budget_enabled !== false; // default true
+      const microMinSoc = settings?.micro_budget_min_battery_soc ?? 80;
+      const microHeatDuration = settings?.micro_heat_duration_min ?? 5;
+
+      if (microBudgetEnabled && availableBudget > 0) {
+        // Kandidaten: Räume die noch kein Budget bekommen haben, < eco sind, kein Override
+        const microCandidates = roomsWithPriority.filter(rp => {
+          const status = roomBudgetStatus.get(rp.room.id);
+          if (status?.allowedToHeat) return false; // schon allokiert
+          if (status?.shouldRotate) return false; // rotiert gerade aus
+          const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
+          const currentTemp = rp.room.current_temp || 0;
+          if (currentTemp >= ecoTemp - 0.2) return false; // schon warm genug
+          if (rp.room.manual_override_until && new Date(rp.room.manual_override_until).getTime() > Date.now()) return false;
+          if (rp.isCurrentlyHeating) return false;
+          if (rp.waitTimeMinutes < minRoomPauseMinutes && rp.room.last_heating_end) return false;
+          return true;
+        });
+
+        if (microCandidates.length > 0) {
+          const minRoomPower = Math.min(...microCandidates.map(rp => rp.heatingPower));
+
+          if (availableBudget < minRoomPower && batterySoc >= microMinSoc) {
+            // Globaler Cooldown via system_settings
+            const { data: lastMicroSetting } = await supabase
+              .from('system_settings')
+              .select('value')
+              .eq('key', 'last_micro_rotation_at')
+              .maybeSingle();
+            const lastMicroAt = (lastMicroSetting?.value as { ts?: string })?.ts;
+            const minutesSinceLastMicro = lastMicroAt
+              ? (Date.now() - new Date(lastMicroAt).getTime()) / 60000
+              : 99999;
+
+            if (minutesSinceLastMicro >= roomRotationMinutes) {
+              // Wähle Raum: höchste Prio (kleinste Zahl) + größtes Defizit + längste Pause
+              const picked = [...microCandidates].sort((a, b) => {
+                const aEco = a.room.eco_temp || settings?.eco_temp || 19;
+                const bEco = b.room.eco_temp || settings?.eco_temp || 19;
+                const aPause = Date.now() - new Date(a.room.pv_auto_last_change || 0).getTime();
+                const bPause = Date.now() - new Date(b.room.pv_auto_last_change || 0).getTime();
+                const aScore = (12 - (a.priority || 12)) * 100
+                  + (aEco - (a.room.current_temp || 0)) * 10
+                  + aPause / 60000;
+                const bScore = (12 - (b.priority || 12)) * 100
+                  + (bEco - (b.room.current_temp || 0)) * 10
+                  + bPause / 60000;
+                return bScore - aScore;
+              })[0];
+
+              const pickedEco = picked.room.eco_temp || settings?.eco_temp || 19;
+              roomBudgetStatus.set(picked.room.id, {
+                allowedToHeat: true,
+                reason: `Mikro-Budget (Budget ${availableBudget}W < min ${minRoomPower}W, SOC ${batterySoc}%, ${microHeatDuration}min)`,
+                shouldRotate: false,
+                targetLevel: 'eco'
+              });
+              usedBudget += picked.heatingPower;
+
+              // Setze globalen Cooldown
+              await supabase.from('system_settings').upsert({
+                key: 'last_micro_rotation_at',
+                value: { ts: new Date().toISOString(), room_id: picked.room.id, room_name: picked.room.name }
+              }, { onConflict: 'key' });
+
+              console.log(`[MICRO-BUDGET] ${picked.room.name} aktiviert (Budget=${availableBudget}W < ${minRoomPower}W, SOC=${batterySoc}%, Dauer=${microHeatDuration}min)`);
+            } else {
+              console.log(`[MICRO-BUDGET] Cooldown aktiv (${minutesSinceLastMicro.toFixed(1)}/${roomRotationMinutes} min) — überspringe Rotation`);
+            }
+          } else if (availableBudget < minRoomPower) {
+            console.log(`[MICRO-BUDGET] Pausiert: SOC ${batterySoc}% < ${microMinSoc}% (kein Batterie-Puffer)`);
+          }
+        }
+      }
+
       // Phase 2 Gate: Prüfe ob ALLE Räume eco erreicht haben oder eco-Budget bekommen haben
       let allRoomsEcoReady = true;
       for (const rp of roomsWithPriority) {
