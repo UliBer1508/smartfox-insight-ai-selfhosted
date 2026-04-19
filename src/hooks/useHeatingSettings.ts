@@ -56,6 +56,11 @@ const defaultSettings: HeatingSettings = {
   micro_budget_enabled: true,
   micro_budget_min_battery_soc: 80,
   micro_heat_duration_min: 5,
+  // Batterie-Reserve
+  battery_reserve_for_night_soc: 60,
+  battery_buffer_enabled: true,
+  battery_buffer_bonus_w: 500,
+  tolerant_deactivation_enabled: true,
 };
 
 export function useHeatingSettings() {

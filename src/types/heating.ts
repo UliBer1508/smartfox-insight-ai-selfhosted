@@ -69,6 +69,11 @@ export interface HeatingSettings {
   micro_budget_enabled?: boolean;
   micro_budget_min_battery_soc?: number;
   micro_heat_duration_min?: number;
+  // Batterie-Reserve & adaptive Budget-Erweiterung
+  battery_reserve_for_night_soc?: number;
+  battery_buffer_enabled?: boolean;
+  battery_buffer_bonus_w?: number;
+  tolerant_deactivation_enabled?: boolean;
   created_at?: string;
   updated_at?: string;
 }
