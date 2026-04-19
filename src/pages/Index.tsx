@@ -161,7 +161,7 @@ const Index = () => {
   }, [rooms, readings, heatingSettings, saveRoomRecommendations, loadRoomRecommendations]);
 
   return (
-    <div className="min-h-screen bg-background grid-pattern overflow-x-hidden">
+    <div className="flex-1 flex flex-col bg-background grid-pattern overflow-x-hidden">
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
       <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 md:pb-6">
