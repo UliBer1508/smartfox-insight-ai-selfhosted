@@ -1,6 +1,6 @@
 ---
 name: PV-Automation Budget Logic v2
-description: Eco vs Komfort-Budget, Mikro-Budget, Prognose-Bonus, Batterie-Reserve, PV-Trend
+description: Eco vs Komfort-Budget, Mikro-Budget, Prognose-Bonus, Batterie-Reserve, PV-Trend, tolerante Deaktivierung
 type: feature
 ---
 
@@ -36,4 +36,11 @@ Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehre
 - **Cooldown** (`room_rotation_minutes`, default 30): läuft erst ab `ended_at`, nicht ab Aktivierung. Kein neuer Raum solange `ended === false`.
 - Manual Override blockiert sowohl Aktivierung als auch Soft-Beendigung.
 
-**Tolerante Deaktivierung** (`tolerant_deactivation_enabled`, default true): Räume werden bei kurzem Budget-Einbruch nicht sofort abgeschaltet — Deaktivierung nur wenn Trend negativ UND Prognose-Rest unzureichend (Implementierung in Phase-1 Loop).
+**Tolerante Deaktivierung** (`tolerant_deactivation_enabled`, default true):
+- Greift NUR in Phase-1-Eco-Loop, nur für **bereits heizende Räume** bei kurzem Budget-Einbruch
+- Doppel-Gate: `pvSufficientForEco === true` UND `pvTrend ≥ -200W`
+- Overshoot-Limit: `overshoot ≤ max(300W, heatingPower × 0.4)` — verhindert unbegrenztes Stacking
+- Selbstbegrenzend (sequentiell pro Raum, max ~3 × 300W Stack)
+- Bei Sonnenuntergang/echtem PV-Einbruch (Trend < -200W) → harter Cutoff wie ohne Toleranz
+- Tuya-Quota-Schutz: spart pro toleriertem Raum 2 Tuya-Calls (Deaktivierung + spätere Reaktivierung) bei wechselhaftem Wetter
+- Log-Marker: `[TOLERANT-DEACTIVATION]` pro Raum, `[TUYA-QUOTA-RUN]` als Run-Counter
