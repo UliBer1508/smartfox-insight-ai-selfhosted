@@ -1,36 +1,32 @@
 
-Befund: User meldet erneut, dass Mikro-Budget in Published fehlt. Im Code (`HeatingSettingsForm.tsx` Zeilen 272-324) ist die Sektion vorhanden. Die Datenbank liefert `micro_budget_enabled: true` etc. (siehe Network-Logs). Also: Code OK, DB OK → Published-Build ist veraltet.
+Befund nach Vergleich Published vs. Preview:
 
-Kernursache: Frontend-Änderungen werden NICHT automatisch live geschaltet. Sie erfordern explizit ein **„Update" im Publish-Dialog**. Das wurde anscheinend bisher nicht (oder nicht erfolgreich) durchgeführt, oder der PWA-Service-Worker auf dem Endgerät hält die alte Version vor.
+**Published (`smartfox-insight-ai.lovable.app`)**: Zeigt nur den Login-Screen "Fronius Smart AI" — kein Dashboard, keine Einstellungen sichtbar, weil ich nicht eingeloggt bin. Ohne Login kann ich von außen NICHT prüfen, ob Mikro-Budget in den Einstellungen erscheint.
 
-Zweiter möglicher Faktor: PWA-Service-Worker auf der published Domain (`smartfox-insight-ai.lovable.app`) cached aggressiv und zeigt veraltete Bundles trotz neuem Deploy.
+**Preview (eingeloggt)**: Zeigt das volle Dashboard mit 6.4 kW PV, Heizung 2.3 kW, etc. Code enthält Mikro-Budget (HeatingSettingsForm Zeilen 272-324), DB liefert `micro_budget_enabled: true` (siehe Network-Logs).
 
-Plan
+**Diagnose**: Ich kann den eigentlichen Vergleich (Mikro-Budget sichtbar ja/nein in Published) nicht selbst durchführen, weil:
+1. Login erfordert deine Credentials (darf ich nicht ohne Freigabe eingeben)
+2. Published-Build-Stand kann ich nur nach Login prüfen
 
-1) Build-Hash sichtbar machen
-- `Footer.tsx` zusätzlich zu Version + Build-Time einen kurzen **Build-Hash** anzeigen (erste 8 Zeichen des `__BUILD_TIME__`-basierten Hashes oder ms-Wert). So lässt sich nach „Update" sofort verifizieren, ob die Published-Seite den neuen Build geladen hat.
+**Was du tun musst — 3 Schritte**
 
-2) Service-Worker-Update erzwingen
-- In `src/main.tsx` beim SW-Register zusätzlich:
-  - `registerSW({ immediate: true, onNeedRefresh: () => location.reload() })` → automatischer Reload bei neuer Version, kein Stale-Cache.
-- Optional: einmaliger „Hard-Refresh"-Button (versteckt in Footer) zum manuellen Cache-Reset auf Endgeräten.
+1. **Build-Stand vergleichen**
+   - Öffne Preview, scrolle zum Footer → notiere `v… #buildhash`
+   - Öffne `smartfox-insight-ai.lovable.app`, logge dich ein, scrolle zum Footer → vergleiche Build-Hash
+   - **Gleich** → Published ist aktuell, dann ist Mikro-Budget dort sichtbar
+   - **Unterschiedlich** → Published-Build ist alt → Schritt 2
 
-3) PWA-Manifest-Versions-Bump
-- `vite.config.ts`: dem Workbox-Cache einen versionierten Namen geben (z.B. `cacheId: 'fronius-ai-v2-4-0'`), damit beim nächsten Build alle alten Caches verworfen werden.
+2. **Falls Hashes unterschiedlich: Publish → Update**
+   - Top-rechts „Publish" → „Update" klicken
+   - Warten bis Status „Live" zeigt
+   - Auf Published Hard-Reload (Strg+Shift+R) ODER PWA deinstallieren + neu installieren
 
-4) Anleitung an User (in der Antwort, kein Code)
-- Schritt A: **Publish → Update** klicken (Pflicht für Frontend-Änderungen).
-- Schritt B: Auf `smartfox-insight-ai.lovable.app` einmalig Hard-Reload (Strg+Shift+R / iOS: App schließen + erneut öffnen) ODER PWA deinstallieren und neu installieren.
-- Schritt C: Footer prüfen — neuer Build-Hash muss zur Preview-Version passen.
+3. **Falls Hashes gleich, aber Mikro-Budget fehlt trotzdem**
+   - Screenshot vom Published-Settings-Tab schicken (Tab „Einstellungen" → Sektion „Anlagen-Konfiguration" aufklappen)
+   - Dann prüfe ich gezielt, ob ein anderer Bug vorliegt (z.B. Conditional-Render-Fehler)
 
-Betroffene Dateien
-- `src/components/Footer.tsx` — Build-Hash anzeigen
-- `src/main.tsx` — `onNeedRefresh` Auto-Reload
-- `vite.config.ts` — `cacheId` für Workbox
+**Alternativ (empfohlen): Ich teste es selbst per Browser-Tool**
+Wenn du mir erlaubst, mich mit deinen Credentials in der Browser-Automation einzuloggen, kann ich Published direkt prüfen und einen Side-by-Side-Screenshot mit Preview liefern. Das ist die schnellste Art, das Problem eindeutig zu klären.
 
-Keine DB-Änderungen, keine Edge-Function-Änderungen.
-
-Erfolgskriterium
-- Nach „Update" zeigt der Footer auf Published den gleichen Build-Hash wie Preview.
-- Sektion „Mikro-Budget Modus" ist auf Published sichtbar.
-- Künftige Frontend-Updates landen automatisch beim User (kein manueller Hard-Reload mehr nötig).
+Keine Code-Änderungen nötig in diesem Schritt — erst Diagnose, dann ggf. Fix.
