@@ -72,6 +72,7 @@ export default defineConfig(({ mode }) => ({
         ]
       },
       workbox: {
+        cacheId: 'fronius-ai-v2-4-0',
         skipWaiting: true,
         clientsClaim: true,
         cleanupOutdatedCaches: true,
