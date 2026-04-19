@@ -378,6 +378,9 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           max_grid_heating_power_w: number | null
+          micro_budget_enabled: boolean | null
+          micro_budget_min_battery_soc: number | null
+          micro_heat_duration_min: number | null
           min_battery_soc: number
           min_room_pause_minutes: number | null
           min_switch_interval_min: number | null
@@ -424,6 +427,9 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          micro_budget_enabled?: boolean | null
+          micro_budget_min_battery_soc?: number | null
+          micro_heat_duration_min?: number | null
           min_battery_soc?: number
           min_room_pause_minutes?: number | null
           min_switch_interval_min?: number | null
@@ -470,6 +476,9 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          micro_budget_enabled?: boolean | null
+          micro_budget_min_battery_soc?: number | null
+          micro_heat_duration_min?: number | null
           min_battery_soc?: number
           min_room_pause_minutes?: number | null
           min_switch_interval_min?: number | null
