@@ -391,3 +391,31 @@ export function BatteryHistoryChart() {
     </Card>
   );
 }
+
+function DayProgressBar() {
+  const [now, setNow] = useState(() => ({
+    pct: (getViennaMinutesSinceMidnight() / 1440) * 100,
+    label: getViennaTimeString(),
+  }));
+
+  useEffect(() => {
+    const tick = () =>
+      setNow({
+        pct: (getViennaMinutesSinceMidnight() / 1440) * 100,
+        label: getViennaTimeString(),
+      });
+    const interval = setInterval(tick, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="mt-4 px-2">
+      <Progress value={now.pct} className="h-2" />
+      <div className="flex justify-between text-xs text-muted-foreground mt-1">
+        <span className="opacity-60">00:00</span>
+        <span className="font-medium text-foreground">{now.label}</span>
+        <span className="opacity-60">24:00</span>
+      </div>
+    </div>
+  );
+}
