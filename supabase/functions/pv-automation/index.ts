@@ -2849,6 +2849,24 @@ Deno.serve(async (req) => {
           .eq('key', 'tuya_api_quota');
       }
 
+      // ML-Exploration-Throttle persistieren
+      if (typeof mlExplorationUpdates !== 'undefined' && Object.keys(mlExplorationUpdates).length > 0) {
+        try {
+          const merged: Record<string, string> = { ...(mlExplorationMap || {}), ...mlExplorationUpdates };
+          // alte Einträge (>2h) ausräumen
+          const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+          for (const [k, v] of Object.entries(merged)) {
+            if (new Date(v).getTime() < cutoff) delete merged[k];
+          }
+          await supabase.from('system_settings').upsert(
+            { key: 'ml_exploration_throttle', value: merged, updated_at: new Date().toISOString() },
+            { onConflict: 'key' }
+          );
+        } catch (e: any) {
+          console.error(`[ML-THROTTLE] Persist-Fehler:`, e?.message ?? e);
+        }
+      }
+
       const quotaInfo = quotaData 
         ? ` | Quota: ${quotaData.calls_today}/${quotaData.daily_limit} heute, ${quotaData.calls_this_month}/${quotaData.monthly_limit} monatlich`
         : '';
