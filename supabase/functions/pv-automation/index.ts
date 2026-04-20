@@ -1085,7 +1085,6 @@ Deno.serve(async (req) => {
         ?? settings?.battery_reserve_for_night_soc
         ?? 80;
       const socGateMode = (settings?.heating_soc_gate_mode ?? 'strict') as 'strict' | 'soft';
-      const socGateBlocked = batterySoc < heatingMinSoc && batteryPower < 0;
 
       // Nach Sonnenuntergang: Batterie-Reserve für Eco nur wenn SOC > Gate (nicht mehr hartcodiert 50)
       const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > heatingMinSoc;
