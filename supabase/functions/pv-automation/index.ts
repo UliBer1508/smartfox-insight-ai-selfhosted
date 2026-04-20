@@ -1186,11 +1186,18 @@ Deno.serve(async (req) => {
           
           // Prognose-Mindest-Budget für Eco: Wenn Tagesprognose reicht, mindestens Stunden-Prognose nutzen
           // Erst ab 9:00 Uhr — davor bleibt Nachtmodus aktiv
+          // HARD-GATE: Nur wenn Batterie über Schutz-SOC UND kein Netzbezug (echter Überschuss)
+          const realSurplusOk = (reading.power_io ?? 0) <= 50;
+          const socOkForForecast = batterySoc >= heatingMinSoc;
           if (currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
-            const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
-            if (forecastMinBudget > baseBudget) {
-              console.log(`[PV-Automation] ☀️ Prognose-Budget: Tages-PV reicht für Eco → Mindest-Budget ${Math.round(forecastMinBudget)}W (Stunden-Prognose ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W) statt aktuell ${Math.round(baseBudget)}W`);
-              baseBudget = forecastMinBudget;
+            if (socOkForForecast && realSurplusOk) {
+              const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
+              if (forecastMinBudget > baseBudget) {
+                console.log(`[PV-Automation] ☀️ Prognose-Budget: Tages-PV reicht für Eco → Mindest-Budget ${Math.round(forecastMinBudget)}W (Stunden-Prognose ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W) statt aktuell ${Math.round(baseBudget)}W`);
+                baseBudget = forecastMinBudget;
+              }
+            } else {
+              console.log(`[OVERSHOOT-GATE] Prognose-Mindest-Budget gesperrt: SOC=${batterySoc}% (Gate=${heatingMinSoc}%, ok=${socOkForForecast}), power_io=${Math.round(reading.power_io ?? 0)}W (≤50, ok=${realSurplusOk}) → baseBudget bleibt ${Math.round(baseBudget)}W`);
             }
           }
           
@@ -1228,17 +1235,23 @@ Deno.serve(async (req) => {
           // Komfort bleibt strikt — kein Bonus für Komfort.
           let prognoseBonus = 0;
           if (currentWienHour >= 9 && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
-            const ratio = remainingPvForHeatingWh / totalEcoEnergyNeededWh;
-            if (ratio >= 3 && batterySoc >= 50) {
-              prognoseBonus = 1500;
-            } else if (ratio >= 2 && batterySoc >= 60) {
-              prognoseBonus = 800;
-            } else if (ratio >= 1.5 && batterySoc >= 70) {
-              prognoseBonus = 400;
-            }
-            if (prognoseBonus > 0) {
-              availableBudget += prognoseBonus;
-              console.log(`[PV-Automation] 📈 Prognose-Bonus: +${prognoseBonus}W (Ratio=${ratio.toFixed(1)}x, SOC=${batterySoc}%) → Eco-Budget=${availableBudget}W`);
+            const bonusSocOk = batterySoc >= heatingMinSoc;
+            const bonusGridOk = (reading.power_io ?? 0) <= 50;
+            if (!bonusSocOk || !bonusGridOk) {
+              console.log(`[OVERSHOOT-GATE] Prognose-Bonus gesperrt: SOC=${batterySoc}% (Gate=${heatingMinSoc}%, ok=${bonusSocOk}), power_io=${Math.round(reading.power_io ?? 0)}W (≤50, ok=${bonusGridOk})`);
+            } else {
+              const ratio = remainingPvForHeatingWh / totalEcoEnergyNeededWh;
+              if (ratio >= 3 && batterySoc >= 50) {
+                prognoseBonus = 1500;
+              } else if (ratio >= 2 && batterySoc >= 60) {
+                prognoseBonus = 800;
+              } else if (ratio >= 1.5 && batterySoc >= 70) {
+                prognoseBonus = 400;
+              }
+              if (prognoseBonus > 0) {
+                availableBudget += prognoseBonus;
+                console.log(`[PV-Automation] 📈 Prognose-Bonus: +${prognoseBonus}W (Ratio=${ratio.toFixed(1)}x, SOC=${batterySoc}%) → Eco-Budget=${availableBudget}W`);
+              }
             }
           }
           

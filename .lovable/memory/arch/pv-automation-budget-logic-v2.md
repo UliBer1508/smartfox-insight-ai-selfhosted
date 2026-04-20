@@ -9,10 +9,12 @@ Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehre
 **Eco-Budget** (`availableBudget`):
 - Basis: `gridExport + currentlyHeatingPower + dynamicTolerance`
 - Batterie-Korrekturen: bei Entladung Reduktion, bei niedrigem SOC (<80%) Ladereserve abziehen
-- **Prognose-Bonus** (gestuft, nur Eco, nur tagsüber ≥9 Uhr):
+- **Prognose-Mindest-Budget** (nur Eco, ab 9 Uhr): Hebt `baseBudget` auf `currentHourForecastCorrected - baseLoad`. **Hard-Gate (Overshoot-Gate):** nur aktiv wenn `batterySoc ≥ heatingMinSoc` UND `power_io ≤ +50W` (kein Netzbezug). Ohne echten Überschuss kein Prognose-Boost.
+- **Prognose-Bonus** (gestuft, nur Eco, nur tagsüber ≥9 Uhr) — zusätzlich. Gleiches Hard-Gate: `SOC ≥ heatingMinSoc` UND `power_io ≤ +50W`. Stufen:
   - PV-Rest ≥ 3× Eco-Bedarf + SOC ≥ 50% → +1500W
   - PV-Rest ≥ 2× Eco-Bedarf + SOC ≥ 60% → +800W
   - PV-Rest ≥ 1.5× Eco-Bedarf + SOC ≥ 70% → +400W
+- Log-Marker `[OVERSHOOT-GATE]` wenn Prognose-Mechanismen gesperrt.
 - **Batterie-Puffer** (`battery_buffer_enabled`, default true) — gestuft nach `socAboveReserve = batterySoc - battery_reserve_for_night_soc`:
   - Δ ≥ 35 → 100% von `battery_buffer_bonus_w` (default 500W)
   - Δ ≥ 25 → 60%
