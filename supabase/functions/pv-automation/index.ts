@@ -1334,23 +1334,77 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ============= SOC-GATE ENFORCEMENT =============
-      // Hartes Gate: Wenn SOC unter heatingMinSoc UND Batterie entlädt → Heiz-Budgets auf 0.
-      // 'strict': stoppt auch laufende Räume (Budget=0 → Deaktivierungslogik greift im nächsten Tick).
-      // 'soft':   blockiert nur neue Aktivierungen — laufende Räume dürfen über Toleranz fertigheizen.
-      const socGateBlocked = batterySoc < heatingMinSoc && batteryPower < 0;
+      // ============= SOC-GATE ENFORCEMENT (gehärtet) =============
+      // Komfort-Hard-Lock: Komfort darf NIEMALS bei SOC < heatingMinSoc laufen — auch wenn Batterie gerade lädt.
+      if (batterySoc < heatingMinSoc && comfortBudget > 0) {
+        console.log(`[SOC-GATE] 🔒 Komfort hart gesperrt: SOC ${batterySoc}% < ${heatingMinSoc}% → comfortBudget ${comfortBudget}W → 0W`);
+        comfortBudget = 0;
+      }
+
+      // Hartes Gate: Wenn SOC < heatingMinSoc UND (Batterie nicht aktiv lädt ODER Netzbezug stattfindet) → Heiz-Budgets auf 0.
+      // Schließt Lücke bei batteryPower≈0 (idle/leer) und bei Mess-Jitter (+1W "Laden"). Greift auch bei Netzbezug.
+      const _gridImportNow = (reading.power_io ?? 0) > 50;
+      const _batteryNotCharging = batteryPower <= 50;
+      const socGateBlocked = batterySoc < heatingMinSoc && (_batteryNotCharging || _gridImportNow);
       if (socGateBlocked) {
         if (socGateMode === 'strict') {
-          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, Batterie entlädt ${Math.abs(batteryPower)}W → Eco-Budget ${availableBudget}W → 0W, Komfort ${comfortBudget}W → 0W`);
+          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W, power_io=${Math.round(reading.power_io ?? 0)}W → Eco-Budget ${availableBudget}W → 0W, Komfort 0W`);
           availableBudget = 0;
           comfortBudget = 0;
+
+          // ============= AKTIVE NOTFALL-STOPS =============
+          // Thermostate halten autonom ihre Komfort-Targets — wir MÜSSEN aktiv auf night_temp zurücksetzen.
+          // Schreibt in thermostat_commands (Local-Service-Pickup), unabhängig von Tuya-Cloud-Quota.
+          try {
+            const { data: stopRooms } = await supabase
+              .from('rooms')
+              .select('id, name, target_temp, eco_temp, night_temp, is_heating, automation_enabled, tuya_device_id, manual_override_until')
+              .eq('automation_enabled', true);
+
+            const nowMs = Date.now();
+            const candidates = (stopRooms || []).filter(r => {
+              const overrideActive = r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMs;
+              if (overrideActive) return false;
+              const ecoT = Number(r.eco_temp) || 19;
+              const nightT = Number(r.night_temp) || 18;
+              const targetT = Number(r.target_temp) || 0;
+              return r.is_heating === true || targetT > Math.max(ecoT, nightT) + 0.1 || targetT > nightT + 0.1;
+            });
+
+            if (candidates.length > 0) {
+              const cmdRows = candidates.map(r => ({
+                room_id: r.id,
+                command: 'set_temperature',
+                value: Number(r.night_temp) || 18,
+                status: 'pending' as const,
+              }));
+              const { error: cmdErr } = await supabase.from('thermostat_commands').insert(cmdRows);
+              if (cmdErr) {
+                console.error(`[SOC-GATE-STOP] ❌ Fehler beim Queueing der Notfall-Stops:`, cmdErr.message);
+              } else {
+                for (const r of candidates) {
+                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → night_temp ${r.night_temp}°C (queued for local service)`);
+                }
+                // Räume sofort auf night_temp setzen, damit Folgelogik im selben Tick konsistent ist
+                const ids = candidates.map(r => r.id);
+                await supabase
+                  .from('rooms')
+                  .update({ heating_paused_reason: `SOC-Gate (${batterySoc}% < ${heatingMinSoc}%)` })
+                  .in('id', ids);
+              }
+            } else {
+              console.log(`[SOC-GATE-STOP] Keine Räume zum Stoppen (alle bereits ≤ night_temp oder im manual override)`);
+            }
+          } catch (e: any) {
+            console.error(`[SOC-GATE-STOP] ❌ Exception:`, e?.message ?? e);
+          }
         } else {
           // soft: nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar (über tolerante Deaktivierung)
-          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, Batterie entlädt ${Math.abs(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
+          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
           comfortBudget = 0;
         }
       } else if (batterySoc < heatingMinSoc) {
-        console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, aber Batterie lädt (${batteryPower}W) → Heizung erlaubt`);
+        console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
       }
 
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
