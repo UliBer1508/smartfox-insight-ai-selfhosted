@@ -2,7 +2,8 @@ import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Battery, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
+import { Progress } from '@/components/ui/progress';
+import { getViennaMinutesSinceMidnight, getViennaTimeString } from '@/lib/dateUtils';
 import {
   ComposedChart,
   Line,
@@ -352,33 +353,8 @@ export function BatteryHistoryChart() {
         </div>
 
         {/* Zeit-Slider - nur wenn genug Daten vorhanden */}
-        {chartData.length > 1 && (
-          <div className="mt-4 px-2">
-            <Slider
-              value={[Math.max(0, Math.min(sliderIndex, chartData.length - 1))]}
-              max={chartData.length - 1}
-              min={0}
-              step={1}
-              onValueChange={(value) => {
-                const newIndex = value[0];
-                setSliderIndex(newIndex);
-                // Activate "stay at latest" mode when navigating to the end
-                setStayAtLatest(newIndex >= chartData.length - 1);
-              }}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span className="opacity-60">{chartData[0]?.fullTime}</span>
-              <span className="font-medium text-foreground">
-                {isLatestSelected ? 'Jetzt' : selectedPoint?.fullTime + ' Uhr'}
-                {!isLatestSelected && selectedPoint && getRelativeTime(selectedPoint.timestamp) && (
-                  <span className="text-muted-foreground ml-1">({getRelativeTime(selectedPoint.timestamp)})</span>
-                )}
-              </span>
-              <span className="font-semibold text-primary">Jetzt</span>
-            </div>
-          </div>
-        )}
+        {/* Tageszeit-Fortschritt - nur "Heute" */}
+        {timeRange === 'today' && <DayProgressBar />}
 
         {/* Detail-Anzeige für ausgewählten Zeitpunkt */}
         {selectedPoint && (
@@ -413,5 +389,33 @@ export function BatteryHistoryChart() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function DayProgressBar() {
+  const [now, setNow] = useState(() => ({
+    pct: (getViennaMinutesSinceMidnight() / 1440) * 100,
+    label: getViennaTimeString(),
+  }));
+
+  useEffect(() => {
+    const tick = () =>
+      setNow({
+        pct: (getViennaMinutesSinceMidnight() / 1440) * 100,
+        label: getViennaTimeString(),
+      });
+    const interval = setInterval(tick, 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="mt-4 px-2">
+      <Progress value={now.pct} className="h-2" />
+      <div className="flex justify-between text-xs text-muted-foreground mt-1">
+        <span className="opacity-60">00:00</span>
+        <span className="font-medium text-foreground">{now.label}</span>
+        <span className="opacity-60">24:00</span>
+      </div>
+    </div>
   );
 }
