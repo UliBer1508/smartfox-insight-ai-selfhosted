@@ -353,33 +353,8 @@ export function BatteryHistoryChart() {
         </div>
 
         {/* Zeit-Slider - nur wenn genug Daten vorhanden */}
-        {chartData.length > 1 && (
-          <div className="mt-4 px-2">
-            <Slider
-              value={[Math.max(0, Math.min(sliderIndex, chartData.length - 1))]}
-              max={chartData.length - 1}
-              min={0}
-              step={1}
-              onValueChange={(value) => {
-                const newIndex = value[0];
-                setSliderIndex(newIndex);
-                // Activate "stay at latest" mode when navigating to the end
-                setStayAtLatest(newIndex >= chartData.length - 1);
-              }}
-              className="w-full"
-            />
-            <div className="flex justify-between text-xs text-muted-foreground mt-1">
-              <span className="opacity-60">{chartData[0]?.fullTime}</span>
-              <span className="font-medium text-foreground">
-                {isLatestSelected ? 'Jetzt' : selectedPoint?.fullTime + ' Uhr'}
-                {!isLatestSelected && selectedPoint && getRelativeTime(selectedPoint.timestamp) && (
-                  <span className="text-muted-foreground ml-1">({getRelativeTime(selectedPoint.timestamp)})</span>
-                )}
-              </span>
-              <span className="font-semibold text-primary">Jetzt</span>
-            </div>
-          </div>
-        )}
+        {/* Tageszeit-Fortschritt - nur "Heute" */}
+        {timeRange === 'today' && <DayProgressBar />}
 
         {/* Detail-Anzeige für ausgewählten Zeitpunkt */}
         {selectedPoint && (
