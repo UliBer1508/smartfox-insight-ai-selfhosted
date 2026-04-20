@@ -8,8 +8,39 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const http = require('http');
+const net = require('net');
 const fs = require('fs');
 const path = require('path');
+
+// TCP-Preflight: prüft ob Tuya Port 6668 in <1s erreichbar ist
+function tcpProbe(ip, port = 6668, timeout = 1000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+    const finish = (ok) => {
+      if (done) return;
+      done = true;
+      try { socket.destroy(); } catch (_) {}
+      resolve(ok);
+    };
+    socket.setTimeout(timeout);
+    socket.once('connect', () => finish(true));
+    socket.once('timeout', () => finish(false));
+    socket.once('error', () => finish(false));
+    socket.connect(port, ip);
+  });
+}
+
+// Verarbeitet ein Array in Batches von N parallel
+async function runInBatches(items, batchSize, worker) {
+  const results = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.allSettled(batch.map(worker));
+    results.push(...batchResults);
+  }
+  return results;
+}
 
 // Load configuration
 let config;
@@ -138,47 +169,68 @@ async function saveReading(froniusData) {
 async function syncThermostats() {
   if (!thermostatCtrl || !config.tuya?.devices?.length) return;
   
-  console.log(`[Tuya] ${config.tuya.devices.length} Thermostate parallel synchronisieren...`);
+  const total = config.tuya.devices.length;
+  console.log(`[Tuya] ${total} Thermostate synchronisieren (TCP-Preflight + Batches á 3)...`);
   const startedAt = Date.now();
 
-  // Parallel sync — Per-Device-Queue in tuya-thermostat.js verhindert Konflikte.
-  // Ein langsames/totes Gerät blockiert die anderen nicht mehr.
-  const results = await Promise.allSettled(
-    config.tuya.devices.map(async (deviceConfig) => {
-      const status = await thermostatCtrl.getStatus(deviceConfig);
-
-      if (status.success) {
-        const { error } = await supabase.from('rooms').update({
-          current_temp: status.current_temp,
-          target_temp: status.target_temp,
-          is_heating: status.is_heating,
-          last_thermostat_sync: new Date().toISOString()
-        }).eq('id', deviceConfig.room_id);
-
-        if (!error) {
-          console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
-          return { name: deviceConfig.name, ok: true };
-        }
-        console.error(`[Tuya] ${deviceConfig.name} DB-Update Fehler:`, error.message);
-        return { name: deviceConfig.name, ok: false, error: error.message };
-      }
-
-      console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
-      await supabase.from('api_errors').insert({
-        source: 'tuya-local',
-        error_type: 'connection_error',
-        error_message: status.error,
-        device_id: deviceConfig.device_id,
-        room_name: deviceConfig.name
-      });
-      return { name: deviceConfig.name, ok: false, error: status.error };
-    })
+  // 1. TCP-Preflight: alle Geräte parallel in <1s prüfen
+  const reachability = await Promise.all(
+    config.tuya.devices.map(async (d) => ({
+      device: d,
+      online: await tcpProbe(d.ip, 6668, 1000)
+    }))
   );
 
+  const online = reachability.filter(r => r.online);
+  const offline = reachability.filter(r => !r.online);
+
+  // Offline-Geräte sofort als Fehler loggen
+  for (const { device } of offline) {
+    console.error(`[Tuya] ${device.name}: offline (TCP 6668 unerreichbar)`);
+    await supabase.from('api_errors').insert({
+      source: 'tuya-local',
+      error_type: 'device_offline',
+      error_message: 'TCP 6668 unerreichbar (Preflight)',
+      device_id: device.device_id,
+      room_name: device.name
+    });
+  }
+
+  // 2. Online-Geräte in Batches á 3 parallel verarbeiten
+  const results = await runInBatches(online.map(r => r.device), 3, async (deviceConfig) => {
+    const status = await thermostatCtrl.getStatus(deviceConfig);
+
+    if (status.success) {
+      const { error } = await supabase.from('rooms').update({
+        current_temp: status.current_temp,
+        target_temp: status.target_temp,
+        is_heating: status.is_heating,
+        last_thermostat_sync: new Date().toISOString()
+      }).eq('id', deviceConfig.room_id);
+
+      if (!error) {
+        console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
+        return { name: deviceConfig.name, ok: true };
+      }
+      console.error(`[Tuya] ${deviceConfig.name} DB-Update Fehler:`, error.message);
+      return { name: deviceConfig.name, ok: false, error: error.message };
+    }
+
+    console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
+    await supabase.from('api_errors').insert({
+      source: 'tuya-local',
+      error_type: 'connection_error',
+      error_message: status.error,
+      device_id: deviceConfig.device_id,
+      room_name: deviceConfig.name
+    });
+    return { name: deviceConfig.name, ok: false, error: status.error };
+  });
+
   const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
-  const fail = results.length - ok;
+  const fail = total - ok;
   const dur = ((Date.now() - startedAt) / 1000).toFixed(1);
-  console.log(`[Tuya] Sync fertig in ${dur}s — OK: ${ok}, Fehler: ${fail}`);
+  console.log(`[Tuya] Sync fertig in ${dur}s — OK: ${ok}/${total}, Fehler: ${fail} (offline: ${offline.length})`);
 }
 
 // Process pending commands from PWA
