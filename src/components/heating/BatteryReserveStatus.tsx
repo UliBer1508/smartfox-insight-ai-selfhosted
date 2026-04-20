@@ -23,18 +23,22 @@ interface Props {
 export function BatteryReserveStatus({ currentSoc }: Props) {
   const [validation, setValidation] = useState<ValidationStatus | null>(null);
   const [reserve, setReserve] = useState(60);
+  const [heatingMinSoc, setHeatingMinSoc] = useState(80);
 
   useEffect(() => {
     const load = async () => {
       const [{ data: settings }, { data: sys }] = await Promise.all([
-        supabase.from('heating_settings').select('battery_reserve_for_night_soc').limit(1).maybeSingle(),
+        supabase.from('heating_settings').select('battery_reserve_for_night_soc, heating_min_battery_soc').limit(1).maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'battery_reserve_validation').maybeSingle(),
       ]);
       if (settings?.battery_reserve_for_night_soc) setReserve(settings.battery_reserve_for_night_soc);
+      if (settings?.heating_min_battery_soc) setHeatingMinSoc(settings.heating_min_battery_soc);
       if (sys?.value) setValidation(sys.value as ValidationStatus);
     };
     load();
   }, []);
+
+  const heatingLocked = currentSoc !== undefined && currentSoc < heatingMinSoc;
 
   const morningSoc = validation?.actual_morning_soc;
   const held = validation?.reserve_held;
@@ -79,6 +83,18 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
             <span className="text-destructive">Reserve {reserve}%</span>
             <span>Puffer-Grenze {bufferZone}%</span>
           </div>
+        </div>
+
+        {/* Heizung SOC-Gate Status */}
+        <div className="flex items-center justify-between text-xs pt-2 border-t">
+          <span className="text-muted-foreground">
+            Heizung-Sperre ab {heatingMinSoc}% SOC
+          </span>
+          {currentSoc !== undefined && (
+            <Badge variant={heatingLocked ? 'destructive' : 'secondary'} className="text-[10px]">
+              {heatingLocked ? `🔒 Gesperrt (${currentSoc}%)` : `✓ Frei (${currentSoc}%)`}
+            </Badge>
+          )}
         </div>
 
         {/* Validierung */}

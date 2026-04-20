@@ -61,6 +61,9 @@ const defaultSettings: HeatingSettings = {
   battery_buffer_enabled: true,
   battery_buffer_bonus_w: 500,
   tolerant_deactivation_enabled: true,
+  // Hartes SOC-Gate
+  heating_min_battery_soc: 80,
+  heating_soc_gate_mode: 'strict',
 };
 
 export function useHeatingSettings() {

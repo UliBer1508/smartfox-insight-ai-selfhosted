@@ -397,6 +397,43 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               <p className="text-xs text-muted-foreground -mt-2 ml-6">
                 Räume bleiben bei kurzen PV-Einbrüchen aktiv (Wolkenschatten), wenn Trend stabil ist.
               </p>
+
+              {/* Hartes SOC-Gate */}
+              <div className="space-y-2 pt-4 border-t">
+                <Label htmlFor="heating_min_soc">
+                  Heizung-Schutz: Mindest-SOC für Batterienutzung: {formData.heating_min_battery_soc ?? 80}%
+                </Label>
+                <Input
+                  id="heating_min_soc"
+                  type="range"
+                  min="40"
+                  max="95"
+                  step="5"
+                  value={formData.heating_min_battery_soc ?? 80}
+                  onChange={(e) => handleChange('heating_min_battery_soc', parseInt(e.target.value))}
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Heizung darf die Batterie nur entladen, wenn der Ladestand über diesem Wert liegt.
+                  Schützt die Batterie für Abend-/Nachtverbrauch.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="soc_gate_mode">Sperr-Modus</Label>
+                <Select
+                  value={formData.heating_soc_gate_mode ?? 'strict'}
+                  onValueChange={(value) => handleChange('heating_soc_gate_mode', value)}
+                >
+                  <SelectTrigger id="soc_gate_mode">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="strict">Strikt — laufende Räume sofort stoppen</SelectItem>
+                    <SelectItem value="soft">Sanft — laufende Räume dürfen fertigheizen</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
