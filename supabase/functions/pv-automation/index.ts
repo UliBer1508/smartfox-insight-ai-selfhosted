@@ -2079,6 +2079,22 @@ Deno.serve(async (req) => {
         }
       } else
 
+      // ============= ML-EXPLORATION-THROTTLE =============
+      // Schützt Tuya-Quota + Gemini-Rate-Limit: pro Raum max. 1× Exploration / 30 Min.
+      const ML_EXPLORATION_THROTTLE_MIN = 30;
+      let mlExplorationMap: Record<string, string> = {};
+      try {
+        const { data: thr } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'ml_exploration_throttle')
+          .maybeSingle();
+        if (thr?.value && typeof thr.value === 'object') {
+          mlExplorationMap = thr.value as Record<string, string>;
+        }
+      } catch (_) { /* ignore */ }
+      const mlExplorationUpdates: Record<string, string> = {};
+
       for (const room of rooms) {
         // automation_enabled controls ONLY ML recommendations, not basic time-based logic
         const useMLDecisions = room.automation_enabled === true;
