@@ -138,29 +138,32 @@ async function saveReading(froniusData) {
 async function syncThermostats() {
   if (!thermostatCtrl || !config.tuya?.devices?.length) return;
   
-  console.log('[Tuya] Thermostate synchronisieren...');
-  
-  for (const deviceConfig of config.tuya.devices) {
-    const status = await thermostatCtrl.getStatus(deviceConfig);
-    
-    if (status.success) {
-      // Update room in database
-      const { error } = await supabase.from('rooms').update({
-        current_temp: status.current_temp,
-        target_temp: status.target_temp,
-        is_heating: status.is_heating,
-        last_thermostat_sync: new Date().toISOString()
-      }).eq('id', deviceConfig.room_id);
-      
-      if (!error) {
-        console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
-      } else {
+  console.log(`[Tuya] ${config.tuya.devices.length} Thermostate parallel synchronisieren...`);
+  const startedAt = Date.now();
+
+  // Parallel sync — Per-Device-Queue in tuya-thermostat.js verhindert Konflikte.
+  // Ein langsames/totes Gerät blockiert die anderen nicht mehr.
+  const results = await Promise.allSettled(
+    config.tuya.devices.map(async (deviceConfig) => {
+      const status = await thermostatCtrl.getStatus(deviceConfig);
+
+      if (status.success) {
+        const { error } = await supabase.from('rooms').update({
+          current_temp: status.current_temp,
+          target_temp: status.target_temp,
+          is_heating: status.is_heating,
+          last_thermostat_sync: new Date().toISOString()
+        }).eq('id', deviceConfig.room_id);
+
+        if (!error) {
+          console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
+          return { name: deviceConfig.name, ok: true };
+        }
         console.error(`[Tuya] ${deviceConfig.name} DB-Update Fehler:`, error.message);
+        return { name: deviceConfig.name, ok: false, error: error.message };
       }
-    } else {
+
       console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
-      
-      // Log error to api_errors table
       await supabase.from('api_errors').insert({
         source: 'tuya-local',
         error_type: 'connection_error',
@@ -168,8 +171,14 @@ async function syncThermostats() {
         device_id: deviceConfig.device_id,
         room_name: deviceConfig.name
       });
-    }
-  }
+      return { name: deviceConfig.name, ok: false, error: status.error };
+    })
+  );
+
+  const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
+  const fail = results.length - ok;
+  const dur = ((Date.now() - startedAt) / 1000).toFixed(1);
+  console.log(`[Tuya] Sync fertig in ${dur}s — OK: ${ok}, Fehler: ${fail}`);
 }
 
 // Process pending commands from PWA
