@@ -1186,11 +1186,18 @@ Deno.serve(async (req) => {
           
           // Prognose-Mindest-Budget für Eco: Wenn Tagesprognose reicht, mindestens Stunden-Prognose nutzen
           // Erst ab 9:00 Uhr — davor bleibt Nachtmodus aktiv
+          // HARD-GATE: Nur wenn Batterie über Schutz-SOC UND kein Netzbezug (echter Überschuss)
+          const realSurplusOk = (reading.power_io ?? 0) <= 50;
+          const socOkForForecast = batterySoc >= heatingMinSoc;
           if (currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
-            const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
-            if (forecastMinBudget > baseBudget) {
-              console.log(`[PV-Automation] ☀️ Prognose-Budget: Tages-PV reicht für Eco → Mindest-Budget ${Math.round(forecastMinBudget)}W (Stunden-Prognose ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W) statt aktuell ${Math.round(baseBudget)}W`);
-              baseBudget = forecastMinBudget;
+            if (socOkForForecast && realSurplusOk) {
+              const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
+              if (forecastMinBudget > baseBudget) {
+                console.log(`[PV-Automation] ☀️ Prognose-Budget: Tages-PV reicht für Eco → Mindest-Budget ${Math.round(forecastMinBudget)}W (Stunden-Prognose ${Math.round(currentHourForecastCorrected)}W - Grundlast ${baseLoad}W) statt aktuell ${Math.round(baseBudget)}W`);
+                baseBudget = forecastMinBudget;
+              }
+            } else {
+              console.log(`[OVERSHOOT-GATE] Prognose-Mindest-Budget gesperrt: SOC=${batterySoc}% (Gate=${heatingMinSoc}%, ok=${socOkForForecast}), power_io=${Math.round(reading.power_io ?? 0)}W (≤50, ok=${realSurplusOk}) → baseBudget bleibt ${Math.round(baseBudget)}W`);
             }
           }
           
