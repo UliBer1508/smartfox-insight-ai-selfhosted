@@ -2,7 +2,8 @@ import { useMemo, useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Battery, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
+import { Progress } from '@/components/ui/progress';
+import { getViennaMinutesSinceMidnight, getViennaTimeString } from '@/lib/dateUtils';
 import {
   ComposedChart,
   Line,
