@@ -1,6 +1,6 @@
 ---
 name: PV-Automation Budget Logic v2
-description: Eco vs Komfort-Budget, Mikro-Budget, Prognose-Bonus, Batterie-Reserve, PV-Trend, tolerante Deaktivierung
+description: Eco vs Komfort-Budget, Mikro-Budget, Prognose-Bonus, Batterie-Reserve, PV-Trend, gehärtetes SOC-Gate mit aktiven Notfall-Stops
 type: feature
 ---
 
@@ -9,48 +9,28 @@ Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehre
 **Eco-Budget** (`availableBudget`):
 - Basis: `gridExport + currentlyHeatingPower + dynamicTolerance`
 - Batterie-Korrekturen: bei Entladung Reduktion, bei niedrigem SOC (<80%) Ladereserve abziehen
-- **Prognose-Mindest-Budget** (nur Eco, ab 9 Uhr): Hebt `baseBudget` auf `currentHourForecastCorrected - baseLoad`. **Hard-Gate (Overshoot-Gate):** nur aktiv wenn `batterySoc ≥ heatingMinSoc` UND `power_io ≤ +50W` (kein Netzbezug). Ohne echten Überschuss kein Prognose-Boost.
-- **Prognose-Bonus** (gestuft, nur Eco, nur tagsüber ≥9 Uhr) — zusätzlich. Gleiches Hard-Gate: `SOC ≥ heatingMinSoc` UND `power_io ≤ +50W`. Stufen:
-  - PV-Rest ≥ 3× Eco-Bedarf + SOC ≥ 50% → +1500W
-  - PV-Rest ≥ 2× Eco-Bedarf + SOC ≥ 60% → +800W
-  - PV-Rest ≥ 1.5× Eco-Bedarf + SOC ≥ 70% → +400W
-- Log-Marker `[OVERSHOOT-GATE]` wenn Prognose-Mechanismen gesperrt.
-- **Batterie-Puffer** (`battery_buffer_enabled`, default true) — gestuft nach `socAboveReserve = batterySoc - battery_reserve_for_night_soc`:
-  - Δ ≥ 35 → 100% von `battery_buffer_bonus_w` (default 500W)
-  - Δ ≥ 25 → 60%
-  - Δ > 20 → 30%
-  - Doppel-Gate: nur wenn `remainingPvForHeatingWh ≥ totalEcoEnergyNeededWh` UND `pvTrend ≥ -300W`
-- **PV-Trend Bonus**: bei `pvTrend > +500W` (5-Min-Vergleich) → +300W (automatisch, nicht konfigurierbar)
+- **Prognose-Mindest-Budget** (nur Eco, ab 9 Uhr) und **Prognose-Bonus** (gestuft) — beide nur aktiv wenn `batterySoc ≥ heatingMinSoc` UND `power_io ≤ +50W` (Hard-Gate `[OVERSHOOT-GATE]`).
+- **Batterie-Puffer** (`battery_buffer_enabled`) und **PV-Trend Bonus** wie bisher.
 
 **Komfort-Budget** (`comfortBudget`): IMMER strikt — nur echter `gridExport`, niemals Batterie, niemals Prognose-/Trend-/Reserve-Bonus.
 
-**Hartes SOC-Gate für Heizung** (`heating_min_battery_soc`, default 80%, fallback `battery_reserve_for_night_soc`):
-- **Strict (Standard):** SOC < Gate UND Batterie entlädt → `availableBudget = comfortBudget = 0` → laufende Räume werden im nächsten Heartbeat gestoppt.
-- **Soft** (`heating_soc_gate_mode='soft'`): nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar.
-- Gate ist inaktiv wenn Batterie lädt (auch unter Gate-SOC) — Heizung darf laufen, solange echter Überschuss da ist.
-- `batteryEcoReserveAllowed` (Sunset + SOC > Gate) und alle Lade-Reserve-Korrekturen (vorher hartcodiert `< 80`) sind dynamisch an `heatingMinSoc` gebunden.
-- Tolerante Deaktivierung greift NICHT mehr wenn Gate aktiv (`!socGateBlocked`).
-- Log-Marker `[SOC-GATE]` mit SOC, Gate, BatteryPower, Aktion.
+**SOC-GATE (gehärtet, v3)** — schützt definierten Schwellwert `heating_min_battery_soc` (default 80%):
 
-**Batterie-Reserve für Nachverbrauch** (`battery_reserve_for_night_soc`, default 60%):
-- Schützt SOC für Abend-/Nachtverbrauch (Validierung)
-- Mikro-Budget Untergrenze wird dynamisch erhöht: `microMinSoc = max(micro_budget_min_battery_soc, reserve + 20, heatingMinSoc)`
-- Tabelle `battery_daily_tracking` (date unique) speichert: `soc_at_heating_start` (~09:00), `soc_at_heating_end` (17–19 Uhr), `soc_at_morning`, `min_soc_during_night`, `night_consumption_kwh`, `heating_battery_used_kwh`
-- Edge Function `validate-battery-reserve` läuft täglich nach 09:00, schreibt `system_settings.battery_reserve_validation` mit Status + Empfehlung (`ok` / `increase_reserve_to_X` / `decrease_reserve_to_X`)
+1. **Komfort-Hard-Lock (immer aktiv):** Sobald `batterySoc < heatingMinSoc` → `comfortBudget = 0`, unabhängig davon ob die Batterie gerade lädt oder entlädt. Verhindert dass Komfort-Targets vormittags „durchlaufen", wenn der SOC später fällt.
 
-**Mikro-Budget Modus mit Soft-Rotation** (`micro_budget_enabled`, default true):
-- Trigger: `0 < availableBudget < minRoomPower` UND `batterySoc >= microMinSoc` (dynamisch, siehe oben)
-- Wählt 1 Raum nach Score: Priorität (1-12) × 100 + Defizit×10 + Pause-Min
-- Aktivierung: `target_temp = eco_temp` + `system_settings.last_micro_rotation_at` mit `{ts, room_id, ended:false}`
-- **Soft-Rotation Beendigung**: Nach `micro_heat_duration_min` (default 5) wird der aktive Mikro-Raum aktiv beendet → `target_temp = night_temp`, `ended:true`, `ended_at`
-- **Cooldown** (`room_rotation_minutes`, default 30): läuft erst ab `ended_at`, nicht ab Aktivierung. Kein neuer Raum solange `ended === false`.
-- Manual Override blockiert sowohl Aktivierung als auch Soft-Beendigung.
+2. **Erweiterte Gate-Bedingung:** `socGateBlocked = batterySoc < heatingMinSoc && (batteryPower ≤ 50 || power_io > 50)`.
+   - Greift auch bei `batteryPower ≈ 0` (idle/leere Batterie) — schließt den früheren Bug, bei dem `batteryPower = 0` als „lädt" interpretiert wurde.
+   - Greift auch bei Netzbezug (`power_io > 50`) selbst wenn die Batterie kurz +1W „Laden" misst (Mess-Jitter).
+   - 50W-Toleranz für saubere Lade-Erkennung.
 
-**Tolerante Deaktivierung** (`tolerant_deactivation_enabled`, default true):
-- Greift NUR in Phase-1-Eco-Loop, nur für **bereits heizende Räume** bei kurzem Budget-Einbruch
-- Doppel-Gate: `pvSufficientForEco === true` UND `pvTrend ≥ -200W`
-- Overshoot-Limit: `overshoot ≤ max(300W, heatingPower × 0.4)` — verhindert unbegrenztes Stacking
-- Selbstbegrenzend (sequentiell pro Raum, max ~3 × 300W Stack)
-- Bei Sonnenuntergang/echtem PV-Einbruch (Trend < -200W) → harter Cutoff wie ohne Toleranz
-- Tuya-Quota-Schutz: spart pro toleriertem Raum 2 Tuya-Calls (Deaktivierung + spätere Reaktivierung) bei wechselhaftem Wetter
-- Log-Marker: `[TOLERANT-DEACTIVATION]` pro Raum, `[TUYA-QUOTA-RUN]` als Run-Counter
+3. **Modi:**
+   - `strict` (default): `availableBudget = 0`, `comfortBudget = 0` UND aktive Notfall-Stops.
+   - `soft`: nur `comfortBudget = 0`, Eco bleibt für laufende Räume nutzbar.
+
+4. **Aktive Notfall-Stops `[SOC-GATE-STOP]` (strict):** Da TGP508-Thermostate ihre Sollwerte autonom halten, reicht Budget=0 nicht. Bei Gate-Aktivierung iteriert die Function alle automatisierten Räume und schreibt für alle Räume mit `target_temp > night_temp` oder `is_heating === true` (außer bei aktivem manual_override) je einen `set_temperature`-Befehl mit `value = night_temp` in `thermostat_commands`. Der lokale Service (oder tuya-control) führt diese Befehle aus — unabhängig von der Tuya-Cloud-Quota. `heating_paused_reason` wird gesetzt (`SOC-Gate (X% < 80%)`).
+
+**Critical-Eco-Transition Fix (v3):** Der Quota-Override für die Eco-Transition feuert jetzt nur noch im Morgenfenster `wienHour === 9 && wienMinute < 30` (statt `wienHour >= 9`). Verhindert das fälschliche Auslösen abends/nachts und spart Quota.
+
+**ML-Exploration-Throttle (v3):** LLM-Exploration für Räume mit unzureichender `learned_policy` läuft pro Raum max. 1× / 30 Min. Persistiert in `system_settings.ml_exploration_throttle` als `{room_id: ts}`. Verhindert Gemini-429-Rate-Limits und reduziert Tuya-Folgecalls bei wiederholten ML-Aktivierungen.
+
+**Batterie-Reserve für Nachverbrauch** (`battery_reserve_for_night_soc`, default 60%) und **Mikro-Budget Modus mit Soft-Rotation** sowie **Tolerante Deaktivierung** bleiben unverändert — letztere greift NICHT mehr wenn Gate aktiv (`!socGateBlocked`).
