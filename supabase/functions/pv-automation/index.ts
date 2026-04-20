@@ -2077,7 +2077,7 @@ Deno.serve(async (req) => {
             mlBased: false,
           });
         }
-      } else
+      }
 
       // ============= ML-EXPLORATION-THROTTLE =============
       // Schützt Tuya-Quota + Gemini-Rate-Limit: pro Raum max. 1× Exploration / 30 Min.
