@@ -2258,10 +2258,22 @@ Deno.serve(async (req) => {
                 reasoning += ' → BLOCKIERT (kein PV)';
               }
             } else {
-              // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse)
-              mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
-              if (learnedPolicy) {
-                console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
+              // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse) — mit Throttle
+              const lastExpStr = mlExplorationMap[room.id];
+              const lastExpMs = lastExpStr ? new Date(lastExpStr).getTime() : 0;
+              const minsSinceLastExp = (Date.now() - lastExpMs) / 60000;
+              const throttled = minsSinceLastExp < ML_EXPLORATION_THROTTLE_MIN;
+              if (throttled) {
+                console.log(`[PV-Automation] ${room.name}: ML-Exploration THROTTLED (letzte vor ${minsSinceLastExp.toFixed(1)}min, min ${ML_EXPLORATION_THROTTLE_MIN}min) → keep`);
+                mlDecision = null;
+              } else {
+                mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+                if (mlDecision) {
+                  mlExplorationUpdates[room.id] = new Date().toISOString();
+                }
+                if (learnedPolicy) {
+                  console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
+                }
               }
             }
 
