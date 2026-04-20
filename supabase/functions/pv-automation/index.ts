@@ -1235,17 +1235,23 @@ Deno.serve(async (req) => {
           // Komfort bleibt strikt — kein Bonus für Komfort.
           let prognoseBonus = 0;
           if (currentWienHour >= 9 && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
-            const ratio = remainingPvForHeatingWh / totalEcoEnergyNeededWh;
-            if (ratio >= 3 && batterySoc >= 50) {
-              prognoseBonus = 1500;
-            } else if (ratio >= 2 && batterySoc >= 60) {
-              prognoseBonus = 800;
-            } else if (ratio >= 1.5 && batterySoc >= 70) {
-              prognoseBonus = 400;
-            }
-            if (prognoseBonus > 0) {
-              availableBudget += prognoseBonus;
-              console.log(`[PV-Automation] 📈 Prognose-Bonus: +${prognoseBonus}W (Ratio=${ratio.toFixed(1)}x, SOC=${batterySoc}%) → Eco-Budget=${availableBudget}W`);
+            const bonusSocOk = batterySoc >= heatingMinSoc;
+            const bonusGridOk = (reading.power_io ?? 0) <= 50;
+            if (!bonusSocOk || !bonusGridOk) {
+              console.log(`[OVERSHOOT-GATE] Prognose-Bonus gesperrt: SOC=${batterySoc}% (Gate=${heatingMinSoc}%, ok=${bonusSocOk}), power_io=${Math.round(reading.power_io ?? 0)}W (≤50, ok=${bonusGridOk})`);
+            } else {
+              const ratio = remainingPvForHeatingWh / totalEcoEnergyNeededWh;
+              if (ratio >= 3 && batterySoc >= 50) {
+                prognoseBonus = 1500;
+              } else if (ratio >= 2 && batterySoc >= 60) {
+                prognoseBonus = 800;
+              } else if (ratio >= 1.5 && batterySoc >= 70) {
+                prognoseBonus = 400;
+              }
+              if (prognoseBonus > 0) {
+                availableBudget += prognoseBonus;
+                console.log(`[PV-Automation] 📈 Prognose-Bonus: +${prognoseBonus}W (Ratio=${ratio.toFixed(1)}x, SOC=${batterySoc}%) → Eco-Budget=${availableBudget}W`);
+              }
             }
           }
           
