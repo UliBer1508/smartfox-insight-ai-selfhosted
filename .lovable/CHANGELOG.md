@@ -5,6 +5,17 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [3.1.0] - 2026-04-20
+
+### Fixed (Battery-Drain-Schutz gehärtet)
+- **SOC-Gate erweitert** (`pv-automation`): greift jetzt auch bei `batteryPower ≈ 0` (idle/leere Batterie) und bei Netzbezug (`power_io > 50W`). Schließt den Bug, durch den die Batterie am 2026-04-19 trotz 80%-Regel auf 5% leerlief.
+- **Komfort-Hard-Lock**: `comfortBudget = 0` sobald `SOC < heating_min_battery_soc`, unabhängig vom Lade-/Entladezustand. Verhindert dass vormittags gesetzte Komfort-Targets bei späterem SOC-Drop weiterlaufen.
+- **Aktive Notfall-Stops `[SOC-GATE-STOP]`**: Bei Gate-Aktivierung im strict-Modus werden jetzt alle Räume mit `target > night_temp` oder `is_heating=true` per `thermostat_commands`-Insert (Local-Service-Pickup) auf `night_temp` zurückgesetzt — funktioniert auch bei erschöpfter Tuya-Cloud-Quota.
+- **Critical-Eco-Transition** läuft nur noch im Morgenfenster (09:00–09:29 Wien), nicht mehr fälschlich abends. Spart Tuya-Quota.
+- **ML-Exploration-Throttle**: pro Raum max. 1× LLM-Exploration / 30 Min, persistiert in `system_settings.ml_exploration_throttle`. Verhindert Gemini-429-Rate-Limits und entlastet Tuya-Quota.
+
+---
+
 ## [2.2.2] - 2026-01-13
 
 ### Fixed

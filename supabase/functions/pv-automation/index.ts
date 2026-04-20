@@ -797,8 +797,11 @@ Deno.serve(async (req) => {
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
       if (quotaExhausted && controlMode === 'cloud') {
         // Prüfe ob kritische Eco-Transition nötig ist (Räume noch auf Nacht-Temp nach 9:00)
+        // Critical-Eco-Transition NUR im Morgen-Fenster (09:00–09:29 Wien-Zeit) wenn Räume noch auf Nacht.
+        // Vorher: griff auch abends/nachts und verschwendete Quota.
         let needsCriticalEcoTransition = false;
-        if (preNightWienHour >= 9) {
+        const _wienMinForTransition = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', minute: '2-digit' }));
+        if (preNightWienHour === 9 && _wienMinForTransition < 30) {
           const { data: ecoCheckRooms } = await supabase
             .from('rooms')
             .select('id, target_temp, eco_temp, tuya_device_id, automation_enabled')
@@ -1331,23 +1334,77 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ============= SOC-GATE ENFORCEMENT =============
-      // Hartes Gate: Wenn SOC unter heatingMinSoc UND Batterie entlädt → Heiz-Budgets auf 0.
-      // 'strict': stoppt auch laufende Räume (Budget=0 → Deaktivierungslogik greift im nächsten Tick).
-      // 'soft':   blockiert nur neue Aktivierungen — laufende Räume dürfen über Toleranz fertigheizen.
-      const socGateBlocked = batterySoc < heatingMinSoc && batteryPower < 0;
+      // ============= SOC-GATE ENFORCEMENT (gehärtet) =============
+      // Komfort-Hard-Lock: Komfort darf NIEMALS bei SOC < heatingMinSoc laufen — auch wenn Batterie gerade lädt.
+      if (batterySoc < heatingMinSoc && comfortBudget > 0) {
+        console.log(`[SOC-GATE] 🔒 Komfort hart gesperrt: SOC ${batterySoc}% < ${heatingMinSoc}% → comfortBudget ${comfortBudget}W → 0W`);
+        comfortBudget = 0;
+      }
+
+      // Hartes Gate: Wenn SOC < heatingMinSoc UND (Batterie nicht aktiv lädt ODER Netzbezug stattfindet) → Heiz-Budgets auf 0.
+      // Schließt Lücke bei batteryPower≈0 (idle/leer) und bei Mess-Jitter (+1W "Laden"). Greift auch bei Netzbezug.
+      const _gridImportNow = (reading.power_io ?? 0) > 50;
+      const _batteryNotCharging = batteryPower <= 50;
+      const socGateBlocked = batterySoc < heatingMinSoc && (_batteryNotCharging || _gridImportNow);
       if (socGateBlocked) {
         if (socGateMode === 'strict') {
-          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, Batterie entlädt ${Math.abs(batteryPower)}W → Eco-Budget ${availableBudget}W → 0W, Komfort ${comfortBudget}W → 0W`);
+          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W, power_io=${Math.round(reading.power_io ?? 0)}W → Eco-Budget ${availableBudget}W → 0W, Komfort 0W`);
           availableBudget = 0;
           comfortBudget = 0;
+
+          // ============= AKTIVE NOTFALL-STOPS =============
+          // Thermostate halten autonom ihre Komfort-Targets — wir MÜSSEN aktiv auf night_temp zurücksetzen.
+          // Schreibt in thermostat_commands (Local-Service-Pickup), unabhängig von Tuya-Cloud-Quota.
+          try {
+            const { data: stopRooms } = await supabase
+              .from('rooms')
+              .select('id, name, target_temp, eco_temp, night_temp, is_heating, automation_enabled, tuya_device_id, manual_override_until')
+              .eq('automation_enabled', true);
+
+            const nowMs = Date.now();
+            const candidates = (stopRooms || []).filter(r => {
+              const overrideActive = r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMs;
+              if (overrideActive) return false;
+              const ecoT = Number(r.eco_temp) || 19;
+              const nightT = Number(r.night_temp) || 18;
+              const targetT = Number(r.target_temp) || 0;
+              return r.is_heating === true || targetT > Math.max(ecoT, nightT) + 0.1 || targetT > nightT + 0.1;
+            });
+
+            if (candidates.length > 0) {
+              const cmdRows = candidates.map(r => ({
+                room_id: r.id,
+                command: 'set_temperature',
+                value: Number(r.night_temp) || 18,
+                status: 'pending' as const,
+              }));
+              const { error: cmdErr } = await supabase.from('thermostat_commands').insert(cmdRows);
+              if (cmdErr) {
+                console.error(`[SOC-GATE-STOP] ❌ Fehler beim Queueing der Notfall-Stops:`, cmdErr.message);
+              } else {
+                for (const r of candidates) {
+                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → night_temp ${r.night_temp}°C (queued for local service)`);
+                }
+                // Räume sofort auf night_temp setzen, damit Folgelogik im selben Tick konsistent ist
+                const ids = candidates.map(r => r.id);
+                await supabase
+                  .from('rooms')
+                  .update({ heating_paused_reason: `SOC-Gate (${batterySoc}% < ${heatingMinSoc}%)` })
+                  .in('id', ids);
+              }
+            } else {
+              console.log(`[SOC-GATE-STOP] Keine Räume zum Stoppen (alle bereits ≤ night_temp oder im manual override)`);
+            }
+          } catch (e: any) {
+            console.error(`[SOC-GATE-STOP] ❌ Exception:`, e?.message ?? e);
+          }
         } else {
           // soft: nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar (über tolerante Deaktivierung)
-          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, Batterie entlädt ${Math.abs(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
+          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
           comfortBudget = 0;
         }
       } else if (batterySoc < heatingMinSoc) {
-        console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, aber Batterie lädt (${batteryPower}W) → Heizung erlaubt`);
+        console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
       }
 
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
@@ -2022,6 +2079,22 @@ Deno.serve(async (req) => {
         }
       } else
 
+      // ============= ML-EXPLORATION-THROTTLE =============
+      // Schützt Tuya-Quota + Gemini-Rate-Limit: pro Raum max. 1× Exploration / 30 Min.
+      const ML_EXPLORATION_THROTTLE_MIN = 30;
+      let mlExplorationMap: Record<string, string> = {};
+      try {
+        const { data: thr } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'ml_exploration_throttle')
+          .maybeSingle();
+        if (thr?.value && typeof thr.value === 'object') {
+          mlExplorationMap = thr.value as Record<string, string>;
+        }
+      } catch (_) { /* ignore */ }
+      const mlExplorationUpdates: Record<string, string> = {};
+
       for (const room of rooms) {
         // automation_enabled controls ONLY ML recommendations, not basic time-based logic
         const useMLDecisions = room.automation_enabled === true;
@@ -2185,10 +2258,22 @@ Deno.serve(async (req) => {
                 reasoning += ' → BLOCKIERT (kein PV)';
               }
             } else {
-              // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse)
-              mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
-              if (learnedPolicy) {
-                console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
+              // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse) — mit Throttle
+              const lastExpStr = mlExplorationMap[room.id];
+              const lastExpMs = lastExpStr ? new Date(lastExpStr).getTime() : 0;
+              const minsSinceLastExp = (Date.now() - lastExpMs) / 60000;
+              const throttled = minsSinceLastExp < ML_EXPLORATION_THROTTLE_MIN;
+              if (throttled) {
+                console.log(`[PV-Automation] ${room.name}: ML-Exploration THROTTLED (letzte vor ${minsSinceLastExp.toFixed(1)}min, min ${ML_EXPLORATION_THROTTLE_MIN}min) → keep`);
+                mlDecision = null;
+              } else {
+                mlDecision = useMLDecisions ? mlDecisions.find(d => d.room_id === room.id) : null;
+                if (mlDecision) {
+                  mlExplorationUpdates[room.id] = new Date().toISOString();
+                }
+                if (learnedPolicy) {
+                  console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
+                }
               }
             }
 
@@ -2762,6 +2847,24 @@ Deno.serve(async (req) => {
         await supabase.from('system_settings')
           .update({ value: quotaData, updated_at: new Date().toISOString() })
           .eq('key', 'tuya_api_quota');
+      }
+
+      // ML-Exploration-Throttle persistieren
+      if (typeof mlExplorationUpdates !== 'undefined' && Object.keys(mlExplorationUpdates).length > 0) {
+        try {
+          const merged: Record<string, string> = { ...(mlExplorationMap || {}), ...mlExplorationUpdates };
+          // alte Einträge (>2h) ausräumen
+          const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+          for (const [k, v] of Object.entries(merged)) {
+            if (new Date(v).getTime() < cutoff) delete merged[k];
+          }
+          await supabase.from('system_settings').upsert(
+            { key: 'ml_exploration_throttle', value: merged, updated_at: new Date().toISOString() },
+            { onConflict: 'key' }
+          );
+        } catch (e: any) {
+          console.error(`[ML-THROTTLE] Persist-Fehler:`, e?.message ?? e);
+        }
       }
 
       const quotaInfo = quotaData 
