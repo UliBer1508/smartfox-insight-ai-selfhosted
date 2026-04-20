@@ -1080,8 +1080,15 @@ Deno.serve(async (req) => {
       // Anzahl der Räume die noch auf Eco gebracht werden müssen
       const ecoRoomsRemaining = ecoRoomDetails.length;
       
-      // Nach Sonnenuntergang: Batterie-Reserve für Eco erlaubt wenn SOC > 50%
-      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > 50;
+      // ============= HARTES SOC-GATE (Heizung darf Batterie nur über Gate entladen) =============
+      const heatingMinSoc = settings?.heating_min_battery_soc
+        ?? settings?.battery_reserve_for_night_soc
+        ?? 80;
+      const socGateMode = (settings?.heating_soc_gate_mode ?? 'strict') as 'strict' | 'soft';
+      const socGateBlocked = batterySoc < heatingMinSoc && batteryPower < 0;
+
+      // Nach Sonnenuntergang: Batterie-Reserve für Eco nur wenn SOC > Gate (nicht mehr hartcodiert 50)
+      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > heatingMinSoc;
       
       // Aktuelle Stunden-Prognose für Mindest-Budget
       const currentHourForecastW = hourlyWatts[`${today} ${currentWienHour.toString().padStart(2, '0')}:00:00`] || 0;
