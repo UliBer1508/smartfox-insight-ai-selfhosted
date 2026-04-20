@@ -22,9 +22,17 @@ Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehre
 
 **Komfort-Budget** (`comfortBudget`): IMMER strikt — nur echter `gridExport`, niemals Batterie, niemals Prognose-/Trend-/Reserve-Bonus.
 
+**Hartes SOC-Gate für Heizung** (`heating_min_battery_soc`, default 80%, fallback `battery_reserve_for_night_soc`):
+- **Strict (Standard):** SOC < Gate UND Batterie entlädt → `availableBudget = comfortBudget = 0` → laufende Räume werden im nächsten Heartbeat gestoppt.
+- **Soft** (`heating_soc_gate_mode='soft'`): nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar.
+- Gate ist inaktiv wenn Batterie lädt (auch unter Gate-SOC) — Heizung darf laufen, solange echter Überschuss da ist.
+- `batteryEcoReserveAllowed` (Sunset + SOC > Gate) und alle Lade-Reserve-Korrekturen (vorher hartcodiert `< 80`) sind dynamisch an `heatingMinSoc` gebunden.
+- Tolerante Deaktivierung greift NICHT mehr wenn Gate aktiv (`!socGateBlocked`).
+- Log-Marker `[SOC-GATE]` mit SOC, Gate, BatteryPower, Aktion.
+
 **Batterie-Reserve für Nachverbrauch** (`battery_reserve_for_night_soc`, default 60%):
-- Schützt SOC für Abend-/Nachtverbrauch
-- Mikro-Budget Untergrenze wird dynamisch erhöht: `microMinSoc = max(micro_budget_min_battery_soc, reserve + 20)`
+- Schützt SOC für Abend-/Nachtverbrauch (Validierung)
+- Mikro-Budget Untergrenze wird dynamisch erhöht: `microMinSoc = max(micro_budget_min_battery_soc, reserve + 20, heatingMinSoc)`
 - Tabelle `battery_daily_tracking` (date unique) speichert: `soc_at_heating_start` (~09:00), `soc_at_heating_end` (17–19 Uhr), `soc_at_morning`, `min_soc_during_night`, `night_consumption_kwh`, `heating_battery_used_kwh`
 - Edge Function `validate-battery-reserve` läuft täglich nach 09:00, schreibt `system_settings.battery_reserve_validation` mit Status + Empfehlung (`ok` / `increase_reserve_to_X` / `decrease_reserve_to_X`)
 

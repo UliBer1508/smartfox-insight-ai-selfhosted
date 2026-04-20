@@ -1080,8 +1080,14 @@ Deno.serve(async (req) => {
       // Anzahl der Räume die noch auf Eco gebracht werden müssen
       const ecoRoomsRemaining = ecoRoomDetails.length;
       
-      // Nach Sonnenuntergang: Batterie-Reserve für Eco erlaubt wenn SOC > 50%
-      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > 50;
+      // ============= HARTES SOC-GATE (Heizung darf Batterie nur über Gate entladen) =============
+      const heatingMinSoc = settings?.heating_min_battery_soc
+        ?? settings?.battery_reserve_for_night_soc
+        ?? 80;
+      const socGateMode = (settings?.heating_soc_gate_mode ?? 'strict') as 'strict' | 'soft';
+
+      // Nach Sonnenuntergang: Batterie-Reserve für Eco nur wenn SOC > Gate (nicht mehr hartcodiert 50)
+      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > heatingMinSoc;
       
       // Aktuelle Stunden-Prognose für Mindest-Budget
       const currentHourForecastW = hourlyWatts[`${today} ${currentWienHour.toString().padStart(2, '0')}:00:00`] || 0;
@@ -1188,15 +1194,16 @@ Deno.serve(async (req) => {
             }
           }
           
-          // Batterie-Ladereserve: Bei niedrigem SOC PV-Kapazität für Batterie reservieren
-          if (batteryPower > 0 && batterySoc < 80) {
+          // Batterie-Ladereserve: Bei SOC unter Heizungs-Gate Lade-Leistung reservieren
+          if (batteryPower > 0 && batterySoc < heatingMinSoc) {
             // Batterie lädt gerade — diese Leistung vom Budget abziehen
             // Bei SOC < 30%: volle Ladeleistung reservieren
-            // Bei SOC 30-80%: anteilig reduzieren
-            const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+            // Bei SOC 30-Gate%: anteilig reduzieren
+            const range = Math.max(10, heatingMinSoc - 30);
+            const batteryPriority = batterySoc < 30 ? 1.0 : (heatingMinSoc - batterySoc) / range;
             const batteryReserve = Math.round(batteryPower * batteryPriority);
             baseBudget = Math.max(0, baseBudget - batteryReserve);
-            console.log(`[PV-Automation] 🔋 Batterie-Ladereserve: ${batteryReserve}W abgezogen (SOC ${batterySoc}%, lädt ${Math.round(batteryPower)}W, Priorität ${(batteryPriority*100).toFixed(0)}%) → Budget ${Math.round(baseBudget)}W`);
+            console.log(`[PV-Automation] 🔋 Batterie-Ladereserve: ${batteryReserve}W abgezogen (SOC ${batterySoc}% < Gate ${heatingMinSoc}%, lädt ${Math.round(batteryPower)}W, Priorität ${(batteryPriority*100).toFixed(0)}%) → Budget ${Math.round(baseBudget)}W`);
           }
           
           // Batterie-Schutz: Wenn Batterie entlädt, Budget reduzieren
@@ -1270,9 +1277,10 @@ Deno.serve(async (req) => {
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
-          // Batterie-Ladereserve auch hier abziehen
-          if (batteryPower > 0 && batterySoc < 80) {
-            const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+          // Batterie-Ladereserve auch hier abziehen (gegen Heizungs-Gate)
+          if (batteryPower > 0 && batterySoc < heatingMinSoc) {
+            const range = Math.max(10, heatingMinSoc - 30);
+            const batteryPriority = batterySoc < 30 ? 1.0 : (heatingMinSoc - batterySoc) / range;
             const batteryReserve = Math.round(batteryPower * batteryPriority);
             availableBudget = Math.max(0, availableBudget - batteryReserve);
             console.log(`[PV-Automation] 🔋 Batterie-Ladereserve (grid_seq): ${batteryReserve}W abgezogen → Budget ${Math.round(availableBudget)}W`);
@@ -1284,9 +1292,10 @@ Deno.serve(async (req) => {
           // → Mindest-Budget aus Stunden-Prognose erlauben (sequentielles Heizen)
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
-          // Batterie-Ladereserve auch hier abziehen
-          if (batteryPower > 0 && batterySoc < 80) {
-            const batteryPriority = batterySoc < 30 ? 1.0 : (80 - batterySoc) / 50;
+          // Batterie-Ladereserve auch hier abziehen (gegen Heizungs-Gate)
+          if (batteryPower > 0 && batterySoc < heatingMinSoc) {
+            const range = Math.max(10, heatingMinSoc - 30);
+            const batteryPriority = batterySoc < 30 ? 1.0 : (heatingMinSoc - batterySoc) / range;
             const batteryReserve = Math.round(batteryPower * batteryPriority);
             availableBudget = Math.max(0, availableBudget - batteryReserve);
             console.log(`[PV-Automation] 🔋 Batterie-Ladereserve (forecast_seq): ${batteryReserve}W abgezogen → Budget ${Math.round(availableBudget)}W`);
@@ -1308,7 +1317,26 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) und kein gridExport → KEIN Heizen, Budget=0W`);
         }
       }
-      
+
+      // ============= SOC-GATE ENFORCEMENT =============
+      // Hartes Gate: Wenn SOC unter heatingMinSoc UND Batterie entlädt → Heiz-Budgets auf 0.
+      // 'strict': stoppt auch laufende Räume (Budget=0 → Deaktivierungslogik greift im nächsten Tick).
+      // 'soft':   blockiert nur neue Aktivierungen — laufende Räume dürfen über Toleranz fertigheizen.
+      const socGateBlocked = batterySoc < heatingMinSoc && batteryPower < 0;
+      if (socGateBlocked) {
+        if (socGateMode === 'strict') {
+          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, Batterie entlädt ${Math.abs(batteryPower)}W → Eco-Budget ${availableBudget}W → 0W, Komfort ${comfortBudget}W → 0W`);
+          availableBudget = 0;
+          comfortBudget = 0;
+        } else {
+          // soft: nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar (über tolerante Deaktivierung)
+          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, Batterie entlädt ${Math.abs(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
+          comfortBudget = 0;
+        }
+      } else if (batterySoc < heatingMinSoc) {
+        console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < Reserve ${heatingMinSoc}%, aber Batterie lädt (${batteryPower}W) → Heizung erlaubt`);
+      }
+
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
@@ -1462,7 +1490,8 @@ Deno.serve(async (req) => {
               && rp.isCurrentlyHeating
               && pvSufficientForEco
               && trendStable
-              && overshootTolerable;
+              && overshootTolerable
+              && !socGateBlocked;  // Gate aktiv → keine Toleranz mehr (schützt Batterie)
 
             if (tolerate) {
               usedBudget += rp.heatingPower;
@@ -1515,7 +1544,7 @@ Deno.serve(async (req) => {
       const microBudgetEnabled = settings?.micro_budget_enabled !== false; // default true
       // Dynamische Untergrenze: max(eingestellter SOC, Reserve+20)
       const microMinSocBase = settings?.micro_budget_min_battery_soc ?? 80;
-      const microMinSoc = Math.max(microMinSocBase, batteryReserveSoc + 20);
+      const microMinSoc = Math.max(microMinSocBase, batteryReserveSoc + 20, heatingMinSoc);
       const microHeatDuration = settings?.micro_heat_duration_min ?? 5;
 
       // ── Soft-Rotation: aktiven Mikro-Raum nach Zeit-Limit beenden ──

@@ -74,6 +74,9 @@ export interface HeatingSettings {
   battery_buffer_enabled?: boolean;
   battery_buffer_bonus_w?: number;
   tolerant_deactivation_enabled?: boolean;
+  // Hartes SOC-Gate für Heizung
+  heating_min_battery_soc?: number;
+  heating_soc_gate_mode?: 'strict' | 'soft';
   created_at?: string;
   updated_at?: string;
 }

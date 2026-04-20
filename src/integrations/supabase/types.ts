@@ -410,6 +410,8 @@ export type Database = {
           estrich_storage_enabled: boolean | null
           feed_in_price_kwh_cent: number | null
           floor_heating_response_hours: number | null
+          heating_min_battery_soc: number | null
+          heating_soc_gate_mode: string | null
           heating_type: string | null
           hotwater_enabled: boolean | null
           hotwater_min_surplus_w: number | null
@@ -463,6 +465,8 @@ export type Database = {
           estrich_storage_enabled?: boolean | null
           feed_in_price_kwh_cent?: number | null
           floor_heating_response_hours?: number | null
+          heating_min_battery_soc?: number | null
+          heating_soc_gate_mode?: string | null
           heating_type?: string | null
           hotwater_enabled?: boolean | null
           hotwater_min_surplus_w?: number | null
@@ -516,6 +520,8 @@ export type Database = {
           estrich_storage_enabled?: boolean | null
           feed_in_price_kwh_cent?: number | null
           floor_heating_response_hours?: number | null
+          heating_min_battery_soc?: number | null
+          heating_soc_gate_mode?: string | null
           heating_type?: string | null
           hotwater_enabled?: boolean | null
           hotwater_min_surplus_w?: number | null
