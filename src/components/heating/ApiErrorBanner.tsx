@@ -37,14 +37,18 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
   const tokenErrors = errors.filter(e => e.error_type === 'token_expired');
   const offlineErrors = errors.filter(e => e.error_type === 'device_offline');
   const quotaErrors = errors.filter(e => e.error_type === 'quota_exhausted');
-  const otherErrors = errors.filter(e => !['token_expired', 'device_offline', 'quota_exhausted'].includes(e.error_type));
+  const noChannelErrors = errors.filter(e => e.error_type === 'no_control_channel');
+  const nightFailedErrors = errors.filter(e => e.error_type === 'night_frost_failed');
+  const otherErrors = errors.filter(e => !['token_expired', 'device_offline', 'quota_exhausted', 'no_control_channel', 'night_frost_failed'].includes(e.error_type));
 
   const isTokenError = tokenErrors.length > 0;
   const isQuotaError = quotaErrors.length > 0;
+  const isNoChannelError = noChannelErrors.length > 0;
+  const hasNightFailed = nightFailedErrors.length > 0;
   const totalErrors = errors.length;
 
-  // In criticalOnly mode, only show quota and token errors
-  if (criticalOnly && !isQuotaError && !isTokenError) return null;
+  // In criticalOnly mode, only show quota, token, no-channel and night-failed errors
+  if (criticalOnly && !isQuotaError && !isTokenError && !isNoChannelError && !hasNightFailed) return null;
 
   const handleRetry = async () => {
     setIsRetrying(true);
