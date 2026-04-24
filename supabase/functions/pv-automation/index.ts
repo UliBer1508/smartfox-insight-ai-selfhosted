@@ -2768,7 +2768,7 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name} deactivate: Setze ${finalTemp}°C (targetTemp=${targetTemp}, nightTemp=${room.night_temp || settings?.night_temp})`);
 
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, finalTemp);
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, finalTemp, 'stop');
             success = result.success;
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
