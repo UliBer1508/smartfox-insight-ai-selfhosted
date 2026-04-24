@@ -362,6 +362,10 @@ Deno.serve(async (req) => {
       let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
       let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 5)
       const PV_PRIORITY_MAX_CALLS = 5;
+      // STOP-Reserve: kleine Anzahl Cloud-Calls, die auch bei erschöpfter Quota
+      // für Sicherheits-Rückstellungen (Night/Frost) verwendet werden dürfen.
+      let stopReserveCalls = 0;
+      const STOP_RESERVE_MAX_CALLS = 3;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
@@ -536,10 +540,15 @@ Deno.serve(async (req) => {
       }
 
       // Helper: Mode-aware temperature setting
+      // priority='stop' → Notfall-/Rückstell-Befehl (Night, Frostschutz, Sicherheits-Stopp)
+      //   - darf STOP_RESERVE_MAX_CALLS auch bei erschöpfter Quota nutzen
+      //   - schreibt zusätzlich/als Fallback in thermostat_commands (deduped),
+      //     damit ein später aktivierter Local-Service den Befehl nachholen kann
       async function setTemperatureForMode(
         deviceId: string,
         roomId: string,
-        temperature: number
+        temperature: number,
+        priority: 'normal' | 'stop' = 'normal'
       ): Promise<TuyaResult> {
         if (controlMode === 'local') {
           const queued = await queueLocalTemperatureCommand(roomId, temperature);
@@ -561,7 +570,38 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] Local command queued: room=${roomId} temp=${temperature}°C${queued.alreadyQueued ? ' (bereits vorhanden)' : ''}`);
           return { success: true };
         }
-        // QUOTA-GATE: Block cloud API calls when quota is exhausted
+
+        // CLOUD-MODUS
+        // STOP-Befehle: Reserve nutzen + immer Queue-Fallback persistieren
+        if (priority === 'stop') {
+          // Immer in Queue spiegeln (deduped) — falls Local-Service später startet,
+          // hat er sofort den korrekten Sollwert.
+          await queueLocalTemperatureCommand(roomId, temperature).catch((e) => {
+            console.warn(`[PV-Automation] Stop-Queue-Fallback failed für room=${roomId}:`, e?.message || e);
+          });
+
+          if (quotaExhausted) {
+            if (stopReserveCalls >= STOP_RESERVE_MAX_CALLS) {
+              console.log(`[PV-Automation] ⛔ STOP-Reserve erschöpft (${stopReserveCalls}/${STOP_RESERVE_MAX_CALLS}) → nur Queue-Fallback`);
+              return {
+                success: false,
+                errorType: localServiceActive ? 'quota_exhausted' : 'no_control_channel',
+                errorMessage: localServiceActive
+                  ? 'Stop-Reserve erschöpft – Befehl liegt in Queue für Local-Service'
+                  : 'Cloud-Quota erschöpft und Local-Service offline – Befehl in Queue gepuffert, aber nicht zugestellt',
+              };
+            }
+            stopReserveCalls++;
+            console.log(`[PV-Automation] 🛑 STOP-Reserve-Call ${stopReserveCalls}/${STOP_RESERVE_MAX_CALLS}: ${deviceId} → ${temperature}°C (Rückstellung trotz Quota)`);
+          }
+
+          if (!tuyaAccessId || !tuyaAccessSecret) {
+            return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
+          }
+          return await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, deviceId, temperature);
+        }
+
+        // QUOTA-GATE: Block cloud API calls when quota is exhausted (nur normale Calls)
         // EXCEPTION: PV-Priority-Modus erlaubt begrenzte Calls bei hohem PV-Überschuss
         if (quotaExhausted && !pvPriorityMode) {
           console.log(`[PV-Automation] ⛔ QUOTA-GATE: Cloud API call blocked for device ${deviceId} → ${temperature}°C`);
@@ -667,7 +707,8 @@ Deno.serve(async (req) => {
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
-              FROST_TEMP
+              FROST_TEMP,
+              'stop'
             );
 
             if (result.success) {
@@ -683,20 +724,33 @@ Deno.serve(async (req) => {
               
               nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: isResync ? `resync_frost_${FROST_TEMP}°C` : `frost_${FROST_TEMP}°C` });
             } else {
-              console.error(`[PV-Automation] Night frost: Failed ${room.name}: ${result.errorMessage}`);
-              // Bei Fehler: DB-target NICHT auf 5°C belassen/setzen, damit der Raum
-              // beim nächsten Zyklus erneut versucht wird
+              const failReason = result.errorType === 'no_control_channel'
+                ? 'night_frost_failed: kein Steuerkanal (Cloud-Quota erschöpft & Local-Service offline)'
+                : result.errorType === 'quota_exhausted'
+                ? `night_frost_failed: ${result.errorMessage || 'Quota erschöpft'}`
+                : `night_frost_failed: ${result.errorMessage || 'unbekannt'}`;
+              console.error(`[PV-Automation] Night frost: Failed ${room.name}: ${failReason}`);
+
+              // Persistente API-Fehler-Markierung für UI-Banner
+              await supabase.from('api_errors').insert({
+                source: 'pv-automation',
+                room_id: room.id,
+                room_name: room.name,
+                error_type: result.errorType === 'no_control_channel' ? 'no_control_channel' : 'night_frost_failed',
+                error_message: failReason,
+                error_code: result.errorType || 'unknown',
+                device_id: room.tuya_device_id,
+              }).select().single().then(() => {}, () => {});
+
               if (!isResync) {
-                // Nur bei neuen Räumen: target zurücksetzen auf aktuellen Wert
-                // damit die Automation erkennt, dass noch nicht umgestellt wurde
                 const fallbackTemp = Number(room.target_temp) || 20;
                 await supabase.from('rooms').update({
                   target_temp: fallbackTemp,
-                  heating_paused_reason: `night_frost_failed: ${result.errorMessage}`,
+                  heating_paused_reason: failReason,
                   updated_at: new Date().toISOString()
                 }).eq('id', room.id);
               }
-              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: result.errorMessage });
+              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: failReason });
             }
           }
 
@@ -730,7 +784,8 @@ Deno.serve(async (req) => {
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
-              nightTarget
+              nightTarget,
+              'stop'
             );
 
             if (result.success) {
@@ -745,7 +800,19 @@ Deno.serve(async (req) => {
               
               nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `maintain_${nightTarget}°C` });
             } else {
-              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: result.errorMessage });
+              const failReason = result.errorType === 'no_control_channel'
+                ? 'night_maintain_failed: kein Steuerkanal (Cloud-Quota & Local-Service offline)'
+                : `night_maintain_failed: ${result.errorMessage || 'unbekannt'}`;
+              await supabase.from('api_errors').insert({
+                source: 'pv-automation',
+                room_id: room.id,
+                room_name: room.name,
+                error_type: result.errorType === 'no_control_channel' ? 'no_control_channel' : 'night_frost_failed',
+                error_message: failReason,
+                error_code: result.errorType || 'unknown',
+                device_id: room.tuya_device_id,
+              }).select().single().then(() => {}, () => {});
+              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: failReason });
             }
           }
         }
@@ -2138,7 +2205,7 @@ Deno.serve(async (req) => {
           const safeTemp = currentTargetTempSafety; // Behalte aktuelle Zieltemperatur
           
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp);
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop');
             if (result.success) {
               await supabase.from('rooms').update({
                 is_heating: false,
@@ -2701,7 +2768,7 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name} deactivate: Setze ${finalTemp}°C (targetTemp=${targetTemp}, nightTemp=${room.night_temp || settings?.night_temp})`);
 
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, finalTemp);
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, finalTemp, 'stop');
             success = result.success;
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };

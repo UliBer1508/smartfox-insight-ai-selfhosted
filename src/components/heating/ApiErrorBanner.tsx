@@ -37,14 +37,18 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
   const tokenErrors = errors.filter(e => e.error_type === 'token_expired');
   const offlineErrors = errors.filter(e => e.error_type === 'device_offline');
   const quotaErrors = errors.filter(e => e.error_type === 'quota_exhausted');
-  const otherErrors = errors.filter(e => !['token_expired', 'device_offline', 'quota_exhausted'].includes(e.error_type));
+  const noChannelErrors = errors.filter(e => e.error_type === 'no_control_channel');
+  const nightFailedErrors = errors.filter(e => e.error_type === 'night_frost_failed');
+  const otherErrors = errors.filter(e => !['token_expired', 'device_offline', 'quota_exhausted', 'no_control_channel', 'night_frost_failed'].includes(e.error_type));
 
   const isTokenError = tokenErrors.length > 0;
   const isQuotaError = quotaErrors.length > 0;
+  const isNoChannelError = noChannelErrors.length > 0;
+  const hasNightFailed = nightFailedErrors.length > 0;
   const totalErrors = errors.length;
 
-  // In criticalOnly mode, only show quota and token errors
-  if (criticalOnly && !isQuotaError && !isTokenError) return null;
+  // In criticalOnly mode, only show quota, token, no-channel and night-failed errors
+  if (criticalOnly && !isQuotaError && !isTokenError && !isNoChannelError && !hasNightFailed) return null;
 
   const handleRetry = async () => {
     setIsRetrying(true);
@@ -68,8 +72,13 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
     errors.forEach(e => acknowledgeError(e.id));
   };
 
-  // Quota errors get a prominent pulsing style
-  if (isQuotaError) {
+  // Quota errors get a prominent pulsing style — also covers no-control-channel & night-failed
+  if (isQuotaError || isNoChannelError || hasNightFailed) {
+    const headline = isNoChannelError
+      ? '🚨 Kein Steuerkanal verfügbar — Thermostate nicht erreichbar!'
+      : isQuotaError
+      ? '🚨 Tuya API-Quota erschöpft — Thermostate nicht steuerbar!'
+      : '⚠️ Nacht-Rückstellung konnte nicht zugestellt werden';
     return (
       <Alert 
         variant="destructive" 
@@ -80,7 +89,7 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
       >
         <AlertTriangle className="h-5 w-5 text-red-600" />
         <AlertTitle className="flex items-center justify-between text-base font-bold text-red-700 dark:text-red-300">
-          <span>🚨 Tuya API-Quota erschöpft — Thermostate nicht steuerbar!</span>
+          <span>{headline}</span>
           <Button
             variant="ghost"
             size="sm"
@@ -93,16 +102,35 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
           </Button>
         </AlertTitle>
         <AlertDescription className="mt-2 space-y-2">
-          <div className="text-sm font-medium text-red-700 dark:text-red-300">
-            Das Tages- oder Monatslimit der Tuya Cloud API wurde erreicht.
-          </div>
+          {isQuotaError && (
+            <div className="text-sm font-medium text-red-700 dark:text-red-300">
+              Das Tages- oder Monatslimit der Tuya Cloud API wurde erreicht.
+            </div>
+          )}
+          {isNoChannelError && (
+            <div className="text-sm font-medium text-red-700 dark:text-red-300">
+              Cloud-Quota ist erschöpft <strong>und</strong> der lokale Service ist nicht aktiv.
+              Es konnte kein Befehl an die Thermostate zugestellt werden.
+            </div>
+          )}
+          {hasNightFailed && !isNoChannelError && (
+            <div className="text-sm font-medium text-red-700 dark:text-red-300">
+              Die Rückstellung auf <strong>Nacht/Frostschutz</strong> konnte nicht physisch zugestellt werden.
+              Die Thermostate halten möglicherweise noch ihren letzten Sollwert.
+            </div>
+          )}
           <div className="text-sm text-red-600 dark:text-red-400 space-y-1">
-            <p>👉 Bitte Thermostate <strong>manuell am Gerät</strong> oder über die <strong>Tuya App</strong> auf Frostschutz stellen.</p>
-            <p>⏰ Das <strong>Tageslimit</strong> wird um Mitternacht zurückgesetzt. Das <strong>Monatslimit</strong> am Monatsersten.</p>
+            <p>👉 Bitte Thermostate <strong>manuell am Gerät</strong> oder über die <strong>Tuya App</strong> auf Frostschutz/Nacht stellen.</p>
+            {(isNoChannelError || hasNightFailed) && (
+              <p>💡 Sobald der lokale Service wieder läuft, werden gepufferte Stop-Befehle automatisch ausgeführt.</p>
+            )}
+            {isQuotaError && (
+              <p>⏰ Das <strong>Tageslimit</strong> wird um Mitternacht zurückgesetzt. Das <strong>Monatslimit</strong> am Monatsersten.</p>
+            )}
           </div>
-          {quotaErrors[0]?.error_message && (
+          {(quotaErrors[0]?.error_message || noChannelErrors[0]?.error_message || nightFailedErrors[0]?.error_message) && (
             <div className="text-xs text-red-500 dark:text-red-400 mt-1 font-mono">
-              {quotaErrors[0].error_message}
+              {(quotaErrors[0] || noChannelErrors[0] || nightFailedErrors[0])?.error_message}
             </div>
           )}
         </AlertDescription>
