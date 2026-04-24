@@ -572,23 +572,15 @@ Deno.serve(async (req) => {
         }
 
         // CLOUD-MODUS
-        // STOP-Befehle: Reserve nutzen + immer Queue-Fallback persistieren
+        // STOP-Befehle: Reserve nutzen (kein Queue-Fallback, da Local-Service nicht eingerichtet ist)
         if (priority === 'stop') {
-          // Immer in Queue spiegeln (deduped) — falls Local-Service später startet,
-          // hat er sofort den korrekten Sollwert.
-          await queueLocalTemperatureCommand(roomId, temperature).catch((e) => {
-            console.warn(`[PV-Automation] Stop-Queue-Fallback failed für room=${roomId}:`, e?.message || e);
-          });
-
           if (quotaExhausted) {
             if (stopReserveCalls >= STOP_RESERVE_MAX_CALLS) {
-              console.log(`[PV-Automation] ⛔ STOP-Reserve erschöpft (${stopReserveCalls}/${STOP_RESERVE_MAX_CALLS}) → nur Queue-Fallback`);
+              console.log(`[PV-Automation] ⛔ STOP-Reserve erschöpft (${stopReserveCalls}/${STOP_RESERVE_MAX_CALLS}) → keine Zustellung möglich`);
               return {
                 success: false,
-                errorType: localServiceActive ? 'quota_exhausted' : 'no_control_channel',
-                errorMessage: localServiceActive
-                  ? 'Stop-Reserve erschöpft – Befehl liegt in Queue für Local-Service'
-                  : 'Cloud-Quota erschöpft und Local-Service offline – Befehl in Queue gepuffert, aber nicht zugestellt',
+                errorType: 'quota_exhausted',
+                errorMessage: 'Cloud-Quota und Stop-Reserve erschöpft – Rückstellung konnte nicht zugestellt werden',
               };
             }
             stopReserveCalls++;

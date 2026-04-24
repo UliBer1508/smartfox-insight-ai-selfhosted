@@ -121,9 +121,6 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
           )}
           <div className="text-sm text-red-600 dark:text-red-400 space-y-1">
             <p>👉 Bitte Thermostate <strong>manuell am Gerät</strong> oder über die <strong>Tuya App</strong> auf Frostschutz/Nacht stellen.</p>
-            {(isNoChannelError || hasNightFailed) && (
-              <p>💡 Sobald der lokale Service wieder läuft, werden gepufferte Stop-Befehle automatisch ausgeführt.</p>
-            )}
             {isQuotaError && (
               <p>⏰ Das <strong>Tageslimit</strong> wird um Mitternacht zurückgesetzt. Das <strong>Monatslimit</strong> am Monatsersten.</p>
             )}
