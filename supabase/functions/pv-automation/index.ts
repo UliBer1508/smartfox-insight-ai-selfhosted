@@ -540,10 +540,15 @@ Deno.serve(async (req) => {
       }
 
       // Helper: Mode-aware temperature setting
+      // priority='stop' → Notfall-/Rückstell-Befehl (Night, Frostschutz, Sicherheits-Stopp)
+      //   - darf STOP_RESERVE_MAX_CALLS auch bei erschöpfter Quota nutzen
+      //   - schreibt zusätzlich/als Fallback in thermostat_commands (deduped),
+      //     damit ein später aktivierter Local-Service den Befehl nachholen kann
       async function setTemperatureForMode(
         deviceId: string,
         roomId: string,
-        temperature: number
+        temperature: number,
+        priority: 'normal' | 'stop' = 'normal'
       ): Promise<TuyaResult> {
         if (controlMode === 'local') {
           const queued = await queueLocalTemperatureCommand(roomId, temperature);
@@ -565,7 +570,38 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] Local command queued: room=${roomId} temp=${temperature}°C${queued.alreadyQueued ? ' (bereits vorhanden)' : ''}`);
           return { success: true };
         }
-        // QUOTA-GATE: Block cloud API calls when quota is exhausted
+
+        // CLOUD-MODUS
+        // STOP-Befehle: Reserve nutzen + immer Queue-Fallback persistieren
+        if (priority === 'stop') {
+          // Immer in Queue spiegeln (deduped) — falls Local-Service später startet,
+          // hat er sofort den korrekten Sollwert.
+          await queueLocalTemperatureCommand(roomId, temperature).catch((e) => {
+            console.warn(`[PV-Automation] Stop-Queue-Fallback failed für room=${roomId}:`, e?.message || e);
+          });
+
+          if (quotaExhausted) {
+            if (stopReserveCalls >= STOP_RESERVE_MAX_CALLS) {
+              console.log(`[PV-Automation] ⛔ STOP-Reserve erschöpft (${stopReserveCalls}/${STOP_RESERVE_MAX_CALLS}) → nur Queue-Fallback`);
+              return {
+                success: false,
+                errorType: localServiceActive ? 'quota_exhausted' : 'no_control_channel',
+                errorMessage: localServiceActive
+                  ? 'Stop-Reserve erschöpft – Befehl liegt in Queue für Local-Service'
+                  : 'Cloud-Quota erschöpft und Local-Service offline – Befehl in Queue gepuffert, aber nicht zugestellt',
+              };
+            }
+            stopReserveCalls++;
+            console.log(`[PV-Automation] 🛑 STOP-Reserve-Call ${stopReserveCalls}/${STOP_RESERVE_MAX_CALLS}: ${deviceId} → ${temperature}°C (Rückstellung trotz Quota)`);
+          }
+
+          if (!tuyaAccessId || !tuyaAccessSecret) {
+            return { success: false, errorType: 'config', errorMessage: 'Tuya credentials not configured' };
+          }
+          return await setDeviceTemperature(tuyaAccessId, tuyaAccessSecret, deviceId, temperature);
+        }
+
+        // QUOTA-GATE: Block cloud API calls when quota is exhausted (nur normale Calls)
         // EXCEPTION: PV-Priority-Modus erlaubt begrenzte Calls bei hohem PV-Überschuss
         if (quotaExhausted && !pvPriorityMode) {
           console.log(`[PV-Automation] ⛔ QUOTA-GATE: Cloud API call blocked for device ${deviceId} → ${temperature}°C`);
