@@ -784,7 +784,8 @@ Deno.serve(async (req) => {
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
-              nightTarget
+              nightTarget,
+              'stop'
             );
 
             if (result.success) {
@@ -799,7 +800,19 @@ Deno.serve(async (req) => {
               
               nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `maintain_${nightTarget}°C` });
             } else {
-              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: result.errorMessage });
+              const failReason = result.errorType === 'no_control_channel'
+                ? 'night_maintain_failed: kein Steuerkanal (Cloud-Quota & Local-Service offline)'
+                : `night_maintain_failed: ${result.errorMessage || 'unbekannt'}`;
+              await supabase.from('api_errors').insert({
+                source: 'pv-automation',
+                room_id: room.id,
+                room_name: room.name,
+                error_type: result.errorType === 'no_control_channel' ? 'no_control_channel' : 'night_frost_failed',
+                error_message: failReason,
+                error_code: result.errorType || 'unknown',
+                device_id: room.tuya_device_id,
+              }).select().single().then(() => {}, () => {});
+              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: failReason });
             }
           }
         }
