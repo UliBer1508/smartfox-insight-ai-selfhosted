@@ -2205,7 +2205,7 @@ Deno.serve(async (req) => {
           const safeTemp = currentTargetTempSafety; // Behalte aktuelle Zieltemperatur
           
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp);
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop');
             if (result.success) {
               await supabase.from('rooms').update({
                 is_heating: false,
