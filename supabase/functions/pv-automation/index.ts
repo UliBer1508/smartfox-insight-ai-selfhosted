@@ -707,7 +707,8 @@ Deno.serve(async (req) => {
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
-              FROST_TEMP
+              FROST_TEMP,
+              'stop'
             );
 
             if (result.success) {
@@ -723,20 +724,33 @@ Deno.serve(async (req) => {
               
               nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: isResync ? `resync_frost_${FROST_TEMP}°C` : `frost_${FROST_TEMP}°C` });
             } else {
-              console.error(`[PV-Automation] Night frost: Failed ${room.name}: ${result.errorMessage}`);
-              // Bei Fehler: DB-target NICHT auf 5°C belassen/setzen, damit der Raum
-              // beim nächsten Zyklus erneut versucht wird
+              const failReason = result.errorType === 'no_control_channel'
+                ? 'night_frost_failed: kein Steuerkanal (Cloud-Quota erschöpft & Local-Service offline)'
+                : result.errorType === 'quota_exhausted'
+                ? `night_frost_failed: ${result.errorMessage || 'Quota erschöpft'}`
+                : `night_frost_failed: ${result.errorMessage || 'unbekannt'}`;
+              console.error(`[PV-Automation] Night frost: Failed ${room.name}: ${failReason}`);
+
+              // Persistente API-Fehler-Markierung für UI-Banner
+              await supabase.from('api_errors').insert({
+                source: 'pv-automation',
+                room_id: room.id,
+                room_name: room.name,
+                error_type: result.errorType === 'no_control_channel' ? 'no_control_channel' : 'night_frost_failed',
+                error_message: failReason,
+                error_code: result.errorType || 'unknown',
+                device_id: room.tuya_device_id,
+              }).select().single().then(() => {}, () => {});
+
               if (!isResync) {
-                // Nur bei neuen Räumen: target zurücksetzen auf aktuellen Wert
-                // damit die Automation erkennt, dass noch nicht umgestellt wurde
                 const fallbackTemp = Number(room.target_temp) || 20;
                 await supabase.from('rooms').update({
                   target_temp: fallbackTemp,
-                  heating_paused_reason: `night_frost_failed: ${result.errorMessage}`,
+                  heating_paused_reason: failReason,
                   updated_at: new Date().toISOString()
                 }).eq('id', room.id);
               }
-              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: result.errorMessage });
+              nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: failReason });
             }
           }
 
