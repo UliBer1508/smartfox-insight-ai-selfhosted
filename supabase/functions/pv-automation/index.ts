@@ -1797,33 +1797,18 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Phase 2 Gate: Prüfe ob ALLE Räume eco erreicht haben oder eco-Budget bekommen haben
-      let allRoomsEcoReady = true;
-      for (const rp of roomsWithPriority) {
-        const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
-        const currentTemp = rp.room.current_temp || 0;
-        const status = roomBudgetStatus.get(rp.room.id);
-        
-        // Raum braucht eco aber hat kein Budget bekommen
-        if (currentTemp < ecoTemp - 0.3 && (!status || !status.allowedToHeat)) {
-          allRoomsEcoReady = false;
-          console.log(`[PV-Automation] Phase 2 BLOCKIERT: ${rp.room.name} (Prio ${rp.priority}) braucht noch eco (${currentTemp.toFixed(1)}°C < ${ecoTemp}°C)`);
-        }
-        // Raum hat eco-Budget aber ist noch nicht auf Temperatur (heizt gerade)
-        if (status?.allowedToHeat && status.targetLevel === 'eco' && currentTemp < ecoTemp - 0.3) {
-          allRoomsEcoReady = false;
-        }
-      }
-      
-      // Phase 2: KOMFORT-Runde — NUR wenn alle Räume eco erreicht haben
+      // ============= PHASE 2: KOMFORT-RUNDE (parallel zu Phase 1) =============
+      // Geänderte Strategie: Phase 2 läuft IMMER. Räume die bereits >= Eco sind dürfen
+      // sofort auf Komfort upgraden (sofern echter gridExport-Überschuss reicht), unabhängig
+      // davon ob andere niedrigere-Prio-Räume noch in Phase 1 hochheizen.
+      // Begründung: Bei großem Überschuss (z.B. 9 kW) ist es Verschwendung, alle Räume zu
+      // bremsen nur weil ein einzelner Raum noch nicht auf Eco ist.
       const effectiveComfortBudget = comfortBudget;
       let usedComfortBudget = usedBudget;
       const budgetAfterEco = effectiveComfortBudget - usedBudget;
       
-      if (!allRoomsEcoReady) {
-        console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Nicht alle Räume auf Eco-Level`);
-      } else {
-        console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === Restbudget: ${budgetAfterEco}W (nur echter Überschuss, kein Prognose-Bonus)`);
+      console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
+      {
         for (const rp of roomsWithPriority) {
           if (roomBudgetStatus.has(rp.room.id)) {
             const existing = roomBudgetStatus.get(rp.room.id)!;
