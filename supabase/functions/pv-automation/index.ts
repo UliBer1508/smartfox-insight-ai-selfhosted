@@ -2452,7 +2452,7 @@ Deno.serve(async (req) => {
                 const rp = roomsWithPriority.find(r => r.room.id === room.id);
                 const roomHeatingPower = rp?.heatingPower || 800;
                 const targetLevel = budgetStatus.targetLevel;
-                console.log(`[PV-Automation] ${room.name}: 2-Phasen-Check → Level: ${targetLevel} (${budgetStatus.reason}, ${roomHeatingPower}W)`);
+                console.log(`[PV-Automation] ${room.name}: 2-Phasen-Check → Level: ${targetLevel} (${budgetStatus.reason}, roomPower=${roomHeatingPower}W, comfortBudget=${comfortBudget}W, usedComfortBudget=${usedComfortBudget}W, ecoBudget=${availableBudget}W, usedEcoBudget=${usedBudget}W)`);
                 
                 if (targetLevel === 'comfort' || targetLevel === 'super_comfort') {
                   // Phase 2: Auf Komfort heizen
