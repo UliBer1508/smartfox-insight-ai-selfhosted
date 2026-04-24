@@ -1,77 +1,74 @@
 
-## Ursache: Warum die Thermostate nicht zurückgestellt wurden
 
-Die aktuelle Logik versucht im Nachtmodus zwar aktiv auf Frostschutz/Nacht zurückzustellen, aber sie scheitert in genau deinem Szenario an der Kanal-Logik:
+## Befund: Warum kein Komfort trotz 9,3 kW Überschuss
 
-1. In `supabase/functions/pv-automation/index.ts` wird im Nachtmodus für `frost_only` alle 30 Minuten ein Resync auf 5°C versucht.
-2. Der eigentliche Schreibweg läuft über `setTemperatureForMode(...)`.
-3. Sobald `quotaExhausted === true` und der Modus `cloud` ist, blockiert `setTemperatureForMode(...)` jeden Cloud-Call sofort mit `quota_exhausted`.
-4. Der lokale Service ist aus, also gibt es keinen ausführenden Fallback für `thermostat_commands`.
-5. Bei einem Nacht-Fehler schreibt der Code bewusst **keinen erfolgreichen Zielzustand** in die DB, damit kein falscher Erfolg angezeigt wird. Ergebnis: Das Thermostat bleibt physisch auf dem letzten echten Sollwert.
+Aktueller Zustand laut DB und Logs:
+- Export: **9,3 kW**, PV: **10,4 kW**, Verbrauch: **769 W**, Batterie: **100% (voll)**
+- Alle Räume haben `pv_auto_enabled = true`, `automation_enabled = true`, kein `heating_paused_reason`
+- SOC-Gate offen (100% > 80%)
 
-Kurz: Die Rückstellung wurde nicht ausgeführt, weil
-- Cloud durch Quota gesperrt war,
-- Local nicht verfügbar war,
-- und der Code absichtlich kein „virtuelles Zurückstellen“ in der DB vortäuscht.
+Trotzdem zeigen die Logs für **alle** Räume nur Phase 1 (Eco) — nie Phase 2 (Komfort). Beispiele:
+- `Wohnzimmer: ✅ Eco erreicht (21.7°C), kein Komfort-Budget` → Komfort wäre 22°C, müsste also weiter heizen
+- `Büro: ✅ Eco erreicht (20.4°C)` → Komfort 21°C, müsste weiter
+- `Bad Uli/Zimmer Uli/Luis/Luca/Kinder Bad: Phase 1: Eco 21°C` → bleibt strikt auf Eco-Ziel, obwohl Komfort 22°C wäre
 
-## Was ich ändern werde
+### Ursachen-Analyse
 
-### 1) Nacht-/Stop-Befehle als eigene Prioritätsklasse behandeln
-In `pv-automation/index.ts` trenne ich:
-- Aufheiz-Befehle
-- Absenk-/Stop-Befehle (`night`, `frost_only`, harte Sicherheits-Stopps)
+**1. Komfort-Budget wird auf 0 gesetzt — wahrscheinlich durch Komfort-Hard-Lock**
 
-Nur Aufheizen bleibt strikt am Quota-Gate hängen. Absenken/Stoppen bekommt einen eigenen kleinen Schutzpfad.
+Laut Memory `pv-automation-budget-logic-v2`:
+> **Komfort-Hard-Lock (immer aktiv):** Sobald `batterySoc < heatingMinSoc` → `comfortBudget = 0`
 
-### 2) Reservierte Notfall-Calls wirklich für Frostschutz nutzen
-Es gibt schon die Idee „2 Calls Reserve für Notfall-Frostschutz“, aber aktuell blockiert `setTemperatureForMode(...)` trotzdem global.  
-Ich ändere das so, dass echte Rückstell-/Stop-Befehle diese Reserve nutzen dürfen, statt pauschal geblockt zu werden.
+Der SOC ist bei **100%**, also dürfte der Lock NICHT greifen. Trotzdem sehen wir kein Komfort. Das deutet auf einen Bug in der Komfort-Budget-Berechnung hin: Vermutlich wird `comfortBudget` aktuell aus etwas anderem als reinem `gridExport` berechnet (z.B. wird `currentlyHeatingPower` falsch abgezogen, weil `is_heating=false` für alle, also `currentlyHeatingPower=0`, und dann eine andere Subtraktion das Budget auf 0 zieht).
 
-### 3) Wenn Cloud blockiert ist: Stop-Befehle trotzdem in die Queue schreiben
-Auch wenn der Modus auf `cloud` steht, soll bei Nacht/Frostschutz oder Sicherheits-Stopp zusätzlich ein deduplizierter `thermostat_commands`-Eintrag erzeugt werden:
-- damit nichts verloren geht,
-- und der lokale Service die Befehle sofort übernehmen kann, sobald er wieder aktiv ist.
+**2. „Eco erreicht" stoppt Komfort-Upgrade vorzeitig**
 
-Wichtig: Das ist **kein automatischer Moduswechsel**, sondern nur ein persistenter Fallback-Puffer.
+Bei Räumen wie Wohnzimmer (21.7°C bei Eco=21°C, Komfort=22°C) und Büro (20.4°C bei Eco=20°C, Komfort=21°C) wird die Logik mit `✅ Eco erreicht, kein Komfort-Budget` beendet. Das heißt: Sobald Eco erreicht ist, wird gar nicht mehr geprüft, ob Komfort-Budget vorhanden wäre. Das ist die falsche Reihenfolge laut Strategie v2 — Phase 2 soll explizit nach Phase 1 evaluiert werden.
 
-### 4) Nacht-Fehler klarer markieren
-Wenn ein Nacht-Reset scheitert, wird die Ursache explizit gespeichert:
-- `quota_exhausted`
-- `no_control_channel`
-- `night_frost_failed`
+**3. „SKIP - already at 21°C" blockiert Komfort-Upgrade**
 
-So ist im UI eindeutig sichtbar: „Nicht zurückgestellt, weil kein Steuerkanal verfügbar war“.
+Räume wie Bad Uli, Zimmer Uli/Luis/Luca, Kinder Bad zeigen:
+> `SKIP - already at 21°C, state=active`
 
-### 5) Banner/Fehlermeldung präzisieren
-Der bestehende `ApiErrorBanner` sagt bereits, dass die Cloud-Quota erschöpft ist. Ich erweitere die Meldung sinngemäß um:
-- Rückstellung auf Nacht/Frostschutz konnte nicht mehr zugestellt werden
-- Gerät hält daher möglicherweise den letzten physischen Sollwert
-- manueller Eingriff ist nötig, solange kein Steuerkanal verfügbar ist
+Sie sind bereits auf Eco-Sollwert 21°C (≠ Komfort 22°C). Der Code skipt aber komplett, statt zu prüfen: „Sollwert ist nur Eco — Komfort wäre höher — gibt es Komfort-Budget?" → niemals Upgrade auf 22°C.
 
-## Konkrete Dateien
+**4. Bad Uli/Zimmer Uli haben aktiven manual_override**
+
+`manual_override_until = 2026-04-22` — das liegt **in der Zukunft** (heute ist 2026-04-24, also eigentlich abgelaufen). 22.04 < 24.04, also abgelaufen, kein Override mehr aktiv. Trotzdem prüfen, dass die Logik abgelaufene Overrides nicht fälschlich als aktiv liest.
+
+### Lösung
+
+**Fix A: Komfort-Phase auch bei „Eco erreicht" prüfen**
+Im 2-Phasen-Branch in `pv-automation/index.ts`: Wenn `currentRoomTemp >= ecoTarget` UND `comfortTemp > ecoTarget` UND `comfortBudget > roomPower` → Upgrade auf Komfort, statt early-return mit „kein Komfort-Budget".
+
+**Fix B: SKIP-Logik darf Komfort-Upgrade nicht blockieren**
+„SKIP — already at 21°C" darf nur greifen, wenn der Sollwert bereits Komfort-Niveau hat. Wenn aktueller Sollwert = Eco UND Komfort wäre höher UND Budget reicht → Sollwert auf Komfort hochsetzen.
+
+**Fix C: Komfort-Budget-Berechnung verifizieren und loggen**
+Aktuell loggt das System nicht, **welcher Wert** für `comfortBudget` berechnet wurde. Klar machen: bei 9,3 kW Export und 100% SOC sollte Komfort-Budget ≈ 9300 W sein. Logging-Zeile pro Raum hinzufügen: `comfortBudget=X W, roomPower=Y W, decision=Z`. So sieht man sofort, ob es ein Berechnungs-Bug oder ein Verzweigungs-Bug ist.
+
+**Fix D: Abgelaufene `manual_override_until` zuverlässig ignorieren**
+Sicherstellen, dass `manual_override_until < now()` als „kein Override" behandelt wird (in Wien-Zeit).
+
+### Konkrete Dateien
 
 - `supabase/functions/pv-automation/index.ts`
-  - Nachtmodus-Branch
-  - `setTemperatureForMode(...)`
-  - Notfall-/Stop-Entscheidungen
-  - Queue-Fallback + Dedupe
-- `src/components/heating/ApiErrorBanner.tsx`
-  - präzisere Nutzerhinweise bei Quota + fehlendem Rückstellen
-- `.lovable/SYSTEM_DOCUMENTATION.md`
-  - Abschnitt Nachtbetrieb / Quota-Schutz aktualisieren
-- `mem://integration/tuya/api-quota-management-v2`
-  - Reserve-Calls explizit als Stop-/Frostschutz-Calls dokumentieren
+  - 2-Phasen-Entscheidungsblock (Eco → Komfort Übergang)
+  - SKIP-Branch erweitern um Komfort-Check
+  - Komfort-Budget-Logging
+  - Manual-override Vergleich strikt gegen `now()`
+- Memory-Update: `mem://arch/pv-automation-strategy-v2` mit der korrigierten Eco→Komfort-Übergangslogik
 
-## Erwartetes Verhalten nach der Anpassung
+### Erwartetes Verhalten nach Fix
 
-- Wenn Cloud-Quota knapp ist, werden normale Aufheiz-Befehle weiterhin gebremst.
-- Nacht-/Frostschutz-Rückstellungen haben Vorrang.
-- Wenn selbst das nicht mehr per Cloud geht, werden die Stop-Befehle zuverlässig in der Queue hinterlegt.
-- Die App zeigt dann klar: Rückstellung war fachlich angefordert, konnte aber physisch nicht zugestellt werden.
+Bei 9,3 kW Export und vollem Akku:
+- Wohnzimmer (21.7°C, Komfort 22°C) → Sollwert 22°C
+- Büro (20.4°C, Komfort 21°C) → Sollwert 21°C
+- Bad Uli, Zimmer Uli/Luis/Luca, Kinder Bad → Sollwert 22°C statt 21°C
+- Räume mit Komfort = Eco bleiben unverändert
 
-## Technische Details
+### Nicht enthalten / Risiken
 
-- Keine neue Datenbanktabelle nötig
-- Keine Migration erforderlich
-- Hauptänderung ist reine Logik in der `pv-automation`-Function
-- Bestehende manuelle Cloud/Local-Umschaltung bleibt unverändert
+- Tuya-Quota ist erschöpft (203/200) → die neuen Komfort-Sollwerte können möglicherweise nicht sofort gesendet werden. Das ist ein separates Thema (bereits adressierter Reserve-Mechanismus für Stop-Befehle gilt nicht für Heizen-hoch). Sobald die Quota nachts resettet, greift die neue Logik korrekt.
+- Keine DB-Migration, keine Frontend-Änderung.
+
