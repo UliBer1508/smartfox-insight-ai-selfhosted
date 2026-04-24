@@ -1,58 +1,77 @@
 
+## Ursache: Warum die Thermostate nicht zurückgestellt wurden
 
-## Sofort-Aktion: Thermostate JETZT auf Nacht setzen + Quota-Fallback härten
+Die aktuelle Logik versucht im Nachtmodus zwar aktiv auf Frostschutz/Nacht zurückzustellen, aber sie scheitert in genau deinem Szenario an der Kanal-Logik:
 
-### 1) SQL: 12 Stop-Befehle in `thermostat_commands` queuen
-Damit der Local-Service alle aktiven Räume sofort auf `night_temp` (5°C) herunterregelt — umgeht die erschöpfte Tuya-Cloud-Quota komplett.
-```sql
-INSERT INTO thermostat_commands (room_id, command, value, status)
-SELECT id, 'set_temp', COALESCE(night_temp, 5), 'pending'
-FROM rooms 
-WHERE tuya_device_id IS NOT NULL 
-  AND automation_enabled = true;
-```
+1. In `supabase/functions/pv-automation/index.ts` wird im Nachtmodus für `frost_only` alle 30 Minuten ein Resync auf 5°C versucht.
+2. Der eigentliche Schreibweg läuft über `setTemperatureForMode(...)`.
+3. Sobald `quotaExhausted === true` und der Modus `cloud` ist, blockiert `setTemperatureForMode(...)` jeden Cloud-Call sofort mit `quota_exhausted`.
+4. Der lokale Service ist aus, also gibt es keinen ausführenden Fallback für `thermostat_commands`.
+5. Bei einem Nacht-Fehler schreibt der Code bewusst **keinen erfolgreichen Zielzustand** in die DB, damit kein falscher Erfolg angezeigt wird. Ergebnis: Das Thermostat bleibt physisch auf dem letzten echten Sollwert.
 
-### 2) SQL: Stale Manual-Overrides aufräumen
-Alte `manual_override_until`-Einträge vom 17.–19.04. blockieren evtl. künftige Stops.
-```sql
-UPDATE rooms 
-SET manual_override_until = NULL 
-WHERE manual_override_until < NOW();
-```
+Kurz: Die Rückstellung wurde nicht ausgeführt, weil
+- Cloud durch Quota gesperrt war,
+- Local nicht verfügbar war,
+- und der Code absichtlich kein „virtuelles Zurückstellen“ in der DB vortäuscht.
 
-### 3) Code-Fix: `setTemperatureForMode` mit DB-Fallback bei Quota-Fehler
-In `supabase/functions/pv-automation/index.ts` im Quota-Gate-Block (`setTemperatureForMode`, Cloud-Branch): Statt hartem `return { success: false }` bei `quotaExhausted` automatisch in `thermostat_commands` queuen.
-```ts
-if (quotaExhausted && !pvPriorityMode) {
-  console.log(`[QUOTA-FALLBACK] room=${roomId} temp=${temperature} → Insert thermostat_commands`);
-  const { error: insErr } = await supabase.from('thermostat_commands').insert({
-    room_id: roomId,
-    command: 'set_temp',
-    value: temperature,
-    status: 'pending',
-  });
-  if (insErr) {
-    return { success: false, errorType: 'quota_exhausted', errorMessage: `Quota+DB-Fallback fehlgeschlagen: ${insErr.message}` };
-  }
-  return { success: true, action: 'queued_for_local', errorMessage: 'Cloud-Quota erschöpft → Local-Service Queue' };
-}
-```
-Damit greift der Fallback ab sofort bei **jedem** Sende-Versuch (Nacht, SOC-Gate, Eco) — keine separate Code-Pfad-Logik nötig.
+## Was ich ändern werde
 
-### 4) Memory-Update
-- `mem://arch/pv-automation-budget-logic-v2`: Quota-Fallback ist jetzt zentral in `setTemperatureForMode` — gilt für jeden Sende-Versuch.
-- `mem://features/heating/dual-control-mode-architecture`: Cloud-Modus hat jetzt automatischen DB-Queue-Fallback bei Quota-Exhaustion (kein Mode-Switch, transparenter Hand-off an Local-Service).
+### 1) Nacht-/Stop-Befehle als eigene Prioritätsklasse behandeln
+In `pv-automation/index.ts` trenne ich:
+- Aufheiz-Befehle
+- Absenk-/Stop-Befehle (`night`, `frost_only`, harte Sicherheits-Stopps)
 
-## Was unverändert bleibt
-- Control-Mode bleibt `cloud` als Default
-- 80%-SOC-Regel, Budget-Logik, Phase-Strategie
-- Local-Service-Code (interpretiert `set_temp` schon korrekt)
+Nur Aufheizen bleibt strikt am Quota-Gate hängen. Absenken/Stoppen bekommt einen eigenen kleinen Schutzpfad.
 
-## Voraussetzung
-Local-Service muss laufen (`node index.js` auf `C:\Users\ulibe\tuya-thermostat\`). Falls offline: Befehle bleiben `pending` bis Service hochkommt — Tuya-Cloud-Quota wird nicht weiter belastet.
+### 2) Reservierte Notfall-Calls wirklich für Frostschutz nutzen
+Es gibt schon die Idee „2 Calls Reserve für Notfall-Frostschutz“, aber aktuell blockiert `setTemperatureForMode(...)` trotzdem global.  
+Ich ändere das so, dass echte Rückstell-/Stop-Befehle diese Reserve nutzen dürfen, statt pauschal geblockt zu werden.
 
-## Erwartetes Verhalten
-- **Sofort nach SQL-Insert:** Local-Service holt 12 Befehle innerhalb 30s ab → alle TGP508 auf 5°C
-- **Ab nächstem Heartbeat:** jeder weitere Quota-Fehler queued automatisch in DB statt zu scheitern
-- **Logs:** `[QUOTA-FALLBACK] room=X temp=Y` statt `Failed: Quota erschöpft`
+### 3) Wenn Cloud blockiert ist: Stop-Befehle trotzdem in die Queue schreiben
+Auch wenn der Modus auf `cloud` steht, soll bei Nacht/Frostschutz oder Sicherheits-Stopp zusätzlich ein deduplizierter `thermostat_commands`-Eintrag erzeugt werden:
+- damit nichts verloren geht,
+- und der lokale Service die Befehle sofort übernehmen kann, sobald er wieder aktiv ist.
 
+Wichtig: Das ist **kein automatischer Moduswechsel**, sondern nur ein persistenter Fallback-Puffer.
+
+### 4) Nacht-Fehler klarer markieren
+Wenn ein Nacht-Reset scheitert, wird die Ursache explizit gespeichert:
+- `quota_exhausted`
+- `no_control_channel`
+- `night_frost_failed`
+
+So ist im UI eindeutig sichtbar: „Nicht zurückgestellt, weil kein Steuerkanal verfügbar war“.
+
+### 5) Banner/Fehlermeldung präzisieren
+Der bestehende `ApiErrorBanner` sagt bereits, dass die Cloud-Quota erschöpft ist. Ich erweitere die Meldung sinngemäß um:
+- Rückstellung auf Nacht/Frostschutz konnte nicht mehr zugestellt werden
+- Gerät hält daher möglicherweise den letzten physischen Sollwert
+- manueller Eingriff ist nötig, solange kein Steuerkanal verfügbar ist
+
+## Konkrete Dateien
+
+- `supabase/functions/pv-automation/index.ts`
+  - Nachtmodus-Branch
+  - `setTemperatureForMode(...)`
+  - Notfall-/Stop-Entscheidungen
+  - Queue-Fallback + Dedupe
+- `src/components/heating/ApiErrorBanner.tsx`
+  - präzisere Nutzerhinweise bei Quota + fehlendem Rückstellen
+- `.lovable/SYSTEM_DOCUMENTATION.md`
+  - Abschnitt Nachtbetrieb / Quota-Schutz aktualisieren
+- `mem://integration/tuya/api-quota-management-v2`
+  - Reserve-Calls explizit als Stop-/Frostschutz-Calls dokumentieren
+
+## Erwartetes Verhalten nach der Anpassung
+
+- Wenn Cloud-Quota knapp ist, werden normale Aufheiz-Befehle weiterhin gebremst.
+- Nacht-/Frostschutz-Rückstellungen haben Vorrang.
+- Wenn selbst das nicht mehr per Cloud geht, werden die Stop-Befehle zuverlässig in der Queue hinterlegt.
+- Die App zeigt dann klar: Rückstellung war fachlich angefordert, konnte aber physisch nicht zugestellt werden.
+
+## Technische Details
+
+- Keine neue Datenbanktabelle nötig
+- Keine Migration erforderlich
+- Hauptänderung ist reine Logik in der `pv-automation`-Function
+- Bestehende manuelle Cloud/Local-Umschaltung bleibt unverändert
