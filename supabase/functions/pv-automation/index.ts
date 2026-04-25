@@ -904,7 +904,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const minBatterySoc = settings?.min_battery_soc || 20;
+      // minBatterySoc removed — only heating_min_battery_soc is used (siehe SOC-Gate)
       const thresholdOn = settings?.pv_surplus_threshold_on || DEFAULT_PV_SURPLUS_THRESHOLD_ON;
       const thresholdOff = settings?.pv_surplus_threshold_off || DEFAULT_PV_SURPLUS_THRESHOLD_OFF;
       const minSwitchIntervalMs = (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN) * 60 * 1000;
