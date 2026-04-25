@@ -1658,6 +1658,19 @@ Deno.serve(async (req) => {
         // Wenn eco == night, macht Phase 1 keinen Sinn → direkt zu Phase 2 (Komfort)
         const ecoIsUseful = ecoTemp > nightTemp + 0.3;
         if (ecoIsUseful && (currentTemp < ecoTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp <= nightTemp))) {
+          // PV-Hysterese: Neue Aktivierungen erst ab pv_surplus_threshold_on; laufende Räume erst unter threshold_off stoppen.
+          const hysteresisBlocksStart = !rp.isCurrentlyHeating && gridExport < pvThresholdOn;
+          const hysteresisAllowsContinue = rp.isCurrentlyHeating && gridExport >= pvThresholdOff;
+          if (hysteresisBlocksStart) {
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: false,
+              reason: `Hysterese: Export ${gridExport}W < ${pvThresholdOn}W (Ein-Schwelle)`,
+              shouldRotate: false,
+              targetLevel: 'none'
+            });
+            console.log(`[HYSTERESIS] ${rp.room.name}: Start blockiert (Export ${gridExport}W < On=${pvThresholdOn}W)`);
+            continue;
+          }
           // Raum braucht eco
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;
