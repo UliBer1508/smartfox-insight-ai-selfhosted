@@ -1223,7 +1223,7 @@ Deno.serve(async (req) => {
           .select('soc_at_heating_start, soc_at_heating_end')
           .eq('date', trackToday)
           .maybeSingle();
-        if (wienHourNow === 9 && wienMinuteNow < 30 && !existing?.soc_at_heating_start) {
+        if (wienHourNow === getDayStartHour(settings) && wienMinuteNow < 30 && !existing?.soc_at_heating_start) {
           await supabase.from('battery_daily_tracking').upsert({
             date: trackToday, soc_at_heating_start: batterySoc,
           }, { onConflict: 'date' });
