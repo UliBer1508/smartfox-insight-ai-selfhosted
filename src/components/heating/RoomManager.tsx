@@ -314,30 +314,7 @@ export function RoomManager({ rooms, onSave, onDelete, onRoomsUpdated, isLoading
                     </div>
                   </div>
 
-                  {/* PV-Boost Max-Temperatur */}
-                  {editingRoom.pv_auto_enabled && (
-                    <div className="mt-3 p-3 bg-primary/10 rounded-lg border border-primary/20">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Zap className="h-4 w-4 text-primary" />
-                        <Label htmlFor="pv_boost_max">PV-Boost Max °C</Label>
-                      </div>
-                      <Input
-                        id="pv_boost_max"
-                        type="number"
-                        step="0.5"
-                        value={editingRoom.pv_boost_max_temp ?? ''}
-                        onChange={e => setEditingRoom({ 
-                          ...editingRoom, 
-                          pv_boost_max_temp: e.target.value ? parseFloat(e.target.value) : null 
-                        })}
-                        placeholder={`Standard: Komfort + Delta`}
-                        className="max-w-32"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1.5">
-                        Maximale Temperatur bei PV-Überschuss. Leer = Komfort + globaler Boost-Delta.
-                      </p>
-                    </div>
-                  )}
+                  {/* PV-Boost Max-Temperatur entfernt — Cap kommt aus globalem comfort_temp + pv_boost_temp_delta */}
                   
                 </div>
 
