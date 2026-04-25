@@ -344,7 +344,7 @@ ${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${we
 
 **GLOBALE TEMPERATUREINSTELLUNGEN:**
 - Komfort: ${heatingSettings?.comfort_temp || 21}°C, Eco: ${heatingSettings?.eco_temp || 18}°C, Nacht: ${heatingSettings?.night_temp || 16}°C
-- Min. SOC: ${heatingSettings?.min_battery_soc || 20}%, PV-Schwelle EIN: ${heatingSettings?.pv_surplus_threshold_on || 500}W, AUS: ${heatingSettings?.pv_surplus_threshold_off || 200}W
+- Heiz-Min-SOC: ${heatingSettings?.heating_min_battery_soc || 80}%, PV-Schwelle EIN: ${heatingSettings?.pv_surplus_threshold_on || 500}W, AUS: ${heatingSettings?.pv_surplus_threshold_off || 200}W
 
 **RÄUME MIT VOLLSTÄNDIGEN EINSTELLUNGEN:**
 ${rooms?.map((r: Record<string, unknown>) => {
@@ -801,7 +801,7 @@ Ordne Spitzen den bekannten Verbrauchern zu. Antworte auf Deutsch.`;
 ${heatingTypeRaw === 'direct_electric' ? '(Keine Wärmepumpe - nur Stromdirektheizung-relevante Tipps!)' : ''}
 
 **Verbraucher:** Heizung ${totalHeatingPower}W, Warmwasser ${heatingSettings?.hotwater_power_w || 6000}W
-**Batterie:** ${heatingSettings?.battery_capacity_kwh || 13.8}kWh, Min-SoC ${heatingSettings?.min_battery_soc || 20}%
+**Batterie:** ${heatingSettings?.battery_capacity_kwh || 13.8}kWh, Heiz-Min-SoC ${heatingSettings?.heating_min_battery_soc || 80}%
 
 **Daten:**
 ${readings.map((r: Record<string, unknown>) => `${r.date}: Peak ${r.peak_power}W, Avg ${r.avg_power}W, Import ${r.total_energy_in}kWh, Export ${r.total_energy_out}kWh`).join('\n')}
