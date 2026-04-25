@@ -651,7 +651,7 @@ Deno.serve(async (req) => {
 
       // NIGHT PAUSE: Skip Tuya cloud calls during night hours to save API quota
       const nightStartTime = settings?.night_start_time || '22:00';
-      const nightEndTime = settings?.night_end_time || '06:00';
+      const nightEndTime = settings?.night_end_time || '08:00';
       const { isNight, wienTime, wienHour: preNightWienHour } = isNightTime(nightStartTime, nightEndTime);
       
       if (isNight) {
