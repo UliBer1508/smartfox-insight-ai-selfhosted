@@ -1282,13 +1282,12 @@ Deno.serve(async (req) => {
       const pvThresholdOn = settings?.pv_surplus_threshold_on || 500;
       const pvThresholdOff = settings?.pv_surplus_threshold_off || 200;
       const floorResponseHours = settings?.floor_heating_response_hours || 0;
-      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor night_end_time (Wien),
-      // damit Fußbodenheizung mit Vorlauf starten kann — aber Untergrenze 09:00 (siehe night-and-day-logic-constraints).
-      const _nightEndHour = parseInt((settings?.night_end_time || '06:00').split(':')[0], 10) || 6;
-      const dayWindowStartHour = Math.max(9 - Math.round(floorResponseHours), 6);
-      // Hinweis: Standard-Verhalten bleibt 09:00 (floor_response_hours=0 ⇒ start=9). Werte 1-3h erlauben Vorlauf bis frühestens 06:00.
+      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor settings.night_end_time (Wien),
+      // damit Fußbodenheizung mit Vorlauf starten kann — Untergrenze 06:00.
+      const _dayStartHour = getDayStartHour(settings);
+      const dayWindowStartHour = Math.max(_dayStartHour - Math.round(floorResponseHours), 6);
       if (floorResponseHours > 0) {
-        console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor 09:00, Untergrenze 06:00)`);
+        console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor ${formatDayStart(settings)}, Untergrenze 06:00)`);
       }
 
 
