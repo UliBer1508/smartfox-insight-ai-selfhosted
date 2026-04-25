@@ -877,12 +877,13 @@ Deno.serve(async (req) => {
       // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
       if (quotaExhausted && controlMode === 'cloud') {
-        // Prüfe ob kritische Eco-Transition nötig ist (Räume noch auf Nacht-Temp nach 9:00)
-        // Critical-Eco-Transition NUR im Morgen-Fenster (09:00–09:29 Wien-Zeit) wenn Räume noch auf Nacht.
+        // Prüfe ob kritische Eco-Transition nötig ist (Räume noch auf Nacht-Temp nach Tagstart)
+        // Critical-Eco-Transition NUR im Morgen-Fenster (dayStart..dayStart+29 min Wien-Zeit) wenn Räume noch auf Nacht.
         // Vorher: griff auch abends/nachts und verschwendete Quota.
         let needsCriticalEcoTransition = false;
         const _wienMinForTransition = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', minute: '2-digit' }));
-        if (preNightWienHour === 9 && _wienMinForTransition < 30) {
+        const _dayStartHour = getDayStartHour(settings);
+        if (preNightWienHour === _dayStartHour && _wienMinForTransition < 30) {
           const { data: ecoCheckRooms } = await supabase
             .from('rooms')
             .select('id, target_temp, eco_temp, tuya_device_id, automation_enabled')
