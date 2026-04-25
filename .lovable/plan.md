@@ -1,74 +1,74 @@
 
+# Option C: Mischform — Implementieren + Aufräumen
 
-## Befund: Warum kein Komfort trotz 9,3 kW Überschuss
+Ziel: Jeder einstellbare Parameter im UI hat eine echte Wirkung. Reine "Show-Felder" werden entfernt.
 
-Aktueller Zustand laut DB und Logs:
-- Export: **9,3 kW**, PV: **10,4 kW**, Verbrauch: **769 W**, Batterie: **100% (voll)**
-- Alle Räume haben `pv_auto_enabled = true`, `automation_enabled = true`, kein `heating_paused_reason`
-- SOC-Gate offen (100% > 80%)
+---
 
-Trotzdem zeigen die Logs für **alle** Räume nur Phase 1 (Eco) — nie Phase 2 (Komfort). Beispiele:
-- `Wohnzimmer: ✅ Eco erreicht (21.7°C), kein Komfort-Budget` → Komfort wäre 22°C, müsste also weiter heizen
-- `Büro: ✅ Eco erreicht (20.4°C)` → Komfort 21°C, müsste weiter
-- `Bad Uli/Zimmer Uli/Luis/Luca/Kinder Bad: Phase 1: Eco 21°C` → bleibt strikt auf Eco-Ziel, obwohl Komfort 22°C wäre
+## A) Parameter, die echte Logik bekommen (implementieren)
 
-### Ursachen-Analyse
+### 1. `consumer_priority` → echte Reihenfolge in `pv-automation`
+- **Aktuell:** UI-Dropdown (`battery,hotwater,heating,car`), aber Code hat Reihenfolge hartcodiert.
+- **Fix:** In `supabase/functions/pv-automation/index.ts` die Bonus-/Budget-Allokation an die in `consumer_priority` definierte Reihenfolge koppeln:
+  - `battery` vor `heating` → Batterieladung-Reserve abziehen (heutiges Verhalten).
+  - `heating` vor `battery` → Reserve entfällt, Eco-Budget = voller `gridExport + tolerance`.
+  - `hotwater` vor `heating` → Heizungs-Eco erst freigeben, wenn Warmwasser-Slot (`hotwater_schedule_*`) abgedeckt ist.
+  - `car` vor `heating` → `car_min_charge_power_w` vom `availableBudget` abziehen, solange `car_charging_enabled = true`.
+- **Erweiterung:** `car_min_charge_power_w` wird damit ebenfalls echt verwendet (heute nur Default).
 
-**1. Komfort-Budget wird auf 0 gesetzt — wahrscheinlich durch Komfort-Hard-Lock**
+### 2. `electricity_base_fee_year_eur` → echte Kostenrechnung
+- **Aktuell:** Nur in `useHeatingSettings.ts` Default, nirgends gelesen.
+- **Fix:** In `EnergyCostWidget.tsx` und `useEnergyCosts.ts` die jährliche Grundgebühr anteilig (`base_fee / 365`) zu `grid_cost_eur` pro Tag addieren. Tooltip/Legende ergänzen ("inkl. Grundgebühr X€/Jahr").
 
-Laut Memory `pv-automation-budget-logic-v2`:
-> **Komfort-Hard-Lock (immer aktiv):** Sobald `batterySoc < heatingMinSoc` → `comfortBudget = 0`
+### 3. `pv_surplus_threshold_on/off` → echte Hysterese in Heiz-Aktivierung
+- **Aktuell:** Nur in PV-Automation-Settings-Initialisierung gelesen (Zeilen 335/336/908/909) — aber **nicht** als Aktivierungs-/Deaktivierungs-Schwelle für Räume verwendet (dort wird `availableBudget` direkt verglichen).
+- **Fix:** In `pv-automation` Eco-Aktivierungs-Pfad eine echte Hysterese einbauen:
+  - Raum darf nur aktiviert werden, wenn `gridExport >= pv_surplus_threshold_on`.
+  - Raum wird deaktiviert, wenn `gridExport < pv_surplus_threshold_off` (in Verbindung mit bestehender toleranter Deaktivierung).
+- Damit haben die UI-Felder echte Wirkung, statt nur als Default für ein nicht genutztes Feature zu dienen.
 
-Der SOC ist bei **100%**, also dürfte der Lock NICHT greifen. Trotzdem sehen wir kein Komfort. Das deutet auf einen Bug in der Komfort-Budget-Berechnung hin: Vermutlich wird `comfortBudget` aktuell aus etwas anderem als reinem `gridExport` berechnet (z.B. wird `currentlyHeatingPower` falsch abgezogen, weil `is_heating=false` für alle, also `currentlyHeatingPower=0`, und dann eine andere Subtraktion das Budget auf 0 zieht).
+### 4. `floor_heating_response_hours` → echtes Pre-Heat
+- **Aktuell:** UI-Feld, kein Code-Konsument.
+- **Fix:** In Eco-Aktivierungs-Logik: Wenn aktuelle Wien-Zeit `< (night_end_time + 0)` und `<= (night_end_time + floor_heating_response_hours)`, darf Eco bereits eine Stunde vor `night_end_time` mit Vorlauf starten — nur wenn `gridExport > pv_surplus_threshold_on`. So wird die Trägheit der Fußbodenheizung realistisch berücksichtigt.
 
-**2. „Eco erreicht" stoppt Komfort-Upgrade vorzeitig**
+---
 
-Bei Räumen wie Wohnzimmer (21.7°C bei Eco=21°C, Komfort=22°C) und Büro (20.4°C bei Eco=20°C, Komfort=21°C) wird die Logik mit `✅ Eco erreicht, kein Komfort-Budget` beendet. Das heißt: Sobald Eco erreicht ist, wird gar nicht mehr geprüft, ob Komfort-Budget vorhanden wäre. Das ist die falsche Reihenfolge laut Strategie v2 — Phase 2 soll explizit nach Phase 1 evaluiert werden.
+## B) Parameter, die aus dem UI entfernt werden (DB-Spalten bleiben)
 
-**3. „SKIP - already at 21°C" blockiert Komfort-Upgrade**
+In `src/components/heating/HeatingSettingsForm.tsx` und `src/components/heating/RoomManager.tsx` entfernen:
 
-Räume wie Bad Uli, Zimmer Uli/Luis/Luca, Kinder Bad zeigen:
-> `SKIP - already at 21°C, state=active`
+1. **`preheat_hours`** — wird durch das neue `floor_heating_response_hours` (Pkt. A4) ersetzt; doppeltes Konzept.
+2. **`pv_boost_max_temp`** (RoomManager Zeile 328) — kein Code-Konsument; Komfort-Cap wird bereits durch `comfort_temp + pv_boost_temp_delta` (globale Heizungs-Settings) erreicht.
+3. **`solar_heating_temp`** (Room-Spalte) — bereits per Memo `solar-logic-simplified-removal` deprecated.
+4. **`estrich_storage_enabled`** — nur in AI-Prompts; entweder ganz raus oder klar als "AI-Hint" labeln. Plan: entfernen.
+5. **`night_cycling_enabled`** + **`avg_night_cycles_per_room`** — nur in Pattern-Analyse-Prompt. Plan: entfernen, AI-Prompt nutzt stattdessen die echten `room_heating_logs`.
 
-Sie sind bereits auf Eco-Sollwert 21°C (≠ Komfort 22°C). Der Code skipt aber komplett, statt zu prüfen: „Sollwert ist nur Eco — Komfort wäre höher — gibt es Komfort-Budget?" → niemals Upgrade auf 22°C.
+DB-Spalten **bleiben** (kein Migration-Risiko, kein Datenverlust). Nur UI-Felder werden entfernt.
 
-**4. Bad Uli/Zimmer Uli haben aktiven manual_override**
+---
 
-`manual_override_until = 2026-04-22` — das liegt **in der Zukunft** (heute ist 2026-04-24, also eigentlich abgelaufen). 22.04 < 24.04, also abgelaufen, kein Override mehr aktiv. Trotzdem prüfen, dass die Logik abgelaufene Overrides nicht fälschlich als aktiv liest.
+## C) Memory-Updates
 
-### Lösung
+- Neuer Eintrag `mem://features/heating/parameter-usage-audit-c.md`: dokumentiert welcher Parameter wo wirkt.
+- Update `mem://arch/pv-automation-budget-logic-v2`: Hysterese (`pv_surplus_threshold_on/off`) und `consumer_priority`-Reihenfolge ergänzen.
+- Update `mem://features/heating/night-and-day-logic-constraints`: `floor_heating_response_hours` als legitimer Vorlauf vor `night_end_time`.
+- Update `mem://index.md` Core: Hinweis "Alle UI-Settings haben aktive Logik — keine Dekorations-Felder".
 
-**Fix A: Komfort-Phase auch bei „Eco erreicht" prüfen**
-Im 2-Phasen-Branch in `pv-automation/index.ts`: Wenn `currentRoomTemp >= ecoTarget` UND `comfortTemp > ecoTarget` UND `comfortBudget > roomPower` → Upgrade auf Komfort, statt early-return mit „kein Komfort-Budget".
+---
 
-**Fix B: SKIP-Logik darf Komfort-Upgrade nicht blockieren**
-„SKIP — already at 21°C" darf nur greifen, wenn der Sollwert bereits Komfort-Niveau hat. Wenn aktueller Sollwert = Eco UND Komfort wäre höher UND Budget reicht → Sollwert auf Komfort hochsetzen.
+## D) Betroffene Dateien
 
-**Fix C: Komfort-Budget-Berechnung verifizieren und loggen**
-Aktuell loggt das System nicht, **welcher Wert** für `comfortBudget` berechnet wurde. Klar machen: bei 9,3 kW Export und 100% SOC sollte Komfort-Budget ≈ 9300 W sein. Logging-Zeile pro Raum hinzufügen: `comfortBudget=X W, roomPower=Y W, decision=Z`. So sieht man sofort, ob es ein Berechnungs-Bug oder ein Verzweigungs-Bug ist.
+- `supabase/functions/pv-automation/index.ts` (consumer_priority, hysterese, floor_heating_response_hours, car_min_charge_power_w)
+- `src/hooks/useEnergyCosts.ts` + `src/components/energy/EnergyCostWidget.tsx` (Grundgebühr)
+- `src/components/heating/HeatingSettingsForm.tsx` (entfernen: preheat_hours, estrich_storage_enabled, night_cycling_enabled, avg_night_cycles_per_room)
+- `src/components/heating/RoomManager.tsx` (entfernen: pv_boost_max_temp, solar_heating_temp Felder)
+- `src/hooks/useHeatingSettings.ts` (Defaults der entfernten Felder bereinigen)
+- 4 Memory-Dateien (siehe C)
 
-**Fix D: Abgelaufene `manual_override_until` zuverlässig ignorieren**
-Sicherstellen, dass `manual_override_until < now()` als „kein Override" behandelt wird (in Wien-Zeit).
+---
 
-### Konkrete Dateien
+## Nicht im Scope
 
-- `supabase/functions/pv-automation/index.ts`
-  - 2-Phasen-Entscheidungsblock (Eco → Komfort Übergang)
-  - SKIP-Branch erweitern um Komfort-Check
-  - Komfort-Budget-Logging
-  - Manual-override Vergleich strikt gegen `now()`
-- Memory-Update: `mem://arch/pv-automation-strategy-v2` mit der korrigierten Eco→Komfort-Übergangslogik
-
-### Erwartetes Verhalten nach Fix
-
-Bei 9,3 kW Export und vollem Akku:
-- Wohnzimmer (21.7°C, Komfort 22°C) → Sollwert 22°C
-- Büro (20.4°C, Komfort 21°C) → Sollwert 21°C
-- Bad Uli, Zimmer Uli/Luis/Luca, Kinder Bad → Sollwert 22°C statt 21°C
-- Räume mit Komfort = Eco bleiben unverändert
-
-### Nicht enthalten / Risiken
-
-- Tuya-Quota ist erschöpft (203/200) → die neuen Komfort-Sollwerte können möglicherweise nicht sofort gesendet werden. Das ist ein separates Thema (bereits adressierter Reserve-Mechanismus für Stop-Befehle gilt nicht für Heizen-hoch). Sobald die Quota nachts resettet, greift die neue Logik korrekt.
-- Keine DB-Migration, keine Frontend-Änderung.
-
+- Keine DB-Migrationen (Spalten bleiben, falls später wieder gebraucht).
+- Keine Änderung an Tuya-Quota-Logik (ist eigenes Thema, separat halten).
+- Keine Änderung am 09:00-Hardcode (Punkt 1 aus vorherigem Plan ist separat).
