@@ -358,6 +358,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           pvEnergy={pvEnergy}
           electricityPriceCent={settings.electricity_price_kwh_cent ?? 20.28}
           feedInPriceCent={settings.feed_in_price_kwh_cent ?? 8.0}
+          baseFeePerYearEur={settings.electricity_base_fee_year_eur ?? 36.0}
         />
       </div>
 

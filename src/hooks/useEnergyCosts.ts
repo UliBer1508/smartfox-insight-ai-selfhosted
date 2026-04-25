@@ -40,7 +40,8 @@ export function useEnergyCosts(
   todayEnergyOut: number,
   todayPvEnergy: number,
   electricityPriceCent: number,
-  feedInPriceCent: number
+  feedInPriceCent: number,
+  baseFeePerYearEur: number = 0
 ): EnergyCostsResult {
   const [costs, setCosts] = useState<Record<CostPeriod, CostData>>({
     day: { ...emptyCost },
@@ -53,10 +54,13 @@ export function useEnergyCosts(
   const lastSaveRef = useRef<number>(0);
   const SAVE_INTERVAL_MS = 5 * 60 * 1000; // Alle 5 Minuten speichern
 
+  // Grundgebühr pro Tag (anteilig 1/365 vom Jahresbetrag)
+  const baseFeePerDayEur = baseFeePerYearEur / 365;
+
   // Berechne aktuelle Tageskosten aus Props
   const calculateTodayCosts = useCallback((): CostData => {
     const selfConsumption = Math.max(0, todayPvEnergy - todayEnergyOut);
-    const gridCost = (todayEnergyIn * electricityPriceCent) / 100;
+    const gridCost = (todayEnergyIn * electricityPriceCent) / 100 + baseFeePerDayEur;
     const feedInEarnings = (todayEnergyOut * feedInPriceCent) / 100;
     const pvSavings = (selfConsumption * electricityPriceCent) / 100;
     const netBalance = feedInEarnings + pvSavings - gridCost;
@@ -71,7 +75,7 @@ export function useEnergyCosts(
       pvSavings,
       netBalance,
     };
-  }, [todayEnergyIn, todayEnergyOut, todayPvEnergy, electricityPriceCent, feedInPriceCent]);
+  }, [todayEnergyIn, todayEnergyOut, todayPvEnergy, electricityPriceCent, feedInPriceCent, baseFeePerDayEur]);
 
   // Speichere aktuelle Tagesdaten
   const saveTodayCosts = useCallback(async () => {

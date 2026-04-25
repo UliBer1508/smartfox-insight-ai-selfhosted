@@ -1221,6 +1221,34 @@ Deno.serve(async (req) => {
       // Calculate grid export (negative power_io means export)
       const gridExport = reading.power_io < 0 ? -reading.power_io : 0;
 
+      // ============= CONSUMER PRIORITY (UI-konfigurierbar) =============
+      // Reihenfolge bestimmt: (a) ob Batterie-Reserve vor Heizung steht und (b)
+      // welche Verbraucher Budget vor der Heizung beanspruchen.
+      const priorityListRaw = (settings?.consumer_priority || 'battery,hotwater,heating,car')
+        .split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean);
+      const idxHeating = priorityListRaw.indexOf('heating');
+      const idxBattery = priorityListRaw.indexOf('battery');
+      const idxHotwater = priorityListRaw.indexOf('hotwater');
+      const idxCar = priorityListRaw.indexOf('car');
+      const batteryBeforeHeating = idxBattery !== -1 && (idxHeating === -1 || idxBattery < idxHeating);
+      const hotwaterBeforeHeating = idxHotwater !== -1 && (idxHeating === -1 || idxHotwater < idxHeating);
+      const carBeforeHeating = idxCar !== -1 && (idxHeating === -1 || idxCar < idxHeating);
+
+      // Hotwater-Vorrang: aktuelles Zeitfenster prüfen
+      const hwStart = settings?.hotwater_schedule_start || '10:00';
+      const hwEnd = settings?.hotwater_schedule_end || '16:00';
+      const hwHourNow = currentWienHour + 0;
+      const hwStartH = parseInt(hwStart.split(':')[0], 10) || 10;
+      const hwEndH = parseInt(hwEnd.split(':')[0], 10) || 16;
+      const hotwaterActiveWindow = (settings?.hotwater_enabled !== false) && hwHourNow >= hwStartH && hwHourNow < hwEndH;
+      const hotwaterReserveW = (hotwaterBeforeHeating && hotwaterActiveWindow)
+        ? Math.max(0, settings?.hotwater_power_w || 0) : 0;
+      const carReserveW = (carBeforeHeating && settings?.car_charging_enabled === true)
+        ? Math.max(0, settings?.car_min_charge_power_w || 0) : 0;
+      if (hotwaterReserveW > 0 || carReserveW > 0) {
+        console.log(`[CONSUMER-PRIORITY] vorrangig: Warmwasser=${hotwaterReserveW}W, Auto=${carReserveW}W (Reihenfolge: ${priorityListRaw.join('>')})`);
+      }
+
       // ============= LEISTUNGSBUDGET-MANAGEMENT =============
       // Berechne verfügbares Budget basierend auf PV-Leistung oder Netz-Maximum
       const powerBudgetEnabled = settings?.power_budget_enabled !== false;
@@ -1228,7 +1256,19 @@ Deno.serve(async (req) => {
       const powerBudgetTolerance = settings?.power_budget_tolerance_w || 200;
       const roomRotationMinutes = settings?.room_rotation_minutes || 30;
       const minRoomPauseMinutes = settings?.min_room_pause_minutes || 15;
-      
+      const pvThresholdOn = settings?.pv_surplus_threshold_on || 500;
+      const pvThresholdOff = settings?.pv_surplus_threshold_off || 200;
+      const floorResponseHours = settings?.floor_heating_response_hours || 0;
+      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor night_end_time (Wien),
+      // damit Fußbodenheizung mit Vorlauf starten kann — aber Untergrenze 09:00 (siehe night-and-day-logic-constraints).
+      const _nightEndHour = parseInt((settings?.night_end_time || '06:00').split(':')[0], 10) || 6;
+      const dayWindowStartHour = Math.max(9 - Math.round(floorResponseHours), 6);
+      // Hinweis: Standard-Verhalten bleibt 09:00 (floor_response_hours=0 ⇒ start=9). Werte 1-3h erlauben Vorlauf bis frühestens 06:00.
+      if (floorResponseHours > 0) {
+        console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor 09:00, Untergrenze 06:00)`);
+      }
+
+
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
@@ -1251,7 +1291,7 @@ Deno.serve(async (req) => {
           // HARD-GATE: Nur wenn Batterie über Schutz-SOC UND kein Netzbezug (echter Überschuss)
           const realSurplusOk = (reading.power_io ?? 0) <= 50;
           const socOkForForecast = batterySoc >= heatingMinSoc;
-          if (currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+          if (currentWienHour >= dayWindowStartHour && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
             if (socOkForForecast && realSurplusOk) {
               const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
               if (forecastMinBudget > baseBudget) {
@@ -1288,7 +1328,25 @@ Deno.serve(async (req) => {
               console.log(`[PV-Automation] 🌅 Batterie-Korrektur für Eco aufgehoben: ${batteryDrain}W Entladung erlaubt (Abend-Reserve, SOC ${batterySoc}%)`);
             }
           }
-          
+
+          // Konsumenten-Vorrang (UI: consumer_priority): WW/Auto vor Heizung → Reserve abziehen
+          if (hotwaterReserveW > 0 || carReserveW > 0) {
+            const before = baseBudget;
+            baseBudget = Math.max(0, baseBudget - hotwaterReserveW - carReserveW);
+            console.log(`[CONSUMER-PRIORITY] Eco-Budget reduziert ${before}W → ${baseBudget}W (WW ${hotwaterReserveW}W, Auto ${carReserveW}W)`);
+          }
+
+          // Wenn Heizung NICHT vor Batterie steht (Standard: battery>heating), bleibt bisherige Reserve aktiv.
+          // Wenn Heizung VOR Batterie konfiguriert ist, hebe die Batterie-Ladereserve auf:
+          if (!batteryBeforeHeating && batteryPower > 0 && batterySoc < heatingMinSoc) {
+            console.log(`[CONSUMER-PRIORITY] Heizung vor Batterie → Batterie-Ladereserve aufgehoben`);
+            // (Reserve wurde oben bereits abgezogen → wieder zurückaddieren)
+            const range = Math.max(10, heatingMinSoc - 30);
+            const batteryPriority = batterySoc < 30 ? 1.0 : (heatingMinSoc - batterySoc) / range;
+            const batteryReserve = Math.round(batteryPower * batteryPriority);
+            baseBudget = baseBudget + batteryReserve;
+          }
+
           availableBudget = Math.max(0, baseBudget);
           
           // ============= GESTUFTER PROGNOSE-BONUS (nur Eco, mit SOC-Gates) =============
@@ -1296,7 +1354,7 @@ Deno.serve(async (req) => {
           // wird das Eco-Budget hochgestuft, damit auch bei wenig Live-Export geheizt werden kann.
           // Komfort bleibt strikt — kein Bonus für Komfort.
           let prognoseBonus = 0;
-          if (currentWienHour >= 9 && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+          if (currentWienHour >= dayWindowStartHour && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
             const bonusSocOk = batterySoc >= heatingMinSoc;
             const bonusGridOk = (reading.power_io ?? 0) <= 50;
             if (!bonusSocOk || !bonusGridOk) {
@@ -1362,7 +1420,7 @@ Deno.serve(async (req) => {
           }
           comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
-        } else if (!afterSunset && currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
+        } else if (!afterSunset && currentWienHour >= dayWindowStartHour && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
           // Tagsüber, wenig aktueller PV-Export, aber Tagesprognose reicht für Eco
           // → Mindest-Budget aus Stunden-Prognose erlauben (sequentielles Heizen)
           budgetMode = 'grid_sequential';
@@ -1600,6 +1658,19 @@ Deno.serve(async (req) => {
         // Wenn eco == night, macht Phase 1 keinen Sinn → direkt zu Phase 2 (Komfort)
         const ecoIsUseful = ecoTemp > nightTemp + 0.3;
         if (ecoIsUseful && (currentTemp < ecoTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp <= nightTemp))) {
+          // PV-Hysterese: Neue Aktivierungen erst ab pv_surplus_threshold_on; laufende Räume erst unter threshold_off stoppen.
+          const hysteresisBlocksStart = !rp.isCurrentlyHeating && gridExport < pvThresholdOn;
+          const hysteresisAllowsContinue = rp.isCurrentlyHeating && gridExport >= pvThresholdOff;
+          if (hysteresisBlocksStart) {
+            roomBudgetStatus.set(rp.room.id, {
+              allowedToHeat: false,
+              reason: `Hysterese: Export ${gridExport}W < ${pvThresholdOn}W (Ein-Schwelle)`,
+              shouldRotate: false,
+              targetLevel: 'none'
+            });
+            console.log(`[HYSTERESIS] ${rp.room.name}: Start blockiert (Export ${gridExport}W < On=${pvThresholdOn}W)`);
+            continue;
+          }
           // Raum braucht eco
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;

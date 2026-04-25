@@ -10,6 +10,7 @@ interface EnergyCostWidgetProps {
   pvEnergy: number;
   electricityPriceCent: number;
   feedInPriceCent: number;
+  baseFeePerYearEur?: number;
 }
 
 export function EnergyCostWidget({
@@ -18,6 +19,7 @@ export function EnergyCostWidget({
   pvEnergy,
   electricityPriceCent,
   feedInPriceCent,
+  baseFeePerYearEur = 0,
 }: EnergyCostWidgetProps) {
   const [period, setPeriod] = useState<CostPeriod>("day");
   
@@ -26,7 +28,8 @@ export function EnergyCostWidget({
     energyOut,
     pvEnergy,
     electricityPriceCent,
-    feedInPriceCent
+    feedInPriceCent,
+    baseFeePerYearEur
   );
 
   const data = costs[period];
@@ -77,6 +80,9 @@ export function EnergyCostWidget({
               </div>
               <div className="text-xs text-muted-foreground text-right">
                 {data.energyIn.toFixed(2)} kWh × {electricityPriceCent.toFixed(2)} ct/kWh
+                {baseFeePerYearEur > 0 && (
+                  <> · inkl. Grundgebühr {baseFeePerYearEur.toFixed(2)} €/Jahr</>
+                )}
               </div>
             </div>
 

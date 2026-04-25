@@ -541,61 +541,22 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                 <p className="text-xs text-muted-foreground">Summe aller Räume (installiert)</p>
               </div>
             </div>
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-1 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="response_hours">Reaktionszeit (Stunden)</Label>
+                <Label htmlFor="response_hours">Reaktionszeit / Vorlauf (Stunden)</Label>
                 <Input
                   id="response_hours"
                   type="number"
-                  min="0.5"
-                  max="8"
+                  min="0"
+                  max="3"
                   step="0.5"
-                  value={formData.floor_heating_response_hours || 2}
+                  value={formData.floor_heating_response_hours ?? 0}
                   onChange={(e) => handleChange('floor_heating_response_hours', parseFloat(e.target.value))}
                 />
-                <p className="text-xs text-muted-foreground">Aufheizzeit</p>
+                <p className="text-xs text-muted-foreground">
+                  Trägheit der Fußbodenheizung. Erlaubt Vorlauf bis max. 3h vor 09:00 (Untergrenze 06:00) bei PV-Überschuss.
+                </p>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="night_cycling">Nacht-Taktung</Label>
-                <div className="flex items-center space-x-2 pt-2">
-                  <Switch
-                    id="night_cycling"
-                    checked={formData.night_cycling_enabled ?? true}
-                    onCheckedChange={(checked) => handleChange('night_cycling_enabled', checked)}
-                  />
-                  <span className="text-sm text-muted-foreground">
-                    {formData.night_cycling_enabled !== false ? 'Aktiv' : 'Aus'}
-                  </span>
-                </div>
-                <p className="text-xs text-muted-foreground">Thermostate takten nachts</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="night_cycles">Zyklen/Raum/Nacht</Label>
-                <Input
-                  id="night_cycles"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={formData.avg_night_cycles_per_room || 4}
-                  onChange={(e) => handleChange('avg_night_cycles_per_room', parseInt(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground">Erklärt Nacht-Verbrauchsspitzen</p>
-              </div>
-            </div>
-            <div className="mt-4">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="estrich"
-                  checked={formData.estrich_storage_enabled ?? true}
-                  onCheckedChange={(checked) => handleChange('estrich_storage_enabled', checked)}
-                />
-                <Label htmlFor="estrich" className="text-sm">
-                  Estrich als Wärmespeicher nutzen
-                </Label>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Bei PV-Überschuss den Estrich aufheizen, um Wärme zu speichern
-              </p>
             </div>
           </div>
 
