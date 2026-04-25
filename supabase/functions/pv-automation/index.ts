@@ -48,6 +48,28 @@ function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: b
   return { isNight, wienTime, wienHour };
 }
 
+// Helper: Robustes Parsen von "HH:MM" oder "HH:MM:SS"
+function parseTimeOfDay(s: string | undefined | null, fallback = '08:00'): { hour: number; minute: number } {
+  const src = (s && typeof s === 'string' && s.length >= 4) ? s : fallback;
+  const parts = src.split(':');
+  const hour = Math.max(0, Math.min(23, parseInt(parts[0], 10) || 0));
+  const minute = Math.max(0, Math.min(59, parseInt(parts[1], 10) || 0));
+  return { hour, minute };
+}
+
+// Helper: Tagstart-Stunde (aus settings.night_end_time, Default 08:00)
+function getDayStartHour(settings: any): number {
+  return parseTimeOfDay(settings?.night_end_time, '08:00').hour;
+}
+function getDayStartMinute(settings: any): number {
+  return parseTimeOfDay(settings?.night_end_time, '08:00').minute;
+}
+function formatDayStart(settings: any): string {
+  const h = getDayStartHour(settings);
+  const m = getDayStartMinute(settings);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 // (isMorningWaitPeriod entfernt — Thermostate regeln passiven Solargewinn selbst, alle Räume gleich behandelt)
 
 // (isOptimalHeatingTime entfernt — normale Tag-Logik übernimmt)
