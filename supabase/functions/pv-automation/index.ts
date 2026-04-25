@@ -1259,13 +1259,15 @@ Deno.serve(async (req) => {
       const pvThresholdOn = settings?.pv_surplus_threshold_on || 500;
       const pvThresholdOff = settings?.pv_surplus_threshold_off || 200;
       const floorResponseHours = settings?.floor_heating_response_hours || 0;
-      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor night_end_time (min 06:00 Wien),
-      // damit Fußbodenheizung mit Vorlauf starten kann — aber nur bei echtem PV-Überschuss (Hysterese unten).
+      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor night_end_time (Wien),
+      // damit Fußbodenheizung mit Vorlauf starten kann — aber Untergrenze 09:00 (siehe night-and-day-logic-constraints).
       const _nightEndHour = parseInt((settings?.night_end_time || '06:00').split(':')[0], 10) || 6;
-      const dayWindowStartHour = Math.max(6, _nightEndHour - Math.round(floorResponseHours));
-      if (floorResponseHours > 0 && currentWienHour >= dayWindowStartHour && currentWienHour < _nightEndHour) {
-        console.log(`[PRE-HEAT] Vorlauf-Fenster aktiv: Stunde ${currentWienHour} liegt in [${dayWindowStartHour}, ${_nightEndHour}) — floor_heating_response_hours=${floorResponseHours}h`);
+      const dayWindowStartHour = Math.max(9 - Math.round(floorResponseHours), 6);
+      // Hinweis: Standard-Verhalten bleibt 09:00 (floor_response_hours=0 ⇒ start=9). Werte 1-3h erlauben Vorlauf bis frühestens 06:00.
+      if (floorResponseHours > 0) {
+        console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor 09:00, Untergrenze 06:00)`);
       }
+
 
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
