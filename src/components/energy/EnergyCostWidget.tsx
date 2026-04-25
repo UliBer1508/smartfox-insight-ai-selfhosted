@@ -80,6 +80,9 @@ export function EnergyCostWidget({
               </div>
               <div className="text-xs text-muted-foreground text-right">
                 {data.energyIn.toFixed(2)} kWh × {electricityPriceCent.toFixed(2)} ct/kWh
+                {baseFeePerYearEur > 0 && (
+                  <> · inkl. Grundgebühr {baseFeePerYearEur.toFixed(2)} €/Jahr</>
+                )}
               </div>
             </div>
 
