@@ -79,34 +79,6 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </div>
           </div>
 
-          {/* Battery SOC Targets */}
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="min_soc">Min. Batterie-SOC (%)</Label>
-              <Input
-                id="min_soc"
-                type="number"
-                min="0"
-                max="100"
-                value={formData.min_battery_soc}
-                onChange={(e) => handleChange('min_battery_soc', parseInt(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">Reserve für Notfälle</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="target_soc">Ziel Batterie-SOC (%)</Label>
-              <Input
-                id="target_soc"
-                type="number"
-                min="0"
-                max="100"
-                value={formData.target_battery_soc}
-                onChange={(e) => handleChange('target_battery_soc', parseInt(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">Ab hier Heizung nutzen</p>
-            </div>
-          </div>
-
           {/* Nacht-Zeiten */}
           <div className="border-t pt-4">
             <h3 className="text-sm font-medium flex items-center gap-2 mb-4">

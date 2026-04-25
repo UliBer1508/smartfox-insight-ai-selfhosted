@@ -6,8 +6,6 @@ import { toast } from 'sonner';
 const defaultSettings: HeatingSettings = {
   pv_capacity_kwp: 15.8,
   battery_capacity_kwh: 13.8,
-  min_battery_soc: 20,
-  target_battery_soc: 80,
   comfort_temp: 21,
   eco_temp: 19,
   night_temp: 18,

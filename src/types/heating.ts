@@ -15,8 +15,10 @@ export interface HeatingSettings {
   id?: string;
   pv_capacity_kwp: number;
   battery_capacity_kwh: number;
-  min_battery_soc: number;
-  target_battery_soc: number;
+  /** @deprecated unused — kept as optional for backward compatibility with DB column */
+  min_battery_soc?: number;
+  /** @deprecated unused — use heating_min_battery_soc instead */
+  target_battery_soc?: number;
   comfort_temp: number;
   eco_temp: number;
   night_temp: number;
