@@ -107,43 +107,6 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </div>
           </div>
 
-          {/* Temperatures */}
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="comfort_temp">Komfort-Temp. (°C)</Label>
-              <Input
-                id="comfort_temp"
-                type="number"
-                step="0.5"
-                value={formData.comfort_temp}
-                onChange={(e) => handleChange('comfort_temp', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">Bei PV-Überschuss</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="eco_temp">Eco-Temp. (°C)</Label>
-              <Input
-                id="eco_temp"
-                type="number"
-                step="0.5"
-                value={formData.eco_temp}
-                onChange={(e) => handleChange('eco_temp', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">Normal-Betrieb</p>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="night_temp">Nacht-Temp. (°C)</Label>
-              <Input
-                id="night_temp"
-                type="number"
-                step="0.5"
-                value={formData.night_temp}
-                onChange={(e) => handleChange('night_temp', parseFloat(e.target.value))}
-              />
-              <p className="text-xs text-muted-foreground">Während Nacht-Zeiten</p>
-            </div>
-          </div>
-
           {/* Nacht-Zeiten */}
           <div className="border-t pt-4">
             <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
