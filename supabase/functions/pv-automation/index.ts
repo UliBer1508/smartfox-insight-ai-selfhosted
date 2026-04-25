@@ -1289,7 +1289,7 @@ Deno.serve(async (req) => {
           // HARD-GATE: Nur wenn Batterie über Schutz-SOC UND kein Netzbezug (echter Überschuss)
           const realSurplusOk = (reading.power_io ?? 0) <= 50;
           const socOkForForecast = batterySoc >= heatingMinSoc;
-          if (currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+          if (currentWienHour >= dayWindowStartHour && pvSufficientForEco && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
             if (socOkForForecast && realSurplusOk) {
               const forecastMinBudget = Math.max(0, currentHourForecastCorrected - baseLoad);
               if (forecastMinBudget > baseBudget) {
@@ -1352,7 +1352,7 @@ Deno.serve(async (req) => {
           // wird das Eco-Budget hochgestuft, damit auch bei wenig Live-Export geheizt werden kann.
           // Komfort bleibt strikt — kein Bonus für Komfort.
           let prognoseBonus = 0;
-          if (currentWienHour >= 9 && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
+          if (currentWienHour >= dayWindowStartHour && !afterSunset && ecoRoomsRemaining > 0 && totalEcoEnergyNeededWh > 0) {
             const bonusSocOk = batterySoc >= heatingMinSoc;
             const bonusGridOk = (reading.power_io ?? 0) <= 50;
             if (!bonusSocOk || !bonusGridOk) {
@@ -1418,7 +1418,7 @@ Deno.serve(async (req) => {
           }
           comfortBudget = availableBudget;
           console.log(`[PV-Automation] Wenig PV (${pvPower}W) aber gridExport ${gridExport}W → Budget für Eco: ${availableBudget}W`);
-        } else if (!afterSunset && currentWienHour >= 9 && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
+        } else if (!afterSunset && currentWienHour >= dayWindowStartHour && pvSufficientForEco && ecoRoomsRemaining > 0 && currentHourForecastCorrected > baseLoad) {
           // Tagsüber, wenig aktueller PV-Export, aber Tagesprognose reicht für Eco
           // → Mindest-Budget aus Stunden-Prognose erlauben (sequentielles Heizen)
           budgetMode = 'grid_sequential';
