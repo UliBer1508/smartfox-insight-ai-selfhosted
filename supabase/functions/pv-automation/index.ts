@@ -1061,7 +1061,7 @@ Deno.serve(async (req) => {
       // Sonnenuntergang erkennen für Batterie-Reserve-Logik
       const sunsetStr = pvForecast?.sunset as string | null; // z.B. "19:45:00"
       const sunsetHour = sunsetStr ? parseInt(sunsetStr.split(':')[0], 10) : 20; // Fallback 20:00
-      const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '06:00');
+      const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '08:00');
       const afterSunset = currentWienHour >= sunsetHour;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
