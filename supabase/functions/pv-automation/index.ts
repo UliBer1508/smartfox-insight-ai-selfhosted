@@ -2328,7 +2328,7 @@ Deno.serve(async (req) => {
 
         // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
         const nightStart = settings?.night_start_time || '22:00';
-        const nightEnd = settings?.night_end_time || '06:00';
+        const nightEnd = settings?.night_end_time || '08:00';
         const { isNight, wienTime, wienHour } = isNightTime(nightStart, nightEnd);
         
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
