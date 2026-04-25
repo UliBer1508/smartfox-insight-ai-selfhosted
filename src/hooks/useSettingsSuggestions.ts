@@ -14,7 +14,7 @@ export interface SettingSuggestion {
 }
 
 const GLOBAL_KEYS = new Set([
-  'comfort_temp', 'eco_temp', 'night_temp', 'min_battery_soc', 'target_battery_soc',
+  'comfort_temp', 'eco_temp', 'night_temp', 'heating_min_battery_soc',
   'pv_surplus_threshold_on', 'pv_surplus_threshold_off', 'hotwater_min_surplus_w',
   'hotwater_schedule_start', 'hotwater_schedule_end', 'hotwater_enabled',
   'night_start_time', 'night_end_time', 'night_cycling_enabled', 'avg_night_cycles_per_room',
@@ -32,8 +32,8 @@ const KEY_MAPPING: Record<string, string> = {
   min_pv_surplus: 'hotwater_min_surplus_w',
   pv_threshold_on: 'pv_surplus_threshold_on',
   pv_threshold_off: 'pv_surplus_threshold_off',
-  battery_min_soc: 'min_battery_soc',
-  battery_target_soc: 'target_battery_soc',
+  battery_min_soc: 'heating_min_battery_soc',
+  battery_target_soc: 'heating_min_battery_soc',
   nacht_temp: 'night_temp',
   komfort_temp: 'comfort_temp',
 };

@@ -202,8 +202,7 @@ ${forecasts.map(f => `- ${f.date}: ${f.expected_kwh} kWh erwartet`).join('\n')}
 - Comfort-Temp: ${settings.comfort_temp}°C
 - Eco-Temp: ${settings.eco_temp}°C
 - Nacht-Temp: ${settings.night_temp}°C
-- Min-Batterie-SOC: ${settings.min_battery_soc}%
-- Ziel-Batterie-SOC: ${settings.target_battery_soc}%
+- Heiz-Min-Batterie-SOC: ${settings.heating_min_battery_soc ?? 80}%
 - PV-Kapazität: ${settings.pv_capacity_kwp} kWp
 - Batterie-Kapazität: ${settings.battery_capacity_kwh} kWh
 - PV-Schwelle Ein: ${settings.pv_surplus_threshold_on ?? 'Standard'} W
@@ -253,7 +252,7 @@ Wichtige Regeln:
 
 KRITISCH — Erlaubte setting_key Werte:
 Für globale Einstellungen (heating_settings Tabelle) darfst du NUR diese Keys verwenden:
-comfort_temp, eco_temp, night_temp, min_battery_soc, target_battery_soc, pv_surplus_threshold_on, pv_surplus_threshold_off, hotwater_min_surplus_w, hotwater_schedule_start, hotwater_schedule_end, hotwater_enabled, night_start_time, night_end_time, night_cycling_enabled, avg_night_cycles_per_room, pv_boost_temp_delta, night_heating_mode, estrich_storage_enabled, power_budget_enabled, max_grid_heating_power_w
+comfort_temp, eco_temp, night_temp, heating_min_battery_soc, pv_surplus_threshold_on, pv_surplus_threshold_off, hotwater_min_surplus_w, hotwater_schedule_start, hotwater_schedule_end, hotwater_enabled, night_start_time, night_end_time, night_cycling_enabled, avg_night_cycles_per_room, pv_boost_temp_delta, night_heating_mode, estrich_storage_enabled, power_budget_enabled, max_grid_heating_power_w
 
 Für Raum-Einstellungen (category=room_temp) darfst du NUR diese Keys verwenden:
 comfort_temp, eco_temp, night_temp, pv_boost_max_temp, solar_limit_temp
@@ -280,7 +279,7 @@ Verwende NIEMALS deutsche Bezeichnungen wie soll_temp, ziel_temp, heizleistung e
                   setting_key: { 
                     type: "string", 
                     enum: [
-                      "comfort_temp", "eco_temp", "night_temp", "min_battery_soc", "target_battery_soc",
+                      "comfort_temp", "eco_temp", "night_temp", "heating_min_battery_soc",
                       "pv_surplus_threshold_on", "pv_surplus_threshold_off", "hotwater_min_surplus_w",
                       "hotwater_schedule_start", "hotwater_schedule_end", "hotwater_enabled",
                       "night_start_time", "night_end_time", "night_cycling_enabled", "avg_night_cycles_per_room",
