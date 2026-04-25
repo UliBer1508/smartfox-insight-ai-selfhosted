@@ -1259,7 +1259,14 @@ Deno.serve(async (req) => {
       const pvThresholdOn = settings?.pv_surplus_threshold_on || 500;
       const pvThresholdOff = settings?.pv_surplus_threshold_off || 200;
       const floorResponseHours = settings?.floor_heating_response_hours || 0;
-      
+      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor night_end_time (min 06:00 Wien),
+      // damit Fußbodenheizung mit Vorlauf starten kann — aber nur bei echtem PV-Überschuss (Hysterese unten).
+      const _nightEndHour = parseInt((settings?.night_end_time || '06:00').split(':')[0], 10) || 6;
+      const dayWindowStartHour = Math.max(6, _nightEndHour - Math.round(floorResponseHours));
+      if (floorResponseHours > 0 && currentWienHour >= dayWindowStartHour && currentWienHour < _nightEndHour) {
+        console.log(`[PRE-HEAT] Vorlauf-Fenster aktiv: Stunde ${currentWienHour} liegt in [${dayWindowStartHour}, ${_nightEndHour}) — floor_heating_response_hours=${floorResponseHours}h`);
+      }
+
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
