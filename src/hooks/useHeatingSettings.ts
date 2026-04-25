@@ -39,7 +39,7 @@ const defaultSettings: HeatingSettings = {
   feed_in_price_kwh_cent: 8.00,
   // Nacht-Zeiten
   night_start_time: '22:00',
-  night_end_time: '06:00',
+  night_end_time: '08:00',
   // Leistungsbudget-Management
   power_budget_enabled: true,
   max_grid_heating_power_w: 2000,

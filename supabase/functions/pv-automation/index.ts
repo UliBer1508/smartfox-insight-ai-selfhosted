@@ -48,6 +48,28 @@ function isNightTime(nightStartTime: string, nightEndTime: string): { isNight: b
   return { isNight, wienTime, wienHour };
 }
 
+// Helper: Robustes Parsen von "HH:MM" oder "HH:MM:SS"
+function parseTimeOfDay(s: string | undefined | null, fallback = '08:00'): { hour: number; minute: number } {
+  const src = (s && typeof s === 'string' && s.length >= 4) ? s : fallback;
+  const parts = src.split(':');
+  const hour = Math.max(0, Math.min(23, parseInt(parts[0], 10) || 0));
+  const minute = Math.max(0, Math.min(59, parseInt(parts[1], 10) || 0));
+  return { hour, minute };
+}
+
+// Helper: Tagstart-Stunde (aus settings.night_end_time, Default 08:00)
+function getDayStartHour(settings: any): number {
+  return parseTimeOfDay(settings?.night_end_time, '08:00').hour;
+}
+function getDayStartMinute(settings: any): number {
+  return parseTimeOfDay(settings?.night_end_time, '08:00').minute;
+}
+function formatDayStart(settings: any): string {
+  const h = getDayStartHour(settings);
+  const m = getDayStartMinute(settings);
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
 // (isMorningWaitPeriod entfernt — Thermostate regeln passiven Solargewinn selbst, alle Räume gleich behandelt)
 
 // (isOptimalHeatingTime entfernt — normale Tag-Logik übernimmt)
@@ -629,7 +651,7 @@ Deno.serve(async (req) => {
 
       // NIGHT PAUSE: Skip Tuya cloud calls during night hours to save API quota
       const nightStartTime = settings?.night_start_time || '22:00';
-      const nightEndTime = settings?.night_end_time || '06:00';
+      const nightEndTime = settings?.night_end_time || '08:00';
       const { isNight, wienTime, wienHour: preNightWienHour } = isNightTime(nightStartTime, nightEndTime);
       
       if (isNight) {
@@ -855,12 +877,13 @@ Deno.serve(async (req) => {
       // Bei erschöpfter Quota ABER hohem PV-Überschuss: begrenzte API-Calls erlauben
       // Damit wird PV-Potenzial genutzt statt Strom ins Netz zu verschenken
       if (quotaExhausted && controlMode === 'cloud') {
-        // Prüfe ob kritische Eco-Transition nötig ist (Räume noch auf Nacht-Temp nach 9:00)
-        // Critical-Eco-Transition NUR im Morgen-Fenster (09:00–09:29 Wien-Zeit) wenn Räume noch auf Nacht.
+        // Prüfe ob kritische Eco-Transition nötig ist (Räume noch auf Nacht-Temp nach Tagstart)
+        // Critical-Eco-Transition NUR im Morgen-Fenster (dayStart..dayStart+29 min Wien-Zeit) wenn Räume noch auf Nacht.
         // Vorher: griff auch abends/nachts und verschwendete Quota.
         let needsCriticalEcoTransition = false;
         const _wienMinForTransition = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', minute: '2-digit' }));
-        if (preNightWienHour === 9 && _wienMinForTransition < 30) {
+        const _dayStartHour = getDayStartHour(settings);
+        if (preNightWienHour === _dayStartHour && _wienMinForTransition < 30) {
           const { data: ecoCheckRooms } = await supabase
             .from('rooms')
             .select('id, target_temp, eco_temp, tuya_device_id, automation_enabled')
@@ -1038,7 +1061,7 @@ Deno.serve(async (req) => {
       // Sonnenuntergang erkennen für Batterie-Reserve-Logik
       const sunsetStr = pvForecast?.sunset as string | null; // z.B. "19:45:00"
       const sunsetHour = sunsetStr ? parseInt(sunsetStr.split(':')[0], 10) : 20; // Fallback 20:00
-      const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '06:00');
+      const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '08:00');
       const afterSunset = currentWienHour >= sunsetHour;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
@@ -1053,7 +1076,7 @@ Deno.serve(async (req) => {
 
       // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
       let forecastAccuracy = 1.0; // 1.0 = perfekt
-      const { wienHour: currentHourForForecast } = isNightTime('22:00', '06:00');
+      const { wienHour: currentHourForForecast } = isNightTime('22:00', settings?.night_end_time || '08:00');
       if (currentHourForForecast >= 8 && Object.keys(hourlyWatts).length > 0) {
         // Summe der prognostizierten Wh bis zur aktuellen Stunde
         // BUG-FIX: hourly_watts Keys sind "2026-04-12 07:00:00", nicht "7"
@@ -1200,7 +1223,7 @@ Deno.serve(async (req) => {
           .select('soc_at_heating_start, soc_at_heating_end')
           .eq('date', trackToday)
           .maybeSingle();
-        if (wienHourNow === 9 && wienMinuteNow < 30 && !existing?.soc_at_heating_start) {
+        if (wienHourNow === getDayStartHour(settings) && wienMinuteNow < 30 && !existing?.soc_at_heating_start) {
           await supabase.from('battery_daily_tracking').upsert({
             date: trackToday, soc_at_heating_start: batterySoc,
           }, { onConflict: 'date' });
@@ -1259,13 +1282,12 @@ Deno.serve(async (req) => {
       const pvThresholdOn = settings?.pv_surplus_threshold_on || 500;
       const pvThresholdOff = settings?.pv_surplus_threshold_off || 200;
       const floorResponseHours = settings?.floor_heating_response_hours || 0;
-      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor night_end_time (Wien),
-      // damit Fußbodenheizung mit Vorlauf starten kann — aber Untergrenze 09:00 (siehe night-and-day-logic-constraints).
-      const _nightEndHour = parseInt((settings?.night_end_time || '06:00').split(':')[0], 10) || 6;
-      const dayWindowStartHour = Math.max(9 - Math.round(floorResponseHours), 6);
-      // Hinweis: Standard-Verhalten bleibt 09:00 (floor_response_hours=0 ⇒ start=9). Werte 1-3h erlauben Vorlauf bis frühestens 06:00.
+      // Pre-Heat: Tagesfenster beginnt floor_heating_response_hours vor settings.night_end_time (Wien),
+      // damit Fußbodenheizung mit Vorlauf starten kann — Untergrenze 06:00.
+      const _dayStartHour = getDayStartHour(settings);
+      const dayWindowStartHour = Math.max(_dayStartHour - Math.round(floorResponseHours), 6);
       if (floorResponseHours > 0) {
-        console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor 09:00, Untergrenze 06:00)`);
+        console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor ${formatDayStart(settings)}, Untergrenze 06:00)`);
       }
 
 
@@ -2306,7 +2328,7 @@ Deno.serve(async (req) => {
 
         // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
         const nightStart = settings?.night_start_time || '22:00';
-        const nightEnd = settings?.night_end_time || '06:00';
+        const nightEnd = settings?.night_end_time || '08:00';
         const { isNight, wienTime, wienHour } = isNightTime(nightStart, nightEnd);
         
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
