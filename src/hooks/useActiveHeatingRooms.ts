@@ -12,6 +12,8 @@ export interface ActiveHeatingRoom {
   source: 'log' | 'is_heating';
 }
 
+export type ActivationReason = 'plan' | 'setpoint' | 'queue';
+
 interface ActiveHeatingRoomsResult {
   activeRooms: ActiveHeatingRoom[];
   totalHeatingPower: number;
@@ -20,6 +22,10 @@ interface ActiveHeatingRoomsResult {
   sourceLevel: 'A' | 'B' | 'C';
   /** Sekunden seit letztem Tuya-Sync (max über alle Räume mit Device) */
   lastSyncAgeSec: number | null;
+  /** Räume, die die Automatik aktuell auf Heizen geschaltet hat (Plan/Setpoint/Queue) */
+  activatedRoomIds: Set<string>;
+  /** Quelle der Aktivierung pro Raum */
+  activationReasons: Map<string, ActivationReason>;
   refetch: () => Promise<void>;
 }
 
