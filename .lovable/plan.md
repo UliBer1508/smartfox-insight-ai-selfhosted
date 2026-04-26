@@ -1,36 +1,33 @@
-# Night-End-Time dynamisch machen
+# WW-Reserve aus Heizbudget entfernen
 
 ## Problem
-Die UI zeigt `night_end_time = 08:00`, aber die Heizung startet weiterhin um 09:00, weil mehrere Stellen in `pv-automation/index.ts` hardcoded `wienHour === 9` bzw. Defaults `'06:00'`/`'09:00'` verwenden. Das Setting wird ignoriert.
+In `supabase/functions/pv-automation/index.ts` wird das Eco-Budget künstlich um bis zu 2800W reduziert, wenn `hotwater` in `consumer_priority` vor `heating` steht und das WW-Zeitfenster (10:00–16:00) aktiv ist — unabhängig davon, ob WW gerade tatsächlich läuft.
 
-## Ziel
-Alle relevanten Logikgates lesen `settings.night_end_time` dynamisch. Das UI-Setting wird ab sofort wirksam — egal ob 06:00, 08:00 oder 09:00. Settings haben immer Vorrang vor hardcoded Werten.
+Das widerspricht der dokumentierten Architektur (`mem://hardware/energy-system-specifications`): **Warmwasser wird autonom von Smartfox gemanaged.** Sobald WW läuft, sinkt `gridExport` automatisch — eine zusätzliche Software-Reserve führt zu Doppelbuchung und blockiert Komfort-/Eco-Upgrades obwohl real Überschuss vorhanden ist (heute: 9,8 kW Export, trotzdem nur 7,1 kW Komfort-Budget weil 2800W „reserviert").
 
 ## Änderungen
 
 ### 1. `supabase/functions/pv-automation/index.ts`
-- Neue Helper am Dateianfang:
-  - `parseTimeOfDay(s: string): { hour: number; minute: number }` — robustes Parsen von `HH:MM` / `HH:MM:SS`
-  - `getDayStartHour(settings)` — Default `8` wenn nicht gesetzt
-  - `getDayStartMinute(settings)` — Default `0`
-- Alle Stellen mit `wienHour === 9` / `wienHour < 9` / `wienHour >= 9` ersetzen durch `wienHour === dayStartHour` etc. (betrifft u. a. Zeilen ~632, 859, 863, 1041, 1056, 1203, 1264)
-- Pre-Heat-Fenster: `dayWindowStartHour = Math.max(getDayStartHour(settings) - Math.round(floorResponseHours), 6)`
-- Inkonsistente Defaults `'06:00'` / `'09:00'` (z. B. Zeile 2154 `policyNightEnd`) auf `settings.night_end_time ?? '08:00'` vereinheitlichen
-- Log-Texte „09:00" durch dynamische Formatierung ersetzen (z. B. `${String(dayStartHour).padStart(2,'0')}:${String(dayStartMin).padStart(2,'0')}`)
+- **Zeile ~1267–1268**: `hotwaterReserveW` hart auf `0` setzen mit Kommentar `// WW autonom von Smartfox gemanaged — keine Software-Reserve (siehe mem://hardware/energy-system-specifications)`.
+- **Zeile ~1271–1272**: Log-Bedingung & Text anpassen, damit nur noch `carReserveW` erscheint.
+- **Zeile ~1355–1358**: Im Eco-Budget-Block den `hotwaterReserveW`-Abzug entfernen, nur `carReserveW` bleibt.
+- **Zeile ~1071–1075** (`hotwaterKwh` im Tages-Energiemodell für Pre-Heat-Boost): bleibt unverändert — das ist eine **Energie-Prognose** (kWh über den Tag), nicht eine Momentan-Leistungsreserve, und dient korrekt der Tagesplanung.
+- **Zeile ~2610** (`superComfortAllowed`-Gate prüft `!hotwaterActive`): bleibt unverändert — das ist eine sinnvolle Sicherheit, kein Budget-Abzug.
 
-### 2. `src/hooks/useHeatingSettings.ts`
-- `defaultSettings.night_end_time` von `'06:00'` auf `'08:00'` setzen (Konsistenz mit aktuellem DB-Wert).
+### 2. `src/components/heating/HeatingSettingsForm.tsx`
+- Bei `hotwater_*` Feldern Helper-Text ergänzen: *„Hinweis: Warmwasser wird von Smartfox autonom gesteuert. Diese Werte dienen nur der Tagesenergie-Prognose und beeinflussen das Momentan-Heizbudget nicht."*
 
 ### 3. Memory-Updates
-- `mem://features/heating/night-and-day-logic-constraints` — Inhalt aktualisieren: Heizbeginn ist nicht mehr hartkodiert auf 09:00, sondern wird dynamisch aus `night_end_time` (Default 08:00) gelesen.
-- `mem://index.md` Core-Zeile „Heating strictly starts at 09:00" → „Heating start time follows `night_end_time` setting (default 08:00)".
+- **Neu**: `mem://features/heating/hotwater-smartfox-autonomous` — explizite Regel: WW läuft autonom über Smartfox, `pv-automation` zieht KEINE WW-Momentan-Reserve vom Heizbudget ab. `consumer_priority`-Reihenfolge zwischen `hotwater` und `heating` ist für die Budgetberechnung irrelevant. WW-Verbrauch reduziert `gridExport` bereits physikalisch.
+- **Update** `mem://arch/pv-automation-budget-logic-v2`: Abschnitt zu Consumer-Reserven präzisieren — nur `carReserve` zieht Momentan-Leistung ab; WW nicht.
+- **Update** `mem://index.md` Core-Zeile: hinzufügen *„Warmwasser autonom via Smartfox — keine Software-Budget-Reserve."*
+
+## Validierung nach Deploy
+1. Logs prüfen: `[CONSUMER-PRIORITY]`-Zeile zeigt `Warmwasser=0W` oder erscheint nur noch wenn `carReserveW > 0`.
+2. `comfortBudget` sollte bei 9,8 kW Export ≈ 9,8 kW betragen (nicht mehr 7,1 kW).
+3. Mehr Räume erreichen Phase 2 (Komfort) sobald sie `eco_temp - 0.3` überschreiten.
 
 ## Constraints
-- Keine DB-Migration nötig (`night_end_time` existiert bereits).
-- `night_start_time` bleibt unverändert (kein Auftrag).
-- Nach Deploy: nächste pv-automation-Heartbeat-Runde (alle 2 min) übernimmt die neue Logik; um 08:00 startet der Eco-Plan.
-
-## Validierung nach Umsetzung
-1. Edge-Function `pv-automation` deployen.
-2. Logs ab 08:00 prüfen: erwartete Meldung „Day start at 08:00" und Eco-Aktivierung.
-3. DB-Check: `rooms.heating_paused_reason` wechselt von `night_frost_only` auf `null`, `target_temp` auf Eco-Werte.
+- Keine DB-Migration.
+- Tuya-Quota-Thema (208/200) bleibt separat — wird hier NICHT angefasst.
+- `night_end_time`-Logik aus vorigem Plan bleibt unverändert wirksam.
