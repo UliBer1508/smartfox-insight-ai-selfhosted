@@ -85,7 +85,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
-  const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, refetch: refetchActive } = useActiveHeatingRooms();
+  const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, activatedRoomIds, activationReasons, refetch: refetchActive } = useActiveHeatingRooms();
   const { pushAllTemps, isPushing } = usePushAllTemps();
 
   const handleSyncNow = async () => {
