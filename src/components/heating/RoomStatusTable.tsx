@@ -183,16 +183,19 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                 Live-Status aus Thermostat-Sync (Logs nicht verfügbar) · Sync vor {formatSyncAge(lastSyncAgeSec)}
               </div>
             )}
-            {(activeRooms.length > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
+            {(activeRooms.length > 0 || activatedRoomIds.size > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
               <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5 flex-wrap">
                   {activeRooms.length > 0 ? (
                     <>
-                      Aktuell heizen: <strong className="text-foreground">{activeRooms.length} {activeRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
+                      Heizen: <strong className="text-foreground">{activeRooms.length}</strong>
                       {totalHeatingPower > 0 && <> · <strong className="text-foreground">{Math.round(totalHeatingPower).toLocaleString('de-DE')} W</strong></>}
                     </>
                   ) : (
                     <>Aktuell heizt kein Raum</>
+                  )}
+                  {activatedRoomIds.size > 0 && (
+                    <> · <span className="text-blue-600">Aktiviert: <strong>{activatedRoomIds.size}</strong></span></>
                   )}
                   {capacity && (
                     <TooltipProvider delayDuration={150}>
