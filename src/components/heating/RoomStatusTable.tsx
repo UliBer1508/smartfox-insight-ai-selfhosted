@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Room, getEffectiveHeatingPower } from '@/types/room';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
+import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 
 interface RoomStatusTableProps {
   rooms: Room[];
@@ -29,13 +30,23 @@ const getProgressColor = (diff: number) => {
   return 'bg-red-400';
 };
 
-const getHeatingStatus = (room: Room, power?: number): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
-  if (room.is_heating) {
-    const label = power && power > 0 ? `Heizt · ${power}W` : 'Heizt';
+const getHeatingStatus = (
+  room: Room,
+  isActivelyHeating: boolean,
+  livePower: number
+): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
+  if (isActivelyHeating) {
+    const label = livePower > 0 ? `Heizt · ${Math.round(livePower)}W` : 'Heizt';
     return { label, dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
   }
-  // "Wartend": target is set, current temp is below target (hysteresis zone)
-  if (room.target_temp != null && room.current_temp != null && room.target_temp - room.current_temp > 0.3) {
+  // "Wartend": automation aktiv, Raum nicht aktiv heizend, aber deutlich unter Ziel
+  // (Schwelle > 0.4 °C, damit ±0.3 °C Hysterese-Zone nicht fälschlich als Wartend erscheint)
+  if (
+    room.automation_enabled &&
+    room.target_temp != null &&
+    room.current_temp != null &&
+    room.target_temp - room.current_temp > 0.4
+  ) {
     return { label: 'Wartend', dotClass: 'bg-orange-400 animate-pulse', badgeClass: 'bg-orange-400/10 text-orange-500', icon: Clock };
   }
   return { label: 'Aus', dotClass: 'bg-muted-foreground/40', badgeClass: 'bg-muted text-muted-foreground' };
@@ -56,7 +67,28 @@ const getHeatingMode = (room: Room) => {
 export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
+  const { activeRooms, totalHeatingPower, refetch: refetchActive } = useActiveHeatingRooms();
+
+  // Map: room_id → live power (Watt) für aktiv heizende Räume
+  const activePowerById = new Map(activeRooms.map(r => [r.room_id, r.power]));
+  const activeRoomIds = new Set(activeRooms.map(r => r.room_id));
+
+  const isRoomActivelyHeating = (room: Room) => activeRoomIds.has(room.id);
+  const getRoomLivePower = (room: Room) => {
+    if (!isRoomActivelyHeating(room)) return 0;
+    const fromHook = activePowerById.get(room.id);
+    if (fromHook && fromHook > 0) return fromHook;
+    return getEffectiveHeatingPower(room);
+  };
+
+  // "Aktualisiert vor X s" Anzeige (Hook pollt alle 30s)
+  useEffect(() => {
+    setSecondsAgo(0);
+    const interval = setInterval(() => setSecondsAgo(s => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [activeRooms]);
 
   const toggleRow = (roomId: string) => {
     setExpandedRows(prev => {
@@ -96,17 +128,22 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
-            {(() => {
-              const heatingRooms = tuyaRooms.filter(r => r.is_heating);
-              const totalPower = heatingRooms.reduce((sum, r) => sum + getEffectiveHeatingPower(r), 0);
-              if (heatingRooms.length === 0) return null;
-              return (
-                <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20">
-                  Aktuell heizen: <strong className="text-foreground">{heatingRooms.length} {heatingRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
-                  {totalPower > 0 && <> · <strong className="text-foreground">{Math.round(totalPower).toLocaleString('de-DE')} W</strong></>}
-                </div>
-              );
-            })()}
+            {activeRooms.length > 0 && (
+              <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2">
+                <span>
+                  Aktuell heizen: <strong className="text-foreground">{activeRooms.length} {activeRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
+                  {totalHeatingPower > 0 && <> · <strong className="text-foreground">{Math.round(totalHeatingPower).toLocaleString('de-DE')} W</strong></>}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); refetchActive(); }}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                  title="Live-Status neu laden"
+                >
+                  Aktualisiert vor {secondsAgo}s
+                </button>
+              </div>
+            )}
             {isMobile ? (
               <div className="divide-y">
                 {tuyaRooms.map(room => {
@@ -123,8 +160,8 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             </span>
                           )}
                           {(() => {
-                            const power = room.is_heating ? Math.round(getEffectiveHeatingPower(room)) : 0;
-                            const status = getHeatingStatus(room, power);
+                            const livePower = getRoomLivePower(room);
+                            const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower);
                             return (
                               <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
@@ -258,8 +295,8 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             </TableCell>
                             <TableCell>
                               {(() => {
-                                const power = room.is_heating ? Math.round(getEffectiveHeatingPower(room)) : 0;
-                                const status = getHeatingStatus(room, power);
+                                const livePower = getRoomLivePower(room);
+                                const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower);
                                 return (
                                   <span className="flex items-center gap-1 text-xs">
                                     <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />

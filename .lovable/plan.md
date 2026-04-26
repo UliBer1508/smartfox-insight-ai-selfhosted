@@ -1,50 +1,52 @@
-## Befund
+## Problem (laut Doku & Code-Analyse)
 
-Die in der Edge Function umgesetzte Logik (`supabase/functions/pv-automation/index.ts`, Zeile 1634–1960) entspricht **bereits exakt** deiner Anforderung:
+Die Memory `mem://arch/active-heating-status-source` schreibt vor:
 
-- **Phase 1 (Eco):** Räume unter `eco_temp` werden nach Priorität 1–12 auf Eco geheizt, solange `availableBudget` (inkl. Prognose-/Trend-/Batterie-Bonus) reicht.
-- **Phase 2 (Komfort):** Läuft **parallel** zu Phase 1. Räume mit `currentTemp ≥ eco_temp − 0,3 °C` dürfen auf `comfort_temp` hochgesetzt werden — **ausschließlich** wenn echtes `comfortBudget` (= `gridExport`, **kein** Bonus, **keine** Batterie, **kein** WW-Reserve-Abzug) reicht.
-- **Komfort-Hard-Lock:** `batterySoc < heating_min_battery_soc` (80 %) → `comfortBudget = 0`.
+> **Die Anzeige aktiver Heizungen basiert primär auf `room_heating_logs` (heating_start/stop), NICHT auf dem `is_heating`-Flag der `rooms`-Tabelle.**
 
-Es gibt **nichts am Code zu ändern**. Die heutige Beobachtung „nicht alle Räume auf Komfort" ist die korrekte Konsequenz von:
-1. Komfort-Budget = nur echter Export (war bis vorhin durch WW-Reserve doppelt gebucht — ist gefixt)
-2. Tuya-Quota 208/200 erschöpft → Befehle werden verworfen, nicht weil die Logik falsch ist
+Genau dafür existiert bereits der Hook `useActiveHeatingRooms` (eigene Notiz im File: *"more reliable than the is_heating flag in the rooms table"*).
 
-## Problem in der Doku
+**Aktueller Verstoß** in `src/components/heating/RoomStatusTable.tsx`:
+- Zeile 33: `if (room.is_heating)` → Status-Badge "Heizt"
+- Zeile 38: Wenn `is_heating=false` und `target − current > 0.3` → **"Wartend"** (animiert)
+- Zeile 100/126/261: `tuyaRooms.filter(r => r.is_heating)` für Header und Power-Anzeige
 
-Die zentrale Memory `mem://arch/pv-automation-strategy-v2` (DB-Eintrag, der bei jedem Loop in den Kontext geladen wird) beschreibt noch die **alte sequentielle** Strategie:
+`is_heating` wird nur durch den Tuya-Cloud-Sync alle 5 min (`SYNC_INTERVAL_MS` in `HeatingDashboard`) bzw. durch die `pv-automation`-Heartbeats aktualisiert. Zwischen den Syncs ist das Flag minutenlang veraltet → Räume die laut Thermostat heizen, erscheinen als „Wartend" oder „Aus", obwohl in `room_heating_logs` längst ein `heating_start` ohne nachfolgenden `heating_stop` steht.
 
-> „Erst wenn alle Räume Eco erreicht haben oder das Budget für Eco erschöpft ist, startet Phase 2 für Komfort-Upgrades."
+`useActiveHeatingRooms` rekonstruiert dagegen den echten Live-Status aus den Events, pollt alle 30 s und ist damit die korrekte Quelle.
 
-Die **korrekte v2.1**-Beschreibung („Phase 2 läuft parallel, nur echtes `gridExport` für Komfort, nur Räume ≥ Eco − 0,3 °C") existiert nur im lokalen File `.lovable/memory/arch/pv-automation-strategy-v2.md` und wird beim Auto-Reload des DB-Memory nicht gesehen. Genau das ist der Grund, warum ich (und du in den letzten Loops) immer wieder gegen veraltete Annahmen argumentiert habe.
+## Lösung
 
-## Plan
+### 1. `src/components/heating/RoomStatusTable.tsx` umbauen
+- Hook `useActiveHeatingRooms()` importieren und nutzen.
+- Ein Set `activeRoomIds = new Set(activeRooms.map(r => r.room_id))` und Map `activePowerById` aus dem Hook bilden.
+- Helper `isRoomActivelyHeating(room)` und `getRoomLivePower(room)` einführen, die ausschließlich diesen Hook auswerten – `room.is_heating` wird im UI nicht mehr gelesen.
+- `getHeatingStatus(...)` so anpassen:
+  - **„Heizt · NW"** wenn `activeRoomIds.has(room.id)` (Power aus `useActiveHeatingRooms`, mit `getEffectiveHeatingPower` als Fallback).
+  - **„Wartend"** nur noch wenn Raum NICHT aktiv heizt UND `target − current > 0.3` UND `automation_enabled` UND kein abgelaufener Override – Schwelle leicht anheben (z. B. > 0.4) damit Hysterese-Zone (±0.3 °C laut `mem://features/heating/thermostat-hysteresis-logic`) nicht fälschlich als „Wartend" erscheint.
+  - Sonst „Aus".
+- Header-Zeile (Zeile 100–108): aktive Räume und Gesamtleistung aus `useActiveHeatingRooms` (`activeRooms.length`, `totalHeatingPower`) statt aus `is_heating`-Filter.
+- Mobile- und Desktop-Render-Pfade an die neuen Helpers anpassen (Zeilen 126, 261).
 
-### 1. Memory-Update (DB) — `mem://arch/pv-automation-strategy-v2`
-Inhalt durch v2.1-Beschreibung ersetzen, exakt synchron zum lokalen File:
-- Phase 1 = alle Räume `< eco_temp` nach Priorität auf Eco, Budget = `availableBudget` (mit Boni)
-- Phase 2 = **parallel**, Räume `≥ eco_temp − 0,3 °C` dürfen auf `comfort_temp`, Budget = strikt `gridExport`
-- Komfort-Hard-Lock bei `batterySoc < heating_min_battery_soc`
-- Begründung: warum nicht mehr sequentiell (Verschwendung bei großem Überschuss)
+### 2. Auto-Refresh sicherstellen
+- `useActiveHeatingRooms` pollt bereits alle 30 s.
+- Der bestehende 5-Min-Auto-Sync in `HeatingDashboard` bleibt für die Cloud-Synchronisation (aktualisiert `current_temp`, `target_temp`); die Live-Heizstatus-Anzeige hängt aber nicht mehr daran.
+- Optional: Im `RoomStatusTable` einen kleinen Zeitstempel "Aktualisiert vor X s" anzeigen, damit erkennbar ist dass Werte frisch sind.
 
-### 2. Memory-Update — `mem://index.md` Core-Zeile
-Aktualisieren von:
-> „Phase 1 (Eco) for all active priority rooms before Phase 2 (Comfort)."
+### 3. Konsistenz in anderen Komponenten prüfen
+Kurzer Check, ob weitere User-sichtbare Komponenten noch das veraltete `is_heating` als primäre Wahrheit verwenden, und ggf. dort dieselbe Umstellung machen:
+- `HeatingOverviewCard.tsx`
+- `ThermostatCard.tsx` (Heizungs-Indikator)
 
-zu:
-> „Phase 1 (Eco) und Phase 2 (Komfort) laufen parallel. Komfort nur für Räume ≥ eco_temp − 0,3 °C und nur aus echtem gridExport."
+(Falls Anpassung nötig, in derselben Iteration angleichen — sonst nur dokumentieren.)
 
-### 3. Code-Verifikation (read-only Check, keine Änderung)
-- Bestätigen dass `effectiveComfortBudget = comfortBudget` (Zeile 1902) wirklich nur den strikten `gridExport`-basierten Wert enthält → bereits geprüft, ist so.
-- Bestätigen dass `roomBudgetStatus`-Map keine Eco-Räume in Phase 2 doppelt budgetiert → bereits geprüft (Flag `alreadyBudgeted`).
+### 4. Doku aktualisieren
+- `mem://arch/active-heating-status-source` ergänzen: Auch die `RoomStatusTable` (Raum-Übersicht) nutzt jetzt verbindlich `useActiveHeatingRooms` — Listing-Status NIE mehr direkt aus `rooms.is_heating` ableiten.
+- `mem://ui/heating/room-status-indicators` aktualisieren: „Wartend"-Definition präzisieren (nur wenn nicht aktiv UND Δ > 0.4 °C UND Automation aktiv).
+- `mem://index.md` Core-Zeile zu `Active Heating Source` schärfen, damit zukünftige Sessions die Regel nicht erneut verletzen.
 
-### 4. Keine Änderungen an
-- Edge-Function-Code (Logik ist korrekt)
-- HeatingSettingsForm (WW-Hinweis ist drin)
-- Datenbank-Schema oder RLS
+## Erwartetes Ergebnis
 
-## Erwartetes Ergebnis nach Umsetzung
-
-- Die DB-Memory beschreibt die tatsächliche Logik. Beim nächsten Loop lese ich nicht mehr den veralteten sequentiellen Text.
-- Du erhältst konsistente Antworten: „Räume bleiben auf Eco wenn `comfortBudget` nicht reicht" statt fälschlicher Diagnosen.
-- Sobald der Tuya-Quota-Reset um Mitternacht greift und WW-Reserve = 0 wirkt (heute deployed), sollten morgen mehr Räume Komfort erreichen sofern `gridExport` reicht.
+- Räume die laut Thermostat aktuell heizen, erscheinen sofort (≤ 30 s) als „Heizt · XW" — kein „Wartend" oder „Aus" mehr während der Cloud-Sync-Lücken.
+- „Wartend" zeigt nur noch echte Wartesituationen (Auto an, deutlich unter Ziel, aber Thermostat ruft nicht ab).
+- Header „Aktuell heizen: N Räume · X W" ist sekundengenau konsistent mit den einzelnen Status-Badges.
