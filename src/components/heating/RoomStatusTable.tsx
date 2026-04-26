@@ -5,11 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info } from 'lucide-react';
+import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 import { useParallelHeatingCapacity } from '@/hooks/useParallelHeatingCapacity';
+import { usePushAllTemps } from '@/hooks/usePushAllTemps';
 
 interface RoomStatusTableProps {
   rooms: Room[];
@@ -71,7 +73,21 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
-  const { activeRooms, totalHeatingPower, refetch: refetchActive } = useActiveHeatingRooms();
+  const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, refetch: refetchActive } = useActiveHeatingRooms();
+  const { pushAllTemps, isPushing } = usePushAllTemps();
+
+  const handleSyncNow = async () => {
+    const result = await pushAllTemps();
+    if (result?.success) setTimeout(refetchActive, 3000);
+  };
+
+  const formatSyncAge = (sec: number | null) => {
+    if (sec === null) return '—';
+    if (sec < 60) return `${sec}s`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min} min`;
+    return `${Math.round(min / 60)} h`;
+  };
   const { data: capacity } = useParallelHeatingCapacity();
 
   // Map: room_id → live power (Watt) für aktiv heizende Räume
@@ -131,6 +147,30 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
+            {sourceLevel === 'C' && (
+              <div className="px-4 py-2 text-xs border-b bg-amber-500/10 text-amber-700 dark:text-amber-400 flex items-center justify-between gap-2 flex-wrap">
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5" />
+                  Heizstatus veraltet — letzter Tuya-Sync vor <strong>{formatSyncAge(lastSyncAgeSec)}</strong>
+                </span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 text-[10px] px-2"
+                  disabled={isPushing}
+                  onClick={(e) => { e.stopPropagation(); handleSyncNow(); }}
+                >
+                  <RefreshCw className={`w-3 h-3 mr-1 ${isPushing ? 'animate-spin' : ''}`} />
+                  Jetzt synchronisieren
+                </Button>
+              </div>
+            )}
+            {sourceLevel === 'B' && (
+              <div className="px-4 py-1.5 text-[11px] border-b bg-blue-500/5 text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+                <Info className="w-3 h-3" />
+                Live-Status aus Thermostat-Sync (Logs nicht verfügbar) · Sync vor {formatSyncAge(lastSyncAgeSec)}
+              </div>
+            )}
             {(activeRooms.length > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
               <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5 flex-wrap">

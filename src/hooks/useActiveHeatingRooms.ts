@@ -9,22 +9,33 @@ export interface ActiveHeatingRoom {
   power: number;
   duration_min: number;
   start_time: string;
+  source: 'log' | 'is_heating';
 }
 
 interface ActiveHeatingRoomsResult {
   activeRooms: ActiveHeatingRoom[];
   totalHeatingPower: number;
   isLoading: boolean;
+  /** Quelle der aktuell angezeigten Daten: A=Logs, B=is_heating, C=stale (keine zuverlässigen Daten) */
+  sourceLevel: 'A' | 'B' | 'C';
+  /** Sekunden seit letztem Tuya-Sync (max über alle Räume mit Device) */
+  lastSyncAgeSec: number | null;
   refetch: () => Promise<void>;
 }
 
+const SYNC_FRESH_SEC = 10 * 60;   // Stufe B: <10 min
+const SYNC_STALE_SEC = 15 * 60;   // Stufe C: >15 min
+
 /**
- * Hook to identify currently heating rooms based on room_heating_logs
- * This is more reliable than the is_heating flag in the rooms table
- * because it's based on actual heating_start/heating_stop events.
+ * Live-Heizstatus mit dreistufigem Fallback:
+ *  A) room_heating_logs der letzten 4 h (offene Zyklen)
+ *  B) rooms.is_heating + last_thermostat_sync < 10 min  (wenn Logs leer)
+ *  C) Stale: Logs leer UND letzter Sync > 15 min → keine zuverlässige Aussage
  */
 export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
   const [activeRooms, setActiveRooms] = useState<ActiveHeatingRoom[]>([]);
+  const [sourceLevel, setSourceLevel] = useState<'A' | 'B' | 'C'>('A');
+  const [lastSyncAgeSec, setLastSyncAgeSec] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const loadActiveRooms = useCallback(async () => {
@@ -32,7 +43,6 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
     try {
       const todayStart = getLocalMidnightISO();
       
-      // Load today's heating logs and room data in parallel
       const [logsResult, roomsResult] = await Promise.all([
         supabase
           .from('room_heating_logs')
@@ -42,64 +52,93 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
           .order('timestamp', { ascending: false }),
         supabase
           .from('rooms')
-          .select('id, name, heating_power_w, calculated_power_w, power_calculation_confidence, power_samples, floor_area_m2')
+          .select('id, name, heating_power_w, calculated_power_w, power_calculation_confidence, power_samples, floor_area_m2, is_heating, last_thermostat_sync, tuya_device_id, target_temp, current_temp')
       ]);
 
       if (logsResult.error) throw logsResult.error;
       if (roomsResult.error) throw roomsResult.error;
 
       const logs = logsResult.data || [];
-      const rooms = roomsResult.data || [];
+      const rooms = (roomsResult.data || []) as (Room & { is_heating?: boolean; last_thermostat_sync?: string | null; tuya_device_id?: string | null })[];
+      const roomMap = new Map(rooms.map(r => [r.id, r]));
 
-      // Create room lookup map
-      const roomMap = new Map(rooms.map(r => [r.id, r as Room]));
+      // ---- Sync-Alter berechnen (max über alle Räume mit Device) ----
+      const now = Date.now();
+      let oldestSyncMs: number | null = null;
+      for (const r of rooms) {
+        if (!r.tuya_device_id) continue;
+        if (!r.last_thermostat_sync) { oldestSyncMs = Number.MAX_SAFE_INTEGER; break; }
+        const ageMs = now - new Date(r.last_thermostat_sync).getTime();
+        if (oldestSyncMs === null || ageMs > oldestSyncMs) oldestSyncMs = ageMs;
+      }
+      const syncAgeSec = oldestSyncMs === null ? null : Math.round(oldestSyncMs / 1000);
+      setLastSyncAgeSec(syncAgeSec);
 
-      // Find rooms that have more starts than stops (currently heating)
+      // ---- Stufe A: offene Zyklen aus Logs ----
       const roomEventCounts = new Map<string, { starts: number; stops: number; lastStart: string | null }>();
-      
       for (const log of logs) {
         if (!roomEventCounts.has(log.room_id)) {
           roomEventCounts.set(log.room_id, { starts: 0, stops: 0, lastStart: null });
         }
-        const counts = roomEventCounts.get(log.room_id)!;
-        
+        const c = roomEventCounts.get(log.room_id)!;
         if (log.event_type === 'heating_start') {
-          counts.starts++;
-          if (!counts.lastStart && log.timestamp) {
-            counts.lastStart = log.timestamp;
-          }
+          c.starts++;
+          if (!c.lastStart && log.timestamp) c.lastStart = log.timestamp;
         } else if (log.event_type === 'heating_stop') {
-          counts.stops++;
+          c.stops++;
         }
       }
 
-      // Identify active rooms (more starts than stops)
-      const now = Date.now();
-      const activeHeatingRooms: ActiveHeatingRoom[] = [];
-
-      for (const [roomId, counts] of roomEventCounts) {
-        if (counts.starts > counts.stops && counts.lastStart) {
+      const fromLogs: ActiveHeatingRoom[] = [];
+      for (const [roomId, c] of roomEventCounts) {
+        if (c.starts > c.stops && c.lastStart) {
           const room = roomMap.get(roomId);
           if (room) {
-            const startTime = new Date(counts.lastStart).getTime();
-            const durationMin = Math.round((now - startTime) / 60000);
-            
-            activeHeatingRooms.push({
+            const startMs = new Date(c.lastStart).getTime();
+            fromLogs.push({
               room_id: roomId,
               room_name: room.name,
-              power: getEffectiveHeatingPower(room),
-              duration_min: durationMin,
-              start_time: counts.lastStart
+              power: getEffectiveHeatingPower(room as Room),
+              duration_min: Math.round((now - startMs) / 60000),
+              start_time: c.lastStart,
+              source: 'log',
             });
           }
         }
       }
 
-      // Sort by power (highest first)
-      activeHeatingRooms.sort((a, b) => b.power - a.power);
-      
-      console.log('[ActiveHeatingRooms] Found active rooms:', activeHeatingRooms.length, activeHeatingRooms);
-      setActiveRooms(activeHeatingRooms);
+      if (fromLogs.length > 0) {
+        fromLogs.sort((a, b) => b.power - a.power);
+        console.log('[ActiveHeatingRooms] Stufe A (Logs):', fromLogs.length);
+        setActiveRooms(fromLogs);
+        setSourceLevel('A');
+        return;
+      }
+
+      // ---- Stufe B: is_heating mit frischem Sync ----
+      const syncFresh = syncAgeSec !== null && syncAgeSec <= SYNC_FRESH_SEC;
+      if (syncFresh) {
+        const fromState: ActiveHeatingRoom[] = rooms
+          .filter(r => r.is_heating === true && r.tuya_device_id)
+          .map(r => ({
+            room_id: r.id,
+            room_name: r.name,
+            power: getEffectiveHeatingPower(r as Room),
+            duration_min: 0,
+            start_time: r.last_thermostat_sync || new Date().toISOString(),
+            source: 'is_heating' as const,
+          }));
+        fromState.sort((a, b) => b.power - a.power);
+        console.log('[ActiveHeatingRooms] Stufe B (is_heating, sync', syncAgeSec, 's):', fromState.length);
+        setActiveRooms(fromState);
+        setSourceLevel('B');
+        return;
+      }
+
+      // ---- Stufe C: stale ----
+      console.log('[ActiveHeatingRooms] Stufe C (stale, sync age:', syncAgeSec, 's)');
+      setActiveRooms([]);
+      setSourceLevel('C');
     } catch (error) {
       console.error('[ActiveHeatingRooms] Error loading active rooms:', error);
     } finally {
@@ -109,21 +148,11 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
 
   useEffect(() => {
     loadActiveRooms();
-
-    // Polling statt Realtime um DB-Last zu reduzieren
-    const interval = setInterval(() => {
-      loadActiveRooms();
-    }, 30000);
-
+    const interval = setInterval(loadActiveRooms, 30000);
     return () => clearInterval(interval);
   }, [loadActiveRooms]);
 
-  const totalHeatingPower = activeRooms.reduce((sum, room) => sum + room.power, 0);
+  const totalHeatingPower = activeRooms.reduce((sum, r) => sum + r.power, 0);
 
-  return {
-    activeRooms,
-    totalHeatingPower,
-    isLoading,
-    refetch: loadActiveRooms
-  };
+  return { activeRooms, totalHeatingPower, isLoading, sourceLevel, lastSyncAgeSec, refetch: loadActiveRooms };
 }
