@@ -131,11 +131,80 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
-            {activeRooms.length > 0 && (
-              <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2">
-                <span>
-                  Aktuell heizen: <strong className="text-foreground">{activeRooms.length} {activeRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
-                  {totalHeatingPower > 0 && <> · <strong className="text-foreground">{Math.round(totalHeatingPower).toLocaleString('de-DE')} W</strong></>}
+            {(activeRooms.length > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
+              <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
+                <span className="flex items-center gap-1.5 flex-wrap">
+                  {activeRooms.length > 0 ? (
+                    <>
+                      Aktuell heizen: <strong className="text-foreground">{activeRooms.length} {activeRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
+                      {totalHeatingPower > 0 && <> · <strong className="text-foreground">{Math.round(totalHeatingPower).toLocaleString('de-DE')} W</strong></>}
+                    </>
+                  ) : (
+                    <>Aktuell heizt kein Raum</>
+                  )}
+                  {capacity && (
+                    <TooltipProvider delayDuration={150}>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            onClick={(e) => e.stopPropagation()}
+                            className="inline-flex items-center gap-1 ml-1 text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+                            title="Parallele Kapazität"
+                          >
+                            <Info className="w-3 h-3" />
+                            {capacity.max_parallel_comfort > 0 && (
+                              <span>+{capacity.max_parallel_comfort} Komfort möglich</span>
+                            )}
+                            {capacity.max_parallel_comfort === 0 && capacity.max_parallel_eco > 0 && (
+                              <span>+{capacity.max_parallel_eco} Eco möglich</span>
+                            )}
+                            {capacity.max_parallel_comfort === 0 && capacity.max_parallel_eco === 0 && (
+                              <span>Budget knapp</span>
+                            )}
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="max-w-xs text-xs">
+                          <div className="space-y-1.5">
+                            <div className="font-semibold border-b pb-1">Parallele Heiz-Kapazität</div>
+                            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                              <span className="text-muted-foreground">Komfort-Budget:</span>
+                              <span className="font-mono text-right">{(capacity.comfort_budget_w / 1000).toFixed(2)} kW</span>
+                              <span className="text-muted-foreground">→ parallele Räume:</span>
+                              <span className="font-mono text-right">{capacity.max_parallel_comfort} / {capacity.comfort_candidates.length}</span>
+                              <span className="text-muted-foreground">Eco-Budget:</span>
+                              <span className="font-mono text-right">{(capacity.eco_budget_w / 1000).toFixed(2)} kW</span>
+                              <span className="text-muted-foreground">→ parallele Räume:</span>
+                              <span className="font-mono text-right">{capacity.max_parallel_eco} / {capacity.eco_candidates.length}</span>
+                            </div>
+                            <div className="border-t pt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
+                              <span className="text-muted-foreground">Gridexport:</span>
+                              <span className="font-mono text-right">{(capacity.grid_export_w / 1000).toFixed(2)} kW</span>
+                              <span className="text-muted-foreground">Baseload-Puffer:</span>
+                              <span className="font-mono text-right">−{capacity.baseload_buffer_w} W</span>
+                              <span className="text-muted-foreground">PV-Trend (5 min):</span>
+                              <span className="font-mono text-right">{capacity.trend_w_per_5min >= 0 ? '+' : ''}{capacity.trend_w_per_5min} W</span>
+                              <span className="text-muted-foreground">Trend-Bonus:</span>
+                              <span className="font-mono text-right">{capacity.trend_bonus_w >= 0 ? '+' : ''}{capacity.trend_bonus_w} W</span>
+                              <span className="text-muted-foreground">Lookahead Stunde+1:</span>
+                              <span className="font-mono text-right">{(capacity.next_hour_forecast_w / 1000).toFixed(1)} kW</span>
+                              <span className="text-muted-foreground">Lookahead-Bonus:</span>
+                              <span className="font-mono text-right">+{capacity.lookahead_bonus_w} W</span>
+                            </div>
+                            {capacity.lookahead_factor === 'cloud_warning' && (
+                              <div className="text-amber-600 dark:text-amber-400 text-[11px] pt-1">⛅ Wolkenfront — Komfort gedrosselt</div>
+                            )}
+                            {capacity.planned_comfort_room_ids.length > 0 && (
+                              <div className="border-t pt-1 text-[11px]">
+                                <span className="text-muted-foreground">Geplant Komfort: </span>
+                                <span>{capacity.comfort_candidates.filter(c => capacity.planned_comfort_room_ids.includes(c.room_id)).map(c => c.name).join(', ')}</span>
+                              </div>
+                            )}
+                          </div>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  )}
                 </span>
                 <button
                   type="button"
