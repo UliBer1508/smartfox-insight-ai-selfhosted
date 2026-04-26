@@ -1,8 +1,10 @@
 ---
 name: PV-Automation Budget Logic v2
-description: Eco vs Komfort-Budget, Mikro-Budget, Prognose-Bonus, Batterie-Reserve, PV-Trend, gehärtetes SOC-Gate mit aktiven Notfall-Stops
+description: Eco vs Komfort-Budget, Mikro-Budget, Prognose-Bonus, Batterie-Reserve, PV-Trend, gehärtetes SOC-Gate. WW wird NICHT als Budget-Reserve abgezogen (Smartfox-autonom).
 type: feature
 ---
+
+**Consumer-Reserven (WICHTIG):** Nur `carReserveW` (E-Auto) wird vom Eco-Budget abgezogen. `hotwaterReserveW` ist hart `= 0`, weil Warmwasser autonom von Smartfox gesteuert wird und der WW-Verbrauch `gridExport` bereits physikalisch reduziert. Eine zusätzliche Software-Reserve würde Doppelbuchung verursachen und Komfort-Upgrades blockieren. Siehe `mem://features/heating/hotwater-smartfox-autonomous`.
 
 Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehreren Boost-Mechanismen:
 
