@@ -72,6 +72,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
   const { activeRooms, totalHeatingPower, refetch: refetchActive } = useActiveHeatingRooms();
+  const { data: capacity } = useParallelHeatingCapacity();
 
   // Map: room_id → live power (Watt) für aktiv heizende Räume
   const activePowerById = new Map(activeRooms.map(r => [r.room_id, r.power]));
