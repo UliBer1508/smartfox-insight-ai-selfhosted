@@ -497,10 +497,15 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
 
           {/* Warmwasser-Bereitung */}
           <div className="border-t pt-4">
-            <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
+            <h3 className="text-sm font-medium flex items-center gap-2 mb-2">
               <Droplets className="w-4 h-4" />
               Warmwasser-Bereitung (Smartfox-gesteuert)
             </h3>
+            <p className="text-xs text-muted-foreground mb-4 p-2 bg-muted/40 rounded">
+              ℹ️ Warmwasser wird autonom von Smartfox gesteuert. Diese Werte dienen nur der Tagesenergie-Prognose
+              und beeinflussen das Momentan-Heizbudget <strong>nicht</strong> — der WW-Verbrauch reduziert den verfügbaren
+              Netzexport bereits physikalisch.
+            </p>
             <div className="grid md:grid-cols-2 gap-4 mb-4">
               <div className="space-y-2">
                 <Label htmlFor="hotwater_enabled">Warmwasser in Analyse berücksichtigen</Label>
