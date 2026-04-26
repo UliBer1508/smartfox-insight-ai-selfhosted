@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info, AlertTriangle, RefreshCw, Flame } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
@@ -37,14 +37,26 @@ const getProgressColor = (diff: number) => {
 const getHeatingStatus = (
   room: Room,
   isActivelyHeating: boolean,
-  livePower: number
-): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock } => {
+  livePower: number,
+  isActivated: boolean,
+  activationReason: 'plan' | 'setpoint' | 'queue' | undefined,
+  modeLabel: string | undefined,
+): { label: string; dotClass: string; badgeClass: string; icon?: typeof Clock; tooltip?: string } => {
   if (isActivelyHeating) {
     const label = livePower > 0 ? `Heizt · ${Math.round(livePower)}W` : 'Heizt';
     return { label, dotClass: 'bg-destructive', badgeClass: 'bg-destructive/10 text-destructive' };
   }
+  if (isActivated) {
+    const reasonLabel = activationReason === 'plan' ? 'Plan' : activationReason === 'queue' ? 'Queue' : 'Setpoint';
+    return {
+      label: `Aktiviert${modeLabel ? ' · ' + modeLabel : ''}`,
+      dotClass: 'bg-blue-500',
+      badgeClass: 'bg-blue-500/10 text-blue-600',
+      icon: Flame,
+      tooltip: `Automatik hat den Raum auf ${modeLabel ?? 'Heizen'} gestellt (Quelle: ${reasonLabel}). Wartet auf Hardware-Bestätigung.`,
+    };
+  }
   // "Wartend": automation aktiv, Raum nicht aktiv heizend, aber deutlich unter Ziel
-  // (Schwelle > 0.4 °C, damit ±0.3 °C Hysterese-Zone nicht fälschlich als Wartend erscheint)
   if (
     room.automation_enabled &&
     room.target_temp != null &&
@@ -73,7 +85,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
-  const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, refetch: refetchActive } = useActiveHeatingRooms();
+  const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, activatedRoomIds, activationReasons, refetch: refetchActive } = useActiveHeatingRooms();
   const { pushAllTemps, isPushing } = usePushAllTemps();
 
   const handleSyncNow = async () => {
@@ -171,16 +183,19 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                 Live-Status aus Thermostat-Sync (Logs nicht verfügbar) · Sync vor {formatSyncAge(lastSyncAgeSec)}
               </div>
             )}
-            {(activeRooms.length > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
+            {(activeRooms.length > 0 || activatedRoomIds.size > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
               <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5 flex-wrap">
                   {activeRooms.length > 0 ? (
                     <>
-                      Aktuell heizen: <strong className="text-foreground">{activeRooms.length} {activeRooms.length === 1 ? 'Raum' : 'Räume'}</strong>
+                      Heizen: <strong className="text-foreground">{activeRooms.length}</strong>
                       {totalHeatingPower > 0 && <> · <strong className="text-foreground">{Math.round(totalHeatingPower).toLocaleString('de-DE')} W</strong></>}
                     </>
                   ) : (
                     <>Aktuell heizt kein Raum</>
+                  )}
+                  {activatedRoomIds.size > 0 && (
+                    <> · <span className="text-blue-600">Aktiviert: <strong>{activatedRoomIds.size}</strong></span></>
                   )}
                   {capacity && (
                     <TooltipProvider delayDuration={150}>
@@ -273,10 +288,12 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           )}
                           {(() => {
                             const livePower = getRoomLivePower(room);
-                            const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower);
+                            const isActivated = activatedRoomIds.has(room.id);
+                            const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower, isActivated, activationReasons.get(room.id), mode?.label);
+                            const StatusIcon = status.icon;
                             return (
-                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
+                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`} title={status.tooltip}>
+                                {StatusIcon ? <StatusIcon className="w-3 h-3" /> : <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />}
                                 {status.label}
                               </span>
                             );
@@ -408,10 +425,12 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             <TableCell>
                               {(() => {
                                 const livePower = getRoomLivePower(room);
-                                const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower);
+                                const isActivated = activatedRoomIds.has(room.id);
+                                const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower, isActivated, activationReasons.get(room.id), mode?.label);
+                                const StatusIcon = status.icon;
                                 return (
-                                  <span className="flex items-center gap-1 text-xs">
-                                    <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />
+                                  <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full w-fit ${status.badgeClass}`} title={status.tooltip}>
+                                    {StatusIcon ? <StatusIcon className="w-3 h-3" /> : <span className={`w-2 h-2 rounded-full ${status.dotClass}`} />}
                                     {status.label}
                                   </span>
                                 );
