@@ -43,13 +43,36 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
   const [sourceLevel, setSourceLevel] = useState<'A' | 'B' | 'C'>('A');
   const [lastSyncAgeSec, setLastSyncAgeSec] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [activatedRoomIds, setActivatedRoomIds] = useState<Set<string>>(new Set());
+  const [activationReasons, setActivationReasons] = useState<Map<string, ActivationReason>>(new Map());
 
   const loadActiveRooms = useCallback(async () => {
     setIsLoading(true);
     try {
       const todayStart = getLocalMidnightISO();
-      
-      const [logsResult, roomsResult] = await Promise.all([
+
+      const [logsResult, roomsResult, planResult, queueResult] = await Promise.all([
+        supabase
+          .from('room_heating_logs')
+          .select('room_id, event_type, timestamp')
+          .gte('timestamp', todayStart)
+          .in('event_type', ['heating_start', 'heating_stop'])
+          .order('timestamp', { ascending: false }),
+        supabase
+          .from('rooms')
+          .select('id, name, heating_power_w, calculated_power_w, power_calculation_confidence, power_samples, floor_area_m2, is_heating, last_thermostat_sync, tuya_device_id, target_temp, current_temp, eco_temp, comfort_temp, night_temp, automation_enabled, last_auto_change'),
+        supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'parallel_heating_capacity')
+          .maybeSingle(),
+        supabase
+          .from('thermostat_commands')
+          .select('room_id, command, status, created_at')
+          .eq('status', 'pending')
+          .eq('command', 'set_temperature')
+          .gte('created_at', new Date(Date.now() - 5 * 60_000).toISOString()),
+      ]);
         supabase
           .from('room_heating_logs')
           .select('room_id, event_type, timestamp')
