@@ -204,5 +204,5 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
 
   const totalHeatingPower = activeRooms.reduce((sum, r) => sum + r.power, 0);
 
-  return { activeRooms, totalHeatingPower, isLoading, sourceLevel, lastSyncAgeSec, refetch: loadActiveRooms };
+  return { activeRooms, totalHeatingPower, isLoading, sourceLevel, lastSyncAgeSec, activatedRoomIds, activationReasons, refetch: loadActiveRooms };
 }
