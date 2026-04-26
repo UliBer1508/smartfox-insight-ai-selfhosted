@@ -1417,21 +1417,85 @@ Deno.serve(async (req) => {
             console.log(`[BATTERY-BUFFER] Gesperrt: PV-Rest<Bedarf (${(remainingPvForHeatingWh/1000).toFixed(1)}/${(totalEcoEnergyNeededWh/1000).toFixed(1)}kWh) oder Trend=${pvTrend}W`);
           }
 
-          // ============= PV-TREND BONUS (Eco-Budget) =============
-          let trendBonus = 0;
-          if (pvTrend > 500) {
-            trendBonus = 300;
-            availableBudget += trendBonus;
-            console.log(`[PV-TREND] +${trendBonus}W Trend-Bonus (Trend=+${pvTrend}W) → Eco-Budget=${availableBudget}W`);
+          // ============= PV-TREND BONUS — symmetrisch (Eco-Budget) =============
+          // Trend-Faktor 0.5 mit Clamp ±1500W, kein Threshold mehr.
+          // Steigender Trend → mehr Räume parallel; fallender Trend → konservativer.
+          const trendBonus = Math.max(-1500, Math.min(1500, Math.round(pvTrend * 0.5)));
+          if (trendBonus !== 0) {
+            availableBudget = Math.max(0, availableBudget + trendBonus);
+            console.log(`[PV-TREND] ${trendBonus >= 0 ? '+' : ''}${trendBonus}W (Trend=${pvTrend >= 0 ? '+' : ''}${pvTrend}W × 0.5, symmetrisch) → Eco-Budget=${availableBudget}W`);
           }
-          
-          // Separates Komfort-Budget: IMMER strikt — Batterie nie für Komfort, KEIN Prognose-Bonus
-          let rawComfortBudget = gridExport + currentlyHeatingPower;
+
+          // ============= DYNAMISCHER BASELOAD-PUFFER (Komfort-Schutz) =============
+          // Aus Standardabweichung der letzten ~10 Min consumption — schützt vor unnötigen
+          // Komfort-Deaktivierungen bei Lastspitzen (Backofen, Mikrowelle, ...).
+          let dynamicBaseloadBuffer = 300;
+          try {
+            const { data: bl } = await supabase
+              .from('energy_readings')
+              .select('consumption')
+              .gte('timestamp', new Date(Date.now() - 11 * 60 * 1000).toISOString())
+              .order('timestamp', { ascending: false })
+              .limit(15);
+            const vals = (bl || []).map(r => Number(r.consumption || 0)).filter(v => v > 0);
+            if (vals.length >= 3) {
+              const mean = vals.reduce((s, v) => s + v, 0) / vals.length;
+              const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+              const stddev = Math.sqrt(variance);
+              dynamicBaseloadBuffer = Math.max(200, Math.min(1500, Math.round(stddev * 1.5)));
+              console.log(`[BASELOAD-BUFFER] N=${vals.length}, μ=${Math.round(mean)}W, σ=${Math.round(stddev)}W → Puffer=${dynamicBaseloadBuffer}W`);
+            }
+          } catch (e) {
+            console.log(`[BASELOAD-BUFFER] Berechnung fehlgeschlagen: ${e}`);
+          }
+
+          // ============= PROGNOSE-LOOKAHEAD-BONUS (nur Komfort) =============
+          // Wenn die kommende Stunde mind. 90% des aktuellen Werts liefert → Bonus für Komfort,
+          // damit mehr Räume parallel hochgezogen werden. Bei Wolkenfront (≤50%) → Komfort drosseln.
+          let lookaheadBonus = 0;
+          let lookaheadFactor: 'boost' | 'neutral' | 'cloud_warning' = 'neutral';
+          let nextHourForecastCorrected = 0;
+          try {
+            const nextHour = (currentWienHour + 1) % 24;
+            const nextHourRawW = hourlyWatts[`${today} ${nextHour.toString().padStart(2, '0')}:00:00`] || 0;
+            nextHourForecastCorrected = nextHourRawW * forecastAccuracy;
+            if (currentHourForecastCorrected > 100) {
+              if (nextHourForecastCorrected >= currentHourForecastCorrected * 0.9) {
+                lookaheadBonus = Math.max(0, Math.min(
+                  Math.round(gridExport * 0.3),
+                  Math.round(nextHourForecastCorrected - baseLoad - 1000)
+                ));
+                if (lookaheadBonus > 0) lookaheadFactor = 'boost';
+              } else if (nextHourForecastCorrected < currentHourForecastCorrected * 0.5) {
+                lookaheadFactor = 'cloud_warning';
+              }
+            }
+          } catch (e) {
+            console.log(`[LOOKAHEAD] Berechnung fehlgeschlagen: ${e}`);
+          }
+
+          // Separates Komfort-Budget: gridExport − Baseload-Puffer + Trend (symmetrisch) + Lookahead
+          // KEIN Batterie-Bonus, KEIN Prognose-Mindest-Bonus.
+          let rawComfortBudget = gridExport - dynamicBaseloadBuffer + trendBonus + lookaheadBonus;
           if (batteryPower < 0) {
-            rawComfortBudget = Math.max(0, rawComfortBudget - Math.abs(batteryPower));
+            rawComfortBudget = rawComfortBudget - Math.abs(batteryPower);
           }
-          comfortBudget = Math.max(0, rawComfortBudget);
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus > 0 ? ` +Trend ${trendBonus}W` : ''}) | Komfort-Budget: ${comfortBudget}W`);
+          comfortBudget = Math.max(0, Math.round(rawComfortBudget));
+          if (lookaheadFactor === 'cloud_warning') {
+            const before = comfortBudget;
+            comfortBudget = Math.round(comfortBudget * 0.7);
+            console.log(`[LOOKAHEAD] ⛅ Wolkenfront erkannt (Stunde+1=${Math.round(nextHourForecastCorrected)}W < 50% × ${Math.round(currentHourForecastCorrected)}W) → Komfort ${before}W × 0.7 = ${comfortBudget}W`);
+          } else if (lookaheadBonus > 0) {
+            console.log(`[LOOKAHEAD] ☀️ Stabile Sonne (Stunde+1=${Math.round(nextHourForecastCorrected)}W ≥ 90% × ${Math.round(currentHourForecastCorrected)}W) → Komfort-Bonus +${lookaheadBonus}W`);
+          }
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}W Trend` : ''}) | Komfort-Budget: ${comfortBudget}W (gridExport ${gridExport} − Baseload ${dynamicBaseloadBuffer}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}` : ''}${lookaheadBonus > 0 ? ` +Lookahead ${lookaheadBonus}` : ''})`);
+
+          // Persist für UI (parallel-heating-capacity wird nach Phase-Setup ergänzt)
+          (globalThis as any).__parallelPlanCtx = {
+            gridExport, dynamicBaseloadBuffer, pvTrend, trendBonus,
+            lookaheadBonus, lookaheadFactor, nextHourForecastCorrected,
+            ecoBudget: availableBudget, comfortBudget,
+          };
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
           availableBudget = Math.max(0, gridExport);
