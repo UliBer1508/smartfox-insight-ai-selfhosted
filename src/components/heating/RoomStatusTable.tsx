@@ -5,7 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info } from 'lucide-react';
+import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
@@ -71,7 +73,30 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
-  const { activeRooms, totalHeatingPower, refetch: refetchActive } = useActiveHeatingRooms();
+  const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, refetch: refetchActive } = useActiveHeatingRooms();
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try {
+      const { error } = await supabase.functions.invoke('tuya-control', { body: { action: 'sync_all' } });
+      if (error) throw error;
+      toast.success('Sync gestartet');
+      setTimeout(refetchActive, 3000);
+    } catch (e: any) {
+      toast.error(`Sync fehlgeschlagen: ${e.message ?? e}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const formatSyncAge = (sec: number | null) => {
+    if (sec === null) return '—';
+    if (sec < 60) return `${sec}s`;
+    const min = Math.round(sec / 60);
+    if (min < 60) return `${min} min`;
+    return `${Math.round(min / 60)} h`;
+  };
   const { data: capacity } = useParallelHeatingCapacity();
 
   // Map: room_id → live power (Watt) für aktiv heizende Räume
