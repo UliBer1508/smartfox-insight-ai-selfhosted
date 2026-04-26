@@ -72,24 +72,43 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
           .eq('status', 'pending')
           .eq('command', 'set_temperature')
           .gte('created_at', new Date(Date.now() - 5 * 60_000).toISOString()),
-      ]);
-        supabase
-          .from('room_heating_logs')
-          .select('room_id, event_type, timestamp')
-          .gte('timestamp', todayStart)
-          .in('event_type', ['heating_start', 'heating_stop'])
-          .order('timestamp', { ascending: false }),
-        supabase
-          .from('rooms')
-          .select('id, name, heating_power_w, calculated_power_w, power_calculation_confidence, power_samples, floor_area_m2, is_heating, last_thermostat_sync, tuya_device_id, target_temp, current_temp')
-      ]);
-
       if (logsResult.error) throw logsResult.error;
       if (roomsResult.error) throw roomsResult.error;
 
       const logs = logsResult.data || [];
-      const rooms = (roomsResult.data || []) as (Room & { is_heating?: boolean; last_thermostat_sync?: string | null; tuya_device_id?: string | null })[];
+      const rooms = (roomsResult.data || []) as (Room & { is_heating?: boolean; last_thermostat_sync?: string | null; tuya_device_id?: string | null; eco_temp?: number | null; comfort_temp?: number | null; night_temp?: number | null; automation_enabled?: boolean | null; last_auto_change?: string | null })[];
       const roomMap = new Map(rooms.map(r => [r.id, r]));
+
+      // ---- Aktivierungs-Erkennung (Plan / Setpoint / Queue) ----
+      const planVal = (planResult.data?.value as { planned_eco_room_ids?: string[]; planned_comfort_room_ids?: string[] } | null) || null;
+      const plannedIds = new Set<string>([
+        ...(planVal?.planned_eco_room_ids ?? []),
+        ...(planVal?.planned_comfort_room_ids ?? []),
+      ]);
+      const queueIds = new Set<string>((queueResult.data ?? []).map((c: { room_id: string }) => c.room_id));
+
+      const nowMs = Date.now();
+      const actIds = new Set<string>();
+      const actReasons = new Map<string, ActivationReason>();
+      for (const r of rooms) {
+        if (plannedIds.has(r.id)) { actIds.add(r.id); actReasons.set(r.id, 'plan'); continue; }
+        if (queueIds.has(r.id)) { actIds.add(r.id); actReasons.set(r.id, 'queue'); continue; }
+        // Setpoint-Heuristik: Automatik aktiv, target ≥ eco-0.2, last_auto_change < 10 min
+        if (
+          r.automation_enabled &&
+          r.target_temp != null &&
+          r.eco_temp != null &&
+          r.target_temp >= r.eco_temp - 0.2 &&
+          r.last_auto_change &&
+          nowMs - new Date(r.last_auto_change).getTime() < 10 * 60_000
+        ) {
+          actIds.add(r.id);
+          actReasons.set(r.id, 'setpoint');
+        }
+      }
+      setActivatedRoomIds(actIds);
+      setActivationReasons(actReasons);
+
 
       // ---- Sync-Alter berechnen (max über alle Räume mit Device) ----
       const now = Date.now();
