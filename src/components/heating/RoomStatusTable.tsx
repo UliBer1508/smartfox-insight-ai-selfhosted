@@ -67,7 +67,28 @@ const getHeatingMode = (room: Room) => {
 export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps) => {
   const [isOpen, setIsOpen] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
+  const { activeRooms, totalHeatingPower, refetch: refetchActive } = useActiveHeatingRooms();
+
+  // Map: room_id → live power (Watt) für aktiv heizende Räume
+  const activePowerById = new Map(activeRooms.map(r => [r.room_id, r.power]));
+  const activeRoomIds = new Set(activeRooms.map(r => r.room_id));
+
+  const isRoomActivelyHeating = (room: Room) => activeRoomIds.has(room.id);
+  const getRoomLivePower = (room: Room) => {
+    if (!isRoomActivelyHeating(room)) return 0;
+    const fromHook = activePowerById.get(room.id);
+    if (fromHook && fromHook > 0) return fromHook;
+    return getEffectiveHeatingPower(room);
+  };
+
+  // "Aktualisiert vor X s" Anzeige (Hook pollt alle 30s)
+  useEffect(() => {
+    setSecondsAgo(0);
+    const interval = setInterval(() => setSecondsAgo(s => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [activeRooms]);
 
   const toggleRow = (roomId: string) => {
     setExpandedRows(prev => {
