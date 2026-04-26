@@ -72,6 +72,8 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
           .eq('status', 'pending')
           .eq('command', 'set_temperature')
           .gte('created_at', new Date(Date.now() - 5 * 60_000).toISOString()),
+      ]);
+
       if (logsResult.error) throw logsResult.error;
       if (roomsResult.error) throw roomsResult.error;
 
