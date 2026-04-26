@@ -157,10 +157,10 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                   size="sm"
                   variant="outline"
                   className="h-6 text-[10px] px-2"
-                  disabled={syncing}
+                  disabled={isPushing}
                   onClick={(e) => { e.stopPropagation(); handleSyncNow(); }}
                 >
-                  <RefreshCw className={`w-3 h-3 mr-1 ${syncing ? 'animate-spin' : ''}`} />
+                  <RefreshCw className={`w-3 h-3 mr-1 ${isPushing ? 'animate-spin' : ''}`} />
                   Jetzt synchronisieren
                 </Button>
               </div>
