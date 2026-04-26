@@ -7,11 +7,11 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info, AlertTriangle, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 import { useParallelHeatingCapacity } from '@/hooks/useParallelHeatingCapacity';
+import { usePushAllTemps } from '@/hooks/usePushAllTemps';
 
 interface RoomStatusTableProps {
   rooms: Room[];
