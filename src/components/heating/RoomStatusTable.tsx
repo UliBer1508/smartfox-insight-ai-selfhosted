@@ -160,8 +160,8 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             </span>
                           )}
                           {(() => {
-                            const power = room.is_heating ? Math.round(getEffectiveHeatingPower(room)) : 0;
-                            const status = getHeatingStatus(room, power);
+                            const livePower = getRoomLivePower(room);
+                            const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower);
                             return (
                               <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
