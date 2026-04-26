@@ -1264,12 +1264,15 @@ Deno.serve(async (req) => {
       const hwStartH = parseInt(hwStart.split(':')[0], 10) || 10;
       const hwEndH = parseInt(hwEnd.split(':')[0], 10) || 16;
       const hotwaterActiveWindow = (settings?.hotwater_enabled !== false) && hwHourNow >= hwStartH && hwHourNow < hwEndH;
-      const hotwaterReserveW = (hotwaterBeforeHeating && hotwaterActiveWindow)
-        ? Math.max(0, settings?.hotwater_power_w || 0) : 0;
+      // WW autonom von Smartfox gemanaged — keine Software-Reserve abziehen
+      // (siehe mem://hardware/energy-system-specifications & mem://features/heating/hotwater-smartfox-autonomous).
+      // WW-Verbrauch reduziert gridExport bereits physikalisch; doppelte Reserve würde Komfort blockieren.
+      void hotwaterBeforeHeating; void hotwaterActiveWindow;
+      const hotwaterReserveW = 0;
       const carReserveW = (carBeforeHeating && settings?.car_charging_enabled === true)
         ? Math.max(0, settings?.car_min_charge_power_w || 0) : 0;
-      if (hotwaterReserveW > 0 || carReserveW > 0) {
-        console.log(`[CONSUMER-PRIORITY] vorrangig: Warmwasser=${hotwaterReserveW}W, Auto=${carReserveW}W (Reihenfolge: ${priorityListRaw.join('>')})`);
+      if (carReserveW > 0) {
+        console.log(`[CONSUMER-PRIORITY] vorrangig: Auto=${carReserveW}W (WW=Smartfox-autonom, Reihenfolge: ${priorityListRaw.join('>')})`);
       }
 
       // ============= LEISTUNGSBUDGET-MANAGEMENT =============
