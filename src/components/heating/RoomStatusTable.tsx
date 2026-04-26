@@ -4,10 +4,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
-import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Check, X, Thermometer, ChevronDown, ChevronRight, Moon, Zap, Sun, Clock, Info } from 'lucide-react';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
+import { useParallelHeatingCapacity } from '@/hooks/useParallelHeatingCapacity';
 
 interface RoomStatusTableProps {
   rooms: Room[];
