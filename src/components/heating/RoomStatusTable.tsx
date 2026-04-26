@@ -74,20 +74,11 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
   const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, refetch: refetchActive } = useActiveHeatingRooms();
-  const [syncing, setSyncing] = useState(false);
+  const { pushAllTemps, isPushing } = usePushAllTemps();
 
   const handleSyncNow = async () => {
-    setSyncing(true);
-    try {
-      const { error } = await supabase.functions.invoke('tuya-control', { body: { action: 'sync_all' } });
-      if (error) throw error;
-      toast.success('Sync gestartet');
-      setTimeout(refetchActive, 3000);
-    } catch (e: any) {
-      toast.error(`Sync fehlgeschlagen: ${e.message ?? e}`);
-    } finally {
-      setSyncing(false);
-    }
+    const result = await pushAllTemps();
+    if (result?.success) setTimeout(refetchActive, 3000);
   };
 
   const formatSyncAge = (sec: number | null) => {
