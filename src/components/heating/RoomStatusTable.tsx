@@ -285,10 +285,12 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           )}
                           {(() => {
                             const livePower = getRoomLivePower(room);
-                            const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower);
+                            const isActivated = activatedRoomIds.has(room.id);
+                            const status = getHeatingStatus(room, isRoomActivelyHeating(room), livePower, isActivated, activationReasons.get(room.id), mode?.label);
+                            const StatusIcon = status.icon;
                             return (
-                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />
+                              <span className={`flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full ${status.badgeClass}`} title={status.tooltip}>
+                                {StatusIcon ? <StatusIcon className="w-3 h-3" /> : <span className={`w-1.5 h-1.5 rounded-full ${status.dotClass}`} />}
                                 {status.label}
                               </span>
                             );
