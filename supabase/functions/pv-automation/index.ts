@@ -1734,7 +1734,63 @@ Deno.serve(async (req) => {
           });
         }
       }
-      
+
+      // ============= PARALLEL-KAPAZITÄTS-VORABBERECHNUNG =============
+      // Zeigt VOR Phase 1, wie viele Räume mit dem aktuellen Budget gleichzeitig hochgeheizt
+      // werden können — getrennt für Eco und Komfort. Persistiert für UI-Tooltip.
+      try {
+        const ecoCandidates: Array<{room_id:string, name:string, power_w:number}> = [];
+        const comfortCandidates: Array<{room_id:string, name:string, power_w:number}> = [];
+        for (const rp of roomsWithPriority) {
+          if (roomBudgetStatus.has(rp.room.id)) continue;
+          const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
+          const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
+          const cur = rp.room.current_temp || 0;
+          if (cur < ecoTemp - 0.3) {
+            ecoCandidates.push({ room_id: rp.room.id, name: rp.room.name, power_w: rp.heatingPower });
+          } else if (cur < comfortTemp - 0.3) {
+            comfortCandidates.push({ room_id: rp.room.id, name: rp.room.name, power_w: rp.heatingPower });
+          }
+        }
+        let ecoFit = 0, ecoSum = 0;
+        const plannedEco: string[] = [];
+        for (const c of ecoCandidates) {
+          if (ecoSum + c.power_w <= availableBudget) { ecoSum += c.power_w; ecoFit++; plannedEco.push(c.room_id); }
+        }
+        let comfortFit = 0, comfortSum = 0;
+        const plannedComfort: string[] = [];
+        for (const c of comfortCandidates) {
+          if (comfortSum + c.power_w <= comfortBudget) { comfortSum += c.power_w; comfortFit++; plannedComfort.push(c.room_id); }
+        }
+        const ctx = (globalThis as any).__parallelPlanCtx || {};
+        const planPayload = {
+          computed_at: new Date().toISOString(),
+          grid_export_w: ctx.gridExport ?? gridExport,
+          baseload_buffer_w: ctx.dynamicBaseloadBuffer ?? 0,
+          trend_w_per_5min: ctx.pvTrend ?? pvTrend,
+          trend_bonus_w: ctx.trendBonus ?? 0,
+          lookahead_bonus_w: ctx.lookaheadBonus ?? 0,
+          lookahead_factor: ctx.lookaheadFactor ?? 'neutral',
+          next_hour_forecast_w: Math.round(ctx.nextHourForecastCorrected ?? 0),
+          eco_budget_w: availableBudget,
+          comfort_budget_w: comfortBudget,
+          eco_candidates: ecoCandidates,
+          comfort_candidates: comfortCandidates,
+          max_parallel_eco: ecoFit,
+          max_parallel_comfort: comfortFit,
+          planned_eco_room_ids: plannedEco,
+          planned_comfort_room_ids: plannedComfort,
+          budget_mode: budgetMode,
+        };
+        await supabase.from('system_settings').upsert(
+          { key: 'parallel_heating_capacity', value: planPayload, updated_at: new Date().toISOString() },
+          { onConflict: 'key' }
+        );
+        console.log(`[PARALLEL-PLAN] Export ${planPayload.grid_export_w}W, Puffer ${planPayload.baseload_buffer_w}W, Trend ${planPayload.trend_bonus_w >= 0 ? '+' : ''}${planPayload.trend_bonus_w}W, Lookahead +${planPayload.lookahead_bonus_w}W → Eco-Budget ${availableBudget}W (${ecoFit}/${ecoCandidates.length} Räume parallel), Komfort-Budget ${comfortBudget}W (${comfortFit}/${comfortCandidates.length} Räume parallel)`);
+      } catch (e) {
+        console.log(`[PARALLEL-PLAN] Persist fehlgeschlagen: ${e}`);
+      }
+
       // Phase 1: ECO-Runde
       console.log(`[PV-Automation] === PHASE 1: ECO-RUNDE === Budget: ${availableBudget}W`);
       for (const rp of roomsWithPriority) {
