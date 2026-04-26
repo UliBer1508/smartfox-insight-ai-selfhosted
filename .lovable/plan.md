@@ -1,33 +1,50 @@
-# WW-Reserve aus Heizbudget entfernen
+## Befund
 
-## Problem
-In `supabase/functions/pv-automation/index.ts` wird das Eco-Budget künstlich um bis zu 2800W reduziert, wenn `hotwater` in `consumer_priority` vor `heating` steht und das WW-Zeitfenster (10:00–16:00) aktiv ist — unabhängig davon, ob WW gerade tatsächlich läuft.
+Die in der Edge Function umgesetzte Logik (`supabase/functions/pv-automation/index.ts`, Zeile 1634–1960) entspricht **bereits exakt** deiner Anforderung:
 
-Das widerspricht der dokumentierten Architektur (`mem://hardware/energy-system-specifications`): **Warmwasser wird autonom von Smartfox gemanaged.** Sobald WW läuft, sinkt `gridExport` automatisch — eine zusätzliche Software-Reserve führt zu Doppelbuchung und blockiert Komfort-/Eco-Upgrades obwohl real Überschuss vorhanden ist (heute: 9,8 kW Export, trotzdem nur 7,1 kW Komfort-Budget weil 2800W „reserviert").
+- **Phase 1 (Eco):** Räume unter `eco_temp` werden nach Priorität 1–12 auf Eco geheizt, solange `availableBudget` (inkl. Prognose-/Trend-/Batterie-Bonus) reicht.
+- **Phase 2 (Komfort):** Läuft **parallel** zu Phase 1. Räume mit `currentTemp ≥ eco_temp − 0,3 °C` dürfen auf `comfort_temp` hochgesetzt werden — **ausschließlich** wenn echtes `comfortBudget` (= `gridExport`, **kein** Bonus, **keine** Batterie, **kein** WW-Reserve-Abzug) reicht.
+- **Komfort-Hard-Lock:** `batterySoc < heating_min_battery_soc` (80 %) → `comfortBudget = 0`.
 
-## Änderungen
+Es gibt **nichts am Code zu ändern**. Die heutige Beobachtung „nicht alle Räume auf Komfort" ist die korrekte Konsequenz von:
+1. Komfort-Budget = nur echter Export (war bis vorhin durch WW-Reserve doppelt gebucht — ist gefixt)
+2. Tuya-Quota 208/200 erschöpft → Befehle werden verworfen, nicht weil die Logik falsch ist
 
-### 1. `supabase/functions/pv-automation/index.ts`
-- **Zeile ~1267–1268**: `hotwaterReserveW` hart auf `0` setzen mit Kommentar `// WW autonom von Smartfox gemanaged — keine Software-Reserve (siehe mem://hardware/energy-system-specifications)`.
-- **Zeile ~1271–1272**: Log-Bedingung & Text anpassen, damit nur noch `carReserveW` erscheint.
-- **Zeile ~1355–1358**: Im Eco-Budget-Block den `hotwaterReserveW`-Abzug entfernen, nur `carReserveW` bleibt.
-- **Zeile ~1071–1075** (`hotwaterKwh` im Tages-Energiemodell für Pre-Heat-Boost): bleibt unverändert — das ist eine **Energie-Prognose** (kWh über den Tag), nicht eine Momentan-Leistungsreserve, und dient korrekt der Tagesplanung.
-- **Zeile ~2610** (`superComfortAllowed`-Gate prüft `!hotwaterActive`): bleibt unverändert — das ist eine sinnvolle Sicherheit, kein Budget-Abzug.
+## Problem in der Doku
 
-### 2. `src/components/heating/HeatingSettingsForm.tsx`
-- Bei `hotwater_*` Feldern Helper-Text ergänzen: *„Hinweis: Warmwasser wird von Smartfox autonom gesteuert. Diese Werte dienen nur der Tagesenergie-Prognose und beeinflussen das Momentan-Heizbudget nicht."*
+Die zentrale Memory `mem://arch/pv-automation-strategy-v2` (DB-Eintrag, der bei jedem Loop in den Kontext geladen wird) beschreibt noch die **alte sequentielle** Strategie:
 
-### 3. Memory-Updates
-- **Neu**: `mem://features/heating/hotwater-smartfox-autonomous` — explizite Regel: WW läuft autonom über Smartfox, `pv-automation` zieht KEINE WW-Momentan-Reserve vom Heizbudget ab. `consumer_priority`-Reihenfolge zwischen `hotwater` und `heating` ist für die Budgetberechnung irrelevant. WW-Verbrauch reduziert `gridExport` bereits physikalisch.
-- **Update** `mem://arch/pv-automation-budget-logic-v2`: Abschnitt zu Consumer-Reserven präzisieren — nur `carReserve` zieht Momentan-Leistung ab; WW nicht.
-- **Update** `mem://index.md` Core-Zeile: hinzufügen *„Warmwasser autonom via Smartfox — keine Software-Budget-Reserve."*
+> „Erst wenn alle Räume Eco erreicht haben oder das Budget für Eco erschöpft ist, startet Phase 2 für Komfort-Upgrades."
 
-## Validierung nach Deploy
-1. Logs prüfen: `[CONSUMER-PRIORITY]`-Zeile zeigt `Warmwasser=0W` oder erscheint nur noch wenn `carReserveW > 0`.
-2. `comfortBudget` sollte bei 9,8 kW Export ≈ 9,8 kW betragen (nicht mehr 7,1 kW).
-3. Mehr Räume erreichen Phase 2 (Komfort) sobald sie `eco_temp - 0.3` überschreiten.
+Die **korrekte v2.1**-Beschreibung („Phase 2 läuft parallel, nur echtes `gridExport` für Komfort, nur Räume ≥ Eco − 0,3 °C") existiert nur im lokalen File `.lovable/memory/arch/pv-automation-strategy-v2.md` und wird beim Auto-Reload des DB-Memory nicht gesehen. Genau das ist der Grund, warum ich (und du in den letzten Loops) immer wieder gegen veraltete Annahmen argumentiert habe.
 
-## Constraints
-- Keine DB-Migration.
-- Tuya-Quota-Thema (208/200) bleibt separat — wird hier NICHT angefasst.
-- `night_end_time`-Logik aus vorigem Plan bleibt unverändert wirksam.
+## Plan
+
+### 1. Memory-Update (DB) — `mem://arch/pv-automation-strategy-v2`
+Inhalt durch v2.1-Beschreibung ersetzen, exakt synchron zum lokalen File:
+- Phase 1 = alle Räume `< eco_temp` nach Priorität auf Eco, Budget = `availableBudget` (mit Boni)
+- Phase 2 = **parallel**, Räume `≥ eco_temp − 0,3 °C` dürfen auf `comfort_temp`, Budget = strikt `gridExport`
+- Komfort-Hard-Lock bei `batterySoc < heating_min_battery_soc`
+- Begründung: warum nicht mehr sequentiell (Verschwendung bei großem Überschuss)
+
+### 2. Memory-Update — `mem://index.md` Core-Zeile
+Aktualisieren von:
+> „Phase 1 (Eco) for all active priority rooms before Phase 2 (Comfort)."
+
+zu:
+> „Phase 1 (Eco) und Phase 2 (Komfort) laufen parallel. Komfort nur für Räume ≥ eco_temp − 0,3 °C und nur aus echtem gridExport."
+
+### 3. Code-Verifikation (read-only Check, keine Änderung)
+- Bestätigen dass `effectiveComfortBudget = comfortBudget` (Zeile 1902) wirklich nur den strikten `gridExport`-basierten Wert enthält → bereits geprüft, ist so.
+- Bestätigen dass `roomBudgetStatus`-Map keine Eco-Räume in Phase 2 doppelt budgetiert → bereits geprüft (Flag `alreadyBudgeted`).
+
+### 4. Keine Änderungen an
+- Edge-Function-Code (Logik ist korrekt)
+- HeatingSettingsForm (WW-Hinweis ist drin)
+- Datenbank-Schema oder RLS
+
+## Erwartetes Ergebnis nach Umsetzung
+
+- Die DB-Memory beschreibt die tatsächliche Logik. Beim nächsten Loop lese ich nicht mehr den veralteten sequentiellen Text.
+- Du erhältst konsistente Antworten: „Räume bleiben auf Eco wenn `comfortBudget` nicht reicht" statt fälschlicher Diagnosen.
+- Sobald der Tuya-Quota-Reset um Mitternacht greift und WW-Reserve = 0 wirkt (heute deployed), sollten morgen mehr Räume Komfort erreichen sofern `gridExport` reicht.
