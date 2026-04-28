@@ -750,9 +750,8 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] 🌙 Night frost_only EINMAL-Push: ${roomsNeedingOff.length}/${allRooms.length} rooms → ${FROST_TEMP}°C (Nacht ${nightKey})`);
 
           for (const room of roomsNeedingOff) {
-            const isResync = Number(room.target_temp) <= FROST_TEMP + 1;
-            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)${isResync ? ' [RESYNC]' : ''}`);
-            
+            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)`);
+
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
@@ -770,8 +769,8 @@ Deno.serve(async (req) => {
                 last_thermostat_sync: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
-              
-              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: isResync ? `resync_frost_${FROST_TEMP}°C` : `frost_${FROST_TEMP}°C` });
+
+              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `frost_${FROST_TEMP}°C` });
             } else {
               const failReason = result.errorType === 'no_control_channel'
                 ? 'night_frost_failed: kein Steuerkanal (Cloud-Quota erschöpft & Local-Service offline)'
@@ -791,17 +790,31 @@ Deno.serve(async (req) => {
                 device_id: room.tuya_device_id,
               }).select().single().then(() => {}, () => {});
 
-              if (!isResync) {
-                const fallbackTemp = Number(room.target_temp) || 20;
-                await supabase.from('rooms').update({
-                  target_temp: fallbackTemp,
-                  heating_paused_reason: failReason,
-                  updated_at: new Date().toISOString()
-                }).eq('id', room.id);
-              }
+              const fallbackTemp = Number(room.target_temp) || 20;
+              await supabase.from('rooms').update({
+                target_temp: fallbackTemp,
+                heating_paused_reason: failReason,
+                updated_at: new Date().toISOString()
+              }).eq('id', room.id);
               nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: failReason });
             }
           }
+
+          // Gate setzen: Nacht ist „abgearbeitet" — egal ob Erfolg oder Fehler.
+          // Bei Fehler verhindert das Spam-API-Errors alle 2 Min.
+          // Morgen beim Eco-Start (08:00) wird das Gate durch nightKey-Wechsel
+          // automatisch ungültig.
+          await supabase.from('system_settings').upsert({
+            key: 'night_frost_last_pushed',
+            value: {
+              night: nightKey,
+              pushed_at: new Date().toISOString(),
+              rooms: roomsNeedingOff.length,
+              successes: nightResults.filter(r => r.success).length,
+              failures: nightResults.filter(r => !r.success).length,
+              mode: 'frost_only'
+            }
+          }, { onConflict: 'key' });
 
         } else {
           // MAINTAIN: Bisheriges Verhalten – night_temp halten
