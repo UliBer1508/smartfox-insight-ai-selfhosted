@@ -1,79 +1,64 @@
+## Problem
 
-# Ziel
-In der Raum-Übersicht (`RoomStatusTable.tsx`) klar erkennbar machen, **welche Räume die Automatik aktuell auf Heizen geschaltet hat** — auch wenn der Thermostat physisch noch keine Rückmeldung „Heizt" geliefert hat (z. B. wegen Tuya-Quota-Lag oder weil der Befehl gerade erst gesendet wurde).
+Nachts (20:00–08:00) feuert `pv-automation` weiterhin Tuya-Cloud-Calls — sichtbar an hunderten `night_frost_failed` Errors (alle 2 Min, ganze Nacht durch). Das frisst die knappe Tagesquota (heute schon 178 Calls verbraucht, **alle nachts**) und verhindert dadurch den Eco-Start am Morgen.
 
-# Problem heute
-Aktuell gibt es nur 3 Status-Badges:
-- **Heizt** (rot) — Hardware bestätigt aktive Heizung über `useActiveHeatingRooms` (Logs oder `is_heating`).
-- **Wartend** (orange) — `automation_enabled` + 0.4 °C unter Ziel.
-- **Aus** (grau) — Rest.
+## Ursache (in `supabase/functions/pv-automation/index.ts` ab Zeile 680)
 
-→ Wenn die `pv-automation` einen Raum gerade **per Setpoint-Erhöhung auf Eco/Komfort gestellt** hat (also den Heizbefehl geschickt hat), ist das nirgends sichtbar, solange der Thermostat noch nicht zurückmeldet. Räume erscheinen fälschlich als „Aus" oder „Wartend", obwohl die Automatik sie gerade aktiv freigegeben hat.
+Im `frost_only`-Modus läuft alle 2 Minuten ein Block, der für JEDEN Raum Tuya-Cloud-Calls auslöst — und zwar in zwei Fällen:
 
-# Lösung: Neue Status-Stufe "Aktiviert" + Quellen-Logik
+1. **„Resync"** – alle 30 Min ein Pflicht-Re-Push auf 5 °C, *auch wenn der Thermostat schon auf Frostschutz steht*.
+2. **„Neu"** – wenn `target_temp > 6 °C`.
 
-## 1. Neuer Status "Aktiviert" (zwischen Wartend und Heizt)
-Definition: Ein Raum gilt als **„Aktiviert"** (= auf Heizen gestellt durch Automatik), wenn **eine** dieser Bedingungen gilt:
+Außerdem wird beim Fehlschlag (Quota erschöpft) ein **sofortiger Retry-Versuch** als Fallback unternommen → noch mehr Calls. Resultat: jede 2-Min-Iteration verbrennt 1× Call pro Raum × 12 Räume × Resyncs.
 
-a) **Geplante Aktivierung aus `parallel_heating_capacity`**: Raum-ID in `planned_eco_room_ids` ODER `planned_comfort_room_ids` (kommt aus `useParallelHeatingCapacity`, wird von `pv-automation` jeden Lauf geschrieben).
+Das widerspricht deiner Vorgabe:
+> Ab 20:00 Nacht → bis 08:00 nichts mehr machen → erst um 08:00 auf Eco.
 
-b) **Aktueller Setpoint deutlich über Nacht-Niveau**: `target_temp ≥ eco_temp − 0.2 °C` (Raum ist also auf Eco oder höher gestellt) UND `automation_enabled = true` UND die Automatik hat in den letzten 10 min etwas geändert (`last_auto_change` < 10 min ODER `last_thermostat_sync` zeigt frischen Schreibvorgang).
+## Lösung — Nacht-Stille-Modus
 
-c) **Pending Command in der Queue**: ein offener Eintrag in `thermostat_commands` mit `status = 'pending'` und `command = 'set_temperature'` für diesen Raum (relevant im Local-Modus).
+### Änderung 1: Einmaliger Frostschutz-Push beim Übergang in die Nacht
 
-→ Wenn zusätzlich der Hook einen aktiven Heiz-Zyklus meldet, wird **„Heizt"** angezeigt (höhere Priorität). „Aktiviert" ist also der Zwischenzustand „Befehl raus, Hardware-Echo noch nicht da".
+In `pv-automation` (Block ab Zeile 657) den Nacht-Pfad so umbauen, dass:
 
-## 2. Visuelles Design
-- **Badge-Farbe**: blau (`bg-blue-500/10 text-blue-600`) mit kleinem Pfeil-/Flammen-Icon (`Flame` von lucide), nicht animiert.
-- **Label**: `Aktiviert · Eco` oder `Aktiviert · Komfort` (Modus aus aktuellem `target_temp` ableiten — die `getHeatingMode()`-Logik existiert bereits).
-- **Tooltip** auf dem Badge: kurzer Text *„Automatik hat den Raum auf {Mode} gestellt (Quelle: Plan / Setpoint / Queue). Wartet auf Hardware-Bestätigung."*
+- **Nur EINMAL pro Nacht** (beim ersten Lauf nach `night_start_time`) Räume auf Frostschutz gesetzt werden — und auch nur jene, deren `target_temp > FROST_TEMP + 1`.
+- **Kein periodischer 30-Min-Resync** mehr im `frost_only`-Modus. Begründung: TGP508 halten den Sollwert; falls ein internes Zeitprogramm dazwischenfunkt, wird das morgens beim Eco-Start ohnehin korrigiert. Der Nacht-Resync ist Quota-Verschwendung.
+- **Tracking via `system_settings`-Key** `night_frost_last_pushed` (ISO-Datum), damit pro Nacht nur ein Push passiert. Reset beim ersten Tag-Lauf nach 08:00.
+- **Bei Quota-/Steuerkanal-Fehler:** Eintrag in `api_errors` nur **einmal pro Nacht** (nicht alle 2 Min) — über denselben Settings-Key gesteuert.
 
-## 3. Status-Hierarchie (von oben nach unten)
-1. **Heizt** (rot) — Hardware aktiv (unverändert)
-2. **Aktiviert** (blau, NEU) — Automatik hat geschaltet, Hardware-Echo offen
-3. **Wartend** (orange) — Automatik aktiv, deutlich unter Ziel, aber kein aktueller Schaltbefehl (= Raum „in Warteschlange" für nächsten Plan)
-4. **Aus** (grau) — Rest
+### Änderung 2: Frühe Return-Bedingung verschärfen
 
-## 4. Geänderte Dateien
+Wenn `isNight === true` UND `night_frost_last_pushed === heutiges Nacht-Datum`:
+→ Sofortiger Return mit Log `Night quiet mode (kein Tuya-Call)`. Keine Raum-Iteration, kein Tuya-Aufruf.
 
-### `src/hooks/useActiveHeatingRooms.ts`
-- Erweitern um ein zweites Set `activatedRoomIds: Set<string>` mit Räumen aus Bedingung (a/b/c).
-- Liest zusätzlich:
-  - `system_settings` Key `parallel_heating_capacity` (Felder `planned_eco_room_ids`, `planned_comfort_room_ids`)
-  - `thermostat_commands` mit `status='pending'` und `command='set_temperature'` der letzten 5 min
-  - `rooms.last_auto_change`
-- Liefert `activatedRoomIds` und `getActivationReason(roomId): 'plan'|'setpoint'|'queue'|null` zusätzlich zurück.
+### Änderung 3: Morgen-Quota-Reset bei Tageswechsel
 
-### `src/components/heating/RoomStatusTable.tsx`
-- Neue `getHeatingStatus()`-Variante mit zusätzlichem Parameter `isActivated: boolean` und `activationReason`.
-- Neuer Badge-Branch zwischen „Heizt" und „Wartend":
-  ```tsx
-  if (isActivated) return { 
-    label: `Aktiviert · ${mode.label}`, 
-    dotClass: 'bg-blue-500', 
-    badgeClass: 'bg-blue-500/10 text-blue-600',
-    icon: Flame
-  };
-  ```
-- Tooltip mit Quelle der Aktivierung.
-- Im Header-Strip zusätzlich Zähler ergänzen: *„Aktuell heizen: 2 · Aktiviert: 3 · Wartend: 1"*.
+Beim ersten Lauf um 08:00 (Wien) `system_settings.tuya_api_quota.calls_today` weiterhin durch die `today`-Datumslogik zurücksetzen — UND `night_frost_last_pushed` löschen, damit der nächste Abend wieder einen sauberen Push machen kann.
 
-### `mem://ui/heating/room-status-indicators` (Update)
-Neue Status-Stufe „Aktiviert" mit Definitionen ergänzen, Hierarchie dokumentieren.
+### Änderung 4 (optional, gleich mit umsetzen): Quota-Anzeige im UI
 
-### `mem://features/heating/activated-vs-heating-distinction.md` (neu)
-Erklärt den Unterschied „Aktiviert" (Algorithmus-Befehl raus) vs. „Heizt" (Hardware-Bestätigung) und welche 3 Quellen die Aktivierung erkennen.
+Das `tuya_api_quota` ist im `SettingsPanel`/`TuyaSubscriptionAlert` aktuell nicht direkt sichtbar. Ein kleiner Counter „API-Calls heute: X / Y" wäre hilfreich, ist aber nicht zwingend für diesen Fix.
 
-## 5. Was ich NICHT ändere
-- `useActiveHeatingRooms`-Kerncascade A/B/C bleibt unverändert (das ist die Heizt-Quelle).
-- Komfort-/Eco-Budget-Logik in `pv-automation` bleibt unverändert.
-- `room_heating_logs` werden weiter wie bisher geschrieben.
+→ Diese Änderung **nicht** mit aufnehmen, separates Anliegen.
 
-# Effekt für dich
-Sobald du in der Raum-Übersicht schaust, siehst du:
-- 🔴 **Heizt** — Thermostat heizt physisch
-- 🔵 **Aktiviert · Komfort** — Automatik hat den Setpoint hochgesetzt, Befehl ist raus (Plan/Setpoint/Queue), aber Hardware meldet noch nicht zurück
-- 🟠 **Wartend** — Raum sollte heizen, aber Automatik hat aktuell nichts geschaltet (z. B. wegen Quota oder Budget-Limit)
-- ⚪ **Aus** — keine Aktivität
+## Aufräumen jetzt (in derselben Umsetzung)
 
-Damit ist der Tuya-Quota-Lag transparent: Räume springen bei einem Algorithmus-Lauf sofort auf 🔵 Aktiviert, und werden zu 🔴 Heizt, sobald die Cloud die Bestätigung liefert.
+- Alle offenen `api_errors` mit `error_type IN ('night_frost_failed','no_control_channel','tuya_api')` aus heute Nacht als `resolved_at = NOW()` markieren — Banner verschwindet.
+- `system_settings.tuya_api_quota.calls_today` auf 0 setzen (Monatscounter bleibt — der ist serverseitig bei Tuya gesperrt bis 1. Mai).
+
+## Effekt
+
+- **Vorher:** ~360 Cloud-Calls pro Nacht (12 Räume × 30 Iterationen) → Tagesquota schon morgens leer.
+- **Nachher:** Genau 12 Calls beim Übergang um 20:00 + 0 Calls bis 08:00. Quota bleibt für den Tagbetrieb verfügbar.
+- Eco-Umschaltung um 08:00 läuft, sobald Cloud verfügbar (sprich: nach Monats-Reset am 1. Mai oder nach Wechsel auf Local-Mode).
+
+## Betroffene Dateien
+
+- `supabase/functions/pv-automation/index.ts` — Nacht-Block (Zeile 652–830) umstrukturieren
+- Migration: keine neue Tabelle nötig (`system_settings` reicht)
+- DB-Cleanup-Query (einmalig über die SQL-Tools)
+
+## Was NICHT geändert wird
+
+- Tag-Logik, Eco/Komfort-Budget, Phase-1/2-Strategie — unberührt
+- `night_heating_mode = 'maintain'`-Pfad — bleibt wie er ist (heizt aktiv weiter, andere Strategie)
+- Local-Mode / Control-Mode-Switch — bleibt manuell

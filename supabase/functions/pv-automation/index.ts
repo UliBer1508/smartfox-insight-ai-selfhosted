@@ -657,7 +657,41 @@ Deno.serve(async (req) => {
       if (isNight) {
         const nightHeatingMode = settings?.night_heating_mode || 'frost_only';
         console.log(`[PV-Automation] Night mode active (${wienTime}), mode: ${nightHeatingMode}`);
-        
+
+        // NIGHT-QUIET-GATE: Pro Nacht nur EINMAL Tuya-Calls absetzen.
+        // "Nacht-Schlüssel" = Datum des Nacht-Beginns (Wien). Wenn aktuelle Wien-Zeit
+        // vor night_end ist, gehört sie zur "Nacht" des Vortages.
+        const wienNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+        const { hour: nightEndHour, minute: nightEndMin } = parseTimeOfDay(nightEndTime, '08:00');
+        const isBeforeNightEnd =
+          wienNow.getHours() < nightEndHour ||
+          (wienNow.getHours() === nightEndHour && wienNow.getMinutes() < nightEndMin);
+        const nightKeyDate = new Date(wienNow);
+        if (isBeforeNightEnd) nightKeyDate.setDate(nightKeyDate.getDate() - 1);
+        const nightKey = nightKeyDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
+        const { data: gateRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'night_frost_last_pushed')
+          .maybeSingle();
+        const lastPushedNight = (gateRow?.value as { night?: string } | null)?.night || null;
+
+        if (lastPushedNight === nightKey) {
+          console.log(`[PV-Automation] 🌙 Night quiet mode (kein Tuya-Call, bereits gepushed für Nacht ${nightKey})`);
+          return new Response(JSON.stringify({
+            success: true,
+            message: `Nachtmodus aktiv (${wienTime}) - Quiet Mode, bereits gepushed`,
+            nightMode: true,
+            nightHeatingMode,
+            quietMode: true,
+            nightKey,
+            results: []
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
         // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
@@ -665,6 +699,11 @@ Deno.serve(async (req) => {
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
+          // Auch ohne Räume: Gate setzen, sonst läuft die Abfrage alle 2 Min
+          await supabase.from('system_settings').upsert({
+            key: 'night_frost_last_pushed',
+            value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0 }
+          }, { onConflict: 'key' });
           return new Response(JSON.stringify({ 
             success: true, 
             message: `Nachtmodus aktiv (${wienTime}) - keine Thermostate konfiguriert`,
@@ -678,31 +717,29 @@ Deno.serve(async (req) => {
         const nightResults: { roomId: string; roomName: string; success: boolean; action: string; error?: string }[] = [];
 
         if (nightHeatingMode === 'frost_only') {
-          // FROST_ONLY: Thermostate auf Frostschutz (5°C) setzen → kein aktives Heizen
-          // WICHTIG: TGP508-Thermostate haben interne Zeitprogramme die remote-gesetzte
-          // Werte überschreiben können. Daher: periodischer Resync alle 30min.
+          // FROST_ONLY: Einmalig pro Nacht Thermostate auf Frostschutz (5°C) setzen.
+          // Kein periodischer 30-Min-Resync mehr (verbrennt Quota).
+          // TGP508 halten den Sollwert; falls ein internes Programm dazwischenfunkt,
+          // wird das morgens beim Eco-Start ohnehin korrigiert.
           const FROST_TEMP = 5;
-          const RESYNC_INTERVAL_MIN = 30;
-          const now = new Date();
-          
+
           const roomsNeedingOff = allRooms.filter(r => {
             const currentTarget = Number(r.target_temp) || 0;
-            const lastSync = r.last_thermostat_sync ? new Date(r.last_thermostat_sync) : null;
-            const minutesSinceSync = lastSync 
-              ? (now.getTime() - lastSync.getTime()) / 60000 
-              : Infinity;
-            
-            // Resync wenn: target nicht auf Frost ODER letzter Sync > 30min her
-            // (Thermostat-interne Programme können jederzeit zurücksetzen)
-            return currentTarget > FROST_TEMP + 1 || minutesSinceSync > RESYNC_INTERVAL_MIN;
+            return currentTarget > FROST_TEMP + 1;
           });
 
           if (roomsNeedingOff.length === 0) {
-            console.log(`[PV-Automation] Night frost_only: all ${allRooms.length} thermostats at frost protection, last sync <${RESYNC_INTERVAL_MIN}min`);
+            console.log(`[PV-Automation] 🌙 Night frost_only: alle ${allRooms.length} Thermostate bereits ≤${FROST_TEMP + 1}°C → Gate setzen, Quiet Mode`);
+            // Gate auch hier setzen, damit kommende Iterationen sofort returnen
+            await supabase.from('system_settings').upsert({
+              key: 'night_frost_last_pushed',
+              value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0, mode: 'frost_only' }
+            }, { onConflict: 'key' });
             return new Response(JSON.stringify({ 
               success: true, 
               message: `Nachtmodus aktiv (${wienTime}) - alle Thermostate auf Frostschutz (${FROST_TEMP}°C)`,
               nightMode: true, nightHeatingMode,
+              quietMode: true, nightKey,
               thermostatsChecked: allRooms.length,
               results: [] 
             }), {
@@ -710,14 +747,11 @@ Deno.serve(async (req) => {
             });
           }
 
-          const resyncCount = roomsNeedingOff.filter(r => Number(r.target_temp) <= FROST_TEMP + 1).length;
-          const newCount = roomsNeedingOff.length - resyncCount;
-          console.log(`[PV-Automation] Night frost_only: ${roomsNeedingOff.length}/${allRooms.length} rooms → Frostschutz ${FROST_TEMP}°C (${newCount} new, ${resyncCount} resync)`);
+          console.log(`[PV-Automation] 🌙 Night frost_only EINMAL-Push: ${roomsNeedingOff.length}/${allRooms.length} rooms → ${FROST_TEMP}°C (Nacht ${nightKey})`);
 
           for (const room of roomsNeedingOff) {
-            const isResync = Number(room.target_temp) <= FROST_TEMP + 1;
-            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)${isResync ? ' [RESYNC]' : ''}`);
-            
+            console.log(`[PV-Automation] Night: ${room.name} → ${FROST_TEMP}°C (was ${room.target_temp}°C)`);
+
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
@@ -735,8 +769,8 @@ Deno.serve(async (req) => {
                 last_thermostat_sync: new Date().toISOString(),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
-              
-              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: isResync ? `resync_frost_${FROST_TEMP}°C` : `frost_${FROST_TEMP}°C` });
+
+              nightResults.push({ roomId: room.id, roomName: room.name, success: true, action: `frost_${FROST_TEMP}°C` });
             } else {
               const failReason = result.errorType === 'no_control_channel'
                 ? 'night_frost_failed: kein Steuerkanal (Cloud-Quota erschöpft & Local-Service offline)'
@@ -756,17 +790,31 @@ Deno.serve(async (req) => {
                 device_id: room.tuya_device_id,
               }).select().single().then(() => {}, () => {});
 
-              if (!isResync) {
-                const fallbackTemp = Number(room.target_temp) || 20;
-                await supabase.from('rooms').update({
-                  target_temp: fallbackTemp,
-                  heating_paused_reason: failReason,
-                  updated_at: new Date().toISOString()
-                }).eq('id', room.id);
-              }
+              const fallbackTemp = Number(room.target_temp) || 20;
+              await supabase.from('rooms').update({
+                target_temp: fallbackTemp,
+                heating_paused_reason: failReason,
+                updated_at: new Date().toISOString()
+              }).eq('id', room.id);
               nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'frost_failed', error: failReason });
             }
           }
+
+          // Gate setzen: Nacht ist „abgearbeitet" — egal ob Erfolg oder Fehler.
+          // Bei Fehler verhindert das Spam-API-Errors alle 2 Min.
+          // Morgen beim Eco-Start (08:00) wird das Gate durch nightKey-Wechsel
+          // automatisch ungültig.
+          await supabase.from('system_settings').upsert({
+            key: 'night_frost_last_pushed',
+            value: {
+              night: nightKey,
+              pushed_at: new Date().toISOString(),
+              rooms: roomsNeedingOff.length,
+              successes: nightResults.filter(r => r.success).length,
+              failures: nightResults.filter(r => !r.success).length,
+              mode: 'frost_only'
+            }
+          }, { onConflict: 'key' });
 
         } else {
           // MAINTAIN: Bisheriges Verhalten – night_temp halten
@@ -780,10 +828,15 @@ Deno.serve(async (req) => {
           });
 
           if (roomsNeedingAdjustment.length === 0) {
+            await supabase.from('system_settings').upsert({
+              key: 'night_frost_last_pushed',
+              value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0, mode: 'maintain' }
+            }, { onConflict: 'key' });
             return new Response(JSON.stringify({ 
               success: true, 
               message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
               nightMode: true, nightHeatingMode,
+              quietMode: true, nightKey,
               thermostatsChecked: allRooms.length,
               results: [] 
             }), {
@@ -829,6 +882,19 @@ Deno.serve(async (req) => {
               nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: failReason });
             }
           }
+
+          // Gate setzen — nur einmal pro Nacht versuchen, egal ob Erfolg/Fehler
+          await supabase.from('system_settings').upsert({
+            key: 'night_frost_last_pushed',
+            value: {
+              night: nightKey,
+              pushed_at: new Date().toISOString(),
+              rooms: roomsNeedingAdjustment.length,
+              successes: nightResults.filter(r => r.success).length,
+              failures: nightResults.filter(r => !r.success).length,
+              mode: 'maintain'
+            }
+          }, { onConflict: 'key' });
         }
 
         const successCount = nightResults.filter(r => r.success).length;
