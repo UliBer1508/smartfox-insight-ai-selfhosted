@@ -132,6 +132,11 @@ export function useTuyaControl() {
         throw new Error(error.message || 'Edge Function Fehler');
       }
 
+      if (data?.fallback && data?.quotaExhausted) {
+        toast.warning(data.error || 'Tuya API Quota erschöpft. Bitte manuell am Thermostat oder in der Tuya App einstellen.');
+        return false;
+      }
+
       if (!data?.success) {
         throw new Error(data?.error || 'Tuya API Fehler');
       }
