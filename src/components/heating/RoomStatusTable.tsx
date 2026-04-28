@@ -48,12 +48,13 @@ const getHeatingStatus = (
   }
   if (isActivated) {
     const reasonLabel = activationReason === 'plan' ? 'Plan' : activationReason === 'queue' ? 'Queue' : 'Setpoint';
+    const label = modeLabel ? `${modeLabel} gesetzt` : 'Aktiviert';
     return {
-      label: `Aktiviert${modeLabel ? ' · ' + modeLabel : ''}`,
+      label,
       dotClass: 'bg-blue-500',
       badgeClass: 'bg-blue-500/10 text-blue-600',
       icon: Flame,
-      tooltip: `Automatik hat den Raum auf ${modeLabel ?? 'Heizen'} gestellt (Quelle: ${reasonLabel}). Wartet auf Hardware-Bestätigung.`,
+      tooltip: `Automatik hat den Raum auf ${modeLabel ?? 'Heizen'} gesetzt (Quelle: ${reasonLabel}). Befehl an Thermostat gesendet — wartet auf Heiz-Bestätigung.`,
     };
   }
   // "Wartend": automation aktiv, Raum nicht aktiv heizend, aber deutlich unter Ziel
