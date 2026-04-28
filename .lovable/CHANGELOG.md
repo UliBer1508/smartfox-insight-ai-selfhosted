@@ -5,6 +5,16 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.5.0] - 2026-04-28
+
+### Changed (Parallele Heizungs-Allokation + UI-Feedback)
+- **Parallele Eco-Aktivierung** (`pv-automation`): Bei ausreichendem Export werden mehrere Räume gleichzeitig auf Eco gestartet — pro Raum genau **ein** Tuya-Call, kein zusätzlicher Prüf-Call. Sobald Budget frei wird (Raum erreicht Target oder mehr Solar verfügbar), wird der nächste Raum aufgenommen. Berücksichtigt `parallel_heating_capacity`, dynamischen Baseload-Puffer, symmetrischen Trend-Bonus und Forecast-Lookahead.
+- **UI-Sofortfeedback** (`RoomStatusTable`): Neue Badge-States — „Eco gesetzt" / „Komfort gesetzt" (blau) erscheint sofort nach Command-Absetzung, wechselt auf „Heizt · XW" (rot) sobald physisches Heizen via Logs/`is_heating` bestätigt ist. „Wartend" (orange) wenn Automation aktiv aber kein Budget.
+- **Schnelleres Polling** (`useRooms`, `useActiveHeatingRooms`): 30s → **15s** für snappiere Reaktion nach Aktivierungen.
+- **Setpoint-Detection**: Zeit-Heuristik (10min) entfernt — Aktivierung wird state-basiert erkannt (`target_temp ≥ eco_temp − 0.2`).
+
+---
+
 ## [3.1.0] - 2026-04-20
 
 ### Fixed (Battery-Drain-Schutz gehärtet)
