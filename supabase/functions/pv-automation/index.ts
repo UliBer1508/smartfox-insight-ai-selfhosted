@@ -657,7 +657,41 @@ Deno.serve(async (req) => {
       if (isNight) {
         const nightHeatingMode = settings?.night_heating_mode || 'frost_only';
         console.log(`[PV-Automation] Night mode active (${wienTime}), mode: ${nightHeatingMode}`);
-        
+
+        // NIGHT-QUIET-GATE: Pro Nacht nur EINMAL Tuya-Calls absetzen.
+        // "Nacht-Schlüssel" = Datum des Nacht-Beginns (Wien). Wenn aktuelle Wien-Zeit
+        // vor night_end ist, gehört sie zur "Nacht" des Vortages.
+        const wienNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+        const { hour: nightEndHour, minute: nightEndMin } = parseTimeOfDay(nightEndTime, '08:00');
+        const isBeforeNightEnd =
+          wienNow.getHours() < nightEndHour ||
+          (wienNow.getHours() === nightEndHour && wienNow.getMinutes() < nightEndMin);
+        const nightKeyDate = new Date(wienNow);
+        if (isBeforeNightEnd) nightKeyDate.setDate(nightKeyDate.getDate() - 1);
+        const nightKey = nightKeyDate.toISOString().slice(0, 10); // YYYY-MM-DD
+
+        const { data: gateRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'night_frost_last_pushed')
+          .maybeSingle();
+        const lastPushedNight = (gateRow?.value as { night?: string } | null)?.night || null;
+
+        if (lastPushedNight === nightKey) {
+          console.log(`[PV-Automation] 🌙 Night quiet mode (kein Tuya-Call, bereits gepushed für Nacht ${nightKey})`);
+          return new Response(JSON.stringify({
+            success: true,
+            message: `Nachtmodus aktiv (${wienTime}) - Quiet Mode, bereits gepushed`,
+            nightMode: true,
+            nightHeatingMode,
+            quietMode: true,
+            nightKey,
+            results: []
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+          });
+        }
+
         // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
@@ -665,6 +699,11 @@ Deno.serve(async (req) => {
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
+          // Auch ohne Räume: Gate setzen, sonst läuft die Abfrage alle 2 Min
+          await supabase.from('system_settings').upsert({
+            key: 'night_frost_last_pushed',
+            value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0 }
+          }, { onConflict: 'key' });
           return new Response(JSON.stringify({ 
             success: true, 
             message: `Nachtmodus aktiv (${wienTime}) - keine Thermostate konfiguriert`,
