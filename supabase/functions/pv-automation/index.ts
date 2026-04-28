@@ -1889,13 +1889,14 @@ Deno.serve(async (req) => {
           // Raum braucht eco
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;
+            const remaining = availableBudget - usedBudget;
             roomBudgetStatus.set(rp.room.id, {
               allowedToHeat: true,
               reason: `Eco-Phase (${usedBudget}/${availableBudget}W)`,
               shouldRotate: false,
               targetLevel: 'eco'
             });
-            console.log(`[PV-Automation] Phase 1: ${rp.room.name} → eco (${currentTemp.toFixed(1)}°C < ${ecoTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
+            console.log(`[ACTIVATE] Prio ${rp.priority} ${rp.room.name} → eco ${ecoTemp}°C (${currentTemp.toFixed(1)}°C, Bedarf ${rp.heatingPower}W, Budget-Rest ${remaining}W)${rp.isCurrentlyHeating ? ' [heizt bereits → kein neuer Call]' : ''}`);
           } else {
             // NEU: Tolerante Deaktivierung — bereits heizende Räume nicht bei kurzem Budget-Einbruch abschalten
             const overshoot = (usedBudget + rp.heatingPower) - availableBudget;
