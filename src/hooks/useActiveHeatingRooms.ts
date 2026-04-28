@@ -89,20 +89,20 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
       ]);
       const queueIds = new Set<string>((queueResult.data ?? []).map((c: { room_id: string }) => c.room_id));
 
-      const nowMs = Date.now();
       const actIds = new Set<string>();
       const actReasons = new Map<string, ActivationReason>();
       for (const r of rooms) {
         if (plannedIds.has(r.id)) { actIds.add(r.id); actReasons.set(r.id, 'plan'); continue; }
         if (queueIds.has(r.id)) { actIds.add(r.id); actReasons.set(r.id, 'queue'); continue; }
-        // Setpoint-Heuristik: Automatik aktiv, target ≥ eco-0.2, last_auto_change < 10 min
+        // Setpoint-Detektion: Automatik aktiv UND target deutlich über Nacht UND mind. Eco-Niveau.
+        // Kein Zeitfenster mehr — solange der Setpoint angehoben ist, gilt der Raum als aktiviert.
         if (
           r.automation_enabled &&
           r.target_temp != null &&
           r.eco_temp != null &&
+          r.night_temp != null &&
           r.target_temp >= r.eco_temp - 0.2 &&
-          r.last_auto_change &&
-          nowMs - new Date(r.last_auto_change).getTime() < 10 * 60_000
+          r.target_temp > r.night_temp + 0.3
         ) {
           actIds.add(r.id);
           actReasons.set(r.id, 'setpoint');
