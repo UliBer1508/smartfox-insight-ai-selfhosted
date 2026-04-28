@@ -198,7 +198,7 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
 
   useEffect(() => {
     loadActiveRooms();
-    const interval = setInterval(loadActiveRooms, 30000);
+    const interval = setInterval(loadActiveRooms, 15000);
     return () => clearInterval(interval);
   }, [loadActiveRooms]);
 
