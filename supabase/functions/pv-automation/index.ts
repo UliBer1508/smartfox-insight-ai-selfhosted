@@ -828,10 +828,15 @@ Deno.serve(async (req) => {
           });
 
           if (roomsNeedingAdjustment.length === 0) {
+            await supabase.from('system_settings').upsert({
+              key: 'night_frost_last_pushed',
+              value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0, mode: 'maintain' }
+            }, { onConflict: 'key' });
             return new Response(JSON.stringify({ 
               success: true, 
               message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
               nightMode: true, nightHeatingMode,
+              quietMode: true, nightKey,
               thermostatsChecked: allRooms.length,
               results: [] 
             }), {
@@ -877,6 +882,19 @@ Deno.serve(async (req) => {
               nightResults.push({ roomId: room.id, roomName: room.name, success: false, action: 'maintain_failed', error: failReason });
             }
           }
+
+          // Gate setzen — nur einmal pro Nacht versuchen, egal ob Erfolg/Fehler
+          await supabase.from('system_settings').upsert({
+            key: 'night_frost_last_pushed',
+            value: {
+              night: nightKey,
+              pushed_at: new Date().toISOString(),
+              rooms: roomsNeedingAdjustment.length,
+              successes: nightResults.filter(r => r.success).length,
+              failures: nightResults.filter(r => !r.success).length,
+              mode: 'maintain'
+            }
+          }, { onConflict: 'key' });
         }
 
         const successCount = nightResults.filter(r => r.success).length;
