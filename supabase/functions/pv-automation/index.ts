@@ -1857,8 +1857,12 @@ Deno.serve(async (req) => {
         console.log(`[PARALLEL-PLAN] Persist fehlgeschlagen: ${e}`);
       }
 
-      // Phase 1: ECO-Runde
-      console.log(`[PV-Automation] === PHASE 1: ECO-RUNDE === Budget: ${availableBudget}W`);
+      // Phase 1: ECO-Runde — Budget-basierte parallele Aktivierung nach Priorität (1→12)
+      // currentlyHeatingPower ist bereits in availableBudget enthalten (siehe baseBudget Berechnung).
+      // Räume die bereits warm/aktiv sind werden im Action-Loop via shouldSkip übersprungen (kein Tuya-Call).
+      // Räume die nicht ins Budget passen werden als [QUEUE] geloggt — der nächste 2-min Heartbeat aktiviert sie
+      // sobald Budget frei wird (anderer Raum fertig oder mehr Sonne).
+      console.log(`[PV-Automation] === PHASE 1: ECO-RUNDE === Budget=${availableBudget}W (gridExport=${gridExport}W + heizend=${currentlyHeatingPower}W + Boni)`);
       for (const rp of roomsWithPriority) {
         if (roomBudgetStatus.has(rp.room.id)) continue; // Rotation/Pause
         
@@ -1885,13 +1889,14 @@ Deno.serve(async (req) => {
           // Raum braucht eco
           if (usedBudget + rp.heatingPower <= availableBudget) {
             usedBudget += rp.heatingPower;
+            const remaining = availableBudget - usedBudget;
             roomBudgetStatus.set(rp.room.id, {
               allowedToHeat: true,
               reason: `Eco-Phase (${usedBudget}/${availableBudget}W)`,
               shouldRotate: false,
               targetLevel: 'eco'
             });
-            console.log(`[PV-Automation] Phase 1: ${rp.room.name} → eco (${currentTemp.toFixed(1)}°C < ${ecoTemp}°C, Budget ${usedBudget}/${availableBudget}W)`);
+            console.log(`[ACTIVATE] Prio ${rp.priority} ${rp.room.name} → eco ${ecoTemp}°C (${currentTemp.toFixed(1)}°C, Bedarf ${rp.heatingPower}W, Budget-Rest ${remaining}W)${rp.isCurrentlyHeating ? ' [heizt bereits → kein neuer Call]' : ''}`);
           } else {
             // NEU: Tolerante Deaktivierung — bereits heizende Räume nicht bei kurzem Budget-Einbruch abschalten
             const overshoot = (usedBudget + rp.heatingPower) - availableBudget;
@@ -1915,12 +1920,14 @@ Deno.serve(async (req) => {
               });
               console.log(`[TOLERANT-DEACTIVATION] ${rp.room.name}: Heizt weiter trotz Budget-Overshoot ${overshoot}W (Trend ${pvTrend}W ≥ -200, Prognose reicht, ${usedBudget}/${availableBudget}W)`);
             } else {
+              const stillNeeded = (usedBudget + rp.heatingPower) - availableBudget;
               roomBudgetStatus.set(rp.room.id, {
                 allowedToHeat: false,
                 reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
                 shouldRotate: false,
                 targetLevel: 'none'
               });
+              console.log(`[QUEUE] Prio ${rp.priority} ${rp.room.name} wartet auf Budget (Bedarf ${rp.heatingPower}W, fehlen ${stillNeeded}W) — wird beim nächsten Heartbeat erneut geprüft`);
             }
           }
         }
