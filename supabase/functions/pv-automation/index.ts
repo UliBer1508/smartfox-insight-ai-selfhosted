@@ -1364,14 +1364,16 @@ Deno.serve(async (req) => {
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
       let availableBudget = 999999; // Unlimited default
       let comfortBudget = 999999; // Komfort-Budget: nur echter Überschuss
-      
+
+      // Aktuell heizende Leistung — im äußeren Scope, weil später in Logs/Phase-1-Header referenziert
+      const currentlyHeatingPower = rooms
+        .filter(r => r.is_heating)
+        .reduce((sum, r) => sum + (r.calculated_power_w || r.heating_power_w || 800), 0);
+
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
           // PV-Optimiert: Budget = gridExport + Leistung bereits heizender Räume + Toleranz
           budgetMode = 'pv_optimized';
-          const currentlyHeatingPower = rooms
-            .filter(r => r.is_heating)
-            .reduce((sum, r) => sum + (r.calculated_power_w || r.heating_power_w || 800), 0);
           const dynamicTolerance = Math.max(powerBudgetTolerance, Math.round(gridExport * 0.20));
           
           // Basis-Budget: gridExport + bereits heizend + Toleranz
