@@ -717,31 +717,29 @@ Deno.serve(async (req) => {
         const nightResults: { roomId: string; roomName: string; success: boolean; action: string; error?: string }[] = [];
 
         if (nightHeatingMode === 'frost_only') {
-          // FROST_ONLY: Thermostate auf Frostschutz (5°C) setzen → kein aktives Heizen
-          // WICHTIG: TGP508-Thermostate haben interne Zeitprogramme die remote-gesetzte
-          // Werte überschreiben können. Daher: periodischer Resync alle 30min.
+          // FROST_ONLY: Einmalig pro Nacht Thermostate auf Frostschutz (5°C) setzen.
+          // Kein periodischer 30-Min-Resync mehr (verbrennt Quota).
+          // TGP508 halten den Sollwert; falls ein internes Programm dazwischenfunkt,
+          // wird das morgens beim Eco-Start ohnehin korrigiert.
           const FROST_TEMP = 5;
-          const RESYNC_INTERVAL_MIN = 30;
-          const now = new Date();
-          
+
           const roomsNeedingOff = allRooms.filter(r => {
             const currentTarget = Number(r.target_temp) || 0;
-            const lastSync = r.last_thermostat_sync ? new Date(r.last_thermostat_sync) : null;
-            const minutesSinceSync = lastSync 
-              ? (now.getTime() - lastSync.getTime()) / 60000 
-              : Infinity;
-            
-            // Resync wenn: target nicht auf Frost ODER letzter Sync > 30min her
-            // (Thermostat-interne Programme können jederzeit zurücksetzen)
-            return currentTarget > FROST_TEMP + 1 || minutesSinceSync > RESYNC_INTERVAL_MIN;
+            return currentTarget > FROST_TEMP + 1;
           });
 
           if (roomsNeedingOff.length === 0) {
-            console.log(`[PV-Automation] Night frost_only: all ${allRooms.length} thermostats at frost protection, last sync <${RESYNC_INTERVAL_MIN}min`);
+            console.log(`[PV-Automation] 🌙 Night frost_only: alle ${allRooms.length} Thermostate bereits ≤${FROST_TEMP + 1}°C → Gate setzen, Quiet Mode`);
+            // Gate auch hier setzen, damit kommende Iterationen sofort returnen
+            await supabase.from('system_settings').upsert({
+              key: 'night_frost_last_pushed',
+              value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0, mode: 'frost_only' }
+            }, { onConflict: 'key' });
             return new Response(JSON.stringify({ 
               success: true, 
               message: `Nachtmodus aktiv (${wienTime}) - alle Thermostate auf Frostschutz (${FROST_TEMP}°C)`,
               nightMode: true, nightHeatingMode,
+              quietMode: true, nightKey,
               thermostatsChecked: allRooms.length,
               results: [] 
             }), {
@@ -749,9 +747,7 @@ Deno.serve(async (req) => {
             });
           }
 
-          const resyncCount = roomsNeedingOff.filter(r => Number(r.target_temp) <= FROST_TEMP + 1).length;
-          const newCount = roomsNeedingOff.length - resyncCount;
-          console.log(`[PV-Automation] Night frost_only: ${roomsNeedingOff.length}/${allRooms.length} rooms → Frostschutz ${FROST_TEMP}°C (${newCount} new, ${resyncCount} resync)`);
+          console.log(`[PV-Automation] 🌙 Night frost_only EINMAL-Push: ${roomsNeedingOff.length}/${allRooms.length} rooms → ${FROST_TEMP}°C (Nacht ${nightKey})`);
 
           for (const room of roomsNeedingOff) {
             const isResync = Number(room.target_temp) <= FROST_TEMP + 1;
