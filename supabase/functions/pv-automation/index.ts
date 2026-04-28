@@ -1857,8 +1857,12 @@ Deno.serve(async (req) => {
         console.log(`[PARALLEL-PLAN] Persist fehlgeschlagen: ${e}`);
       }
 
-      // Phase 1: ECO-Runde
-      console.log(`[PV-Automation] === PHASE 1: ECO-RUNDE === Budget: ${availableBudget}W`);
+      // Phase 1: ECO-Runde — Budget-basierte parallele Aktivierung nach Priorität (1→12)
+      // currentlyHeatingPower ist bereits in availableBudget enthalten (siehe baseBudget Berechnung).
+      // Räume die bereits warm/aktiv sind werden im Action-Loop via shouldSkip übersprungen (kein Tuya-Call).
+      // Räume die nicht ins Budget passen werden als [QUEUE] geloggt — der nächste 2-min Heartbeat aktiviert sie
+      // sobald Budget frei wird (anderer Raum fertig oder mehr Sonne).
+      console.log(`[PV-Automation] === PHASE 1: ECO-RUNDE === Budget=${availableBudget}W (gridExport=${gridExport}W + heizend=${currentlyHeatingPower}W + Boni)`);
       for (const rp of roomsWithPriority) {
         if (roomBudgetStatus.has(rp.room.id)) continue; // Rotation/Pause
         
