@@ -70,7 +70,7 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
           .from('thermostat_commands')
           .select('room_id, command, status, created_at')
           .eq('status', 'pending')
-          .eq('command', 'set_temperature')
+          .in('command', ['set_target_temp', 'set_temperature'])
           .gte('created_at', new Date(Date.now() - 5 * 60_000).toISOString()),
       ]);
 
