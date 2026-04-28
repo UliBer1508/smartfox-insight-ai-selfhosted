@@ -1920,12 +1920,14 @@ Deno.serve(async (req) => {
               });
               console.log(`[TOLERANT-DEACTIVATION] ${rp.room.name}: Heizt weiter trotz Budget-Overshoot ${overshoot}W (Trend ${pvTrend}W ≥ -200, Prognose reicht, ${usedBudget}/${availableBudget}W)`);
             } else {
+              const stillNeeded = (usedBudget + rp.heatingPower) - availableBudget;
               roomBudgetStatus.set(rp.room.id, {
                 allowedToHeat: false,
                 reason: `Eco kein Budget: ${usedBudget}+${rp.heatingPower}>${availableBudget}W`,
                 shouldRotate: false,
                 targetLevel: 'none'
               });
+              console.log(`[QUEUE] Prio ${rp.priority} ${rp.room.name} wartet auf Budget (Bedarf ${rp.heatingPower}W, fehlen ${stillNeeded}W) — wird beim nächsten Heartbeat erneut geprüft`);
             }
           }
         }
