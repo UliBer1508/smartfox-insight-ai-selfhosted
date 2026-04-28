@@ -495,10 +495,12 @@ Deno.serve(async (req) => {
         console.log('[tuya-control] ⛔ set-temp blocked: Tuya API quota exhausted');
         return new Response(JSON.stringify({
           success: false,
+          fallback: true,
+          errorCode: 'TUYA_API_QUOTA_EXHAUSTED',
           error: 'Tuya API Quota erschöpft - Thermostate können nicht ferngesteuert werden. Bitte manuell am Gerät oder über die Tuya App steuern.',
           quotaExhausted: true,
         }), {
-          status: 429,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -509,7 +511,28 @@ Deno.serve(async (req) => {
         throw new Error('deviceId and temperature are required');
       }
 
-      await setDeviceTemperature(accessId, accessSecret, deviceId, temperature);
+      try {
+        await setDeviceTemperature(accessId, accessSecret, deviceId, temperature);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isQuotaError = message.includes('60001001') || message.toLowerCase().includes('quota');
+
+        if (isQuotaError) {
+          console.log('[tuya-control] ⛔ set-temp failed at Tuya API: quota exhausted');
+          return new Response(JSON.stringify({
+            success: false,
+            fallback: true,
+            errorCode: 'TUYA_API_QUOTA_EXHAUSTED',
+            error: 'Tuya API Quota erschöpft - Thermostate können nicht ferngesteuert werden. Bitte manuell am Gerät oder über die Tuya App steuern.',
+            quotaExhausted: true,
+          }), {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        throw error;
+      }
 
       // Track quota: 1 API call for set-temp
       if (quotaSetting?.value) {
