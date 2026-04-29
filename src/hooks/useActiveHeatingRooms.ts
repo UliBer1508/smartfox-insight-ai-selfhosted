@@ -112,16 +112,29 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
       setActivationReasons(actReasons);
 
 
-      // ---- Sync-Alter berechnen (max über alle Räume mit Device) ----
+      // ---- Sync-Alter berechnen (outlier-tolerant) ----
+      // Ein einzelner toter/offline Thermostat darf das Banner nicht "vergiften".
+      // Wir verwerfen die obersten 10 % (mind. 1 Raum) als Ausreißer und nehmen
+      // das Maximum der verbleibenden Sync-Alter.
       const now = Date.now();
-      let oldestSyncMs: number | null = null;
+      const ages: number[] = [];
+      let hasMissingSync = false;
       for (const r of rooms) {
         if (!r.tuya_device_id) continue;
-        if (!r.last_thermostat_sync) { oldestSyncMs = Number.MAX_SAFE_INTEGER; break; }
-        const ageMs = now - new Date(r.last_thermostat_sync).getTime();
-        if (oldestSyncMs === null || ageMs > oldestSyncMs) oldestSyncMs = ageMs;
+        if (!r.last_thermostat_sync) { hasMissingSync = true; continue; }
+        ages.push(now - new Date(r.last_thermostat_sync).getTime());
       }
-      const syncAgeSec = oldestSyncMs === null ? null : Math.round(oldestSyncMs / 1000);
+      let syncAgeSec: number | null = null;
+      if (ages.length > 0) {
+        ages.sort((a, b) => a - b); // ascending: jüngster zuerst
+        const dropCount = Math.max(1, Math.floor(ages.length * 0.1));
+        const trimmed = ages.slice(0, ages.length - dropCount);
+        const robustMaxMs = trimmed.length > 0 ? trimmed[trimmed.length - 1] : ages[ages.length - 1];
+        syncAgeSec = Math.round(robustMaxMs / 1000);
+      } else if (hasMissingSync) {
+        // Alle Räume haben kein last_thermostat_sync → echter Stale-Zustand
+        syncAgeSec = Number.MAX_SAFE_INTEGER;
+      }
       setLastSyncAgeSec(syncAgeSec);
 
       // ---- Stufe A: offene Zyklen aus Logs ----
