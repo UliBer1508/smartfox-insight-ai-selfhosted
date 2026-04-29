@@ -160,30 +160,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         </CollapsibleTrigger>
         <CollapsibleContent>
           <CardContent className="p-0">
-            {sourceLevel === 'C' && (
-              <div className="px-4 py-2 text-xs border-b bg-amber-500/10 text-amber-700 dark:text-amber-400 flex items-center justify-between gap-2 flex-wrap">
-                <span className="flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5" />
-                  Heizstatus veraltet — letzter Tuya-Sync vor <strong>{formatSyncAge(lastSyncAgeSec)}</strong>
-                </span>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 text-[10px] px-2"
-                  disabled={isPushing}
-                  onClick={(e) => { e.stopPropagation(); handleSyncNow(); }}
-                >
-                  <RefreshCw className={`w-3 h-3 mr-1 ${isPushing ? 'animate-spin' : ''}`} />
-                  Jetzt synchronisieren
-                </Button>
-              </div>
-            )}
-            {sourceLevel === 'B' && (
-              <div className="px-4 py-1.5 text-[11px] border-b bg-blue-500/5 text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
-                <Info className="w-3 h-3" />
-                Live-Status aus Thermostat-Sync (Logs nicht verfügbar) · Sync vor {formatSyncAge(lastSyncAgeSec)}
-              </div>
-            )}
+            {/* Stale-Banner ("Heizstatus veraltet") und Stufe-B-Info-Banner entfernt — auf Wunsch des Nutzers */}
             {(activeRooms.length > 0 || activatedRoomIds.size > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
               <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5 flex-wrap">
