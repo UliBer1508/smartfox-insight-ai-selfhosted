@@ -13,7 +13,7 @@ import { BatteryStatus } from '@/components/heating/BatteryStatus';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { PowerStats } from '@/components/energy/PowerStats';
 import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
-import { ConsumptionExplainer } from '@/components/energy/ConsumptionExplainer';
+
 import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
@@ -220,8 +220,6 @@ const Index = () => {
                   }
                 }} />
                 <EnergyChart readings={readings} />
-                
-                <ConsumptionExplainer consumption={currentReading?.consumption ?? null} />
               </div>
             </div>
 
