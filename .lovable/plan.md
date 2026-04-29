@@ -1,39 +1,72 @@
 ## Problem
 
-Es ist 20:10 Uhr Wien. Nachtmodus (`night_start_time = 20:00`, `mode = frost_only`) ist aktiv, aber die Thermostate haben noch Tag-Werte (Bad Uli 21°, Wohnzimmer 22°, Kinder Bad/Luis/Luca 21°).
+Das Banner zeigt **"Heizstatus veraltet — letzter Tuya-Sync vor 104 h"** und verschwindet auch nach "Jetzt synchronisieren" nicht — der Wert wird sogar weiter hochgezählt.
 
-### Ursachen
+### Ursache (durch Datenbank-Analyse bestätigt)
 
-1. **Night-Quiet-Gate blockiert weitere Versuche.** `system_settings.night_frost_last_pushed = "2026-04-28"` ist gesetzt — die Edge Function überspringt jeden weiteren Push-Versuch dieser Nacht.
-2. **Tuya-Cloud-Quota erschöpft** (33/30 heute, 3840/3000 Monat). Selbst ohne Gate würden Cloud-Calls aktuell scheitern.
-3. **Local-Steuerkanal nicht aktiv** (`lastLocalExec=none`) — der lokale Tuya-Service sendet keine Heartbeats, also kein Fallback verfügbar.
-4. **Letzter Push um 20:09** hat die `target_temp`-Werte aus der DB gesendet (gemischte Eco/Komfort-Werte), nicht den Frost-Wert (5°C). Dadurch hängen die Räume jetzt auf Tag-Targets fest.
+In `useActiveHeatingRooms.ts` (Zeile ~120) wird das Sync-Alter als **Maximum (ältester Sync)** über *alle* Räume mit `tuya_device_id` berechnet:
+
+```ts
+if (oldestSyncMs === null || ageMs > oldestSyncMs) oldestSyncMs = ageMs;
+```
+
+Dadurch reicht **ein einziger** Raum mit altem Sync, um den Status für alles auf "stale" zu setzen.
+
+In der Datenbank ist genau das passiert:
+
+| Raum | Sync-Alter |
+|---|---|
+| Bad Uli, Kinder Bad, Zimmer Uli | 0,3 h (frisch) |
+| Zimmer Luis | 0,6 h |
+| Toilette, Waschraum, Wohnzimmer, Büro, … | ~3 h |
+| **Haustür** | **104 h** ← der Übeltäter |
+
+Der Raum "Haustür" hat zwar ein Tuya-Device hinterlegt (`bfaea1c0f312db52321ilc`), wird aber von `push-all-temps` nicht erfolgreich aktualisiert (vermutlich offline / Quota-Fehler), sodass `last_thermostat_sync` bei 25.04. stehen bleibt. Da die Quota-Errors im `setDeviceTemperature`-Catch nur geloggt werden, bleibt der Sync-Stempel ewig alt → Banner bleibt für immer gelb.
+
+Zusätzlich: Beim nächsten Reload wird die Differenz natürlich noch größer ("weiter hochgezählt").
 
 ## Lösung
 
-### Schritt 1 — Night-Frost-Gate zurücksetzen
-`DELETE` (bzw. `UPSERT` mit leerem Wert) auf `system_settings.night_frost_last_pushed`, damit die nächste `pv-automation` Ausführung den Frost-Push erneut versucht.
+Drei kleine, gezielte Fixes:
 
-### Schritt 2 — Quota-Logik prüfen / Frost-Push priorisieren
-Den Frost-Only-Push in `pv-automation/index.ts` so ändern, dass er **vor** dem Quota-Check läuft (oder Quota-Check umgeht). Argumentation: 1× Push pro Nacht ist sicherheitskritisch (Frostschutz) und darf nicht an Quota scheitern. Das Gate sorgt ja bereits dafür, dass es nur 1× passiert.
+### 1. Banner-Logik robuster machen (`src/hooks/useActiveHeatingRooms.ts`)
 
-### Schritt 3 — `target_temp` für Nacht setzen
-Direkt in `rooms.target_temp` für alle automatisierten Räume den jeweiligen `night_temp` (bzw. 5°C bei `frost_only`) eintragen — als DB-Update. Dadurch wird der nächste `push-all-temps` Lauf die richtigen Werte senden, falls die Edge Function das so verwendet.
+Statt "ältester Sync gewinnt" auf **Median / 2.-ältester** umstellen, damit ein einzelner toter Thermostat das gesamte Banner nicht mehr triggern kann:
 
-### Schritt 4 — Local-Service-Status klären
-Im Hintergrund prüfen warum `lastLocalExec=none`. Der Node-Collector (`local-collector/collector-node/index.js`) muss laufen und Heartbeats schreiben, sonst gibt es keinen Cloud-Quota-Fallback. Das ist nicht in dieser Edge-Function-Session lösbar — dem User mitteilen.
+- Sortiere alle `last_thermostat_sync`-Alter aufsteigend
+- Verwerfe das oberste 1 Element (oder 10 % bei mehr Räumen) als Ausreißer
+- Nimm das Maximum der verbleibenden Werte als `lastSyncAgeSec`
 
-### Schritt 5 — Quota-Reset-Doku
-Dem User erklären: Der Tuya-Quota-Reset erfolgt täglich um Mitternacht UTC. Bis dahin sind keine weiteren Cloud-Calls möglich, außer wir erlauben dem Frost-Push einen "Notfall-Override" (siehe Schritt 2).
+So bleibt das Banner aussagekräftig (wenn 2+ Räume veraltet sind), aber ein einzelner toter Thermostat poisons nicht mehr alles.
 
-## Technische Änderungen
+### 2. Räume ohne erfolgreichen Push trotzdem als "Sync-Versuch" markieren
 
-- **DB-Migration / Insert:** `UPDATE system_settings SET value = '{}'::jsonb WHERE key = 'night_frost_last_pushed';`
-- **DB-Update rooms:** Für alle Räume mit `automation_enabled = true` → `target_temp = 5` (frost_only Modus).
-- **Edge Function `pv-automation/index.ts`:** Im Night-Block den Frost-Push **vor** dem Quota-Check ausführen (oder Quota-Check für diesen einen Pfad überspringen, wenn `night_frost_last_pushed != nightKey`).
-- **`tuya-control` `/push-all-temps`:** Prüfen ob es `night_temp` berücksichtigt wenn `isNight=true` — falls nicht, ergänzen.
-- **Manueller Trigger:** Nach den Fixes einmalig `pv-automation` aufrufen, damit der Frost-Push sofort losgeht.
+In `supabase/functions/tuya-control/index.ts` (`push-all-temps`, Zeile ~1091): Aktuell wird `last_thermostat_sync` nur bei Erfolg gesetzt. Bei Quota-Fehler (60001001) bleibt er ewig alt.
 
-## Erwartetes Ergebnis
+Lösung: Eine neue Spalte ist nicht nötig — wir setzen `last_thermostat_sync` zusätzlich auch bei `quotaExhausted`-Fehlern (denn der Status ist dann "ich habe versucht zu syncen, aber die Cloud hat geblockt — kein Datenproblem"). Bei echten Geräte-Offline-Fehlern lassen wir den Stempel alt, damit das Banner berechtigt warnt.
 
-Innerhalb von ~30 s nach Fix sind alle automatisierten Räume auf 5°C (Frostschutz) gesetzt, das `night_frost_last_pushed` Gate ist gesetzt, und die Edge Function bleibt bis 08:00 Uhr morgen früh im Quiet Mode.
+### 3. "Haustür"-Raum bereinigen (einmaliges DB-Update)
+
+Der Raum "Haustür" (id `b94f15d6-…`) hat `automation_enabled=true`, aber das Gerät reagiert seit 4 Tagen nicht. Nach Bestätigung durch dich:
+- Entweder `tuya_device_id` auf `NULL` setzen (wenn das Gerät tot/abgeklemmt ist)
+- Oder `automation_enabled=false` (wenn nur temporär)
+- Oder `last_thermostat_sync = now()` einmalig zurücksetzen (wenn das Gerät demnächst wieder online kommen soll)
+
+→ Hier brauche ich dein OK, was mit "Haustür" passieren soll.
+
+## Technische Details
+
+**Geänderte Dateien:**
+- `src/hooks/useActiveHeatingRooms.ts` — Outlier-tolerante Sync-Age-Berechnung
+- `supabase/functions/tuya-control/index.ts` — `last_thermostat_sync` auch bei Quota-Fehlern aktualisieren
+- 1 SQL-Migration / Update für den Raum "Haustür" (nach deiner Entscheidung)
+
+**Keine Schema-Änderungen.** Keine neuen Tabellen, keine RLS-Änderungen.
+
+## Frage an dich
+
+Was soll mit "Haustür" passieren?
+- (a) Tuya-Device-ID entfernen (Gerät dauerhaft raus)
+- (b) Automation deaktivieren (temporär raus)
+- (c) Sync-Stempel resetten (Gerät kommt bald wieder online)
+- (d) So lassen — Fixes 1 + 2 reichen, das Banner wird auch ohne Cleanup verschwinden

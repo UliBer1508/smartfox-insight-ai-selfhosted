@@ -1101,8 +1101,19 @@ Deno.serve(async (req) => {
           results.push({ roomId: room.id, name: room.name, targetTemp: room.target_temp, success: true });
           console.log(`[${room.name}] ✓ Pushed ${room.target_temp}°C`);
         } catch (error) {
+          const errStr = String(error);
+          const isQuotaError = errStr.includes('60001001') || errStr.toLowerCase().includes('quota');
+          // Bei Quota-Fehlern den Sync-Stempel trotzdem aktualisieren:
+          // Es ist KEIN Geräte-Problem, nur ein Cloud-Throttle. So vergiftet
+          // ein Quota-Block das Stale-Banner nicht dauerhaft.
+          if (isQuotaError) {
+            await supabase
+              .from('rooms')
+              .update({ last_thermostat_sync: now })
+              .eq('id', room.id);
+          }
           console.error(`[push-all-temps] Error for room ${room.name}:`, error);
-          results.push({ roomId: room.id, name: room.name, targetTemp: room.target_temp, success: false, error: String(error) });
+          results.push({ roomId: room.id, name: room.name, targetTemp: room.target_temp, success: false, error: errStr, quotaExhausted: isQuotaError });
         }
       }
 
