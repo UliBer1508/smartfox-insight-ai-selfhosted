@@ -1,0 +1,1 @@
+UPDATE public.rooms SET comfort_temp = 21 WHERE name = 'Flur';

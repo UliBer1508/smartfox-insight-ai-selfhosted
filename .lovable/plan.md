@@ -1,52 +1,44 @@
-## Was sich ändert
+## Ziel
+Drei Korrekturen umsetzen, basierend auf der vorhergehenden Analyse:
+1. **Haustür sauber stilllegen** (Tuya 60001001 — nicht steuerbar)
+2. **Flur** auf Standard-Konfiguration (eco=19 °C, comfort=21 °C)
+3. **UI-Hinweis** „Konstanttemperatur" für Räume mit `eco_temp == comfort_temp`
 
-Drei klare Maßnahmen — keine komplexe Quota-Differenzierung mehr nötig.
+## Änderungen im Detail
 
-### 1. Haustür aus der Automation nehmen
+### A) Haustür DB-Reset
+Update der Spalte in `rooms` für `name = 'Haustür'`:
+- `target_temp = 19` (eco)
+- `is_heating = false`
+- `heating_paused_reason = 'Tuya Cloud-Subscription: Gerät nicht steuerbar (60001001) - bitte am Thermostat manuell auf 19°C stellen'`
 
-Sie ist über die Tuya-Cloud-Subscription nicht mehr steuerbar — wir versuchen sie gar nicht erst anzusprechen.
+Dazu ein einmaliger Cloud-Versuch via `tuya-control/set-temp` für die Haustür (best-effort — falls die Subscription doch reagiert, super; sonst muss am Thermostat manuell auf 19 °C gestellt werden, was der `heating_paused_reason`-Hinweis kommuniziert).
 
-- **DB-Update** (insert-Tool): `UPDATE rooms SET automation_enabled=false, pv_auto_enabled=false, heating_paused_reason='Tuya Cloud-Subscription: Gerät nicht steuerbar' WHERE name='Haustür';`
-- **Resolve aller offenen `60001001`-Fehler**: `UPDATE api_errors SET resolved_at=NOW() WHERE error_message ILIKE '%controllable device pool%' AND resolved_at IS NULL;`
-- **UI-Hinweis** in der Settings-/Räume-Liste: kleines Badge "Cloud-Subscription erschöpft" neben Haustür, plus Tooltip "automation_enabled wurde deaktiviert um wiederholte API-Fehler zu vermeiden". Kein globaler Banner.
+Umsetzung: kurze, einmalige Edge Function `oneshot-haustuer-flur-fix` (Service Role) → deployen → einmal aufrufen → Edge Function wieder löschen.
 
-Damit hat der Code automatisch nichts mehr zu tun mit Haustür — Filter `automation_enabled=true` greift bereits in `pv-automation` und `apply-recommendations`.
+### B) Flur-Standardisierung
+Update `rooms` für `name = 'Flur'`:
+- `eco_temp = 19` (statt 20)
+- `comfort_temp = 21` (statt 20)
 
-### 2. Cloud-only erzwingen wenn `controlMode='cloud'` (`pv-automation`)
+Der Raum kann dann im normalen Phasen-System mitlaufen (Eco-Stufe 19 °C, Komfort-Stufe 21 °C wie alle anderen Räume).
 
-Drei Stellen schreiben aktuell direkt in `thermostat_commands` (Local-Pfad), auch wenn der User Cloud konfiguriert hat:
+Im selben one-shot Edge Function Call mit ausgeführt.
 
-- **SOC-Gate-Notfall-Stops (Zeile ~1701)**: Statt `thermostat_commands.insert(...)` für jeden Kandidaten → Loop über Räume und `setTemperatureForMode(deviceId, roomId, nightTemp, 'stop')` aufrufen. Diese Funktion routet je nach Mode korrekt: Cloud-Modus → Tuya-API mit STOP-Reserve, Local-Modus → DB-Queue.
-- **Mikro-Rotation Ende (Zeile ~2035)**: Gleicher Umbau — `setTemperatureForMode(...)` mit `priority='stop'`.
-- **`queueLocalTemperatureCommand`** (Zeile ~413-453): bleibt — wird nur im Local-Branch von `setTemperatureForMode` aufgerufen, ist also schon korrekt.
+### C) UI-Hinweis „Konstanttemperatur"
+In `src/components/heating/ThermostatCard.tsx`:
+- Wenn `room.eco_temp === room.comfort_temp`, ein dezentes Badge/Tooltip neben den Preset-Buttons (Komfort/Eco/Nacht) anzeigen: „Konstant — Eco = Komfort", damit klar ist, dass kein Stufenwechsel stattfindet.
+- Optionaler kleiner Tooltip-Text: „Eco- und Komforttemperatur sind identisch konfiguriert. Der Raum wird konstant auf dieser Temperatur gehalten."
 
-Effekt: Bei `controlMode='cloud'` werden keine neuen `thermostat_commands` mehr eingefügt. Wenn ein einzelnes Cloud-Set scheitert (außer Quota), wird es wie heute als `api_errors` geloggt und im nächsten 2-min-Run erneut versucht.
+Keine Logikänderung — rein visuell.
 
-### 3. Stale Pending Commands aufräumen
+## Technische Details
+- **One-shot Edge Function** `oneshot-haustuer-flur-fix`: nutzt Service Role Key, umgeht den `protect_rooms_sensitive_columns`-Trigger (der service_role erlaubt). Macht beide DB-Updates und einen best-effort Tuya-Cloud-Call. Wird nach erfolgreichem Lauf wieder gelöscht (`delete_edge_functions`).
+- **UI-Komponente**: Neuer kleiner JSX-Block in `ThermostatCard.tsx` oberhalb oder unterhalb der 3 Preset-Buttons, conditional gerendert.
 
-- **Migration** (Schema): neue Funktion `expire_stale_thermostat_commands()` SECURITY DEFINER, schreibt:
-  ```sql
-  UPDATE thermostat_commands
-  SET status='expired',
-      error_message='Auto-expired: kein Worker hat Command innerhalb 2h abgeholt',
-      executed_at=NOW()
-  WHERE status='pending' AND created_at < NOW() - INTERVAL '2 hours';
-  ```
-- **pg_cron** Job alle 30 min ruft die Funktion auf.
-- **Sofortiges Expire** der aktuellen 54 hängenden Commands (insert-Tool) damit die DB sauber startet.
-
-### 4. Reihenfolge & Test
-
-1. Migration: `expire_stale_thermostat_commands()` + pg_cron
-2. Daten-Update: Haustür `automation_enabled=false`, offene 60001001-Errors resolven, 54 Pending-Commands auf `expired`
-3. `pv-automation` umbauen (SOC-Gate-Stops + Mikro-Rotation auf `setTemperatureForMode`)
-4. UI: kleines Badge "Cloud-Subscription erschöpft" bei Haustür in der Räume-Übersicht
-5. Test: `curl_edge_functions` `/pv-automation` → prüfen dass kein neuer `thermostat_commands.insert` passiert und keine neuen `60001001`-Errors auftauchen
-
-## Was diese Änderung NICHT macht
-
-- Keine Quota-Code-Differenzierung mehr (war ursprünglich Punkt 1) — durch Haustür-Deaktivierung obsolet.
-- Keine Änderung an SOC-Gate-Logik, Heating-Strategie, Local-Service-Code.
-- Local-Service bleibt deaktivierbar/inaktiv — wenn du ihn später startest und auf `local` umschaltest, funktioniert alles wie vorher.
-
-Nach Approval setze ich in der oben genannten Reihenfolge um.
+## Reihenfolge
+1. Edge Function `oneshot-haustuer-flur-fix` schreiben + deployen
+2. Function einmal per `curl_edge_functions` aufrufen, Ergebnis verifizieren
+3. DB-Verifikation per `read_query`
+4. Edge Function löschen
+5. UI-Änderung in `ThermostatCard.tsx`
