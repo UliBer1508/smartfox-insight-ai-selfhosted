@@ -1,0 +1,6 @@
+UPDATE public.rooms
+SET automation_enabled = false,
+    pv_auto_enabled = false,
+    heating_paused_reason = 'Tuya Cloud-Subscription: Gerät nicht steuerbar (60001001)',
+    updated_at = NOW()
+WHERE name = 'Haustür';
