@@ -671,6 +671,39 @@ Deno.serve(async (req) => {
         const nightHeatingMode = settings?.night_heating_mode || 'frost_only';
         console.log(`[PV-Automation] Night mode active (${wienTime}), mode: ${nightHeatingMode}`);
 
+        // Parallel-Plan-Snapshot auf Nacht-Defaults zurücksetzen, damit UI keine
+        // veralteten Tages-Werte (max_parallel_eco/comfort > 0) mehr anzeigt.
+        try {
+          await supabase.from('system_settings').upsert(
+            {
+              key: 'parallel_heating_capacity',
+              value: {
+                computed_at: new Date().toISOString(),
+                grid_export_w: 0,
+                baseload_buffer_w: 0,
+                trend_w_per_5min: 0,
+                trend_bonus_w: 0,
+                lookahead_bonus_w: 0,
+                lookahead_factor: 'neutral',
+                next_hour_forecast_w: 0,
+                eco_budget_w: 0,
+                comfort_budget_w: 0,
+                eco_candidates: [],
+                comfort_candidates: [],
+                max_parallel_eco: 0,
+                max_parallel_comfort: 0,
+                planned_eco_room_ids: [],
+                planned_comfort_room_ids: [],
+                budget_mode: 'night',
+              },
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: 'key' }
+          );
+        } catch (e) {
+          console.log(`[PV-Automation] Night parallel-plan reset failed: ${e}`);
+        }
+
         // NIGHT-QUIET-GATE: Pro Nacht nur EINMAL Tuya-Calls absetzen.
         // "Nacht-Schlüssel" = Datum des Nacht-Beginns (Wien). Wenn aktuelle Wien-Zeit
         // vor night_end ist, gehört sie zur "Nacht" des Vortages.
