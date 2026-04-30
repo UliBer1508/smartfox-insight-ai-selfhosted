@@ -2737,11 +2737,12 @@ Deno.serve(async (req) => {
           if (budgetStatus) {
             if (budgetStatus.shouldRotate) {
               // Rotation: Raum hat zu lange geheizt, pausieren für andere
-              // Raum auf night_temp setzen statt 15°C - bleibt bewohnbar
+              // Tag → eco_temp (Raum bleibt komfortabel, Thermostat regelt selbst)
+              // Nacht → night_temp (Energie sparen)
               action = 'deactivate';
-              targetTemp = nightTemp;
+              targetTemp = isNight ? nightTemp : ecoTemp;
               solarLimitTemp = null;
-              reasoning = `🔄 ${budgetStatus.reason} → ${nightTemp}°C (Rotation-Stopp)`;
+              reasoning = `🔄 ${budgetStatus.reason} → ${targetTemp}°C (Rotation-Stopp, ${isNight ? 'Nacht' : 'Tag'})`;
               console.log(`[PV-Automation] ${room.name}: ROTATION - ${reasoning}`);
               
               // Tracking aktualisieren
@@ -2753,11 +2754,13 @@ Deno.serve(async (req) => {
                 })
                 .eq('id', room.id);
             } else if (!budgetStatus.allowedToHeat) {
-              // Budget reicht nicht - auf night_temp setzen statt 15°C
+              // Budget reicht nicht
+              // Tag → eco_temp halten (Thermostat-Hysterese regelt autonom)
+              // Nacht → night_temp (Energie sparen)
               action = 'deactivate';
-              targetTemp = nightTemp;
+              targetTemp = isNight ? nightTemp : ecoTemp;
               solarLimitTemp = null;
-              reasoning = `⏸️ ${budgetStatus.reason} → ${nightTemp}°C (Budget-Stopp)`;
+              reasoning = `⏸️ ${budgetStatus.reason} → ${targetTemp}°C (Budget-Stopp, ${isNight ? 'Nacht' : 'Tag'})`;
               console.log(`[PV-Automation] ${room.name}: BUDGET-PAUSE - ${reasoning}`);
               
               // Tracking aktualisieren

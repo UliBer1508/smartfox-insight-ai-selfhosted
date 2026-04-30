@@ -443,7 +443,17 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                                 );
                               })()}
                             </TableCell>
-                            <TableCell>{room.automation_enabled ? <Check className="w-4 h-4 text-success" /> : <X className="w-4 h-4 text-destructive" />}</TableCell>
+                            <TableCell>
+                              {room.manual_override_until && new Date(room.manual_override_until) > new Date() ? (
+                                <span className="text-xs px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200 font-medium" title="Manuell gesteuert – Automation deaktiviert">
+                                  Manuell
+                                </span>
+                              ) : room.automation_enabled ? (
+                                <Check className="w-4 h-4 text-success" />
+                              ) : (
+                                <X className="w-4 h-4 text-destructive" />
+                              )}
+                            </TableCell>
                           </TableRow>
                           {isExpanded && (
                             <TableRow key={`${room.id}-details`} className="bg-muted/30 hover:bg-muted/30">
