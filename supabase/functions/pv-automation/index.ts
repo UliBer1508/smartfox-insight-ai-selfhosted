@@ -1674,7 +1674,7 @@ Deno.serve(async (req) => {
 
           // ============= AKTIVE NOTFALL-STOPS =============
           // Thermostate halten autonom ihre Komfort-Targets — wir MÜSSEN aktiv auf night_temp zurücksetzen.
-          // Schreibt in thermostat_commands (Local-Service-Pickup), unabhängig von Tuya-Cloud-Quota.
+          // Routet je nach controlMode: Cloud → Tuya-API (mit STOP-Reserve), Local → DB-Queue.
           try {
             const { data: stopRooms } = await supabase
               .from('rooms')
@@ -1685,6 +1685,7 @@ Deno.serve(async (req) => {
             const candidates = (stopRooms || []).filter(r => {
               const overrideActive = r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMs;
               if (overrideActive) return false;
+              if (!r.tuya_device_id) return false;
               const ecoT = Number(r.eco_temp) || 19;
               const nightT = Number(r.night_temp) || 18;
               const targetT = Number(r.target_temp) || 0;
@@ -1692,25 +1693,22 @@ Deno.serve(async (req) => {
             });
 
             if (candidates.length > 0) {
-              const cmdRows = candidates.map(r => ({
-                room_id: r.id,
-                command: 'set_temperature',
-                value: Number(r.night_temp) || 18,
-                status: 'pending' as const,
-              }));
-              const { error: cmdErr } = await supabase.from('thermostat_commands').insert(cmdRows);
-              if (cmdErr) {
-                console.error(`[SOC-GATE-STOP] ❌ Fehler beim Queueing der Notfall-Stops:`, cmdErr.message);
-              } else {
-                for (const r of candidates) {
-                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → night_temp ${r.night_temp}°C (queued for local service)`);
+              const successIds: string[] = [];
+              for (const r of candidates) {
+                const nightT = Number(r.night_temp) || 18;
+                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, nightT, 'stop');
+                if (result.success) {
+                  successIds.push(r.id);
+                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → night_temp ${nightT}°C (mode=${controlMode})`);
+                } else {
+                  console.error(`[SOC-GATE-STOP] ❌ ${r.name}: ${result.errorType} - ${result.errorMessage}`);
                 }
-                // Räume sofort auf night_temp setzen, damit Folgelogik im selben Tick konsistent ist
-                const ids = candidates.map(r => r.id);
+              }
+              if (successIds.length > 0) {
                 await supabase
                   .from('rooms')
                   .update({ heating_paused_reason: `SOC-Gate (${batterySoc}% < ${heatingMinSoc}%)` })
-                  .in('id', ids);
+                  .in('id', successIds);
               }
             } else {
               console.log(`[SOC-GATE-STOP] Keine Räume zum Stoppen (alle bereits ≤ night_temp oder im manual override)`);
