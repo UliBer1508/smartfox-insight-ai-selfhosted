@@ -311,6 +311,21 @@ export function ThermostatCard({
               </Button>
             </div>
 
+            {/* Konstanttemperatur-Hinweis: wenn Eco == Komfort */}
+            {room.eco_temp === room.comfort_temp && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground bg-muted/50 rounded-md py-1.5 px-2 cursor-help">
+                    <Thermometer className="h-3 w-3" />
+                    <span>Konstanttemperatur ({room.eco_temp}°C) — kein Stufenwechsel</span>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[240px] text-center">
+                  <p>Eco- und Komforttemperatur sind identisch konfiguriert. Der Raum wird konstant auf dieser Temperatur gehalten — die PV-Automatik wechselt hier nicht zwischen Stufen.</p>
+                </TooltipContent>
+              </Tooltip>
+            )}
+
             {/* Preset Buttons with Active Mode Highlighting */}
             <div className="grid grid-cols-3 gap-2">
               {/* Komfort Button */}
