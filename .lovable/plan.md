@@ -1,78 +1,64 @@
-## Aktueller Zustand (verifiziert)
+## Problem
 
-Vienna-Zeit: **08:56** (also nach `night_end_time` 08:00 → es ist Tag-Modus).
+Räume mit Ist-Temperatur ≥ Eco werden nicht auf Komfort hochgestuft, obwohl reichlich PV verfügbar ist:
 
-**Haustür** (Prio 10)
-- `automation_enabled = false` ✅ (bereits aus)
-- `target_temp = 19` (Eco), `current_temp = 20.9`
-- Heizt laut UI mit 400W → physisches Thermostat hat noch alten Sollwert, kann wegen Tuya-Quota (60001001) nicht synchronisiert werden
-- `heating_paused_reason` enthält Hinweis „bitte am Thermostat manuell auf 19°C stellen"
+- Batterie **95.6 %** (voll), PV-Prognose nächste Stunde **23.326 W**
+- Aber `comfortBudget = 0 W` weil `gridExport = 0 W` (aktuell heizt Wirtschaftsraum mit 700 W → frisst potenziellen Export)
+- Header zeigt korrekt **„+3 Eco möglich"**, aber das System bleibt bei Eco
 
-**Wirtschaftsraum** (Prio 9)
-- `target_temp = 18` (Nacht-Wert!), `current_temp = 19`, `eco_temp = 19`
-- `automation_enabled = true`, `pv_auto_enabled = true`
-- `heating_paused_reason = "budget"` → Automation hat ihn auf Nacht/aus gesetzt wegen fehlendem Budget
-- Letzte Auto-Änderung: 06:02 (vor `night_end_time`!) — der Wirtschaftsraum wurde noch im Nachtmodus auf 18° gesetzt und seitdem nicht hochgezogen
+Aus den Logs:
+```
+PARALLEL-PLAN: Export 0W, Puffer 200W, Trend +120W → Komfort-Budget 0W (0/3 Räume parallel)
+Wohnzimmer (22.6°C): Eco halten (kein Komfort-Budget: 0+2400>17366W)
+Zimmer Luca (20.9°C): Eco halten (kein Komfort-Budget: 0+1000>17366W)
+```
 
-→ Der Wirtschaftsraum hängt fest, weil die Automation seit 08:00 keinen Eco-Upgrade-Lauf für ihn gemacht hat (oder das Budget reicht nicht und er bleibt bei Nacht-Sollwert).
+Henne-Ei-Problem: Aktives Heizen verbraucht Export → Budget 0 → kein Upgrade möglich → Strom geht ungenutzt verloren.
 
----
+## Lösung: Battery-Full Komfort-Bonus
 
-## Was zu tun ist
+In `supabase/functions/pv-automation/index.ts` (Komfort-Budget-Berechnung in `calculateParallelHeatingCapacity` bzw. dort wo `comfort_budget_w` ermittelt wird):
 
-### 1. Haustür — Modus „Manuell" sauber kennzeichnen
+**Neue Regel** — wenn ALLE folgenden Bedingungen erfüllt sind:
+1. `batterySoc ≥ 95 %` (Batterie quasi voll)
+2. `pvForecastNextHour ≥ 10 kW` (verlässlich Überschuss kommt)
+3. Tagmodus (nicht Nacht)
 
-Da das Thermostat physisch wegen Tuya-Quota nicht erreichbar ist, soll Haustür klar als „Manuell gesteuert" markiert sein:
+→ Dann gilt:
+```ts
+const batteryFullBonus = Math.max(0, pvForecastNextHour - currentConsumption - 2000);
+comfortBudget = gridExport - baseloadBuffer + trendBonus + lookahead + batteryFullBonus;
+```
 
-- `automation_enabled = false` (ist schon)
-- `pv_auto_enabled = false` (ist schon)
-- `manual_override_until = NOW() + INTERVAL '30 days'` — markiert Raum dauerhaft als manuell, blockt jede Automation
-- `heating_paused_reason = 'Manuell gesteuert (Tuya-Quota nicht steuerbar)'` — klarere Meldung
-- UI-Anzeige in `ThermostatCard` prüfen: bei aktivem `manual_override_until` soll ein deutliches **„Manuell"**-Badge erscheinen statt „Eco" + roter Heiz-Indikator
+Begründung: Bei voller Batterie wird jedes überschüssige Watt eingespeist (oder via Wechselrichter abgeregelt). Es ist energetisch sinnvoll, stattdessen die Räume auf Komfort zu bringen.
 
-### 2. Wirtschaftsraum — auf Eco hochziehen
+## Zusätzliche Korrekturen
 
-Direkter Fix per DB-Update:
-- `target_temp = 19` (Eco)
-- `heating_paused_reason = NULL`
-- `last_auto_change = NOW()` (verhindert sofortiges Zurücksetzen)
+**A. Aktiv-heizende Räume nicht doppelt zählen**
+Beim Berechnen von `gridExport` für die Komfort-Phase soll die aktuelle Heizleistung der bereits aktiv heizenden Räume rückgerechnet werden:
+```ts
+const effectiveExport = gridExport + currentlyHeatingPower;
+```
+Damit verhindern wir, dass das laufende Heizen das eigene Komfort-Budget blockiert.
 
-Damit greift die Standard-Automation beim nächsten Heartbeat-Lauf wieder normal.
+**B. Logging erweitern**
+Im PARALLEL-PLAN-Log auch `batteryFullBonus` und `effectiveExport` ausgeben, damit künftige Diagnosen sofort sichtbar machen, warum Komfort freigegeben wurde.
 
-### 3. Root-Cause-Check Wirtschaftsraum
+## Erwartetes Ergebnis
 
-Nachsehen warum Auto-Logik ihn auf 18° (Nacht) belässt obwohl nach 08:00. Vermutlich:
-- Stage 4 (Precision) korrigiert den Sollwert nicht, weil `is_heating=false` und `current_temp ≥ target` → Logik denkt „passt"
-- Oder Eco-Phase überspringt den Raum wegen `heating_paused_reason='budget'` ohne den Sollwert zurückzusetzen
+Mit Batterie 95.6 % und Prognose 23.3 kW:
+- `batteryFullBonus ≈ 23300 − 1500 − 2000 ≈ 19.800 W`
+- `comfortBudget ≈ 0 − 200 + 120 + 0 + 19800 ≈ 19.720 W`
+- `max_parallel_comfort` steigt von 0 auf 3
+- Wohnzimmer / Zimmer Uli / Luca / Büro / Flur bekommen `target_temp = comfort_temp` (22°C bzw. 21°C)
+- Header-Hinweis „+3 Eco möglich" wird umgesetzt
 
-→ In `pv-heating-optimizer` (Eco-Phase) prüfen: wenn ein Raum `target_temp < eco_temp` hat und Tag-Modus aktiv ist, muss er **immer** auf mindestens `eco_temp` hochgezogen werden, auch ohne Heiz-Aktion. Andernfalls bleibt der Sollwert auf Nacht-18° hängen sobald die Automation einmal Budget-blocked war.
+## Memory Update
 
-### 4. Memory-Update
+`mem://arch/pv-automation-budget-logic-v2` ergänzen:
+> **Battery-Full Comfort Bonus:** Bei `batterySoc ≥ 95%` und `pvForecastNextHour ≥ 10kW` wird Komfort-Budget um `(forecast − consumption − 2000W)` erhöht, damit Überschuss-PV in Komfort statt Einspeisung fließt. Verhindert Henne-Ei-Blockade durch laufende Heizungen.
 
-Eintrag in `mem://features/heating/eco-target-restoration` neu anlegen:
-> Sobald Tag-Modus (nach `night_end_time`) aktiv ist, MUSS jeder automatisierte Raum mit `target_temp < eco_temp` auf `eco_temp` hochgezogen werden — unabhängig von Budget oder Heiz-Status. Sonst bleiben Räume auf Nacht-Sollwert (18°) wenn sie zur Nacht ins Budget-Lockout liefen.
+## Files
 
----
-
-## Technische Schritte
-
-1. **Daten-Update** (Insert-Tool):
-   ```sql
-   UPDATE rooms SET 
-     manual_override_until = NOW() + INTERVAL '30 days',
-     heating_paused_reason = 'Manuell gesteuert (Tuya nicht erreichbar)'
-   WHERE name = 'Haustür';
-   
-   UPDATE rooms SET 
-     target_temp = 19,
-     heating_paused_reason = NULL,
-     last_auto_change = NOW()
-   WHERE name = 'Wirtschaftsraum';
-   ```
-
-2. **Code-Änderungen**:
-   - `supabase/functions/pv-heating-optimizer/index.ts` (oder entsprechendes Modul): Eco-Phase ergänzen — Räume mit `target_temp < eco_temp` im Tag-Modus immer hochziehen, auch ohne Heizfreigabe
-   - `src/components/heating/ThermostatCard.tsx`: bei `manual_override_until > NOW()` ein **„Manuell"**-Badge (gelb/orange) anzeigen statt Auto-Häkchen
-   - Falls vorhanden, das gleiche im Tabellen-View (`HeatingOverviewTable` o.ä.) ergänzen
-
-3. **Verifikation**: nach 2-Min-Heartbeat Wirtschaftsraum prüfen → `target_temp` muss 19 bleiben, `heating_paused_reason` darf nicht wieder „budget" werden ohne dass der Sollwert auf 19 stehen bleibt.
+- `supabase/functions/pv-automation/index.ts` — Budget-Berechnung erweitern, Logging
+- `mem://arch/pv-automation-budget-logic-v2` — Regel dokumentieren
