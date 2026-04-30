@@ -1590,10 +1590,33 @@ Deno.serve(async (req) => {
 
           // Separates Komfort-Budget: gridExport − Baseload-Puffer + Trend (symmetrisch) + Lookahead
           // KEIN Batterie-Bonus, KEIN Prognose-Mindest-Bonus.
-          let rawComfortBudget = gridExport - dynamicBaseloadBuffer + trendBonus + lookaheadBonus;
+          // FIX A: Aktuell heizende Räume hinzurechnen, sonst blockiert das laufende Heizen
+          // den potenziellen Export → Komfort-Budget bleibt 0 (Henne-Ei-Problem).
+          const effectiveExport = gridExport + (currentlyHeatingPower || 0);
+          let rawComfortBudget = effectiveExport - dynamicBaseloadBuffer + trendBonus + lookaheadBonus;
           if (batteryPower < 0) {
             rawComfortBudget = rawComfortBudget - Math.abs(batteryPower);
           }
+
+          // FIX B: Battery-Full Comfort Bonus
+          // Wenn Batterie voll ist (≥95%) UND nächste Stunde verlässlich Überschuss-PV kommt (≥10kW),
+          // wird Komfort-Budget um den prognostizierten Überschuss erhöht. Andernfalls geht der
+          // Solarstrom in die Einspeisung / Wechselrichter-Abregelung verloren.
+          let batteryFullBonus = 0;
+          const FULL_BATTERY_SOC = 95;
+          const MIN_FORECAST_FOR_BONUS = 10000; // 10 kW
+          if (
+            !isNight &&
+            batterySoc >= FULL_BATTERY_SOC &&
+            nextHourForecastCorrected >= MIN_FORECAST_FOR_BONUS
+          ) {
+            // Erwarteter Überschuss = Prognose − Baseload − Sicherheits-Puffer (2kW)
+            const expectedSurplus = nextHourForecastCorrected - (baseLoad || 1500) - 2000;
+            batteryFullBonus = Math.max(0, Math.round(expectedSurplus));
+            rawComfortBudget = rawComfortBudget + batteryFullBonus;
+            console.log(`[BATTERY-FULL-BONUS] 🔋✅ SOC ${batterySoc}% ≥ ${FULL_BATTERY_SOC}%, Prognose+1h ${Math.round(nextHourForecastCorrected)}W ≥ ${MIN_FORECAST_FOR_BONUS}W → Komfort-Bonus +${batteryFullBonus}W (Überschuss würde sonst eingespeist/abgeregelt)`);
+          }
+
           comfortBudget = Math.max(0, Math.round(rawComfortBudget));
           if (lookaheadFactor === 'cloud_warning') {
             const before = comfortBudget;
@@ -1602,13 +1625,14 @@ Deno.serve(async (req) => {
           } else if (lookaheadBonus > 0) {
             console.log(`[LOOKAHEAD] ☀️ Stabile Sonne (Stunde+1=${Math.round(nextHourForecastCorrected)}W ≥ 90% × ${Math.round(currentHourForecastCorrected)}W) → Komfort-Bonus +${lookaheadBonus}W`);
           }
-          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}W Trend` : ''}) | Komfort-Budget: ${comfortBudget}W (gridExport ${gridExport} − Baseload ${dynamicBaseloadBuffer}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}` : ''}${lookaheadBonus > 0 ? ` +Lookahead ${lookaheadBonus}` : ''})`);
+          console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}W Trend` : ''}) | Komfort-Budget: ${comfortBudget}W (effExport ${effectiveExport} [grid ${gridExport}+heiz ${currentlyHeatingPower}] − Baseload ${dynamicBaseloadBuffer}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}` : ''}${lookaheadBonus > 0 ? ` +Lookahead ${lookaheadBonus}` : ''}${batteryFullBonus > 0 ? ` +BattFull ${batteryFullBonus}` : ''})`);
 
           // Persist für UI (parallel-heating-capacity wird nach Phase-Setup ergänzt)
           (globalThis as any).__parallelPlanCtx = {
             gridExport, dynamicBaseloadBuffer, pvTrend, trendBonus,
             lookaheadBonus, lookaheadFactor, nextHourForecastCorrected,
             ecoBudget: availableBudget, comfortBudget,
+            effectiveExport, batteryFullBonus,
           };
         } else if (gridExport > 200) {
           budgetMode = 'grid_sequential';
