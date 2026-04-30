@@ -190,7 +190,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
         <CollapsibleContent>
           <CardContent className="p-0">
             {/* Stale-Banner ("Heizstatus veraltet") und Stufe-B-Info-Banner entfernt — auf Wunsch des Nutzers */}
-            {(activeRooms.length > 0 || activatedRoomIds.size > 0 || (capacity && capacity.comfort_budget_w > 500)) && (
+            {(activeRooms.length > 0 || activatedRoomIds.size > 0 || (showCapacityBadge && capacity!.comfort_budget_w > 500)) && (
               <div className="px-4 py-2 text-xs text-muted-foreground border-b bg-muted/20 flex items-center justify-between gap-2 flex-wrap">
                 <span className="flex items-center gap-1.5 flex-wrap">
                   {activeRooms.length > 0 ? (
@@ -204,7 +204,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                   {activatedRoomIds.size > 0 && (
                     <> · <span className="text-blue-600">Aktiviert: <strong>{activatedRoomIds.size}</strong></span></>
                   )}
-                  {capacity && (
+                  {showCapacityBadge && capacity && (
                     <TooltipProvider delayDuration={150}>
                       <Tooltip>
                         <TooltipTrigger asChild>
