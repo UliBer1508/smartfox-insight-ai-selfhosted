@@ -465,13 +465,26 @@ Deno.serve(async (req) => {
           const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
           const wienDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(now);
 
+          let quotaRolledOver = false;
           if (quotaData!.month !== currentMonth) {
             quotaData!.calls_this_month = 0;
             quotaData!.month = currentMonth;
+            quotaRolledOver = true;
+            console.log(`[PV-Automation] 🔄 Monats-Reset: ${currentMonth} (calls_this_month → 0)`);
           }
           if (quotaData!.today !== wienDate) {
             quotaData!.calls_today = 0;
             quotaData!.today = wienDate;
+            quotaRolledOver = true;
+            console.log(`[PV-Automation] 🔄 Tages-Reset: ${wienDate} (calls_today → 0)`);
+          }
+          // Persistiere Reset SOFORT, sonst bleibt der Counter ewig in der DB stehen
+          // wenn die Quota direkt danach als erschöpft markiert wird (kein write am Ende)
+          if (quotaRolledOver) {
+            await supabase
+              .from('system_settings')
+              .update({ value: quotaData as any, updated_at: new Date().toISOString() })
+              .eq('key', 'tuya_api_quota');
           }
 
           const monthlyLimit = quotaData!.monthly_limit || 900;
