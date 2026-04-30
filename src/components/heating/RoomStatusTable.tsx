@@ -11,6 +11,7 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { toast } from 'sonner';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 import { useParallelHeatingCapacity } from '@/hooks/useParallelHeatingCapacity';
+import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { usePushAllTemps } from '@/hooks/usePushAllTemps';
 
 interface RoomStatusTableProps {
