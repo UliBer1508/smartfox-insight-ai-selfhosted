@@ -1,49 +1,47 @@
-## Problem
+## Ziel
 
-`tuya_api_quota` in der DB steht auf `today=2026-04-29, calls_this_month=3886/3000` — der Tages- und Monats-Reset hat nie stattgefunden. Folge: Cloud-Quota dauerhaft als „erschöpft" markiert → keine Tuya-Calls → keine Frostschutz-Pushes → Räume bleiben auf Tag-Sollwerten.
+Die Anzeige "+N Eco/Komfort möglich" im Raum-Übersichts-Header zeigt nachts veraltete Werte vom Vortag, weil `system_settings.parallel_heating_capacity` während der Nacht nicht aktualisiert wird (pv-automation kehrt im Night-Branch früh zurück).
 
-Root Cause im Code (`pv-automation/index.ts` Zeile 468-475): Reset-Logik existiert, aber wenn die Quota direkt danach als erschöpft erkannt wird (Zeile 506), läuft die Funktion in den Quiet Mode und schreibt den genullten Counter NIE in die DB zurück. Der Reset-Effekt ist somit nur in-memory und geht beim nächsten Aufruf verloren.
+Drei kombinierte Maßnahmen — Defense in Depth.
 
-## Fix in 4 Schritten
+## Änderungen
 
-### 1. Sofort-Reset (DB-Migration)
+### 1. `supabase/functions/pv-automation/index.ts` — Night-Reset des Snapshots
 
-Einmaliges UPDATE auf `system_settings.tuya_api_quota`:
-- `calls_today = 0`
-- `calls_this_month = 0`
-- `today = '2026-04-30'`
-- `month = '2026-04'`
+Im `if (isNight)`-Branch (ab Zeile 670), **vor** allen frühen Returns, einen Upsert auf `system_settings` einfügen, der den Parallel-Plan auf Nacht-Defaults setzt:
 
-Damit kann die Cloud-Steuerung sofort wieder Pushes ausführen.
+- `max_parallel_eco: 0`, `max_parallel_comfort: 0`
+- `eco_budget_w: 0`, `comfort_budget_w: 0`
+- `eco_candidates: []`, `comfort_candidates: []`
+- `budget_mode: 'night'`
+- `computed_at: now()`
 
-### 2. Code-Fix `supabase/functions/pv-automation/index.ts`
+So bleibt der Snapshot in jedem 2-min-Heartbeat-Lauf frisch, auch wenn der Quiet-Gate ansonsten ohne Tuya-Calls zurückkehrt.
 
-Im Quota-Block (Zeile 462–512): Reset direkt nach Roll-Over **sofort persistieren**, bevor die Erschöpft-Prüfung läuft. So bleibt das Henne-Ei-Problem nie wieder hängen.
+### 2. `src/hooks/useParallelHeatingCapacity.ts` — `updated_at` mitliefern
 
-### 3. pg_cron Sicherheitsnetz
+Hook erweitern: zusätzlich `updated_at` aus der Zeile zurückgeben (separat oder als `_updated_at`-Property im Daten-Objekt), damit die UI die Frische prüfen kann.
 
-Täglicher Cron um **00:05 Wien (22:05 UTC)** und monatlicher Cron am 1. um **00:10 Wien**:
-```sql
-UPDATE system_settings
-SET value = jsonb_set(jsonb_set(value, '{calls_today}', '0'),
-            '{today}', to_jsonb(to_char(now() AT TIME ZONE 'Europe/Vienna', 'YYYY-MM-DD')))
-WHERE key = 'tuya_api_quota';
-```
+### 3. `src/components/heating/RoomStatusTable.tsx` — Stale- und Night-Filter im Badge
 
-Garantiert Reset auch wenn `pv-automation` gerade nicht läuft.
+Im Badge-Block (Zeilen 178–198):
+- Helper `isCapacityFresh`: `Date.now() - new Date(updated_at).getTime() < 10 * 60 * 1000`
+- Helper `isInNightWindow`: anhand `heating_settings.night_start_time` / `night_end_time` und Wien-Zeit prüfen — nutzt vorhandenen Settings-Hook bzw. einen kurzen Settings-Fetch (bereits an anderer Stelle im Codebase verfügbar).
+- Badge nur rendern, wenn `capacity && isCapacityFresh && !isInNightWindow && capacity.budget_mode !== 'night'`.
+- Auch die äußere Zeilen-Sichtbarkeitsbedingung (Zeile 164: `capacity.comfort_budget_w > 500`) um den Stale-/Night-Check ergänzen, damit die ganze Info-Zeile nicht nur wegen veraltetem Capacity erscheint.
 
-### 4. Lokaler Service — kurze Diagnose
+### 4. Sofort-Reset (einmalig)
 
-130 pending commands in DB, aber jüngster ist vom 25.04. (controlMode war Cloud, also normal dass nichts neues kam). Nach Cloud-Fix sollte Service nicht mehr nötig sein. Falls doch: Cleanup der alten pending commands + separater Check ob Service läuft.
+Den aktuellen `parallel_heating_capacity`-Eintrag direkt per Insert-Tool auf Nacht-Defaults setzen, damit die UI sofort korrekt ist (ohne auf nächsten Heartbeat warten zu müssen).
 
 ## Technische Details
 
-**Files:**
-- `supabase/functions/pv-automation/index.ts` — Reset-Persistierung einbauen (Zeile 468-475)
-- DB-Migration für Sofort-Reset und 2 pg_cron-Jobs
+- Reset im Edge-Function läuft via `supabase.from('system_settings').upsert(..., { onConflict: 'key' })` — try/catch um Fehler nicht den Night-Flow brechen zu lassen.
+- Night-Window-Check in React: Wien-Zeit über `Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit', hour12: false })`. Vergleich mit `night_start_time`/`night_end_time` aus `heating_settings` (über-Mitternacht-Logik wie in der Edge-Function).
+- Stale-Threshold: 10 min (großzügig, da Heartbeat 2 min ist — ab 5× Misslingen ist Anzeige sicher tot).
 
-**Erwartetes Verhalten nach Fix:**
-- Räume werden binnen 2 Min auf korrekten Sollwert gepusht (heute 06:30 → noch Nachtmodus → Frost 5°C für die 8 hängenden Räume)
-- Tageswechsel um Mitternacht resettet `calls_today` automatisch
-- Monatswechsel resettet `calls_this_month` automatisch
-- Reset wird auch ohne erfolgreichen Tuya-Call persistiert
+## Akzeptanzkriterien
+
+- 06:30 Wien-Zeit, vor `night_end_time=08:00`: Badge wird **nicht** angezeigt (weder "+N Eco" noch "+N Komfort" noch "Budget knapp").
+- Tagsüber mit frischem Snapshot (<10 min alt): Badge wie bisher.
+- Snapshot älter als 10 min: Badge ausgeblendet, statt veraltete Zahlen zu zeigen.

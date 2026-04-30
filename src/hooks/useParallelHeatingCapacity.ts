@@ -24,9 +24,11 @@ export interface ParallelHeatingCapacity {
 /**
  * Liest die zuletzt von der pv-automation Edge Function berechnete Parallel-Heiz-Planung
  * aus system_settings (Key: parallel_heating_capacity). Pollt alle 60 s.
+ * Liefert zusätzlich `updatedAt` (DB-row updated_at) für Stale-Checks im UI.
  */
 export function useParallelHeatingCapacity() {
   const [data, setData] = useState<ParallelHeatingCapacity | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -39,6 +41,7 @@ export function useParallelHeatingCapacity() {
         .maybeSingle();
       if (cancelled) return;
       setData((row?.value as unknown as ParallelHeatingCapacity) ?? null);
+      setUpdatedAt(row?.updated_at ?? null);
       setLoading(false);
     };
     load();
@@ -49,5 +52,5 @@ export function useParallelHeatingCapacity() {
     };
   }, []);
 
-  return { data, loading };
+  return { data, updatedAt, loading };
 }
