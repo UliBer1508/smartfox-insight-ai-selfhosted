@@ -1,44 +1,78 @@
-## Ziel
-Drei Korrekturen umsetzen, basierend auf der vorhergehenden Analyse:
-1. **Haustür sauber stilllegen** (Tuya 60001001 — nicht steuerbar)
-2. **Flur** auf Standard-Konfiguration (eco=19 °C, comfort=21 °C)
-3. **UI-Hinweis** „Konstanttemperatur" für Räume mit `eco_temp == comfort_temp`
+## Aktueller Zustand (verifiziert)
 
-## Änderungen im Detail
+Vienna-Zeit: **08:56** (also nach `night_end_time` 08:00 → es ist Tag-Modus).
 
-### A) Haustür DB-Reset
-Update der Spalte in `rooms` für `name = 'Haustür'`:
-- `target_temp = 19` (eco)
-- `is_heating = false`
-- `heating_paused_reason = 'Tuya Cloud-Subscription: Gerät nicht steuerbar (60001001) - bitte am Thermostat manuell auf 19°C stellen'`
+**Haustür** (Prio 10)
+- `automation_enabled = false` ✅ (bereits aus)
+- `target_temp = 19` (Eco), `current_temp = 20.9`
+- Heizt laut UI mit 400W → physisches Thermostat hat noch alten Sollwert, kann wegen Tuya-Quota (60001001) nicht synchronisiert werden
+- `heating_paused_reason` enthält Hinweis „bitte am Thermostat manuell auf 19°C stellen"
 
-Dazu ein einmaliger Cloud-Versuch via `tuya-control/set-temp` für die Haustür (best-effort — falls die Subscription doch reagiert, super; sonst muss am Thermostat manuell auf 19 °C gestellt werden, was der `heating_paused_reason`-Hinweis kommuniziert).
+**Wirtschaftsraum** (Prio 9)
+- `target_temp = 18` (Nacht-Wert!), `current_temp = 19`, `eco_temp = 19`
+- `automation_enabled = true`, `pv_auto_enabled = true`
+- `heating_paused_reason = "budget"` → Automation hat ihn auf Nacht/aus gesetzt wegen fehlendem Budget
+- Letzte Auto-Änderung: 06:02 (vor `night_end_time`!) — der Wirtschaftsraum wurde noch im Nachtmodus auf 18° gesetzt und seitdem nicht hochgezogen
 
-Umsetzung: kurze, einmalige Edge Function `oneshot-haustuer-flur-fix` (Service Role) → deployen → einmal aufrufen → Edge Function wieder löschen.
+→ Der Wirtschaftsraum hängt fest, weil die Automation seit 08:00 keinen Eco-Upgrade-Lauf für ihn gemacht hat (oder das Budget reicht nicht und er bleibt bei Nacht-Sollwert).
 
-### B) Flur-Standardisierung
-Update `rooms` für `name = 'Flur'`:
-- `eco_temp = 19` (statt 20)
-- `comfort_temp = 21` (statt 20)
+---
 
-Der Raum kann dann im normalen Phasen-System mitlaufen (Eco-Stufe 19 °C, Komfort-Stufe 21 °C wie alle anderen Räume).
+## Was zu tun ist
 
-Im selben one-shot Edge Function Call mit ausgeführt.
+### 1. Haustür — Modus „Manuell" sauber kennzeichnen
 
-### C) UI-Hinweis „Konstanttemperatur"
-In `src/components/heating/ThermostatCard.tsx`:
-- Wenn `room.eco_temp === room.comfort_temp`, ein dezentes Badge/Tooltip neben den Preset-Buttons (Komfort/Eco/Nacht) anzeigen: „Konstant — Eco = Komfort", damit klar ist, dass kein Stufenwechsel stattfindet.
-- Optionaler kleiner Tooltip-Text: „Eco- und Komforttemperatur sind identisch konfiguriert. Der Raum wird konstant auf dieser Temperatur gehalten."
+Da das Thermostat physisch wegen Tuya-Quota nicht erreichbar ist, soll Haustür klar als „Manuell gesteuert" markiert sein:
 
-Keine Logikänderung — rein visuell.
+- `automation_enabled = false` (ist schon)
+- `pv_auto_enabled = false` (ist schon)
+- `manual_override_until = NOW() + INTERVAL '30 days'` — markiert Raum dauerhaft als manuell, blockt jede Automation
+- `heating_paused_reason = 'Manuell gesteuert (Tuya-Quota nicht steuerbar)'` — klarere Meldung
+- UI-Anzeige in `ThermostatCard` prüfen: bei aktivem `manual_override_until` soll ein deutliches **„Manuell"**-Badge erscheinen statt „Eco" + roter Heiz-Indikator
 
-## Technische Details
-- **One-shot Edge Function** `oneshot-haustuer-flur-fix`: nutzt Service Role Key, umgeht den `protect_rooms_sensitive_columns`-Trigger (der service_role erlaubt). Macht beide DB-Updates und einen best-effort Tuya-Cloud-Call. Wird nach erfolgreichem Lauf wieder gelöscht (`delete_edge_functions`).
-- **UI-Komponente**: Neuer kleiner JSX-Block in `ThermostatCard.tsx` oberhalb oder unterhalb der 3 Preset-Buttons, conditional gerendert.
+### 2. Wirtschaftsraum — auf Eco hochziehen
 
-## Reihenfolge
-1. Edge Function `oneshot-haustuer-flur-fix` schreiben + deployen
-2. Function einmal per `curl_edge_functions` aufrufen, Ergebnis verifizieren
-3. DB-Verifikation per `read_query`
-4. Edge Function löschen
-5. UI-Änderung in `ThermostatCard.tsx`
+Direkter Fix per DB-Update:
+- `target_temp = 19` (Eco)
+- `heating_paused_reason = NULL`
+- `last_auto_change = NOW()` (verhindert sofortiges Zurücksetzen)
+
+Damit greift die Standard-Automation beim nächsten Heartbeat-Lauf wieder normal.
+
+### 3. Root-Cause-Check Wirtschaftsraum
+
+Nachsehen warum Auto-Logik ihn auf 18° (Nacht) belässt obwohl nach 08:00. Vermutlich:
+- Stage 4 (Precision) korrigiert den Sollwert nicht, weil `is_heating=false` und `current_temp ≥ target` → Logik denkt „passt"
+- Oder Eco-Phase überspringt den Raum wegen `heating_paused_reason='budget'` ohne den Sollwert zurückzusetzen
+
+→ In `pv-heating-optimizer` (Eco-Phase) prüfen: wenn ein Raum `target_temp < eco_temp` hat und Tag-Modus aktiv ist, muss er **immer** auf mindestens `eco_temp` hochgezogen werden, auch ohne Heiz-Aktion. Andernfalls bleibt der Sollwert auf Nacht-18° hängen sobald die Automation einmal Budget-blocked war.
+
+### 4. Memory-Update
+
+Eintrag in `mem://features/heating/eco-target-restoration` neu anlegen:
+> Sobald Tag-Modus (nach `night_end_time`) aktiv ist, MUSS jeder automatisierte Raum mit `target_temp < eco_temp` auf `eco_temp` hochgezogen werden — unabhängig von Budget oder Heiz-Status. Sonst bleiben Räume auf Nacht-Sollwert (18°) wenn sie zur Nacht ins Budget-Lockout liefen.
+
+---
+
+## Technische Schritte
+
+1. **Daten-Update** (Insert-Tool):
+   ```sql
+   UPDATE rooms SET 
+     manual_override_until = NOW() + INTERVAL '30 days',
+     heating_paused_reason = 'Manuell gesteuert (Tuya nicht erreichbar)'
+   WHERE name = 'Haustür';
+   
+   UPDATE rooms SET 
+     target_temp = 19,
+     heating_paused_reason = NULL,
+     last_auto_change = NOW()
+   WHERE name = 'Wirtschaftsraum';
+   ```
+
+2. **Code-Änderungen**:
+   - `supabase/functions/pv-heating-optimizer/index.ts` (oder entsprechendes Modul): Eco-Phase ergänzen — Räume mit `target_temp < eco_temp` im Tag-Modus immer hochziehen, auch ohne Heizfreigabe
+   - `src/components/heating/ThermostatCard.tsx`: bei `manual_override_until > NOW()` ein **„Manuell"**-Badge (gelb/orange) anzeigen statt Auto-Häkchen
+   - Falls vorhanden, das gleiche im Tabellen-View (`HeatingOverviewTable` o.ä.) ergänzen
+
+3. **Verifikation**: nach 2-Min-Heartbeat Wirtschaftsraum prüfen → `target_temp` muss 19 bleiben, `heating_paused_reason` darf nicht wieder „budget" werden ohne dass der Sollwert auf 19 stehen bleibt.
