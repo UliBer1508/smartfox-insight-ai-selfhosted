@@ -102,7 +102,35 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
     if (min < 60) return `${min} min`;
     return `${Math.round(min / 60)} h`;
   };
-  const { data: capacity } = useParallelHeatingCapacity();
+  const { data: capacity, updatedAt: capacityUpdatedAt } = useParallelHeatingCapacity();
+  const { settings: heatingSettings } = useHeatingSettings();
+
+  // Wien-Zeit "HH:MM"
+  const getWienHHMM = (): string => {
+    const parts = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).formatToParts(new Date());
+    const h = parts.find(p => p.type === 'hour')?.value ?? '00';
+    const m = parts.find(p => p.type === 'minute')?.value ?? '00';
+    return `${h}:${m}`;
+  };
+  const isInNightWindow = (): boolean => {
+    const start = (heatingSettings?.night_start_time || '22:00').substring(0, 5);
+    const end = (heatingSettings?.night_end_time || '08:00').substring(0, 5);
+    const now = getWienHHMM();
+    // Über-Mitternacht-Fenster (z. B. 22:00 → 08:00)
+    if (start > end) return now >= start || now < end;
+    return now >= start && now < end;
+  };
+  const isCapacityFresh = (): boolean => {
+    if (!capacityUpdatedAt) return false;
+    const age = Date.now() - new Date(capacityUpdatedAt).getTime();
+    return age < 10 * 60 * 1000; // 10 min
+  };
+  const showCapacityBadge = !!capacity
+    && isCapacityFresh()
+    && !isInNightWindow()
+    && capacity.budget_mode !== 'night';
 
   // Map: room_id → live power (Watt) für aktiv heizende Räume
   const activePowerById = new Map(activeRooms.map(r => [r.room_id, r.power]));
