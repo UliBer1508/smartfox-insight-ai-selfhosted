@@ -2708,6 +2708,11 @@ Deno.serve(async (req) => {
             solarLimitTemp = null; // Kein Solar-Limit nachts
             reasoning = `Nachtmodus bis ${nightEnd} (Wien: ${wienTime})`;
           }
+          // Sättigungs-Reset: bei Nacht-Übergang comfort_saturated_at zurücksetzen
+          if ((room as any).comfort_saturated_at) {
+            await supabase.from('rooms').update({ comfort_saturated_at: null }).eq('id', room.id);
+            console.log(`[KOMFORT-SAT] ${room.name}: Sättigung zurückgesetzt (Nacht-Modus)`);
+          }
           // Skip ML and fallback logic during night
         } else {
           // TAGSÜBER: ML oder Fallback-Logik
