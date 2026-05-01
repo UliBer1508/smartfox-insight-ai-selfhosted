@@ -1122,7 +1122,7 @@ Deno.serve(async (req) => {
           syncFailed = true;
         }
       } else if (controlMode === 'cloud') {
-        console.log(`[PV-Automation] Pre-sync übersprungen (Throttle: nächster Sync in ${quotaData?.last_sync_at ? Math.max(0, 120 - Math.round((Date.now() - new Date(quotaData.last_sync_at).getTime()) / 60000)) : '?'} Min)`);
+        console.log(`[PV-Automation] Pre-sync übersprungen (Throttle: nächster Sync in ${quotaData?.last_sync_at ? Math.max(0, 360 - Math.round((Date.now() - new Date(quotaData.last_sync_at).getTime()) / 60000)) : '?'} Min)`);
       }
 
       // 4. Load ML features
