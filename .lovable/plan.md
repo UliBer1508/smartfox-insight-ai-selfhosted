@@ -1,120 +1,77 @@
-## Ziel
 
-Phase 1 (Eco) und Phase 2 (Komfort) **strikt sequentiell** statt parallel.
+# One-Shot Heizlogik mit Komfort-Sättigung
 
-**Begründung:** Wenn der gesamte Überschuss zuerst in Eco-Aufheizung fließt, sind alle Räume schneller auf Eco. Komfort startet danach gemeinsam — kein „ein Raum wird schon auf Komfort hochgezogen, während andere noch frieren".
+Ziel: Drastisch weniger Tuya-Calls (~35-40/Tag statt 200+) durch sequentielle One-Shot-Logik mit Estrich-Speicher-Nutzung.
 
-## Aktuelles Verhalten (Problem)
+## Tagesablauf
 
-`supabase/functions/pv-automation/index.ts` Zeilen 2161–2226:
-
-> „Phase 2 läuft IMMER. Räume die bereits >= Eco sind dürfen sofort auf Komfort upgraden, unabhängig davon ob andere Räume noch in Phase 1 hochheizen."
-
-Folge: Bei 9 kW Überschuss kann Wohnzimmer (Prio 1, schon Eco) sofort auf Komfort hochgehen und 2400 W ziehen — und der Bad-Raum (Prio 5, noch unter Eco) wartet auf Budget, das gerade von Wohnzimmer-Komfort verbraucht wird.
-
-## Neues Verhalten
-
-```text
-Phase 1 (Eco):
-  ├─ alle Räume mit current_temp < eco_temp − 0.3
-  ├─ sortiert 1→12 nach Priorität
-  └─ aktivieren bis availableBudget erschöpft
-
-Gate: phase1Complete = TRUE wenn KEIN Raum mehr eco-bedürftig ist
-                       (alle current_temp >= eco_temp − 0.3 ODER blockiert
-                        durch Override/Pause)
-
-Phase 2 (Komfort) — startet NUR wenn phase1Complete:
-  ├─ alle Räume mit eco_temp ≤ current_temp < comfort_temp − 0.3
-  ├─ sortiert 1→12 nach Priorität
-  └─ aktivieren bis comfortBudget erschöpft
+```
+08:00  alle Räume → Eco                               (12 Calls)
+Tag    Räume sequentiell → Komfort wenn Budget       (~6 Calls)
+Tag    Komfort erreicht → zurück auf Eco-Setpoint    (~6 Calls)
+       (Estrich-Speicher hält Wärme)
+20:00  alle Räume → Nacht                             (12 Calls)
+─────────────────────────────────────────────────────────────
+                                                Total: ~36 Calls
 ```
 
-Wenn auch nur ein Raum noch unter Eco ist und heizen darf → Phase 2 wird **komplett übersprungen** in diesem Heartbeat. Beim nächsten 2-min-Tick wird neu geprüft.
+## Kernregeln
 
-## Code-Änderung
+1. **Sticky Eco** — Tagsüber wird kein Raum von Eco zurück auf Nacht gestellt (außer hartem PV-Gate <500W + Prognose <5kWh).
+2. **Komfort-Sättigung** — Sobald `current_temp >= comfort_temp`: 1 Call zurück auf Eco-Setpoint, Raum als "komfort-gesättigt" markiert. Estrich gibt Wärme weiter ab; Thermostat heizt erst wieder, wenn current_temp < eco_temp.
+3. **Re-Komfort-Sperre** — Komfort-gesättigte Räume werden tagsüber nicht erneut Komfort-Kandidat (außer current_temp < eco_temp - 0.5).
+4. **Skip-Call-Garantie** — Wenn `target_temp` bereits ±0.1°C dem Ziel entspricht: kein Tuya-Call. Pre-Sync von 2h auf 6h erhöht.
+5. **Reset um 20:00** — Komfort-Sättigung wird beim Nacht-Switch zurückgesetzt.
 
-**Datei:** `supabase/functions/pv-automation/index.ts`
+## Datenbank-Migration
 
-**1. Phase-1-Vollständigkeits-Check** nach der Phase-1-Schleife (~Zeile 2006) einfügen:
+Neue Spalte:
+- `rooms.comfort_saturated_at TIMESTAMPTZ NULL` — Zeitpunkt, an dem Raum Komfort erreicht hat und auf Eco zurückgestellt wurde.
 
-```ts
-const phase1Complete = roomsWithPriority.every(rp => {
-  const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
-  const cur = rp.room.current_temp || 0;
-  // Raum gilt als "Eco erreicht" wenn:
-  //   - bereits warm genug, ODER
-  //   - aktiv heizend (kommt gleich an), ODER
-  //   - durch Pause/Rotation/Override blockiert (kann jetzt nichts beitragen)
-  if (cur >= ecoTemp - 0.3) return true;
-  const status = roomBudgetStatus.get(rp.room.id);
-  if (status && !status.allowedToHeat) return true; // blockiert
-  if (status?.targetLevel === 'eco' && status.allowedToHeat) return true; // aktiviert in Phase 1
-  return false; // Raum will Eco, hat aber kein Budget → Phase 2 blockieren
-});
+## Code-Änderungen
 
-console.log(`[PHASE-GATE] Phase 1 vollständig: ${phase1Complete}`);
-```
+### `supabase/functions/pv-automation/index.ts`
 
-**2. Phase-2-Block (Zeile 2172) in Bedingung wickeln:**
+**A) Phase 2 (Komfort-Runde, ~Zeile 2186-2256)**
+- Komfort-Kandidaten ausschließen, wenn `comfort_saturated_at` heute gesetzt ist UND `current_temp >= eco_temp - 0.5`.
+- Neuer Block: Räume mit `current_temp >= comfort_temp - 0.1` UND `target_temp == comfort_temp` → action `'set_eco_keep_saturation'`: setze `target_temp = eco_temp`, schreibe `comfort_saturated_at = now()`. 1 Call.
+- Räume die "komfort-gesättigt" sind und `current_temp >= eco_temp` → reason "Estrich-Speicher aktiv (gesättigt)", **kein** Call.
 
-```ts
-if (phase1Complete) {
-  // bestehender Phase-2-Code
-} else {
-  console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Eco-Phase noch nicht abgeschlossen — Komfort wartet bis alle Räume auf Eco`);
-  // Räume die schon auf Komfort waren bleiben unverändert (kein Downgrade)
-  for (const rp of roomsWithPriority) {
-    if (!roomBudgetStatus.has(rp.room.id)) {
-      const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
-      const cur = rp.room.current_temp || 0;
-      const targetLevel = cur >= comfortTemp - 0.3 ? 'comfort' : 'eco';
-      roomBudgetStatus.set(rp.room.id, {
-        allowedToHeat: true,
-        reason: `Phase 2 wartet (Eco nicht komplett)`,
-        shouldRotate: false,
-        targetLevel,
-      });
-    }
-  }
-}
-```
+**B) Sticky Eco (Zeile ~2241-2256, Phase 2 übersprungen + Zeile ~2666 PV-Gate-Deaktivierung)**
+- Im "Phase 2 übersprungen"-Zweig: nie auf night_temp zurückfallen (current behavior bereits OK).
+- Harter PV-Gate (Zeile ~2664-2672): nur deaktivieren wenn `current_target > eco_temp + 0.5` UND nicht komfort-gesättigt.
 
-**3. Header-Hinweis & UI-Plan-Berechnung anpassen** (~Zeile 1896–1916):
+**C) Skip-Call-Garantie (vor jedem Tuya-Call)**
+- Vor `executeCommand()`: wenn `Math.abs(currentTargetOnDevice - desiredTarget) < 0.1`, Call überspringen, nur `last_thermostat_sync` aktualisieren.
+- `PRE_SYNC_INTERVAL_MIN`: von 120 auf 360.
 
-`max_parallel_comfort` nur dann > 0 anzeigen, wenn alle Eco-Kandidaten ins Eco-Budget passen. Sonst ist es irreführend („+3 Komfort möglich" obwohl Phase 2 gerade blockiert ist).
+**D) Nacht-Switch (Zeile ~2640-2652)**
+- Beim Nacht-Übergang: `comfort_saturated_at = NULL` für alle Räume zurücksetzen.
 
-```ts
-// Komfort-Plan nur wenn Eco-Plan vollständig
-const ecoFitsAll = ecoCandidates.length === ecoFit;
-let comfortFit = 0, comfortSum = 0;
-const plannedComfort: string[] = [];
-if (ecoFitsAll) {
-  for (const c of comfortCandidates) {
-    if (comfortSum + c.power_w <= comfortBudget) {
-      comfortSum += c.power_w; comfortFit++; plannedComfort.push(c.room_id);
-    }
-  }
-}
-```
+**E) Cleanup**
+- Entferne ML-getriebene Komfort-Hochstufungen, die `comfort_saturated_at` ignorieren würden.
 
-## Memory Update
+### UI
 
-`mem://arch/pv-automation-strategy-v2` neu schreiben:
+`src/components/RoomCard.tsx` (oder Equivalent):
+- Badge "Estrich-Speicher aktiv" anzeigen wenn `comfort_saturated_at` gesetzt und current_temp >= eco_temp.
 
-> **Strikt sequentielle 2-Phasen-Strategie:** Phase 2 (Komfort) startet erst wenn Phase 1 (Eco) vollständig abgeschlossen ist — d.h. jeder Raum ist entweder ≥ eco_temp − 0.3, aktiv am Aufheizen, oder durch Pause/Override blockiert. Bei nur einem Raum, der Eco anstrebt aber kein Budget hat, wird Phase 2 in diesem Heartbeat komplett übersprungen. Räume die bereits Komfort hatten, behalten Komfort (kein Downgrade durch Phase-2-Skip).
+### Memory-Updates
 
-Auch Core-Eintrag im `mem://index.md` anpassen (von „PARALLEL" auf „sequentiell").
+- Update `mem://arch/pv-automation-strategy-v2`: Komfort-Sättigung dokumentieren.
+- Update `mem://features/heating/eco-target-restoration`: Sättigungs-Reset um 20:00.
+- Neuer Eintrag `mem://features/heating/comfort-saturation-estrich-storage`.
+- Update `mem://index.md` Core: One-Shot-Logik mit Sättigung.
 
-## Erwartetes Ergebnis
+## Erwartete Auswirkungen
 
-- Bei 9 kW Überschuss und 4 Räumen unter Eco: alle 4 starten parallel auf Eco (so weit das Budget reicht), Komfort wartet.
-- Räume erreichen Eco im Schnitt **~30 % schneller**, weil kein Komfort-Konsum bremst.
-- Sobald letzter Raum Eco erreicht, schaltet Phase 2 in **einem** Heartbeat alle berechtigten Räume auf Komfort hoch (Reihenfolge nach Prio).
-- Quota-Verbrauch: identisch (1 Call pro echter Setpoint-Änderung).
+- Tuya-Calls/Tag: 200+ → ~36
+- Stromverbrauch: Räume verbrauchen nach Komfort-Erreichung keinen weiteren Strom (Estrich-Speicher).
+- Komfort: Boden bleibt 2-4h warm nach Komfort-Erreichung.
+- Quota-Sicherheit: Weit unter Tuya-Limit auch bei wechselhaftem Wetter.
 
-## Files
+## Risiken & Mitigation
 
-- `supabase/functions/pv-automation/index.ts` — Phase-Gate, Phase-2-Bedingung, Plan-Vorausberechnung
-- `mem://arch/pv-automation-strategy-v2` — neue Strategie dokumentieren
-- `mem://index.md` — Core-Eintrag aktualisieren
+- **Raum kühlt unter Eco trotz Sättigung** → Re-Komfort möglich wenn `current_temp < eco_temp - 0.5` (Hysterese).
+- **Manueller Eingriff durch Nutzer** → `manual_override_until` weiterhin respektiert, blockiert auch Sättigungs-Logik.
+- **Pre-Sync 6h zu lang bei Drift** → Skip-Call-Garantie greift nur bei korrektem target_temp; bei Drift wird trotzdem korrigiert.

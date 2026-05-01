@@ -1,0 +1,2 @@
+ALTER TABLE public.rooms ADD COLUMN IF NOT EXISTS comfort_saturated_at TIMESTAMPTZ NULL;
+COMMENT ON COLUMN public.rooms.comfort_saturated_at IS 'When room reached comfort_temp and was switched back to eco setpoint. Reset at night transition.';

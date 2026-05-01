@@ -996,6 +996,7 @@ export type Database = {
           calculated_heat_loss_rate: number | null
           calculated_power_w: number | null
           calculated_solar_gain_factor: number | null
+          comfort_saturated_at: string | null
           comfort_temp: number | null
           created_at: string | null
           current_temp: number | null
@@ -1043,6 +1044,7 @@ export type Database = {
           calculated_heat_loss_rate?: number | null
           calculated_power_w?: number | null
           calculated_solar_gain_factor?: number | null
+          comfort_saturated_at?: string | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
@@ -1090,6 +1092,7 @@ export type Database = {
           calculated_heat_loss_rate?: number | null
           calculated_power_w?: number | null
           calculated_solar_gain_factor?: number | null
+          comfort_saturated_at?: string | null
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
