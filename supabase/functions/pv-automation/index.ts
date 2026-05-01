@@ -2726,14 +2726,15 @@ Deno.serve(async (req) => {
           
           if (noPvHeatingAllowed) {
             console.log(`[PV-Automation] ${room.name}: ⛔ HARTER PV-GATE: Kein PV (${pvPower}W) + niedrige Prognose (${expectedPvKwh}kWh) → KEIN Heizen erlaubt`);
-            // Wenn Raum aktiv heizt und über eco_temp ist → deaktivieren
-            if (room.pv_auto_active || currentTargetTemp > ecoTemp + 0.5) {
+            // Sticky Eco: nur deaktivieren wenn Setpoint ÜBER Eco liegt (also Komfort-Niveau)
+            // Räume auf Eco bleiben auf Eco — Thermostat selbst stoppt Heizung wenn current >= eco
+            if (currentTargetTemp > ecoTemp + 0.5) {
               action = 'deactivate';
               targetTemp = ecoTemp;
               solarLimitTemp = null;
-              reasoning = `⛔ Kein PV (${pvPower}W) + Prognose nur ${expectedPvKwh}kWh → Heizung gestoppt`;
+              reasoning = `⛔ Kein PV (${pvPower}W) + Prognose nur ${expectedPvKwh}kWh → zurück auf Eco`;
             }
-            // Sonst: keep, nichts ändern
+            // Sonst: keep, Eco-Setpoint wird beibehalten
           } else {
             // ML decision: Erst Learned Policy prüfen, dann LLM als Fallback
             const learnedPolicy = useMLDecisions ? learnedPolicies.get(room.id) : null;
