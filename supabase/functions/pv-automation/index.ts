@@ -1893,10 +1893,14 @@ Deno.serve(async (req) => {
         for (const c of ecoCandidates) {
           if (ecoSum + c.power_w <= availableBudget) { ecoSum += c.power_w; ecoFit++; plannedEco.push(c.room_id); }
         }
+        // Komfort-Plan nur wenn Eco-Plan vollständig (sequentielle 2-Phasen-Strategie)
+        const ecoFitsAll = ecoCandidates.length === ecoFit;
         let comfortFit = 0, comfortSum = 0;
         const plannedComfort: string[] = [];
-        for (const c of comfortCandidates) {
-          if (comfortSum + c.power_w <= comfortBudget) { comfortSum += c.power_w; comfortFit++; plannedComfort.push(c.room_id); }
+        if (ecoFitsAll) {
+          for (const c of comfortCandidates) {
+            if (comfortSum + c.power_w <= comfortBudget) { comfortSum += c.power_w; comfortFit++; plannedComfort.push(c.room_id); }
+          }
         }
         const ctx = (globalThis as any).__parallelPlanCtx || {};
         const planPayload = {
@@ -2158,18 +2162,29 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ============= PHASE 2: KOMFORT-RUNDE (parallel zu Phase 1) =============
-      // Geänderte Strategie: Phase 2 läuft IMMER. Räume die bereits >= Eco sind dürfen
-      // sofort auf Komfort upgraden (sofern echter gridExport-Überschuss reicht), unabhängig
-      // davon ob andere niedrigere-Prio-Räume noch in Phase 1 hochheizen.
-      // Begründung: Bei großem Überschuss (z.B. 9 kW) ist es Verschwendung, alle Räume zu
-      // bremsen nur weil ein einzelner Raum noch nicht auf Eco ist.
+      // ============= PHASE-1-GATE: Eco vollständig? =============
+      // Strikt sequentielle Strategie: Phase 2 (Komfort) startet erst, wenn JEDER Raum
+      // entweder bereits ≥ eco_temp − 0.3 ist, in Phase 1 aktiviert wurde, oder durch
+      // Pause/Rotation/Override blockiert ist. Räume die Eco anstreben aber kein Budget
+      // bekommen haben → Phase 2 wartet bis zum nächsten Heartbeat.
+      const phase1Complete = roomsWithPriority.every(rp => {
+        const ecoTempCheck = rp.room.eco_temp || settings?.eco_temp || 19;
+        const curCheck = rp.room.current_temp || 0;
+        if (curCheck >= ecoTempCheck - 0.3) return true; // bereits warm
+        const status = roomBudgetStatus.get(rp.room.id);
+        if (status && !status.allowedToHeat) return true; // blockiert (Pause/Override/Rotation)
+        if (status?.targetLevel === 'eco' && status.allowedToHeat) return true; // in Phase 1 aktiviert
+        return false; // Raum will Eco, hat aber kein Budget bekommen → blockiert Phase 2
+      });
+      console.log(`[PHASE-GATE] Phase 1 vollständig: ${phase1Complete}`);
+
+      // ============= PHASE 2: KOMFORT-RUNDE (nur wenn Phase 1 fertig) =============
       const effectiveComfortBudget = comfortBudget;
       let usedComfortBudget = usedBudget;
       const budgetAfterEco = effectiveComfortBudget - usedBudget;
-      
-      console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
-      {
+
+      if (phase1Complete) {
+        console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
         for (const rp of roomsWithPriority) {
           if (roomBudgetStatus.has(rp.room.id)) {
             const existing = roomBudgetStatus.get(rp.room.id)!;
@@ -2180,16 +2195,16 @@ Deno.serve(async (req) => {
               continue;
             }
           }
-          
+
           const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
           const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
           const currentTemp = rp.room.current_temp || 0;
-          
+
           // Raum ist >= eco aber < comfort → auf comfort upgraden
           if (currentTemp >= ecoTemp - 0.3 && (currentTemp < comfortTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp < comfortTemp))) {
-            const alreadyBudgeted = roomBudgetStatus.has(rp.room.id) && 
+            const alreadyBudgeted = roomBudgetStatus.has(rp.room.id) &&
               roomBudgetStatus.get(rp.room.id)!.targetLevel === 'eco';
-            
+
             // Komfort-Budget-Check: NUR echter Überschuss erlaubt
             if (alreadyBudgeted || usedComfortBudget + rp.heatingPower <= effectiveComfortBudget) {
               if (!alreadyBudgeted) { usedBudget += rp.heatingPower; usedComfortBudget += rp.heatingPower; }
@@ -2223,8 +2238,23 @@ Deno.serve(async (req) => {
             }
           }
         }
+      } else {
+        console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Eco-Phase noch nicht abgeschlossen — Komfort wartet bis alle Räume auf Eco`);
+        // Räume die noch keinen Status haben: Eco anstreben (kein Komfort-Upgrade), Räume bereits ≥ comfort halten Komfort
+        for (const rp of roomsWithPriority) {
+          if (roomBudgetStatus.has(rp.room.id)) continue;
+          const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
+          const cur = rp.room.current_temp || 0;
+          const targetLevel: 'eco' | 'comfort' = cur >= comfortTemp - 0.3 ? 'comfort' : 'eco';
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: true,
+            reason: targetLevel === 'comfort' ? `Komfort erhalten (Phase 2 wartet)` : `Phase 2 wartet (Eco nicht komplett)`,
+            shouldRotate: false,
+            targetLevel,
+          });
+        }
       }
-      
+
       // Räume die in keiner Phase verarbeitet wurden (z.B. bereits >= eco, Budget reicht nicht für komfort)
       for (const rp of roomsWithPriority) {
         if (!roomBudgetStatus.has(rp.room.id)) {
