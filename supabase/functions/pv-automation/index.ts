@@ -1893,10 +1893,14 @@ Deno.serve(async (req) => {
         for (const c of ecoCandidates) {
           if (ecoSum + c.power_w <= availableBudget) { ecoSum += c.power_w; ecoFit++; plannedEco.push(c.room_id); }
         }
+        // Komfort-Plan nur wenn Eco-Plan vollständig (sequentielle 2-Phasen-Strategie)
+        const ecoFitsAll = ecoCandidates.length === ecoFit;
         let comfortFit = 0, comfortSum = 0;
         const plannedComfort: string[] = [];
-        for (const c of comfortCandidates) {
-          if (comfortSum + c.power_w <= comfortBudget) { comfortSum += c.power_w; comfortFit++; plannedComfort.push(c.room_id); }
+        if (ecoFitsAll) {
+          for (const c of comfortCandidates) {
+            if (comfortSum + c.power_w <= comfortBudget) { comfortSum += c.power_w; comfortFit++; plannedComfort.push(c.room_id); }
+          }
         }
         const ctx = (globalThis as any).__parallelPlanCtx || {};
         const planPayload = {
