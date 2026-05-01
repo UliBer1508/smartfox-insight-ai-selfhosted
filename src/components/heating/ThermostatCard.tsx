@@ -274,6 +274,19 @@ export function ThermostatCard({
                     </TooltipContent>
                   </Tooltip>
                 )}
+                {/* Estrich-Speicher-Sättigung: Raum hat heute Komfort erreicht, läuft jetzt auf Eco-Setpoint */}
+                {(room as any).comfort_saturated_at && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <p className="text-xs text-orange-600 dark:text-orange-400 mt-0.5 cursor-help">
+                        🧱 Estrich-Speicher
+                      </p>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-[220px] text-center">
+                      <p>Komforttemperatur heute erreicht. Setpoint zurück auf Eco — der aufgeheizte Estrich gibt die Wärme weiter ab, kein zusätzlicher Stromverbrauch.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
               </div>
             </div>
 
