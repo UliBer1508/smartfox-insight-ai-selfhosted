@@ -2183,9 +2183,65 @@ Deno.serve(async (req) => {
       let usedComfortBudget = usedBudget;
       const budgetAfterEco = effectiveComfortBudget - usedBudget;
 
+      // Heutiger Tagesstart in Wien (für Sättigungs-Reset-Check)
+      const todayWienStart = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+      todayWienStart.setHours(0, 0, 0, 0);
+
+      // Helper: Ist Raum heute komfort-gesättigt? (current_temp noch >= eco_temp - 0.5)
+      const isComfortSaturated = (rp: typeof roomsWithPriority[0]) => {
+        const sat = (rp.room as any).comfort_saturated_at;
+        if (!sat) return false;
+        const satTime = new Date(sat).getTime();
+        if (satTime < todayWienStart.getTime()) return false; // Sättigung vom Vortag → ungültig
+        const ecoT = rp.room.eco_temp || settings?.eco_temp || 19;
+        const cur = rp.room.current_temp || 0;
+        return cur >= ecoT - 0.5; // Hysterese: erst unter eco-0.5°C wieder Komfort-fähig
+      };
+
+      // ============= KOMFORT-SÄTTIGUNG: Räume bei Komfort → zurück auf Eco-Setpoint =============
+      // Sobald current_temp >= comfort_temp und target_temp == comfort: 1 Call zurück auf eco,
+      // markiere als gesättigt. Estrich-Speicher gibt Wärme weiter ab; Thermostat heizt erst
+      // wieder, wenn current_temp < eco_temp.
+      for (const rp of roomsWithPriority) {
+        if (roomBudgetStatus.has(rp.room.id)) continue;
+        const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
+        const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
+        const currentTemp = rp.room.current_temp || 0;
+        const currentTarget = Number(rp.room.target_temp) || 0;
+        // Bedingung: Komfort erreicht UND Setpoint steht auf Komfort UND noch nicht gesättigt
+        const reachedComfort = currentTemp >= comfortTemp - 0.1;
+        const setpointIsComfort = currentTarget >= comfortTemp - 0.1;
+        const alreadySaturated = isComfortSaturated(rp);
+        if (reachedComfort && setpointIsComfort && !alreadySaturated) {
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: false, // → führt zu deactivate auf eco_temp im Action-Loop
+            reason: `Komfort-Sättigung: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C → Eco (Estrich speichert)`,
+            shouldRotate: false,
+            targetLevel: 'eco',
+          });
+          // Markiere als gesättigt in DB (zusammen mit dem Tuya-Call der gleich folgt)
+          await supabase.from('rooms').update({
+            comfort_saturated_at: new Date().toISOString(),
+          }).eq('id', rp.room.id);
+          console.log(`[KOMFORT-SAT] ${rp.room.name}: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C → Setpoint ${ecoTemp}°C, Estrich-Speicher aktiv`);
+        }
+      }
+
       if (phase1Complete) {
         console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
         for (const rp of roomsWithPriority) {
+          // Komfort-gesättigte Räume sind tagsüber NICHT mehr Komfort-Kandidat
+          if (isComfortSaturated(rp)) {
+            if (!roomBudgetStatus.has(rp.room.id)) {
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: false,
+                reason: `Estrich-Speicher aktiv (heute schon Komfort erreicht)`,
+                shouldRotate: false,
+                targetLevel: 'eco',
+              });
+            }
+            continue;
+          }
           if (roomBudgetStatus.has(rp.room.id)) {
             const existing = roomBudgetStatus.get(rp.room.id)!;
             // Räume auf Eco dürfen auf Komfort upgraded werden (kein Extra-Budget nötig)
@@ -2227,7 +2283,7 @@ Deno.serve(async (req) => {
               }
             }
           } else if (currentTemp >= comfortTemp - 0.3) {
-            // Raum ist bereits >= comfort → halten
+            // Raum ist bereits >= comfort → halten (Sättigung wird oben behandelt)
             if (!roomBudgetStatus.has(rp.room.id)) {
               roomBudgetStatus.set(rp.room.id, {
                 allowedToHeat: true,
@@ -2240,15 +2296,17 @@ Deno.serve(async (req) => {
         }
       } else {
         console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Eco-Phase noch nicht abgeschlossen — Komfort wartet bis alle Räume auf Eco`);
-        // Räume die noch keinen Status haben: Eco anstreben (kein Komfort-Upgrade), Räume bereits ≥ comfort halten Komfort
+        // Räume die noch keinen Status haben: Eco anstreben (kein Komfort-Upgrade)
         for (const rp of roomsWithPriority) {
           if (roomBudgetStatus.has(rp.room.id)) continue;
           const comfortTemp = rp.room.comfort_temp || settings?.comfort_temp || 21;
           const cur = rp.room.current_temp || 0;
-          const targetLevel: 'eco' | 'comfort' = cur >= comfortTemp - 0.3 ? 'comfort' : 'eco';
+          const saturated = isComfortSaturated(rp);
+          // Gesättigte Räume → eco; bereits ≥ comfort → comfort halten; sonst → eco
+          const targetLevel: 'eco' | 'comfort' = saturated ? 'eco' : (cur >= comfortTemp - 0.3 ? 'comfort' : 'eco');
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: true,
-            reason: targetLevel === 'comfort' ? `Komfort erhalten (Phase 2 wartet)` : `Phase 2 wartet (Eco nicht komplett)`,
+            reason: saturated ? `Estrich-Speicher aktiv` : (targetLevel === 'comfort' ? `Komfort erhalten (Phase 2 wartet)` : `Phase 2 wartet (Eco nicht komplett)`),
             shouldRotate: false,
             targetLevel,
           });
