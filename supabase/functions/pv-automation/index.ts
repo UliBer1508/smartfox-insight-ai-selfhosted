@@ -384,10 +384,12 @@ Deno.serve(async (req) => {
       let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
       let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 5)
       const PV_PRIORITY_MAX_CALLS = 5;
-      // STOP-Reserve: kleine Anzahl Cloud-Calls, die auch bei erschöpfter Quota
-      // für Sicherheits-Rückstellungen (Night/Frost) verwendet werden dürfen.
+      // STOP-Reserve: Cloud-Calls die auch bei erschöpfter Quota für Sicherheits-
+      // Rückstellungen (Night/Frost/Komfort→Eco/Übertemp-Stop) verwendet werden dürfen.
+      // Erhöht auf 15, damit alle 12 Räume abends sicher abgesenkt werden können.
+      // Wird strikt nur für Senkungen verwendet (priority='stop' im setTemperatureForMode).
       let stopReserveCalls = 0;
-      const STOP_RESERVE_MAX_CALLS = 3;
+      const STOP_RESERVE_MAX_CALLS = 15;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
@@ -721,17 +723,30 @@ Deno.serve(async (req) => {
           .select('value')
           .eq('key', 'night_frost_last_pushed')
           .maybeSingle();
-        const lastPushedNight = (gateRow?.value as { night?: string } | null)?.night || null;
+        const gateVal = (gateRow?.value as { night?: string; failures?: number; last_attempt_at?: string } | null) || null;
+        const lastPushedNight = gateVal?.night || null;
+        const lastFailures = Number(gateVal?.failures || 0);
+        const lastAttemptAt = gateVal?.last_attempt_at ? new Date(gateVal.last_attempt_at).getTime() : 0;
+        const minsSinceLastAttempt = lastAttemptAt > 0 ? (Date.now() - lastAttemptAt) / 60000 : 9999;
+        const NIGHT_RETRY_THROTTLE_MIN = 15;
 
-        if (lastPushedNight === nightKey) {
-          console.log(`[PV-Automation] 🌙 Night quiet mode (kein Tuya-Call, bereits gepushed für Nacht ${nightKey})`);
+        // Quiet Mode NUR wenn die Nacht bereits ohne Fehler abgeschlossen wurde.
+        // Bei Fehlern: alle 15 Min erneut versuchen (nur fehlgeschlagene Räume).
+        const fullySucceeded = lastPushedNight === nightKey && lastFailures === 0;
+        const recentlyAttempted = lastPushedNight === nightKey && minsSinceLastAttempt < NIGHT_RETRY_THROTTLE_MIN;
+        if (fullySucceeded || recentlyAttempted) {
+          const reason = fullySucceeded
+            ? `bereits erfolgreich gepushed für Nacht ${nightKey}`
+            : `Retry-Throttle (${minsSinceLastAttempt.toFixed(1)}min < ${NIGHT_RETRY_THROTTLE_MIN}min, ${lastFailures} offen)`;
+          console.log(`[PV-Automation] 🌙 Night quiet mode (${reason})`);
           return new Response(JSON.stringify({
             success: true,
-            message: `Nachtmodus aktiv (${wienTime}) - Quiet Mode, bereits gepushed`,
+            message: `Nachtmodus aktiv (${wienTime}) - Quiet Mode (${reason})`,
             nightMode: true,
             nightHeatingMode,
             quietMode: true,
             nightKey,
+            pendingFailures: lastFailures,
             results: []
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
@@ -846,21 +861,26 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Gate setzen: Nacht ist „abgearbeitet" — egal ob Erfolg oder Fehler.
-          // Bei Fehler verhindert das Spam-API-Errors alle 2 Min.
-          // Morgen beim Eco-Start (08:00) wird das Gate durch nightKey-Wechsel
-          // automatisch ungültig.
+          // Gate setzen mit success-gated Status:
+          // - failures===0 → Nacht abgeschlossen, Quiet Mode bis nightKey wechselt
+          // - failures>0  → Retry alle 15min für die fehlgeschlagenen Räume
+          const nightFailures = nightResults.filter(r => !r.success).length;
+          const nightSuccesses = nightResults.filter(r => r.success).length;
           await supabase.from('system_settings').upsert({
             key: 'night_frost_last_pushed',
             value: {
               night: nightKey,
               pushed_at: new Date().toISOString(),
+              last_attempt_at: new Date().toISOString(),
               rooms: roomsNeedingOff.length,
-              successes: nightResults.filter(r => r.success).length,
-              failures: nightResults.filter(r => !r.success).length,
+              successes: nightSuccesses,
+              failures: nightFailures,
               mode: 'frost_only'
             }
           }, { onConflict: 'key' });
+          if (nightFailures > 0) {
+            console.log(`[NIGHT-RETRY] frost_only: ${nightFailures}/${roomsNeedingOff.length} fehlgeschlagen → Retry in 15min`);
+          }
 
         } else {
           // MAINTAIN: Bisheriges Verhalten – night_temp halten
@@ -929,18 +949,24 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Gate setzen — nur einmal pro Nacht versuchen, egal ob Erfolg/Fehler
+          // Gate setzen mit success-gated Status (siehe frost_only oben)
+          const maintainFailures = nightResults.filter(r => !r.success).length;
+          const maintainSuccesses = nightResults.filter(r => r.success).length;
           await supabase.from('system_settings').upsert({
             key: 'night_frost_last_pushed',
             value: {
               night: nightKey,
               pushed_at: new Date().toISOString(),
+              last_attempt_at: new Date().toISOString(),
               rooms: roomsNeedingAdjustment.length,
-              successes: nightResults.filter(r => r.success).length,
-              failures: nightResults.filter(r => !r.success).length,
+              successes: maintainSuccesses,
+              failures: maintainFailures,
               mode: 'maintain'
             }
           }, { onConflict: 'key' });
+          if (maintainFailures > 0) {
+            console.log(`[NIGHT-RETRY] maintain: ${maintainFailures}/${roomsNeedingAdjustment.length} fehlgeschlagen → Retry in 15min`);
+          }
         }
 
         const successCount = nightResults.filter(r => r.success).length;
@@ -2625,11 +2651,38 @@ Deno.serve(async (req) => {
           currentRoomTempSafety >= currentTargetTempSafety + OVER_TEMP_DEADBAND;
         
         if (isOverTemp && room.is_heating) {
-          console.log(`[PV-Automation] ${room.name}: ⚠️ ÜBER-TEMPERATUR! Ist=${currentRoomTempSafety}°C >= Ziel=${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C → FORCE STOP (Cooldown umgangen)`);
-          // Direkt auf deactivate setzen, Rest der Logik überspringen
-          // Temperatur nicht ändern, nur sicherstellen dass Heizung stoppt
-          const safeTemp = currentTargetTempSafety; // Behalte aktuelle Zieltemperatur
-          
+          const ecoTempForGuard = room.eco_temp || settings?.eco_temp || 19;
+          // Wenn Sollwert bereits auf Eco oder darunter → kein Tuya-Call nötig.
+          // Das Thermostat hört eigenständig auf zu heizen sobald current >= target.
+          // Wir korrigieren nur den DB-Heizstatus, damit UI/Logik stimmig sind.
+          const targetAlreadyLowEnough = currentTargetTempSafety <= ecoTempForGuard + 0.1;
+
+          if (targetAlreadyLowEnough) {
+            console.log(`[CALL-SKIP] ${room.name}: Übertemperatur (Ist=${currentRoomTempSafety}°C ≥ Ziel=${currentTargetTempSafety}°C+${OVER_TEMP_DEADBAND}), Sollwert bereits ≤ Eco (${ecoTempForGuard}°C) → DB-only Status-Korrektur, kein Tuya-Call`);
+            await supabase.from('rooms').update({
+              is_heating: false,
+              pv_auto_active: false,
+              pv_auto_last_change: now.toISOString(),
+              last_auto_change: now.toISOString(),
+              heating_paused_reason: 'over_temp_db_only',
+            }).eq('id', room.id);
+            results.push({
+              roomId: room.id,
+              roomName: room.name,
+              action: 'db_only_overtemp',
+              targetTemp: currentTargetTempSafety,
+              reasoning: `DB-Status korrigiert (Soll bereits ${currentTargetTempSafety}°C ≤ Eco)`,
+              mlBased: false,
+              skippedApiCall: true,
+              overTempGuard: true,
+            });
+            continue;
+          }
+
+          // Sollwert noch über Eco → echte Senkung erforderlich (Tuya-Call mit STOP-Reserve)
+          console.log(`[PV-Automation] ${room.name}: ⚠️ ÜBER-TEMPERATUR! Ist=${currentRoomTempSafety}°C >= Ziel=${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C → FORCE STOP auf Eco ${ecoTempForGuard}°C`);
+          const safeTemp = ecoTempForGuard;
+
           if (room.tuya_device_id) {
             const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop');
             if (result.success) {
@@ -2639,11 +2692,11 @@ Deno.serve(async (req) => {
                 pv_auto_last_change: now.toISOString(),
                 last_auto_change: now.toISOString(),
                 last_thermostat_sync: now.toISOString(),
+                target_temp: safeTemp,
                 heating_paused_reason: 'over_temp',
               }).eq('id', room.id);
               if (controlMode === 'cloud' && result.success) {
                 tuyaApiCalls++;
-                // Dynamisch prüfen ob Quota jetzt erschöpft
                 if (quotaData) {
                   const runningDaily = quotaData.calls_today + tuyaApiCalls;
                   const runningMonthly = quotaData.calls_this_month + tuyaApiCalls;
@@ -2660,7 +2713,7 @@ Deno.serve(async (req) => {
               roomName: room.name,
               action: 'deactivate',
               targetTemp: safeTemp,
-              reasoning: `⚠️ Übertemperatur-Stop: ${currentRoomTempSafety.toFixed(1)}°C >= ${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C`,
+              reasoning: `⚠️ Übertemperatur-Stop: ${currentRoomTempSafety.toFixed(1)}°C → Eco ${safeTemp}°C`,
               mlBased: false,
               success: result.success,
               overTempGuard: true,
