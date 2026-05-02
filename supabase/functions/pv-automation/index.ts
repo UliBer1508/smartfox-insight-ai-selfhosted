@@ -2651,11 +2651,38 @@ Deno.serve(async (req) => {
           currentRoomTempSafety >= currentTargetTempSafety + OVER_TEMP_DEADBAND;
         
         if (isOverTemp && room.is_heating) {
-          console.log(`[PV-Automation] ${room.name}: ⚠️ ÜBER-TEMPERATUR! Ist=${currentRoomTempSafety}°C >= Ziel=${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C → FORCE STOP (Cooldown umgangen)`);
-          // Direkt auf deactivate setzen, Rest der Logik überspringen
-          // Temperatur nicht ändern, nur sicherstellen dass Heizung stoppt
-          const safeTemp = currentTargetTempSafety; // Behalte aktuelle Zieltemperatur
-          
+          const ecoTempForGuard = room.eco_temp || settings?.eco_temp || 19;
+          // Wenn Sollwert bereits auf Eco oder darunter → kein Tuya-Call nötig.
+          // Das Thermostat hört eigenständig auf zu heizen sobald current >= target.
+          // Wir korrigieren nur den DB-Heizstatus, damit UI/Logik stimmig sind.
+          const targetAlreadyLowEnough = currentTargetTempSafety <= ecoTempForGuard + 0.1;
+
+          if (targetAlreadyLowEnough) {
+            console.log(`[CALL-SKIP] ${room.name}: Übertemperatur (Ist=${currentRoomTempSafety}°C ≥ Ziel=${currentTargetTempSafety}°C+${OVER_TEMP_DEADBAND}), Sollwert bereits ≤ Eco (${ecoTempForGuard}°C) → DB-only Status-Korrektur, kein Tuya-Call`);
+            await supabase.from('rooms').update({
+              is_heating: false,
+              pv_auto_active: false,
+              pv_auto_last_change: now.toISOString(),
+              last_auto_change: now.toISOString(),
+              heating_paused_reason: 'over_temp_db_only',
+            }).eq('id', room.id);
+            results.push({
+              roomId: room.id,
+              roomName: room.name,
+              action: 'db_only_overtemp',
+              targetTemp: currentTargetTempSafety,
+              reasoning: `DB-Status korrigiert (Soll bereits ${currentTargetTempSafety}°C ≤ Eco)`,
+              mlBased: false,
+              skippedApiCall: true,
+              overTempGuard: true,
+            });
+            continue;
+          }
+
+          // Sollwert noch über Eco → echte Senkung erforderlich (Tuya-Call mit STOP-Reserve)
+          console.log(`[PV-Automation] ${room.name}: ⚠️ ÜBER-TEMPERATUR! Ist=${currentRoomTempSafety}°C >= Ziel=${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C → FORCE STOP auf Eco ${ecoTempForGuard}°C`);
+          const safeTemp = ecoTempForGuard;
+
           if (room.tuya_device_id) {
             const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop');
             if (result.success) {
@@ -2665,11 +2692,11 @@ Deno.serve(async (req) => {
                 pv_auto_last_change: now.toISOString(),
                 last_auto_change: now.toISOString(),
                 last_thermostat_sync: now.toISOString(),
+                target_temp: safeTemp,
                 heating_paused_reason: 'over_temp',
               }).eq('id', room.id);
               if (controlMode === 'cloud' && result.success) {
                 tuyaApiCalls++;
-                // Dynamisch prüfen ob Quota jetzt erschöpft
                 if (quotaData) {
                   const runningDaily = quotaData.calls_today + tuyaApiCalls;
                   const runningMonthly = quotaData.calls_this_month + tuyaApiCalls;
@@ -2686,7 +2713,7 @@ Deno.serve(async (req) => {
               roomName: room.name,
               action: 'deactivate',
               targetTemp: safeTemp,
-              reasoning: `⚠️ Übertemperatur-Stop: ${currentRoomTempSafety.toFixed(1)}°C >= ${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND}°C`,
+              reasoning: `⚠️ Übertemperatur-Stop: ${currentRoomTempSafety.toFixed(1)}°C → Eco ${safeTemp}°C`,
               mlBased: false,
               success: result.success,
               overTempGuard: true,
