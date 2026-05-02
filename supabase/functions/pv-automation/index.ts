@@ -861,21 +861,26 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Gate setzen: Nacht ist „abgearbeitet" — egal ob Erfolg oder Fehler.
-          // Bei Fehler verhindert das Spam-API-Errors alle 2 Min.
-          // Morgen beim Eco-Start (08:00) wird das Gate durch nightKey-Wechsel
-          // automatisch ungültig.
+          // Gate setzen mit success-gated Status:
+          // - failures===0 → Nacht abgeschlossen, Quiet Mode bis nightKey wechselt
+          // - failures>0  → Retry alle 15min für die fehlgeschlagenen Räume
+          const nightFailures = nightResults.filter(r => !r.success).length;
+          const nightSuccesses = nightResults.filter(r => r.success).length;
           await supabase.from('system_settings').upsert({
             key: 'night_frost_last_pushed',
             value: {
               night: nightKey,
               pushed_at: new Date().toISOString(),
+              last_attempt_at: new Date().toISOString(),
               rooms: roomsNeedingOff.length,
-              successes: nightResults.filter(r => r.success).length,
-              failures: nightResults.filter(r => !r.success).length,
+              successes: nightSuccesses,
+              failures: nightFailures,
               mode: 'frost_only'
             }
           }, { onConflict: 'key' });
+          if (nightFailures > 0) {
+            console.log(`[NIGHT-RETRY] frost_only: ${nightFailures}/${roomsNeedingOff.length} fehlgeschlagen → Retry in 15min`);
+          }
 
         } else {
           // MAINTAIN: Bisheriges Verhalten – night_temp halten
