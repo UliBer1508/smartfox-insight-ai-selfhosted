@@ -949,18 +949,24 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Gate setzen — nur einmal pro Nacht versuchen, egal ob Erfolg/Fehler
+          // Gate setzen mit success-gated Status (siehe frost_only oben)
+          const maintainFailures = nightResults.filter(r => !r.success).length;
+          const maintainSuccesses = nightResults.filter(r => r.success).length;
           await supabase.from('system_settings').upsert({
             key: 'night_frost_last_pushed',
             value: {
               night: nightKey,
               pushed_at: new Date().toISOString(),
+              last_attempt_at: new Date().toISOString(),
               rooms: roomsNeedingAdjustment.length,
-              successes: nightResults.filter(r => r.success).length,
-              failures: nightResults.filter(r => !r.success).length,
+              successes: maintainSuccesses,
+              failures: maintainFailures,
               mode: 'maintain'
             }
           }, { onConflict: 'key' });
+          if (maintainFailures > 0) {
+            console.log(`[NIGHT-RETRY] maintain: ${maintainFailures}/${roomsNeedingAdjustment.length} fehlgeschlagen → Retry in 15min`);
+          }
         }
 
         const successCount = nightResults.filter(r => r.success).length;
