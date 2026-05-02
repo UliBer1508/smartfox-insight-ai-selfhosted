@@ -723,17 +723,30 @@ Deno.serve(async (req) => {
           .select('value')
           .eq('key', 'night_frost_last_pushed')
           .maybeSingle();
-        const lastPushedNight = (gateRow?.value as { night?: string } | null)?.night || null;
+        const gateVal = (gateRow?.value as { night?: string; failures?: number; last_attempt_at?: string } | null) || null;
+        const lastPushedNight = gateVal?.night || null;
+        const lastFailures = Number(gateVal?.failures || 0);
+        const lastAttemptAt = gateVal?.last_attempt_at ? new Date(gateVal.last_attempt_at).getTime() : 0;
+        const minsSinceLastAttempt = lastAttemptAt > 0 ? (Date.now() - lastAttemptAt) / 60000 : 9999;
+        const NIGHT_RETRY_THROTTLE_MIN = 15;
 
-        if (lastPushedNight === nightKey) {
-          console.log(`[PV-Automation] 🌙 Night quiet mode (kein Tuya-Call, bereits gepushed für Nacht ${nightKey})`);
+        // Quiet Mode NUR wenn die Nacht bereits ohne Fehler abgeschlossen wurde.
+        // Bei Fehlern: alle 15 Min erneut versuchen (nur fehlgeschlagene Räume).
+        const fullySucceeded = lastPushedNight === nightKey && lastFailures === 0;
+        const recentlyAttempted = lastPushedNight === nightKey && minsSinceLastAttempt < NIGHT_RETRY_THROTTLE_MIN;
+        if (fullySucceeded || recentlyAttempted) {
+          const reason = fullySucceeded
+            ? `bereits erfolgreich gepushed für Nacht ${nightKey}`
+            : `Retry-Throttle (${minsSinceLastAttempt.toFixed(1)}min < ${NIGHT_RETRY_THROTTLE_MIN}min, ${lastFailures} offen)`;
+          console.log(`[PV-Automation] 🌙 Night quiet mode (${reason})`);
           return new Response(JSON.stringify({
             success: true,
-            message: `Nachtmodus aktiv (${wienTime}) - Quiet Mode, bereits gepushed`,
+            message: `Nachtmodus aktiv (${wienTime}) - Quiet Mode (${reason})`,
             nightMode: true,
             nightHeatingMode,
             quietMode: true,
             nightKey,
+            pendingFailures: lastFailures,
             results: []
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' }
