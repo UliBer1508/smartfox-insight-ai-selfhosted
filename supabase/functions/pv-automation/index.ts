@@ -384,10 +384,12 @@ Deno.serve(async (req) => {
       let pvPriorityMode = false; // PV-Überschuss-Priorität bei Quota-Knappheit
       let pvPriorityCalls = 0; // Zähler für PV-Priority-Calls (max 5)
       const PV_PRIORITY_MAX_CALLS = 5;
-      // STOP-Reserve: kleine Anzahl Cloud-Calls, die auch bei erschöpfter Quota
-      // für Sicherheits-Rückstellungen (Night/Frost) verwendet werden dürfen.
+      // STOP-Reserve: Cloud-Calls die auch bei erschöpfter Quota für Sicherheits-
+      // Rückstellungen (Night/Frost/Komfort→Eco/Übertemp-Stop) verwendet werden dürfen.
+      // Erhöht auf 15, damit alle 12 Räume abends sicher abgesenkt werden können.
+      // Wird strikt nur für Senkungen verwendet (priority='stop' im setTemperatureForMode).
       let stopReserveCalls = 0;
-      const STOP_RESERVE_MAX_CALLS = 3;
+      const STOP_RESERVE_MAX_CALLS = 15;
       let localServiceActive = true;
       let lastLocalExec: string | null = null;
       let forcedLocalFallback = false;
