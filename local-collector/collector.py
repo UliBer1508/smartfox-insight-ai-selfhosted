@@ -8,7 +8,7 @@ Sammelt Energiedaten und speichert sie in der Cloud-Datenbank.
 import json
 import time
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
