@@ -45,9 +45,15 @@ export function useSmartfoxData() {
     const now = Date.now();
     const timeout = pollingInterval * 3 * 1000;
     const minutesOffline = Math.floor((now - readingTime) / 60000);
-    
+    const isFresh = now - readingTime < timeout;
+
     setOfflineMinutes(minutesOffline > 0 ? minutesOffline : null);
-    setIsConnected(now - readingTime < timeout);
+    setIsConnected(isFresh);
+
+    // Reset Warning-Flag wenn Verbindung wiederhergestellt → erneute Warnung möglich
+    if (isFresh && hasShownTimeoutWarning.current) {
+      hasShownTimeoutWarning.current = false;
+    }
     
     // Warnung nach 10 Minuten ohne Daten
     if (minutesOffline >= COLLECTOR_TIMEOUT_MINUTES && !hasShownTimeoutWarning.current) {
