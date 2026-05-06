@@ -1215,7 +1215,9 @@ Deno.serve(async (req) => {
       // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
       let forecastAccuracy = 1.0; // 1.0 = perfekt
       const { wienHour: currentHourForForecast } = isNightTime('22:00', settings?.night_end_time || '08:00');
-      if (currentHourForForecast >= 8 && Object.keys(hourlyWatts).length > 0) {
+      // Start ab Tagesbeginn (Default 6 Uhr), nicht erst ab 8:00 — sonst läuft Morgen-Heizung ohne Korrektur
+      const forecastWindowStartHour = 6;
+      if (currentHourForForecast > forecastWindowStartHour && Object.keys(hourlyWatts).length > 0) {
         // Summe der prognostizierten Wh bis zur aktuellen Stunde
         // BUG-FIX: hourly_watts Keys sind "2026-04-12 07:00:00", nicht "7"
         let forecastSoFarWh = 0;
@@ -1248,6 +1250,11 @@ Deno.serve(async (req) => {
               actualWh += ((w1 + w2) / 2) * dtHours;
             }
             forecastAccuracy = Math.min(2.0, actualWh / forecastSoFarWh);
+          } else {
+            // Zu wenige Samples (<3) — konservative Annahme statt voller Prognose,
+            // verhindert Über-Allokation am frühen Morgen vor genug Messdaten
+            forecastAccuracy = 0.7;
+            console.log(`[PV-Automation] Forecast-Accuracy: <3 Samples → konservativ 0.7 (statt 1.0)`);
           }
         }
       }
@@ -2380,6 +2387,16 @@ Deno.serve(async (req) => {
         console.warn('[PV-Automation] Warmwasser-Status nicht abrufbar:', hwError);
       }
 
+      // ============= WW-RESERVE: Komfort-Budget reduzieren wenn WW aktiv =============
+      // Smartfox managed WW autonom, aber das Komfort-Budget darf nicht den realen
+      // Solarertrag übersteigen — sonst entsteht Netzbezug bei gleichzeitigem WW+Heizen.
+      // Eco-Budget bleibt unberührt (Eco hat Priorität über Komfort).
+      if (hotwaterActive && comfortBudget > 0) {
+        const before = comfortBudget;
+        comfortBudget = Math.max(0, comfortBudget - hotwaterPower);
+        console.log(`[PV-Automation] 🚿 WW aktiv → Komfort-Budget reduziert ${before}W − ${hotwaterPower}W (WW) = ${comfortBudget}W`);
+      }
+
       // Prüfe ob alle Räume >= comfort_temp sind (für Super-Comfort)
       const allRoomsAtComfort = rooms.every(r => {
         const roomComfort = r.comfort_temp || settings?.comfort_temp || 21;
@@ -2782,12 +2799,14 @@ Deno.serve(async (req) => {
           // ============= HARTER PV-GATE =============
           // KEINE Heizung ohne PV-Strom, unabhängig von ML/Learned Policies!
           // Dies ist die letzte Sicherheitsebene die NICHT übergangen werden kann.
-          const noPvAvailable = pvPower < 500;
-          const lowForecast = expectedPvKwh < 5; // Weniger als 5 kWh Tagesprognose
+          // Gate-Schwellen entschärft: Kurze Wolken (PV<500W) sollen nicht sofort alles stoppen.
+          // Nur bei wirklich niedriger Momentanleistung UND niedriger Tagesprognose blockieren.
+          const noPvAvailable = pvPower < 300;
+          const lowForecast = expectedPvKwh < 8; // <8 kWh Tagesprognose = wirklich schlechter Tag
           const noPvHeatingAllowed = noPvAvailable && lowForecast;
           
           if (noPvHeatingAllowed) {
-            console.log(`[PV-Automation] ${room.name}: ⛔ HARTER PV-GATE: Kein PV (${pvPower}W) + niedrige Prognose (${expectedPvKwh}kWh) → KEIN Heizen erlaubt`);
+            console.log(`[PV-Automation] ${room.name}: ⛔ HARTER PV-GATE: Kein PV (${pvPower}W < 300W) + niedrige Prognose (${expectedPvKwh}kWh < 8kWh) → KEIN Heizen erlaubt`);
             // Sticky Eco: nur deaktivieren wenn Setpoint ÜBER Eco liegt (also Komfort-Niveau)
             // Räume auf Eco bleiben auf Eco — Thermostat selbst stoppt Heizung wenn current >= eco
             if (currentTargetTemp > ecoTemp + 0.5) {
