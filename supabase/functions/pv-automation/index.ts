@@ -2387,6 +2387,16 @@ Deno.serve(async (req) => {
         console.warn('[PV-Automation] Warmwasser-Status nicht abrufbar:', hwError);
       }
 
+      // ============= WW-RESERVE: Komfort-Budget reduzieren wenn WW aktiv =============
+      // Smartfox managed WW autonom, aber das Komfort-Budget darf nicht den realen
+      // Solarertrag übersteigen — sonst entsteht Netzbezug bei gleichzeitigem WW+Heizen.
+      // Eco-Budget bleibt unberührt (Eco hat Priorität über Komfort).
+      if (hotwaterActive && comfortBudget > 0) {
+        const before = comfortBudget;
+        comfortBudget = Math.max(0, comfortBudget - hotwaterPower);
+        console.log(`[PV-Automation] 🚿 WW aktiv → Komfort-Budget reduziert ${before}W − ${hotwaterPower}W (WW) = ${comfortBudget}W`);
+      }
+
       // Prüfe ob alle Räume >= comfort_temp sind (für Super-Comfort)
       const allRoomsAtComfort = rooms.every(r => {
         const roomComfort = r.comfort_temp || settings?.comfort_temp || 21;
