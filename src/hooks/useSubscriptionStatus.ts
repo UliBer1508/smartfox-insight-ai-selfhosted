@@ -24,6 +24,13 @@ export interface UseSubscriptionStatusReturn {
 
 const SESSION_STORAGE_KEY = 'tuya_subscription_warning_shown';
 
+const getSessionFlag = (key: string): string | null =>
+  typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
+
+const setSessionFlag = (key: string, value: string): void => {
+  if (typeof window !== 'undefined') sessionStorage.setItem(key, value);
+};
+
 export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [warningDays, setWarningDays] = useState<number>(30);
