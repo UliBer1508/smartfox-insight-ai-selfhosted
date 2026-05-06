@@ -136,7 +136,7 @@ def save_reading(supabase: Client, smartfox_data: dict, fronius_data: dict | Non
     """
     try:
         reading = {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "power_io": smartfox_data["power_io"],
             "energy_in": smartfox_data["energy_in"],
             "energy_out": smartfox_data["energy_out"],
