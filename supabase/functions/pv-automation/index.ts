@@ -2443,13 +2443,22 @@ Deno.serve(async (req) => {
             const cachedDecisions = cache.decisions as MLDecision[];
 
             // Prüfe signifikante Änderungen
-            const socChange = cachedSoc > 0 ? Math.abs(batterySoc - cachedSoc) / cachedSoc : 1;
+            // SOC: absolute Trigger statt relative %-Schwankung (vermeidet unnötige ML-Calls bei normaler Tagesentladung 80%→48%)
+            const heatingMinSocLocal = (heatingSettings as Record<string, unknown>)?.heating_min_battery_soc as number ?? 80;
+            const socCrossedGate = (cachedSoc >= heatingMinSocLocal && batterySoc < heatingMinSocLocal) ||
+                                   (cachedSoc < heatingMinSocLocal && batterySoc >= heatingMinSocLocal);
+            const socCrossedFull = (cachedSoc < 90 && batterySoc >= 90) || (cachedSoc >= 90 && batterySoc < 90);
+            const socAbsoluteJump = Math.abs(batterySoc - cachedSoc) >= 15;
+            const socChange = (socCrossedGate || socCrossedFull || socAbsoluteJump) ? 1 : 0;
             const pvChange = cachedPvPower > 100 ? Math.abs(pvPower - cachedPvPower) / cachedPvPower : (pvPower > 100 ? 1 : 0);
             // PV-Abfall von >500W auf <500W ist IMMER signifikant (Gate-Grenze!)
             const pvDroppedBelowGate = cachedPvPower >= 500 && pvPower < 500;
             const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD || pvDroppedBelowGate;
             if (pvDroppedBelowGate) {
               console.log(`[PV-Automation] 🔄 ML-Cache INVALIDIERT: PV fiel unter Gate-Grenze (${cachedPvPower}W → ${pvPower}W)`);
+            }
+            if (socCrossedGate || socCrossedFull) {
+              console.log(`[PV-Automation] 🔄 ML-Cache INVALIDIERT: SOC kreuzt Schwelle (${cachedSoc}% → ${batterySoc}%, gate=${heatingMinSocLocal}%)`);
             }
 
             if (cacheAge < ML_CACHE_TTL_MS && !significantChange && cachedDecisions?.length > 0) {
