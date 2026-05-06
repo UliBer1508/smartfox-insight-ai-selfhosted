@@ -89,9 +89,11 @@ export function useSmartfoxData() {
         if (data.length > 0) {
           const latest = data[0] as EnergyReading;
           setCurrentReading(latest);
+          currentReadingRef.current = latest;
           checkConnectionStatus(latest);
         }
       }
+      lastFetchRef.current = Date.now();
       setLastError(null);
     } catch (error) {
       console.error('Error loading readings:', error);
