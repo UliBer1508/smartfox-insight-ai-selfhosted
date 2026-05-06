@@ -24,6 +24,13 @@ export interface UseSubscriptionStatusReturn {
 
 const SESSION_STORAGE_KEY = 'tuya_subscription_warning_shown';
 
+const getSessionFlag = (key: string): string | null =>
+  typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
+
+const setSessionFlag = (key: string, value: string): void => {
+  if (typeof window !== 'undefined') sessionStorage.setItem(key, value);
+};
+
 export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
   const [expiresAt, setExpiresAt] = useState<string | null>(null);
   const [warningDays, setWarningDays] = useState<number>(30);
@@ -76,7 +83,7 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
   useEffect(() => {
     if (isLoading) return;
     
-    const alreadyShown = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    const alreadyShown = getSessionFlag(SESSION_STORAGE_KEY);
     if (alreadyShown) return;
 
     if (status === 'expired') {
@@ -84,13 +91,13 @@ export function useSubscriptionStatus(): UseSubscriptionStatusReturn {
         description: 'Bitte verlängern Sie unter iot.tuya.com',
         duration: 10000,
       });
-      sessionStorage.setItem(SESSION_STORAGE_KEY, 'true');
+      setSessionFlag(SESSION_STORAGE_KEY, 'true');
     } else if (status === 'warning' && daysRemaining !== null) {
       toast.warning(`Tuya Subscription läuft in ${daysRemaining} Tagen ab!`, {
         description: 'Bitte rechtzeitig verlängern unter iot.tuya.com',
         duration: 8000,
       });
-      sessionStorage.setItem(SESSION_STORAGE_KEY, 'true');
+      setSessionFlag(SESSION_STORAGE_KEY, 'true');
     }
   }, [isLoading, status, daysRemaining]);
 
