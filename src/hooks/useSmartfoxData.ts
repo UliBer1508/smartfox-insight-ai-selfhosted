@@ -14,6 +14,8 @@ export function useSmartfoxData() {
   const [pollingInterval, setPollingInterval] = useState<number>(60);
   const [offlineMinutes, setOfflineMinutes] = useState<number | null>(null);
   const hasShownTimeoutWarning = useRef(false);
+  const currentReadingRef = useRef<EnergyReading | null>(null);
+  const lastFetchRef = useRef<number>(0);
 
   // Load polling interval from database
   useEffect(() => {
