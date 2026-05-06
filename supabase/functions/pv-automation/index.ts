@@ -1215,7 +1215,9 @@ Deno.serve(async (req) => {
       // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
       let forecastAccuracy = 1.0; // 1.0 = perfekt
       const { wienHour: currentHourForForecast } = isNightTime('22:00', settings?.night_end_time || '08:00');
-      if (currentHourForForecast >= 8 && Object.keys(hourlyWatts).length > 0) {
+      // Start ab Tagesbeginn (Default 6 Uhr), nicht erst ab 8:00 — sonst läuft Morgen-Heizung ohne Korrektur
+      const forecastWindowStartHour = 6;
+      if (currentHourForForecast > forecastWindowStartHour && Object.keys(hourlyWatts).length > 0) {
         // Summe der prognostizierten Wh bis zur aktuellen Stunde
         // BUG-FIX: hourly_watts Keys sind "2026-04-12 07:00:00", nicht "7"
         let forecastSoFarWh = 0;
