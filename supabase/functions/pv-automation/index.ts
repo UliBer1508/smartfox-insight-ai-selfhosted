@@ -2782,12 +2782,14 @@ Deno.serve(async (req) => {
           // ============= HARTER PV-GATE =============
           // KEINE Heizung ohne PV-Strom, unabhängig von ML/Learned Policies!
           // Dies ist die letzte Sicherheitsebene die NICHT übergangen werden kann.
-          const noPvAvailable = pvPower < 500;
-          const lowForecast = expectedPvKwh < 5; // Weniger als 5 kWh Tagesprognose
+          // Gate-Schwellen entschärft: Kurze Wolken (PV<500W) sollen nicht sofort alles stoppen.
+          // Nur bei wirklich niedriger Momentanleistung UND niedriger Tagesprognose blockieren.
+          const noPvAvailable = pvPower < 300;
+          const lowForecast = expectedPvKwh < 8; // <8 kWh Tagesprognose = wirklich schlechter Tag
           const noPvHeatingAllowed = noPvAvailable && lowForecast;
           
           if (noPvHeatingAllowed) {
-            console.log(`[PV-Automation] ${room.name}: ⛔ HARTER PV-GATE: Kein PV (${pvPower}W) + niedrige Prognose (${expectedPvKwh}kWh) → KEIN Heizen erlaubt`);
+            console.log(`[PV-Automation] ${room.name}: ⛔ HARTER PV-GATE: Kein PV (${pvPower}W < 300W) + niedrige Prognose (${expectedPvKwh}kWh < 8kWh) → KEIN Heizen erlaubt`);
             // Sticky Eco: nur deaktivieren wenn Setpoint ÜBER Eco liegt (also Komfort-Niveau)
             // Räume auf Eco bleiben auf Eco — Thermostat selbst stoppt Heizung wenn current >= eco
             if (currentTargetTemp > ecoTemp + 0.5) {
