@@ -2155,7 +2155,14 @@ Deno.serve(async (req) => {
               .eq('key', 'last_micro_rotation_at')
               .maybeSingle();
             const microValue = lastMicroSetting?.value as { ts?: string; ended?: boolean; ended_at?: string } | undefined;
-            const cooldownAnchor = microValue?.ended ? microValue.ended_at : microValue?.ts;
+            // Cooldown-Anker = IMMER ein Beendigungszeitpunkt (echt oder rechnerisch ts+microHeatDuration).
+            // Verhindert dass die rohe Aktivierungszeit als Anker dient.
+            let cooldownAnchor: string | undefined;
+            if (microValue?.ended && microValue.ended_at) {
+              cooldownAnchor = microValue.ended_at;
+            } else if (microValue?.ts) {
+              cooldownAnchor = new Date(new Date(microValue.ts).getTime() + microHeatDuration * 60000).toISOString();
+            }
             const stillRunning = microValue?.ts && microValue?.ended !== true;
             const minutesSinceLastMicro = cooldownAnchor
               ? (Date.now() - new Date(cooldownAnchor).getTime()) / 60000
