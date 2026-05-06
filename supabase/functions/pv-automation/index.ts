@@ -3228,22 +3228,29 @@ Deno.serve(async (req) => {
           ml_based: usedMlDecision && !!mlDecision
         };
 
-        const { data: eventData, error: eventError } = await supabase
-          .from('learning_events')
-          .insert({
-            decision_type: action,
-            room_id: room.id,
-            context: eventContext,
-            action: eventAction,
-            is_evaluated: false
-          })
-          .select('id')
-          .single();
+        // Learning-Event nur bei tatsächlichen Aktionen oder ML-Entscheidungen anlegen.
+        // Vermeidet ~80% Volumen (skip/keep ohne Reward-Information).
+        const shouldLogEvent = action === 'activate' || action === 'deactivate' || (usedMlDecision && !!mlDecision);
+        let eventData: { id: string } | null = null;
+        if (shouldLogEvent) {
+          const { data, error: eventError } = await supabase
+            .from('learning_events')
+            .insert({
+              decision_type: action,
+              room_id: room.id,
+              context: eventContext,
+              action: eventAction,
+              is_evaluated: false
+            })
+            .select('id')
+            .single();
 
-        if (eventError) {
-          console.error(`[PV-Automation] Learning event error for ${room.name}:`, eventError);
-        } else {
-          console.log(`[PV-Automation] Learning event ${eventData?.id} for ${room.name}`);
+          if (eventError) {
+            console.error(`[PV-Automation] Learning event error for ${room.name}:`, eventError);
+          } else {
+            eventData = data;
+            console.log(`[PV-Automation] Learning event ${data?.id} for ${room.name}`);
+          }
         }
 
         // Execute action
