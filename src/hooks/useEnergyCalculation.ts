@@ -22,12 +22,27 @@ function getTodayDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
-// Lokale Mitternacht als ISO-String für konsistente DB-Queries
-// WICHTIG: Für MEZ (UTC+1) ist 00:00 lokal = 23:00 UTC am Vortag
+// Mitternacht in Europe/Vienna als ISO-String (UTC) — unabhängig von Browser/Server-Zeitzone.
+// Verhindert Off-by-2h Bug auf UTC-Hosts (CI/Server), wo `new Date(...)` lokale Mitternacht
+// fälschlich auf 00:00 UTC = 02:00 Wien legt und 2h Vortags-Daten mitgezählt würden.
 function getLocalMidnightISO(): string {
-  const now = new Date();
-  const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  return localMidnight.toISOString();
+  const wienDate = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Vienna',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
+
+  // Wien-Offset DST-aware via shortOffset (z.B. "GMT+1" / "GMT+2")
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Vienna', timeZoneName: 'shortOffset',
+  }).formatToParts(new Date());
+  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT+1';
+  const match = tzPart.match(/GMT([+-]\d{1,2})(?::?(\d{2}))?/);
+  const offH = match ? parseInt(match[1], 10) : 1;
+  const offM = match && match[2] ? parseInt(match[2], 10) : 0;
+  const sign = offH >= 0 ? '+' : '-';
+  const offset = `${sign}${String(Math.abs(offH)).padStart(2, '0')}:${String(offM).padStart(2, '0')}`;
+
+  return new Date(`${wienDate}T00:00:00${offset}`).toISOString();
 }
 
 // Pagination: Alle Readings in 1000er-Batches laden (Supabase-Limit umgehen)
