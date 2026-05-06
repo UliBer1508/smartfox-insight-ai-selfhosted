@@ -1,38 +1,36 @@
-## Ziel
-Zwei kleine Robustheits-Fixes:
+## Bewertung & Lösung (4 Punkte)
 
-1. `useEnergyCalculation.ts`: Tagesstart konsequent in **Europe/Vienna** statt Browser-Lokalzeit (verhindert 2h Vortags-Daten auf UTC-Hosts).
-2. `pv-automation/index.ts` Mikro-Budget: Cooldown-Anker konzeptuell sauber — basiert immer auf einem **Beendigungszeitpunkt**, auch wenn `ended_at` fehlt.
+### 1. Funktion ist zu groß (~3500 Zeilen)
+Berechtigte Beobachtung, aber **kein Quick-Fix**: Das Aufteilen in `calculate-budget`, `execute-heating-decisions`, `night-handler` würde >1000 geteilte Variablen über HTTP-Calls serialisieren — hohes Regressionsrisiko, mehr Latenz, Quota-Mehrkosten. **Empfehlung: nicht jetzt umsetzen**, sondern als eigener Refactor-Sprint mit Tests planen. Ich lege dafür kein Code an.
 
-## Datei 1: `src/hooks/useEnergyCalculation.ts`
+### 2. ML-Cache: SOC-Schwelle auf absolute Werte (Zeile ~2440)
+Heute: relativ (`socChange = |Δ| / cachedSoc > SIGNIFICANT_CHANGE_THRESHOLD`) → bei normaler Tagesschwankung 80→48% wird invalidiert.
+**Fix:** SOC-Invalidierung nur bei den Schwellen, die wirklich Verhalten ändern:
+- SOC fällt unter `heatingMinSoc` (Komfort-Hardlock greift) ODER
+- SOC steigt erstmals über 90% (Battery-Full-Bonus wird relevant) ODER
+- SOC-Bucket-Wechsel ≥15 absolute %-Punkte (Robustheit)
 
-Ersetze `getLocalMidnightISO()` (Zeile 27–31) durch eine Wien-basierte Variante:
+PV-Logik (`pvDroppedBelowGate` 500W) bleibt unverändert.
 
-- Wien-Datum `YYYY-MM-DD` via `Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' })`.
-- Wien-Offset (DST-aware, `+01:00` / `+02:00`) via `timeZoneName: 'shortOffset'`.
-- Konstruiere `new Date('YYYY-MM-DDT00:00:00+0X:00').toISOString()` als sauberen UTC-Wert für die DB-Query.
-
-Der bestehende Aufruf-Punkt `useMemo(() => getLocalMidnightISO(), [])` bleibt unverändert.
-
-## Datei 2: `supabase/functions/pv-automation/index.ts` (~Zeile 2157–2162)
-
-`cooldownAnchor` so härten, dass er nie der reine Aktivierungszeitpunkt ist:
-
+### 3. Konsistente Batterie-Benennung (Zeile ~1338)
+Heute zwei Varianten im Code. **Fix:** Zwei abgeleitete Helper-Konstanten direkt nach der Normalisierung einführen:
 ```ts
-const microValue = lastMicroSetting?.value as { ts?: string; ended?: boolean; ended_at?: string } | undefined;
-// Wenn beendet → ended_at, sonst rechnerisches Ende = ts + microHeatDuration.
-// Damit ist der Cooldown-Anker IMMER ein (echter oder erwarteter) Beendigungszeitpunkt.
-let cooldownAnchor: string | undefined;
-if (microValue?.ended && microValue.ended_at) {
-  cooldownAnchor = microValue.ended_at;
-} else if (microValue?.ts) {
-  cooldownAnchor = new Date(new Date(microValue.ts).getTime() + microHeatDuration * 60000).toISOString();
-}
-const stillRunning = microValue?.ts && microValue?.ended !== true;
+const batteryChargingW   = Math.max(0,  batteryPower); // >0 = lädt
+const batteryDischargingW = Math.max(0, -batteryPower); // >0 = entlädt
 ```
+Diese **zusätzlich** zu `batteryPower` bereitstellen. Alle vorhandenen Vorzeichen-Vergleiche bleiben funktional unverändert, neue Codestellen können die klaren Namen verwenden. Dadurch kein Big-Bang-Rewrite, aber sauberer Migrationspfad.
 
-`stillRunning`-Gate bleibt als Doppel-Sicherung erhalten (verhindert Re-Aktivierung während laufender Heizphase).
+### 4. Learning-Events nur bei echten Aktionen (Zeile ~3217)
+Heute: bei jedem Run pro Raum ein Event (12×30/h = 8640/Tag). **Fix:** Insert nur wenn:
+- `action === 'activate'` ODER `action === 'deactivate'` ODER
+- `usedMlDecision === true` (ML-Entscheidung muss bewertet werden — auch bei `keep`, sonst kein Reward-Feedback)
 
-## Nicht geändert
-- Edge Function timezone-Helpers (bereits Wien).
-- Alle anderen Zeitfunktionen.
+`keep`/`skip` ohne ML werden nicht mehr persistiert. Spart ~80% der Events ohne Reward-Information zu verlieren. Bestehende Daten unberührt; Cleanup via `cleanup_old_data` (>30d) regelt Volumen.
+
+## Datei-Änderungen
+Nur `supabase/functions/pv-automation/index.ts`:
+1. ML-Cache-Block (~2440–2457): Ersatz der `socChange`-Bedingung durch absolute Trigger.
+2. Nach Zeile 1341: Helper-Konstanten `batteryChargingW`, `batteryDischargingW` einführen.
+3. Learning-Event-Insert (~3217): in `if`-Block einwickeln.
+
+Keine DB-Migration, keine Schema-Änderung.

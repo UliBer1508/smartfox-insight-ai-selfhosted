@@ -1339,6 +1339,11 @@ Deno.serve(async (req) => {
       // Smartfox-Konvention: negativ=laden, positiv=entladen
       // Normalisierung: positiv=laden, negativ=entladen (für Budget-Logik)
       const batteryPower = -rawBatteryPower;
+      // Klare Helper-Konstanten (positive Werte) für lesbaren neuen Code.
+      // Bestehende batteryPower-Vergleiche bleiben unverändert.
+      const batteryChargingW = Math.max(0, batteryPower);
+      const batteryDischargingW = Math.max(0, -batteryPower);
+      void batteryChargingW; void batteryDischargingW;
 
       // ============= PV-TREND (5-Min) =============
       // Automatisch berechnet, nicht konfigurierbar. Wird in Bonus + Tolerante Deaktivierung verwendet.
