@@ -3042,7 +3042,21 @@ Deno.serve(async (req) => {
           targetTemp = maxAllowedTemp;
         }
 
-        // SYNC-FAILED GUARD: Wenn Pre-Sync fehlgeschlagen, nur Sicherheits-Aktionen erlauben
+        // NACHT-HARDGUARD: Im Raum-Loop niemals 'activate' während Nacht — nur deactivate/keep.
+        // Verhindert Race-Conditions an Tag/Nacht-Boundaries (z.B. exakt 22:00) wenn nachgelagerte
+        // Logik (Budget/ML/Learned Policy) ein 'activate' setzen würde.
+        if (isNight && action === 'activate') {
+          console.log(`[PV-Automation] ${room.name}: 🌙 NACHT-HARDGUARD → activate blockiert, target=${nightTemp}°C`);
+          action = 'deactivate';
+          targetTemp = nightTemp;
+          solarLimitTemp = null;
+          reasoning = `🌙 Nacht-Hardguard: ${reasoning || 'kein activate erlaubt'}`;
+        }
+        if (isNight && targetTemp > nightTemp) {
+          targetTemp = nightTemp;
+        }
+
+
         if (syncFailed && action === 'activate') {
           console.log(`[PV-Automation] ${room.name}: SYNC-FAILED → activate blockiert, nur Reduktionen/Stops erlaubt`);
           action = 'keep';
