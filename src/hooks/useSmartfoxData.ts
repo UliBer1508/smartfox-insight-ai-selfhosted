@@ -14,6 +14,8 @@ export function useSmartfoxData() {
   const [pollingInterval, setPollingInterval] = useState<number>(60);
   const [offlineMinutes, setOfflineMinutes] = useState<number | null>(null);
   const hasShownTimeoutWarning = useRef(false);
+  const currentReadingRef = useRef<EnergyReading | null>(null);
+  const lastFetchRef = useRef<number>(0);
 
   // Load polling interval from database
   useEffect(() => {
@@ -87,9 +89,11 @@ export function useSmartfoxData() {
         if (data.length > 0) {
           const latest = data[0] as EnergyReading;
           setCurrentReading(latest);
+          currentReadingRef.current = latest;
           checkConnectionStatus(latest);
         }
       }
+      lastFetchRef.current = Date.now();
       setLastError(null);
     } catch (error) {
       console.error('Error loading readings:', error);
@@ -109,23 +113,19 @@ export function useSmartfoxData() {
     loadTotalCount();
   }, [loadReadings, loadTotalCount]);
 
-  // Check connection status periodically
+  // Single combined timer: stale-check every min(pollingInterval, 30)s,
+  // DB fetch only when pollingInterval has elapsed since last fetch.
   useEffect(() => {
-    const interval = setInterval(() => {
-      checkConnectionStatus(currentReading);
-    }, 30000); // Check every 30 seconds
-
-    return () => clearInterval(interval);
-  }, [currentReading, checkConnectionStatus]);
-
-  // Polling statt Realtime um DB-Last zu reduzieren
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadReadings();
-    }, pollingInterval * 1000); // Polling-Intervall aus Einstellungen
-
-    return () => clearInterval(interval);
-  }, [loadReadings, pollingInterval]);
+    const tickMs = Math.min(pollingInterval, 30) * 1000;
+    const id = setInterval(() => {
+      if (Date.now() - lastFetchRef.current >= pollingInterval * 1000) {
+        loadReadings();
+      } else {
+        checkConnectionStatus(currentReadingRef.current);
+      }
+    }, tickMs);
+    return () => clearInterval(id);
+  }, [pollingInterval, loadReadings, checkConnectionStatus]);
 
   return {
     currentReading,
