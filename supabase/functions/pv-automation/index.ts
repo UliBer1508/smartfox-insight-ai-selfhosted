@@ -1250,6 +1250,11 @@ Deno.serve(async (req) => {
               actualWh += ((w1 + w2) / 2) * dtHours;
             }
             forecastAccuracy = Math.min(2.0, actualWh / forecastSoFarWh);
+          } else {
+            // Zu wenige Samples (<3) — konservative Annahme statt voller Prognose,
+            // verhindert Über-Allokation am frühen Morgen vor genug Messdaten
+            forecastAccuracy = 0.7;
+            console.log(`[PV-Automation] Forecast-Accuracy: <3 Samples → konservativ 0.7 (statt 1.0)`);
           }
         }
       }
