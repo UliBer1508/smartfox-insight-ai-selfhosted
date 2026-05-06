@@ -51,10 +51,6 @@ def fetch_smartfox(ip: str) -> dict | None:
         pv_power_array = data.get("PvPower", [])
         pv_power = sum(pv_power_array) if pv_power_array else 0
         
-        # PV-Energie
-        pv_energy_array = data.get("PvEnergy", [])
-        pv_energy = sum(pv_energy_array) if pv_energy_array else 0
-        
         # Verbrauch berechnen: PV-Produktion + Netzbezug - Einspeisung
         consumption = pv_power + power_in - power_out
         
@@ -63,7 +59,6 @@ def fetch_smartfox(ip: str) -> dict | None:
             "energy_in": data.get("energy_in", 0) or 0,
             "energy_out": data.get("energy_out", 0) or 0,
             "pv_power": pv_power,
-            "pv_energy": pv_energy,
             "consumption": max(0, consumption),  # Mindestens 0
             "power_smartfox": data.get("power_sf", 0) or 0,
             "relay_status": data.get("outputs", []),
