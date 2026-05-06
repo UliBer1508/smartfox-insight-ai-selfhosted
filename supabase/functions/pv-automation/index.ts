@@ -1234,10 +1234,19 @@ Deno.serve(async (req) => {
             .order('timestamp', { ascending: true });
           
           if (todayReadings && todayReadings.length > 2) {
-            // Approximate actual kWh from pv_power samples (avg * hours)
-            const avgPvW = todayReadings.reduce((sum, r) => sum + (r.pv_power || 0), 0) / todayReadings.length;
-            const hoursElapsed = Math.max(1, currentHourForForecast - 6);
-            const actualWh = avgPvW * hoursElapsed;
+            // Trapezintegral über die Samples → robust gegen Lücken (z.B. Collector-Ausfälle)
+            // pv_power ist Momentanleistung (W); Σ ((W1+W2)/2 * Δt_h) = Wh
+            let actualWh = 0;
+            for (let i = 1; i < todayReadings.length; i++) {
+              const t1 = new Date(todayReadings[i - 1].timestamp).getTime();
+              const t2 = new Date(todayReadings[i].timestamp).getTime();
+              const dtHours = (t2 - t1) / 3_600_000;
+              // Lücken >10min ignorieren (Collector war offline) — verhindert Über/Unterschätzung
+              if (dtHours <= 0 || dtHours > 10 / 60) continue;
+              const w1 = todayReadings[i - 1].pv_power || 0;
+              const w2 = todayReadings[i].pv_power || 0;
+              actualWh += ((w1 + w2) / 2) * dtHours;
+            }
             forecastAccuracy = Math.min(2.0, actualWh / forecastSoFarWh);
           }
         }
