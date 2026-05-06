@@ -210,19 +210,25 @@ def main():
     # Hauptschleife
     success_count = 0
     error_count = 0
-    
+    consecutive_errors = 0
+    BACKOFF_THRESHOLD = 5          # ab so vielen Fehlern in Folge
+    BACKOFF_INTERVAL = 300         # max. Intervall in Sekunden (5 min)
+
     try:
         while True:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
+
             # Daten abrufen
             smartfox_data = fetch_smartfox(smartfox_ip)
             fronius_data = fetch_fronius_data(fronius_ip)
-            
+
             if smartfox_data:
                 # Daten speichern
                 if save_reading(supabase, smartfox_data, fronius_data):
                     success_count += 1
+                    if consecutive_errors >= BACKOFF_THRESHOLD:
+                        print(f"[{timestamp}] ✅ Verbindung wiederhergestellt – normales Intervall")
+                    consecutive_errors = 0
                     battery_str = f"{fronius_data['battery_soc']:.0f}%" if fronius_data and fronius_data['battery_soc'] else "N/A"
                     power_str = f"{fronius_data['battery_power']:+.0f}W" if fronius_data and fronius_data['battery_power'] else "N/A"
                     print(
@@ -234,17 +240,25 @@ def main():
                     )
                 else:
                     error_count += 1
+                    consecutive_errors += 1
             else:
                 error_count += 1
-                print(f"[{timestamp}] ⚠️  Keine Smartfox-Daten")
-            
+                consecutive_errors += 1
+                # Bei vielen Fehlern in Folge nur noch einmalig loggen pro Backoff-Intervall
+                if consecutive_errors == BACKOFF_THRESHOLD:
+                    print(f"[{timestamp}] ⏸️  {BACKOFF_THRESHOLD} Fehler in Folge – wechsle auf Backoff-Intervall ({BACKOFF_INTERVAL}s)")
+                elif consecutive_errors < BACKOFF_THRESHOLD:
+                    print(f"[{timestamp}] ⚠️  Keine Smartfox-Daten")
+
             # Status alle 10 Messungen
             total = success_count + error_count
             if total > 0 and total % 10 == 0:
                 rate = (success_count / total) * 100
                 print(f"    📊 Erfolgsrate: {rate:.1f}% ({success_count}/{total})")
-            
-            time.sleep(polling_interval)
+
+            # Sleep mit Backoff: ab BACKOFF_THRESHOLD Fehlern auf BACKOFF_INTERVAL
+            sleep_seconds = BACKOFF_INTERVAL if consecutive_errors >= BACKOFF_THRESHOLD else polling_interval
+            time.sleep(sleep_seconds)
             
     except KeyboardInterrupt:
         print("\n")
