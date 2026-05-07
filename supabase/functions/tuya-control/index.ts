@@ -1102,12 +1102,54 @@ Deno.serve(async (req) => {
         });
       }
 
-      console.log(`[push-all-temps] Pushing target temps to ${rooms.length} thermostats...`);
+      // QUOTA GATE für push-all-temps: pro Raum 1 Call. Max so viele Räume pushen,
+      // wie effektives Tagesbudget noch hergibt.
+      const { data: pushQuotaSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_api_quota')
+        .maybeSingle();
+      let pushQuotaData = pushQuotaSetting?.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null;
+      let pushAllowed = rooms.length;
+      if (pushQuotaData) {
+        const nowD = new Date();
+        const curMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+        const wDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(nowD);
+        if (pushQuotaData.month !== curMonth) { pushQuotaData.calls_this_month = 0; pushQuotaData.month = curMonth; }
+        if (pushQuotaData.today !== wDate) { pushQuotaData.calls_today = 0; pushQuotaData.today = wDate; }
+        // Dynamisches Limit (Monatsrest / verbleibende Tage)
+        const monthlyLim = pushQuotaData.monthly_limit || 3000;
+        const cfgDaily = pushQuotaData.daily_limit || 200;
+        const daysInMonth = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate();
+        const wDay = parseInt(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna', day: 'numeric' }).format(nowD));
+        const remDays = Math.max(1, daysInMonth - wDay + 1);
+        const remMonthly = Math.max(0, monthlyLim - pushQuotaData.calls_this_month);
+        const dynDaily = Math.max(30, Math.floor(remMonthly / remDays));
+        const effDaily = Math.max(1, Math.min(cfgDaily, dynDaily) - 2);
+        pushAllowed = Math.max(0, effDaily - pushQuotaData.calls_today);
+        if (pushAllowed === 0) {
+          console.log(`[push-all-temps] ⛔ Quota erschöpft (${pushQuotaData.calls_today}/${effDaily} eff.) - kein Push`);
+          return new Response(JSON.stringify({
+            success: false, fallback: true, errorCode: 'TUYA_API_QUOTA_EXHAUSTED',
+            error: 'Tuya API Quota erschöpft - Push nicht möglich.',
+            quotaExhausted: true, results: [], summary: '0/0',
+          }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        if (pushAllowed < rooms.length) {
+          console.log(`[push-all-temps] ⚠️ Quota-Limit: nur ${pushAllowed}/${rooms.length} Räume werden gepusht`);
+        }
+      }
 
-      const results = [];
+      const roomsToPush = rooms.slice(0, pushAllowed);
+      const skipped = rooms.slice(pushAllowed).map(r => ({
+        roomId: r.id, name: r.name, targetTemp: r.target_temp, success: false,
+        error: 'skipped: quota limit', skipped: true,
+      }));
+
+      console.log(`[push-all-temps] Pushing target temps to ${roomsToPush.length} thermostats...`);
+
+      const results = [...skipped];
       const now = new Date().toISOString();
-
-      for (const room of rooms) {
         try {
           await setDeviceTemperature(accessId, accessSecret, room.tuya_device_id, room.target_temp);
 
