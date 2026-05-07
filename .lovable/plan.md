@@ -1,118 +1,45 @@
-# Plan: ML/KI tiefer in pv-automation integrieren
+Ziel: Tuya-Tagesquote nicht mehr sprengen, ohne die "Überschuss-Umverteilung" kaputt zu machen. Strategie wird von prädiktiv (Vorausberechnung "effective Export") auf **reaktiv** (warten bis Zähler echten Überschuss zeigt) umgestellt.
 
-Drei aufeinander abgestimmte Verbesserungen, die ML-Outputs aktiv in die Heizungssteuerung einbringen und sichtbar machen.
+## Was geändert wird
 
----
+### 1. Dashboard-Auto-Sync abschalten (Cloud-Modus)
+- `HeatingDashboard.tsx`: Der 5-Minuten-Auto-Sync wird im Cloud-Modus entfernt.
+- Beim Öffnen wird **nur einmal** synchronisiert, falls der letzte Tuya-Sync älter als 60 Minuten ist.
+- Manueller Refresh-Button bleibt jederzeit verfügbar.
+- Lokaler Modus bleibt unverändert (kein Cloud-Verbrauch).
 
-## 1. `learning_confidence` aktiv nutzen in `pv-automation`
+### 2. `sync-all` mit Last-Sync-Gate
+- In `tuya-control/sync-all`: Wenn `last_sync_at` jünger als 60 Min → DB-Daten zurückgeben, kein Tuya-Call.
+- Gilt auch für den Sync-Aufruf aus `pv-automation` (Zeile ~1105).
 
-**Datei:** `supabase/functions/pv-automation/index.ts` (Zeile ~2842–2876)
+### 3. Reaktive Heizstrategie statt prädiktiver Umverteilung
+In `pv-automation/index.ts`:
+- **Kein "effective Export"-Trick mehr**: Komfort-Budget = nur **echter Zähler-Export** minus Baseload-Puffer. Heizleistung wird nicht mehr dazugerechnet.
+- **Stabilitäts-Filter**: Ein neuer Raum darf erst aktiviert werden, wenn der Überschuss ≥ Schwelle für mindestens 2 aufeinanderfolgende Runs (≈4 Min) stabil war. Verhindert Flackern bei Wolken.
+- **Mindest-Heizdauer pro Raum**: 25 Minuten, bevor ein Raum wieder umgeschaltet werden darf (verhindert Ping-Pong).
+- **Komfort-Sättigung bleibt**: Raum erreicht Komfort → zurück auf Eco. Aber das frei werdende Budget wird **nicht im selben Run umverteilt** — erst der nächste Run sieht den realen Export am Zähler und entscheidet dann.
 
-Aktuelle Schwelle für Exploitation: `sample_count >= 20 && success_rate > 0.5`. Neue dreistufige Logik basierend auf `learning_confidence`:
+### 4. Quota-Gate konsistent
+- Einheitliche Berechnung des effektiven Tageslimits in `tuya-control` und `pv-automation` (Monatsrest / verbleibende Tage).
+- Log zeigt `calls_today / effectiveDailyLimit / configuredDailyLimit`, damit klar ist, warum bei z.B. 108/200 schon Schluss ist.
+- `push-all-temps` bekommt denselben Quota-Gate.
 
-```text
-learning_confidence >= 0.7  → Exploitation (Policy folgen)
-learning_confidence 0.4-0.7 → Soft-Hint: Policy nur folgen wenn sie mit Budget-
-                              Logik kompatibel ist (kein activate gegen leeres
-                              Budget, kein deactivate eines Komfort-gesättigten
-                              Raums); sonst Standard-Pfad
-learning_confidence < 0.4   → Policy ignorieren, immer LLM/Standard
-```
+### 5. Datenquelle für Ist-Temperatur
+- `current_temp` und `is_heating` werden aus der DB gelesen (über lokalen Collector aktuell gehalten), nicht mehr alle 5 Min via Tuya geholt.
+- Nur noch 1 Drift-Check-Sync pro Stunde (über das Last-Sync-Gate gesteuert).
 
-Zusätzlich `learnedPolicy.recommended_temp` nur übernehmen wenn innerhalb `[night_temp, comfort_temp]` des Raums (Safety-Clamp).
+### 6. Memory-Update
+- `mem://arch/pv-automation-strategy-v2` und Core-Strategie aktualisieren: "Reaktive Umverteilung" statt "effective Export + parallel-Plan".
+- `mem://integration/tuya/api-quota-management-v2` aktualisieren: Dashboard-Sync deaktiviert, sync-Gate 60 Min.
 
-Reasoning-Text erweitern: `📊 Policy (conf 0.82, 12 Samples, ...)` damit im UI sichtbar warum die Policy gewählt/ignoriert wurde.
+## Was nicht geändert wird
+- Phase 1 (Eco) vor Phase 2 (Komfort) bleibt.
+- Prioritäten 1–12 bleiben.
+- Komfort-Sättigung / Estrich-Speicher bleibt.
+- Nacht-/Frostschutz-Logik bleibt.
+- ML-/Pre-Heat-Integration bleibt, aber respektiert das neue Quota-Gate.
 
-**Tracking:** Pro Entscheidung in das bereits bestehende `learning_events.action`-Objekt zwei Felder schreiben:
-- `ml_recommendation`: `{ action, temp, confidence }` (immer was die Policy gesagt hätte)
-- `ml_followed`: `boolean` (ob pv-automation der Empfehlung gefolgt ist)
-
----
-
-## 2. `preheatingAdvice` strukturell als Pre-Heat-Trigger nutzen
-
-**Problem heute:** `analyze-patterns` berechnet `preheatingAdvice` (z.B. "Peak in 60 min, jetzt vorheizen"), schreibt es aber nur in den LLM-Prompt. `pv-automation` sieht es nicht.
-
-**Lösung:** Strukturierte Speicherung + Konsum:
-
-**a) `analyze-patterns/index.ts`** (Zeile ~336):
-Nach Berechnung von `preheatingAdvice` zusätzlich strukturiertes Objekt in `system_settings` upserten:
-```ts
-await supabase.from('system_settings').upsert({
-  key: 'preheating_signal',
-  value: {
-    computed_at: now.toISOString(),
-    type: 'preheat' | 'store_heat' | 'none',
-    target_peak_hour: nextPeakHour?.hour,
-    minutes_to_peak: minutesToPeak,
-    expected_peak_w: nextPeakHour?.watts,
-    advice_text: preheatingAdvice,
-  }
-}, { onConflict: 'key' });
-```
-
-**b) `pv-automation/index.ts`** (vor Raum-Loop, ca. Zeile 2620 nach learnedPolicies-Block):
-Signal lesen, nur valide wenn `computed_at` jünger als 30 min:
-
-```ts
-const { data: preheatRow } = await supabase
-  .from('system_settings').select('value')
-  .eq('key', 'preheating_signal').maybeSingle();
-const preheatSignal = (preheatRow?.value && 
-  Date.now() - new Date(preheatRow.value.computed_at).getTime() < 30*60*1000)
-  ? preheatRow.value : null;
-```
-
-**Wirkung im Raum-Loop:**
-- `type === 'preheat'` (Peak in ≤90 min, aktuell wenig PV): Eco-Budget-Schwelle für Phase 1 wird **temporär abgesenkt** — Räume mit `current < eco - 0.2` dürfen bereits jetzt aus der Batterie heizen, auch wenn `effectiveExport` sonst zu klein wäre. Hard-Locks (SOC < heating_min_battery_soc, harter PV-Gate ohne Tagesprognose) bleiben unverändert.
-- `type === 'store_heat'` (Peak endet in ≤60 min, aktuell viel PV): Phase 2 (Komfort) wird **bevorzugt** für Räume mit hoher `floor_area_m2` ausgeführt → Estrich-Speicherung. Setzt einen Bonus auf `comfortBudget` (z.B. +500W) wenn `pvPower > 4000`.
-- Reasoning-Text: `🔥 Pre-Heat aktiv (Peak in 60min)` bzw. `💾 Store-Heat (Peak endet bald)`.
-
-Sicherheits-Constraints:
-- Pre-Heat darf **nicht** Komfort-Hard-Lock bei niedrigem SOC umgehen.
-- Pre-Heat darf **nicht** Manual-Override ignorieren.
-- Wenn `quotaExhausted` → Signal wird gelesen aber kein zusätzlicher Tuya-Call ausgelöst.
-
----
-
-## 3. ML-Follow-Rate Dashboard-Widget
-
-**a) Neue RPC** (Migration): `get_ml_follow_rate(days_back int)` aggregiert aus `learning_events`:
-```sql
-SELECT
-  date_trunc('day', timestamp AT TIME ZONE 'Europe/Vienna')::date as day,
-  COUNT(*) FILTER (WHERE action ? 'ml_recommendation') as total_with_ml,
-  COUNT(*) FILTER (WHERE (action->>'ml_followed')::bool = true) as followed,
-  COUNT(*) FILTER (WHERE (action->>'ml_followed')::bool = false) as overridden,
-  AVG(reward) FILTER (WHERE (action->>'ml_followed')::bool = true) as reward_when_followed,
-  AVG(reward) FILTER (WHERE (action->>'ml_followed')::bool = false) as reward_when_overridden
-FROM learning_events
-WHERE timestamp >= now() - (days_back || ' days')::interval
-  AND action ? 'ml_recommendation'
-GROUP BY 1 ORDER BY 1 DESC;
-```
-
-**b) Neue Komponente** `src/components/heating/MLFollowRateWidget.tsx`:
-- Zeigt für letzte 7 Tage:
-  - Follow-Rate in % (followed / total_with_ml) als großen KPI
-  - Avg Reward wenn ML gefolgt vs. überstimmt (Vergleich)
-  - Mini-Bar-Chart pro Tag (folgte/überstimmte Anzahl)
-- Lädt via `supabase.rpc('get_ml_follow_rate', { days_back: 7 })`
-- Refresh alle 5 Minuten
-
-**c) Einbindung:** In `HeatingDashboard.tsx` neben dem bestehenden `AIStatusWidget` platzieren (oder darunter, je nach Layout-Slot).
-
----
-
-## Reihenfolge
-
-1. Migration: RPC `get_ml_follow_rate` anlegen.
-2. `pv-automation`: Konfidenz-Gating + Pre-Heat-Konsum + ml_recommendation/ml_followed-Tracking.
-3. `analyze-patterns`: `preheating_signal` in `system_settings` upserten.
-4. UI: `MLFollowRateWidget.tsx` + Einbindung im Dashboard.
-5. Memory-Update: `mem://arch/ai-system-limitations` ergänzen um Konfidenz-Stufen + Pre-Heat-Mechanik.
-
-## Out of Scope
-- Keine Änderung der Reward-Funktion (gerade erst normalisiert).
-- Keine Änderung am LLM-Exploration-Throttle.
-- Keine Migration bestehender `learning_events` (neue Felder nur ab jetzt).
+## Erwartetes Ergebnis
+- Tuya-Calls/Tag sinken von ~280+ auf ~30–50.
+- Quota wird nicht mehr vorzeitig erschöpft.
+- Heizung reagiert ehrlich auf echten PV-Überschuss; bei wechselhaftem Wetter ~3–5 Min langsamer, dafür kein Akku-/Netzbezug durch Fehlprognose.
