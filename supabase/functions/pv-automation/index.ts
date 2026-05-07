@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const DEFAULT_PV_SURPLUS_THRESHOLD_ON = 500;
 const DEFAULT_PV_SURPLUS_THRESHOLD_OFF = 200;
-const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 5;
+const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 25; // Reaktive Strategie: 25min Mindest-Heizdauer pro Raum, verhindert Ping-Pong
 
 // ============= TOKEN CACHING =============
 // Cache token in memory (reused across invocations within same instance)
