@@ -6,6 +6,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+// Korrekte Wiener Stunde via Intl (identisch zu anderen Funktionen)
+function getViennaHour(date: Date): number {
+  const formatter = new Intl.DateTimeFormat('de-AT', {
+    timeZone: 'Europe/Vienna',
+    hour: 'numeric',
+    hour12: false,
+  });
+  return parseInt(formatter.format(date), 10);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -72,12 +82,9 @@ serve(async (req) => {
     }>();
 
     for (const event of events) {
-      // Extract hour in Vienna timezone
+      // Extract hour in Vienna timezone (DST-safe via Intl)
       const eventDate = new Date(event.timestamp);
-      // Simple Vienna offset: UTC+1 (winter) or UTC+2 (summer)
-      const month = eventDate.getUTCMonth();
-      const offset = (month >= 2 && month <= 9) ? 2 : 1; // rough DST
-      const viennaHour = (eventDate.getUTCHours() + offset) % 24;
+      const viennaHour = getViennaHour(eventDate);
       
       const key = `${event.room_id}_${viennaHour}`;
       
@@ -116,7 +123,8 @@ serve(async (req) => {
       let bestData: any = null;
 
       for (const [actionKey, data] of group.actions) {
-        if (data.rewards.length < 3) continue; // Need at least 3 samples
+        // Schon ab 1 Sample lernen, aber Konfidenz-Gewichtung später
+        if (data.rewards.length < 1) continue;
         
         const avgReward = data.rewards.reduce((a, b) => a + b, 0) / data.rewards.length;
         if (avgReward > bestAvgReward) {
