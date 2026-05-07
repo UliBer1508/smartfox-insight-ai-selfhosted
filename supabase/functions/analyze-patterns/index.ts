@@ -303,7 +303,39 @@ serve(async (req) => {
         pvPeakPower = Math.max(...Object.values(hourlyWatts).map(w => w as number));
         expectedKwh = pvForecast?.expected_kwh || 0;
       }
-      
+
+      // Vorausschau: Wann beginnen/enden die nächsten Peak-Stunden?
+      let preheatingAdvice = '';
+      if (hourlyWatts && peakHours.length > 0) {
+        const now = new Date();
+        const currentHour = parseInt(now.toLocaleTimeString('de-DE', {
+          timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false
+        }));
+
+        const nextPeakHour = Object.entries(hourlyWatts)
+          .map(([time, watts]) => {
+            const h = parseInt((time.includes(' ') ? time.split(' ')[1] : time).split(':')[0]);
+            return { hour: h, watts: watts as number };
+          })
+          .filter(e => e.hour > currentHour && e.watts > 3000)
+          .sort((a, b) => a.hour - b.hour)[0];
+
+        const currentPvWatts = (hourlyWatts as any)[`${currentHour}:00`] ||
+          (hourlyWatts as any)[`${String(currentHour).padStart(2,'0')}:00`] || 0;
+
+        if (nextPeakHour && nextPeakHour.hour - currentHour <= 2 && currentPvWatts < 2000) {
+          const minutesToPeak = (nextPeakHour.hour - currentHour) * 60;
+          preheatingAdvice = `⚡ VORHEIZ-EMPFEHLUNG: Peak (${nextPeakHour.watts}W) beginnt in ~${minutesToPeak} Minuten (${nextPeakHour.hour}:00). ` +
+            `Räume mit hohem Wärmeverlust jetzt auf Eco vorheizen, damit beim PV-Peak nur noch Comfort-Erhalt nötig ist.`;
+        } else if (pvPower > 3000 && peakHours.length > 0) {
+          const peakEndHour = parseInt(peakHours[peakHours.length - 1].split(':')[0]);
+          if (peakEndHour - currentHour <= 1) {
+            preheatingAdvice = `⏰ PEAK ENDET in ~${(peakEndHour - currentHour) * 60} Minuten. ` +
+              `Jetzt alle Räume auf maximale Comfort-Temp bringen um Wärme zu speichern.`;
+          }
+        }
+      }
+
       prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
 
 ⚠️ **WICHTIG: ALLE ERFORDERLICHEN DATEN SIND UNTEN AUFGEFÜHRT. GIB NUR KONKRETE EMPFEHLUNGEN, KEINE RÜCKFRAGEN!**
