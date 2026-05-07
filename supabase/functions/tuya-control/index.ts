@@ -1150,8 +1150,18 @@ Deno.serve(async (req) => {
 
       const results = [...skipped];
       const now = new Date().toISOString();
+
+      // Quota-Counter mitziehen
+      const incrementQuota = async () => {
+        if (!pushQuotaData) return;
+        pushQuotaData.calls_today++;
+        pushQuotaData.calls_this_month++;
+      };
+
+      for (const room of roomsToPush) {
         try {
           await setDeviceTemperature(accessId, accessSecret, room.tuya_device_id, room.target_temp);
+          await incrementQuota();
 
           // Update last_thermostat_sync in DB
           await supabase
@@ -1164,9 +1174,6 @@ Deno.serve(async (req) => {
         } catch (error) {
           const errStr = String(error);
           const isQuotaError = errStr.includes('60001001') || errStr.toLowerCase().includes('quota');
-          // Bei Quota-Fehlern den Sync-Stempel trotzdem aktualisieren:
-          // Es ist KEIN Geräte-Problem, nur ein Cloud-Throttle. So vergiftet
-          // ein Quota-Block das Stale-Banner nicht dauerhaft.
           if (isQuotaError) {
             await supabase
               .from('rooms')
@@ -1178,8 +1185,16 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Quota persistieren
+      if (pushQuotaData) {
+        await supabase.from('system_settings')
+          .update({ value: pushQuotaData, updated_at: new Date().toISOString() })
+          .eq('key', 'tuya_api_quota');
+        console.log(`[push-all-temps] Quota: ${pushQuotaData.calls_today}/${pushQuotaData.daily_limit} heute, ${pushQuotaData.calls_this_month}/${pushQuotaData.monthly_limit} monatlich`);
+      }
+
       const successCount = results.filter(r => r.success).length;
-      console.log(`[push-all-temps] Complete: ${successCount}/${rooms.length} successful`);
+      console.log(`[push-all-temps] Complete: ${successCount}/${rooms.length} successful (skipped ${skipped.length})`);
 
       return new Response(JSON.stringify({
         success: true,
