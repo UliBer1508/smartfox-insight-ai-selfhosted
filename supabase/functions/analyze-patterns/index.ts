@@ -354,7 +354,7 @@ serve(async (req) => {
           .sort((a, b) => a.hour - b.hour)[0];
         const nowVienna = new Date();
         const ch = parseInt(nowVienna.toLocaleTimeString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false }));
-        await supabase.from('system_settings').upsert({
+        const payload = {
           key: 'preheating_signal',
           value: {
             computed_at: new Date().toISOString(),
@@ -363,8 +363,19 @@ serve(async (req) => {
             minutes_to_peak: nextPeakHourCalc ? (nextPeakHourCalc.hour - ch) * 60 : null,
             expected_peak_w: nextPeakHourCalc?.watts ?? null,
             advice_text: preheatingAdvice || '',
-          }
-        }, { onConflict: 'key' });
+          },
+          updated_at: new Date().toISOString(),
+        };
+        await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+          method: 'POST',
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          },
+          body: JSON.stringify(payload),
+        });
       } catch (e) {
         console.warn('[analyze-patterns] could not upsert preheating_signal:', e);
       }
