@@ -1,28 +1,36 @@
 ---
-name: PV-Automation Strategy v2
-description: Strikt sequentielle 2-Phasen-Strategie — Phase 2 (Komfort) startet erst wenn Phase 1 (Eco) für ALLE Räume abgeschlossen ist
+name: PV Automation Strategy v2 (Reactive)
+description: Reactive heating strategy — wait for real grid export before activating new room. No predictive "effective export" trick.
 type: feature
 ---
 
-Die `pv-automation` folgt einer **strikt sequentiellen** 2-Phasen-Strategie:
+## Reactive PV Heating Strategy
 
-**Phase 1 (Eco-Runde):** Alle Räume unter `eco_temp − 0.3` werden nach Priorität (1→12) auf `eco_temp` hochgeheizt, solange das `availableBudget` (gridExport + heizende Räume + Toleranz + ggf. Prognose-/Trend-/Batterie-Bonus) reicht.
+**Phase 1 (Eco) before Phase 2 (Comfort)** — strikt sequentiell, Prioritäten 1–12.
 
-**Phase-1-Gate (`phase1Complete`):** Nach Phase 1 wird geprüft ob jeder Raum entweder
-- bereits `≥ eco_temp − 0.3` ist, ODER
-- in Phase 1 aktiviert wurde (`targetLevel === 'eco'` mit Budget), ODER
-- durch Pause/Rotation/Override blockiert ist.
+### Komfort-Budget (reaktiv)
+```
+comfortBudget = gridExport − baseloadBuffer + symTrendBonus + lookaheadBonus
+              + batteryFullBonus (only if SOC ≥ 95% AND forecast ≥ 10kW)
+              − abs(batteryPower) if charging
+```
 
-Wenn auch nur **ein** Raum Eco anstrebt aber kein Budget bekommen hat → `phase1Complete = false`.
+**Wichtig:** `gridExport` ist der **echte Zähler-Export**. Die laufende Heizleistung wird **nicht** mehr dazugerechnet (kein "effective export"-Trick mehr). Stattdessen:
 
-**Phase 2 (Komfort-Runde):** Läuft **NUR** wenn `phase1Complete === true`. Räume mit `eco_temp ≤ current_temp < comfort_temp − 0.3` werden nach Priorität auf Komfort upgegradet, solange `comfortBudget` (= `effectiveExport` = `gridExport + currentlyHeatingPower − baseload + trend + lookahead + batteryFullBonus`) reicht.
+- Raum erreicht Komfort → zurück auf Eco-Setpoint → Estrich speichert
+- Frei werdendes Budget wird **nicht im selben Run** umverteilt
+- Erst der **nächste Run** (2 Min später) sieht den realen Export am Zähler und aktiviert ggf. den nächsten Raum
 
-**Wenn Phase 2 übersprungen wird:** Räume die bereits ≥ comfort waren behalten ihren Komfort-Status (kein Downgrade), Räume in Eco-Bereich bleiben auf `targetLevel = 'eco'`. Beim nächsten 2-min-Heartbeat wird neu evaluiert — sobald der letzte Eco-Raum aufgeholt hat, schaltet Phase 2 in einem Tick alle berechtigten Räume auf Komfort hoch.
+### Mindest-Heizdauer / Cooldown
+- `DEFAULT_MIN_SWITCH_INTERVAL_MIN = 25` Minuten (vorher 5)
+- Verhindert Ping-Pong-Umschaltungen, schont Tuya-Quota
+- Gilt nur für Aufheiz-Aktionen; Sicherheits-Stops umgehen Cooldown
 
-**Begründung der sequentiellen Strategie:** Wenn der gesamte Überschuss zuerst in Eco-Aufheizung fließt, erreichen alle Räume Eco messbar schneller, weil keine Komfort-Räume das Budget abziehen. Erst dann wird gemeinsam auf Komfort hochgefahren. Verhindert dass bevorzugte Räume (Prio 1) auf Komfort heizen während andere (Prio 5) noch frieren.
+### Vorteile
+- Massiv weniger Tuya-Calls (~30–50/Tag statt 280+)
+- Keine Phantom-Aktivierungen aus Akku/Netz bei Fehlprognose
+- Logik ehrlich und einfach zu debuggen
 
-**Komfort-Budget-Quellen (strikt):** Nur `effectiveExport` zählt als Komfort-Budget. Niemals Batterie-Reserve oder Prognose-Bonus. Komfort wird zusätzlich durch das Komfort-Hard-Lock geschützt: Bei `batterySoc < heating_min_battery_soc` (default 80%) → `comfortBudget = 0`. Battery-Full Bonus aktiv wenn SOC ≥ 95% und PV-Prognose ≥ 10 kW.
-
-**UI-Plan-Vorausberechnung:** `system_settings.parallel_heating_capacity.max_parallel_comfort` wird nur dann > 0 gesetzt, wenn ALLE Eco-Kandidaten ins Eco-Budget passen. Sonst zeigt das UI nicht irreführend „Komfort möglich" an, während Phase 2 gerade gegated ist.
-
-**Manual Override:** `manual_override_until` wird strikt gegen `now()` (UTC, da `timestamptz`) verglichen. Abgelaufene Overrides werden ignoriert.
+### Nachteil
+- 3–5 Min "verlorene" Sonne pro Raumwechsel (Thermostat-Wakeup)
+- Bei wechselhaftem Wetter etwas langsamere Reaktion
