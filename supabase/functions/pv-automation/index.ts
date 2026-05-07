@@ -2808,6 +2808,9 @@ Deno.serve(async (req) => {
         let expectedEnergyWh: number | undefined;
         let confidence: number | undefined;
         let mlDecision: MLDecision | null | undefined = null; // Außerhalb definiert für spätere Referenz
+        // ML-Tracking: Was hat die Policy empfohlen, sind wir gefolgt?
+        let mlRecommendationForTracking: { action: string; temp: number | null; confidence: number; sample_count: number } | null = null;
+        let mlFollowedDecision: boolean | null = null;
 
         // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
         const nightStart = settings?.night_start_time || '22:00';
