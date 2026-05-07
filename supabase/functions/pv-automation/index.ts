@@ -3298,13 +3298,17 @@ Deno.serve(async (req) => {
           ml_features: latestMlFeatures.find(f => f.room_id === room.id) || null
         };
 
-        const eventAction = {
+        const eventAction: Record<string, unknown> = {
           target_temp: targetTemp,
           reasoning,
           expected_energy_wh: expectedEnergyWh,
           previous_state: room.pv_auto_active,
-          ml_based: usedMlDecision && !!mlDecision
+          ml_based: usedMlDecision && !!mlDecision,
         };
+        if (mlRecommendationForTracking) {
+          eventAction.ml_recommendation = mlRecommendationForTracking;
+          eventAction.ml_followed = mlFollowedDecision === true;
+        }
 
         // Learning-Event nur bei tatsächlichen Aktionen oder ML-Entscheidungen anlegen.
         // Vermeidet ~80% Volumen (skip/keep ohne Reward-Information).
