@@ -103,45 +103,30 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // syncIntervalRef entfernt — Auto-Sync deaktiviert (siehe unten)
 
-  const SYNC_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  // Auto-Sync deaktiviert: Tuya-Cloud-Sync verbraucht 2 Calls/Sync und sprengte
+  // die Tagesquote. Stattdessen liest das Dashboard `current_temp` und `is_heating`
+  // direkt aus der DB (vom lokalen Collector aktuell gehalten).
+  // Manueller Refresh-Button bleibt verfügbar; sync-all hat zusätzlich ein 60-Min-Gate.
 
   useEffect(() => {
     loadRecommendations();
     loadForecasts();
     loadHeatingLogs();
-  }, [loadRecommendations, loadForecasts, loadHeatingLogs]);
+    // Räume aus DB neu laden (kein Tuya-Call)
+    loadRooms();
+  }, [loadRecommendations, loadForecasts, loadHeatingLogs, loadRooms]);
 
-  // Auto-sync thermostats every 5 minutes
+  // DB-Polling alle 60s für aktuelle Raumdaten — verursacht KEINE Tuya-Calls
   useEffect(() => {
-    const doSync = async () => {
-      // Only sync if page is visible
-      if (document.visibilityState !== 'visible') {
-        console.log('[Auto-Sync] Skipped - page not visible');
-        return;
-      }
-      
-      console.log('[Auto-Sync] Syncing thermostats...');
-      await syncAllStatus();
-      await loadRooms();
-      await loadHeatingLogs();
-      setLastSyncTime(new Date());
-    };
-
-    // Initial sync
-    doSync();
-
-    // Set up periodic sync
-    syncIntervalRef.current = setInterval(doSync, SYNC_INTERVAL_MS);
-
-    // Cleanup on unmount
-    return () => {
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-      }
-    };
-  }, [syncAllStatus, loadRooms, loadHeatingLogs]);
+    const dbPoll = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      loadRooms();
+      loadHeatingLogs();
+    }, 60_000);
+    return () => clearInterval(dbPoll);
+  }, [loadRooms, loadHeatingLogs]);
 
   const handleSyncThermostats = useCallback(async () => {
     await syncAllStatus();

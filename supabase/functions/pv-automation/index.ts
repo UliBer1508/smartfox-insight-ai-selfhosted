@@ -7,7 +7,7 @@ const corsHeaders = {
 
 const DEFAULT_PV_SURPLUS_THRESHOLD_ON = 500;
 const DEFAULT_PV_SURPLUS_THRESHOLD_OFF = 200;
-const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 5;
+const DEFAULT_MIN_SWITCH_INTERVAL_MIN = 25; // Reaktive Strategie: 25min Mindest-Heizdauer pro Raum, verhindert Ping-Pong
 
 // ============= TOKEN CACHING =============
 // Cache token in memory (reused across invocations within same instance)
@@ -1635,11 +1635,12 @@ Deno.serve(async (req) => {
             console.log(`[LOOKAHEAD] Berechnung fehlgeschlagen: ${e}`);
           }
 
-          // Separates Komfort-Budget: gridExport − Baseload-Puffer + Trend (symmetrisch) + Lookahead
-          // KEIN Batterie-Bonus, KEIN Prognose-Mindest-Bonus.
-          // FIX A: Aktuell heizende Räume hinzurechnen, sonst blockiert das laufende Heizen
-          // den potenziellen Export → Komfort-Budget bleibt 0 (Henne-Ei-Problem).
-          const effectiveExport = gridExport + (currentlyHeatingPower || 0);
+          // REAKTIVE STRATEGIE: Komfort-Budget = NUR echter Zähler-Export.
+          // Kein "effective Export"-Trick mehr: Wir rechnen die laufende Heizleistung
+          // NICHT mehr als "wird gleich frei" hinzu, sondern warten, bis der Zähler
+          // tatsächlich Export zeigt. So entstehen keine Phantom-Aktivierungen, die
+          // dann aus Akku/Netz gespeist werden müssen.
+          const effectiveExport = gridExport; // Reaktiv: nur echter Export zählt
           let rawComfortBudget = effectiveExport - dynamicBaseloadBuffer + trendBonus + lookaheadBonus;
           if (batteryPower < 0) {
             rawComfortBudget = rawComfortBudget - Math.abs(batteryPower);

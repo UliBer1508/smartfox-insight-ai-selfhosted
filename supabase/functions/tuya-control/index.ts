@@ -619,6 +619,25 @@ Deno.serve(async (req) => {
         if (syncQuotaData.today !== wienDate) { syncQuotaData.calls_today = 0; syncQuotaData.today = wienDate; }
         if (syncQuotaData.calls_today > (syncQuotaData.daily_limit || 33) * 2) syncQuotaData.calls_today = syncQuotaData.daily_limit || 33;
         if (syncQuotaData.calls_this_month > (syncQuotaData.monthly_limit || 900) * 2) syncQuotaData.calls_this_month = syncQuotaData.monthly_limit || 900;
+
+        // LAST-SYNC-GATE: max. 1 Tuya-Sync pro 60 Min. Erspart unnötige Calls,
+        // weil current_temp/is_heating ohnehin via lokalem Collector aktuell sind.
+        // Bypass mit ?force=1 für manuelle Refresh-Aktionen.
+        const forceSync = url.searchParams.get('force') === '1';
+        const lastSyncMs = syncQuotaData.last_sync_at ? new Date(syncQuotaData.last_sync_at).getTime() : 0;
+        const minutesSinceSync = lastSyncMs > 0 ? (Date.now() - lastSyncMs) / 60000 : 9999;
+        if (!forceSync && minutesSinceSync < 60) {
+          console.log(`[tuya-control] sync-all gated: last sync ${minutesSinceSync.toFixed(1)}min ago (<60min) → DB-Daten`);
+          const results = rooms.map(r => ({
+            roomId: r.id, name: r.name,
+            currentTemp: r.current_temp, targetTemp: r.target_temp,
+            isHeating: r.is_heating, synced: false, gated: true,
+            minutesSinceSync: Math.round(minutesSinceSync),
+          }));
+          return new Response(JSON.stringify({ success: true, results, gated: true, minutesSinceSync: Math.round(minutesSinceSync) }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         
         const ml = syncQuotaData.monthly_limit || 900;
         const dl = syncQuotaData.daily_limit || 33;
@@ -1083,14 +1102,66 @@ Deno.serve(async (req) => {
         });
       }
 
-      console.log(`[push-all-temps] Pushing target temps to ${rooms.length} thermostats...`);
+      // QUOTA GATE für push-all-temps: pro Raum 1 Call. Max so viele Räume pushen,
+      // wie effektives Tagesbudget noch hergibt.
+      const { data: pushQuotaSetting } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'tuya_api_quota')
+        .maybeSingle();
+      let pushQuotaData = pushQuotaSetting?.value as { monthly_limit: number; calls_this_month: number; month: string; daily_limit: number; calls_today: number; today: string; last_sync_at: string | null } | null;
+      let pushAllowed = rooms.length;
+      if (pushQuotaData) {
+        const nowD = new Date();
+        const curMonth = `${nowD.getFullYear()}-${String(nowD.getMonth() + 1).padStart(2, '0')}`;
+        const wDate = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(nowD);
+        if (pushQuotaData.month !== curMonth) { pushQuotaData.calls_this_month = 0; pushQuotaData.month = curMonth; }
+        if (pushQuotaData.today !== wDate) { pushQuotaData.calls_today = 0; pushQuotaData.today = wDate; }
+        // Dynamisches Limit (Monatsrest / verbleibende Tage)
+        const monthlyLim = pushQuotaData.monthly_limit || 3000;
+        const cfgDaily = pushQuotaData.daily_limit || 200;
+        const daysInMonth = new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0).getDate();
+        const wDay = parseInt(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna', day: 'numeric' }).format(nowD));
+        const remDays = Math.max(1, daysInMonth - wDay + 1);
+        const remMonthly = Math.max(0, monthlyLim - pushQuotaData.calls_this_month);
+        const dynDaily = Math.max(30, Math.floor(remMonthly / remDays));
+        const effDaily = Math.max(1, Math.min(cfgDaily, dynDaily) - 2);
+        pushAllowed = Math.max(0, effDaily - pushQuotaData.calls_today);
+        if (pushAllowed === 0) {
+          console.log(`[push-all-temps] ⛔ Quota erschöpft (${pushQuotaData.calls_today}/${effDaily} eff.) - kein Push`);
+          return new Response(JSON.stringify({
+            success: false, fallback: true, errorCode: 'TUYA_API_QUOTA_EXHAUSTED',
+            error: 'Tuya API Quota erschöpft - Push nicht möglich.',
+            quotaExhausted: true, results: [], summary: '0/0',
+          }), { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+        }
+        if (pushAllowed < rooms.length) {
+          console.log(`[push-all-temps] ⚠️ Quota-Limit: nur ${pushAllowed}/${rooms.length} Räume werden gepusht`);
+        }
+      }
 
-      const results = [];
+      const roomsToPush = rooms.slice(0, pushAllowed);
+      const skipped = rooms.slice(pushAllowed).map(r => ({
+        roomId: r.id, name: r.name, targetTemp: r.target_temp, success: false,
+        error: 'skipped: quota limit', skipped: true,
+      }));
+
+      console.log(`[push-all-temps] Pushing target temps to ${roomsToPush.length} thermostats...`);
+
+      const results = [...skipped];
       const now = new Date().toISOString();
 
-      for (const room of rooms) {
+      // Quota-Counter mitziehen
+      const incrementQuota = async () => {
+        if (!pushQuotaData) return;
+        pushQuotaData.calls_today++;
+        pushQuotaData.calls_this_month++;
+      };
+
+      for (const room of roomsToPush) {
         try {
           await setDeviceTemperature(accessId, accessSecret, room.tuya_device_id, room.target_temp);
+          await incrementQuota();
 
           // Update last_thermostat_sync in DB
           await supabase
@@ -1103,9 +1174,6 @@ Deno.serve(async (req) => {
         } catch (error) {
           const errStr = String(error);
           const isQuotaError = errStr.includes('60001001') || errStr.toLowerCase().includes('quota');
-          // Bei Quota-Fehlern den Sync-Stempel trotzdem aktualisieren:
-          // Es ist KEIN Geräte-Problem, nur ein Cloud-Throttle. So vergiftet
-          // ein Quota-Block das Stale-Banner nicht dauerhaft.
           if (isQuotaError) {
             await supabase
               .from('rooms')
@@ -1117,8 +1185,16 @@ Deno.serve(async (req) => {
         }
       }
 
+      // Quota persistieren
+      if (pushQuotaData) {
+        await supabase.from('system_settings')
+          .update({ value: pushQuotaData, updated_at: new Date().toISOString() })
+          .eq('key', 'tuya_api_quota');
+        console.log(`[push-all-temps] Quota: ${pushQuotaData.calls_today}/${pushQuotaData.daily_limit} heute, ${pushQuotaData.calls_this_month}/${pushQuotaData.monthly_limit} monatlich`);
+      }
+
       const successCount = results.filter(r => r.success).length;
-      console.log(`[push-all-temps] Complete: ${successCount}/${rooms.length} successful`);
+      console.log(`[push-all-temps] Complete: ${successCount}/${rooms.length} successful (skipped ${skipped.length})`);
 
       return new Response(JSON.stringify({
         success: true,
