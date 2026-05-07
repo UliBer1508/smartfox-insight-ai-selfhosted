@@ -157,6 +157,9 @@ serve(async (req) => {
         : decisionType === 'budget' ? 'activate'
         : 'keep';
 
+      // Konfidenz-Faktor: 1 Sample = 0.26, 3 = 0.59, 10+ = 0.95
+      const sampleConfidence = Math.min(0.95, 1 - Math.exp(-bestData.rewards.length * 0.3));
+
       const { error: upsertError } = await supabase
         .from('learned_policies')
         .upsert({
@@ -164,7 +167,8 @@ serve(async (req) => {
           hour_of_day: group.hour,
           recommended_action: recommendedAction,
           recommended_temp: avgTemp ? Math.round(avgTemp * 2) / 2 : null, // Round to 0.5
-          avg_reward: Math.round(bestAvgReward * 1000) / 1000,
+          avg_reward: Math.round(bestAvgReward * sampleConfidence * 1000) / 1000,
+          learning_confidence: Math.round(sampleConfidence * 1000) / 1000,
           sample_count: bestData.rewards.length,
           success_rate: Math.round(successRate * 1000) / 1000,
           avg_grid_import_wh: Math.round(avgGridImport),
