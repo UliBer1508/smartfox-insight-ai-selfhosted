@@ -289,70 +289,65 @@ function calculateReward(
 ): { total: number; breakdown: any } {
   const breakdown: any = {};
 
-  // 1. Energiekosten-Komponente (negativ = schlecht)
+  // Gewichtungen (summieren sich zu 1.0)
+  const weights = {
+    energy_cost: 0.35,
+    pv_usage: 0.30,
+    comfort: 0.25,
+    battery: 0.05,
+    forecast: 0.05,
+  };
+
+  // 1. Energiekosten: normalisiert auf [-1, 0]
+  const maxCostRef = electricityPrice / 100; // EUR für 1 kWh zu Spitzenpreis
   const gridCostEur = (outcome.grid_import_wh / 1000) * (electricityPrice / 100);
-  breakdown.energy_cost = -gridCostEur;
+  breakdown.energy_cost = -Math.min(1, maxCostRef > 0 ? gridCostEur / maxCostRef : 0);
 
-  // 2. PV-Nutzungs-Bonus (positiv für Eigenverbrauch)
-  const pvRatio = outcome.energy_used_wh > 0 
-    ? outcome.pv_used_wh / outcome.energy_used_wh 
+  // 2. PV-Nutzung: [0, +1]
+  const pvRatio = outcome.energy_used_wh > 0
+    ? outcome.pv_used_wh / outcome.energy_used_wh
     : 0;
-  breakdown.pv_usage_bonus = pvRatio * 0.5; // Max 0.5 Punkte
+  breakdown.pv_usage = Math.min(1, pvRatio);
 
-  // 3. Batterie-Effizienz (weniger Batterie nachts = besser für Langlebigkeit)
-  const batteryRatio = outcome.energy_used_wh > 0 
-    ? outcome.battery_used_wh / outcome.energy_used_wh 
+  // 3. Komfort: [-1, +1]
+  const isHeatingAction = ['activate', 'heating_on', 'preheat'].includes(event.decision_type);
+  if (isHeatingAction) {
+    if (outcome.target_reached) {
+      breakdown.comfort = 1.0;
+    } else if (outcome.temp_change && outcome.temp_change > 0) {
+      const targetDelta = (event.action?.target_temp || 21) - (outcome.temp_start || 18);
+      const progress = targetDelta > 0 ? outcome.temp_change / targetDelta : 0;
+      breakdown.comfort = Math.min(0.8, progress);
+    } else {
+      breakdown.comfort = -1.0;
+    }
+  } else {
+    breakdown.comfort = 0;
+  }
+
+  // 4. Batterie: [-0.5, +0.5] (nachts neutral, tagsüber Batterie meiden)
+  const batteryRatio = outcome.energy_used_wh > 0
+    ? outcome.battery_used_wh / outcome.energy_used_wh
     : 0;
-  // Nachts ist Batterie-Nutzung akzeptabel, tagsüber PV bevorzugen
   const hour = new Date(event.timestamp).getHours();
   const isNight = hour < 6 || hour >= 22;
-  breakdown.battery_efficiency = isNight 
-    ? batteryRatio * 0.2 // Nachts: Batterie OK
-    : -batteryRatio * 0.3; // Tags: Batterie vermeiden wenn PV da
+  breakdown.battery = isNight ? 0 : -batteryRatio;
 
-  // 4. Komfort-Komponente
-  if (event.decision_type === 'activate' || event.decision_type === 'heating_on' || event.decision_type === 'preheat') {
-    if (outcome.target_reached) {
-      breakdown.comfort_bonus = 0.8; // Ziel erreicht
-    } else if (outcome.temp_change && outcome.temp_change > 0) {
-      breakdown.comfort_bonus = 0.3; // Teilweise erwärmt
-    } else {
-      breakdown.comfort_bonus = -0.5; // Kein Effekt
-    }
+  // 5. Prognosequalität: [-0.5, +0.5]
+  if (outcome.forecast_accuracy !== null && outcome.forecast_accuracy !== undefined) {
+    breakdown.forecast = (outcome.forecast_accuracy - 0.5) * 1.0;
   } else {
-    breakdown.comfort_bonus = 0;
+    breakdown.forecast = 0;
   }
 
-  // 5. Effizienz-Komponente (Energie pro Grad)
-  if (outcome.temp_change && outcome.temp_change > 0.1) {
-    const energyPerDegree = outcome.energy_used_wh / outcome.temp_change;
-    // Vergleiche mit erwartetem Wert (aus Kontext)
-    const expectedEnergyPerDegree = event.context?.expected_energy_per_degree || 500;
-    const efficiency = expectedEnergyPerDegree / energyPerDegree; // >1 = besser als erwartet
-    breakdown.efficiency_bonus = Math.min(0.5, Math.max(-0.5, (efficiency - 1) * 0.5));
-  } else {
-    breakdown.efficiency_bonus = 0;
-  }
+  const total =
+    breakdown.energy_cost * weights.energy_cost +
+    breakdown.pv_usage * weights.pv_usage +
+    breakdown.comfort * weights.comfort +
+    breakdown.battery * weights.battery +
+    breakdown.forecast * weights.forecast;
 
-  // 6. Prognose-Qualitäts-Komponente (NEU)
-  // Bonus wenn die PV-Prognose akkurat war und die Entscheidung darauf basierte
-  if (outcome.forecast_accuracy !== null) {
-    if (outcome.forecast_accuracy > 0.8) {
-      // Gute Prognose = die Entscheidung basierte auf guten Daten
-      breakdown.forecast_quality = 0.2;
-    } else if (outcome.forecast_accuracy > 0.5) {
-      // Mittlere Prognose = neutral
-      breakdown.forecast_quality = 0;
-    } else {
-      // Schlechte Prognose = Entscheidung basierte auf falschen Annahmen
-      breakdown.forecast_quality = -0.1;
-    }
-  } else {
-    breakdown.forecast_quality = 0;
-  }
-
-  // Gesamtreward
-  const total = Object.values(breakdown).reduce((sum: number, val: any) => sum + val, 0);
+  breakdown._weights = weights;
 
   return { total, breakdown };
 }
