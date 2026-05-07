@@ -605,6 +605,7 @@ export type Database = {
           created_at: string | null
           hour_of_day: number
           id: string
+          learning_confidence: number | null
           recommended_action: string
           recommended_temp: number | null
           room_id: string
@@ -620,6 +621,7 @@ export type Database = {
           created_at?: string | null
           hour_of_day: number
           id?: string
+          learning_confidence?: number | null
           recommended_action?: string
           recommended_temp?: number | null
           room_id: string
@@ -635,6 +637,7 @@ export type Database = {
           created_at?: string | null
           hour_of_day?: number
           id?: string
+          learning_confidence?: number | null
           recommended_action?: string
           recommended_temp?: number | null
           room_id?: string

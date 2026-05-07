@@ -148,52 +148,50 @@ function calculateFeatures(
   // 6. Effizienz-Metriken
   const efficiency = calculateEfficiencyMetrics(heatingLogs, energyReadings);
 
-  // 7. Confidence basierend auf Feature-Qualität (nicht nur Datenmenge)
+  // Confidence basierend auf Datenqualität (Menge, Konsistenz, Aktualität)
   const sampleCount = tempSamples.length + heatingLogs.length;
-  
-  // Confidence-Komponenten: welche Features konnten berechnet werden?
-  let confidenceScore = 0;
-  let maxScore = 0;
-  
-  // Kernfeatures: jeweils 20% Gewicht
-  maxScore += 20;
-  if (heatLossRate !== null) confidenceScore += 20;
-  
-  maxScore += 20;
-  if (heatingRate !== null) confidenceScore += 20;
-  
-  maxScore += 15;
-  if (energyPerDegree !== null) confidenceScore += 15;
-  
-  maxScore += 10;
-  if (solarGainFactor.factor !== null) confidenceScore += 10;
-  
-  // Heizverhalten: 15% Gewicht
-  maxScore += 15;
-  if (heatingBehavior.avgDuration !== null && heatingBehavior.avgCycles !== null) {
-    confidenceScore += 15;
-  } else if (heatingBehavior.avgDuration !== null || heatingBehavior.avgCycles !== null) {
-    confidenceScore += 8;
-  }
-  
-  // Effizienz-Metriken: 10% Gewicht
-  maxScore += 10;
-  if (efficiency.pvRatio !== null) confidenceScore += 10;
-  
-  // Sample-Bonus: bis zu 10% extra für viele Datenpunkte
-  maxScore += 10;
-  const heatingCycles = heatingLogs.filter(l => 
+
+  const heatingCycles = heatingLogs.filter(l =>
     l.event_type === 'heating_stop' || l.event_type === 'solar_limit_stop'
   ).length;
-  if (heatingCycles >= 20) {
-    confidenceScore += 10;
-  } else if (heatingCycles >= 10) {
-    confidenceScore += 7;
-  } else if (heatingCycles >= 5) {
-    confidenceScore += 4;
+
+  // Komponente 1: Datenmenge (40%)
+  const cycleScore = Math.min(1, heatingCycles / 50) * 0.8 +
+    (heatingCycles >= 10 ? 0.2 : heatingCycles / 50 * 0.2);
+
+  // Komponente 2: Konsistenz der Heizraten (30%)
+  let consistencyScore = 0;
+  if (heatingRate !== null) {
+    const heatingPeriodTemps: number[] = [];
+    for (let i = 1; i < tempSamples.length; i++) {
+      if (tempSamples[i].is_heating && tempSamples[i-1].is_heating) {
+        const duration = (new Date(tempSamples[i].timestamp).getTime() -
+          new Date(tempSamples[i-1].timestamp).getTime()) / 3600000;
+        const gain = tempSamples[i].temperature - tempSamples[i-1].temperature;
+        if (duration > 0 && gain > 0) heatingPeriodTemps.push(gain / duration);
+      }
+    }
+    if (heatingPeriodTemps.length >= 3) {
+      const mean = heatingPeriodTemps.reduce((a, b) => a + b, 0) / heatingPeriodTemps.length;
+      const variance = heatingPeriodTemps.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / heatingPeriodTemps.length;
+      const cv = mean > 0 ? Math.sqrt(variance) / mean : 1;
+      consistencyScore = Math.max(0, 1 - cv);
+    }
   }
-  
-  const confidence = Math.round((confidenceScore / maxScore) * 100) / 100;
+
+  // Komponente 3: Aktualität (30%)
+  const newestSample = tempSamples.length > 0
+    ? new Date(tempSamples[tempSamples.length - 1].timestamp)
+    : null;
+  let recencyScore = 0;
+  if (newestSample) {
+    const daysSinceLastSample = (Date.now() - newestSample.getTime()) / (1000 * 60 * 60 * 24);
+    recencyScore = Math.max(0, 1 - daysSinceLastSample / 7);
+  }
+
+  const confidence = Math.round(
+    (cycleScore * 0.4 + consistencyScore * 0.3 + recencyScore * 0.3) * 100
+  ) / 100;
 
   const preheatDuration = heatingRate && heatingRate > 0 ? 60 / heatingRate : null;
   

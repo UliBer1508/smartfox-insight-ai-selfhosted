@@ -1,36 +1,47 @@
-## Bewertung & Lösung (4 Punkte)
+## Plan: 5 KI/ML-Verbesserungen
 
-### 1. Funktion ist zu groß (~3500 Zeilen)
-Berechtigte Beobachtung, aber **kein Quick-Fix**: Das Aufteilen in `calculate-budget`, `execute-heating-decisions`, `night-handler` würde >1000 geteilte Variablen über HTTP-Calls serialisieren — hohes Regressionsrisiko, mehr Latenz, Quota-Mehrkosten. **Empfehlung: nicht jetzt umsetzen**, sondern als eigener Refactor-Sprint mit Tests planen. Ich lege dafür kein Code an.
+Alle 5 Verbesserungen wie spezifiziert umsetzen — rein serverseitig in Edge Functions + 1 Migration.
 
-### 2. ML-Cache: SOC-Schwelle auf absolute Werte (Zeile ~2440)
-Heute: relativ (`socChange = |Δ| / cachedSoc > SIGNIFICANT_CHANGE_THRESHOLD`) → bei normaler Tagesschwankung 80→48% wird invalidiert.
-**Fix:** SOC-Invalidierung nur bei den Schwellen, die wirklich Verhalten ändern:
-- SOC fällt unter `heatingMinSoc` (Komfort-Hardlock greift) ODER
-- SOC steigt erstmals über 90% (Battery-Full-Bonus wird relevant) ODER
-- SOC-Bucket-Wechsel ≥15 absolute %-Punkte (Robustheit)
+### 1. `supabase/functions/evaluate-decision/index.ts`
+- `calculateReward` komplett ersetzen durch normalisierte Variante (alle Komponenten in [-1,+1], gewichtete Summe mit `weights`-Objekt: energy_cost 0.35, pv_usage 0.30, comfort 0.25, battery 0.05, forecast 0.05).
+- `breakdown._weights` mitspeichern für Transparenz.
+- Hinweis: bestehende Breakdown-Keys (`energy_cost`, `comfort_bonus`, `pv_usage_bonus`, `battery_efficiency`, `efficiency_bonus`, `forecast_quality`) ändern sich zu `energy_cost`, `pv_usage`, `comfort`, `battery`, `forecast`. `efficiency_bonus` entfällt — kein Konsument im Code (verifiziert in `update-learned-policies` und Frontend).
 
-PV-Logik (`pvDroppedBelowGate` 500W) bleibt unverändert.
+### 2. `supabase/functions/ml-feature-extraction/index.ts`
+- Konfidenz-Block (Zeilen 151–196) ersetzen: neue 3-Faktor-Berechnung
+  - cycleScore (40%): basierend auf `heatingCycles` (sigmoid-artig)
+  - consistencyScore (30%): Variationskoeffizient der Heizraten aus `tempSamples`
+  - recencyScore (30%): Tage seit letztem Sample
+- `confidence = round((cycle*0.4 + consistency*0.3 + recency*0.3) * 100)/100`
+- `sample_count` und Return-Objekt unverändert.
 
-### 3. Konsistente Batterie-Benennung (Zeile ~1338)
-Heute zwei Varianten im Code. **Fix:** Zwei abgeleitete Helper-Konstanten direkt nach der Normalisierung einführen:
-```ts
-const batteryChargingW   = Math.max(0,  batteryPower); // >0 = lädt
-const batteryDischargingW = Math.max(0, -batteryPower); // >0 = entlädt
+### 3. `supabase/functions/update-learned-policies/index.ts`
+- Hilfsfunktion `getViennaHour(date)` via `Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: 'numeric', hour12: false })` direkt nach den Imports einfügen.
+- Im Event-Loop die grobe DST-Näherung (`month >= 2 && month <= 9 ? 2 : 1`) durch `const viennaHour = getViennaHour(eventDate);` ersetzen.
+
+### 4. `supabase/functions/update-learned-policies/index.ts` (Verbesserung 5)
+- Schwelle `if (data.rewards.length < 3) continue;` → `if (data.rewards.length < 1) continue;`
+- `sampleConfidence = Math.min(0.95, 1 - Math.exp(-data.rewards.length * 0.3))`
+- Im Upsert: `avg_reward: round(bestAvgReward * sampleConfidence * 1000)/1000`, neues Feld `learning_confidence: round(sampleConfidence * 1000)/1000`.
+
+### 5. Migration `supabase/migrations/<timestamp>_add_learning_confidence.sql`
+```sql
+ALTER TABLE learned_policies
+  ADD COLUMN IF NOT EXISTS learning_confidence float DEFAULT 0;
+COMMENT ON COLUMN learned_policies.learning_confidence IS
+  'Konfidenz basierend auf Anzahl Samples: 1=0.26, 3=0.59, 10+=0.95';
 ```
-Diese **zusätzlich** zu `batteryPower` bereitstellen. Alle vorhandenen Vorzeichen-Vergleiche bleiben funktional unverändert, neue Codestellen können die klaren Namen verwenden. Dadurch kein Big-Bang-Rewrite, aber sauberer Migrationspfad.
 
-### 4. Learning-Events nur bei echten Aktionen (Zeile ~3217)
-Heute: bei jedem Run pro Raum ein Event (12×30/h = 8640/Tag). **Fix:** Insert nur wenn:
-- `action === 'activate'` ODER `action === 'deactivate'` ODER
-- `usedMlDecision === true` (ML-Entscheidung muss bewertet werden — auch bei `keep`, sonst kein Reward-Feedback)
+### 6. `supabase/functions/analyze-patterns/index.ts` (Verbesserung 4)
+- Nach `peakHours`-Berechnung (≈ Zeile 305) den `preheatingAdvice`-Block einfügen (Vorausschau auf nächsten Peak / Peak-Ende, Wiener Zeit via `Intl`).
+- Im `optimize_decision`-Prompt direkt nach dem `**ENERGIESITUATION:**`-Block (nach Zeile 323) einfügen:
+  `${preheatingAdvice ? '\n**' + preheatingAdvice + '**\n' : ''}`
 
-`keep`/`skip` ohne ML werden nicht mehr persistiert. Spart ~80% der Events ohne Reward-Information zu verlieren. Bestehende Daten unberührt; Cleanup via `cleanup_old_data` (>30d) regelt Volumen.
+### Keine Änderungen
+- Keine Frontend-Anpassungen.
+- Keine Anpassungen an `learned_policies`-Konsumenten in `pv-automation` nötig (lesen `recommended_action`/`recommended_temp`, nicht `avg_reward`).
 
-## Datei-Änderungen
-Nur `supabase/functions/pv-automation/index.ts`:
-1. ML-Cache-Block (~2440–2457): Ersatz der `socChange`-Bedingung durch absolute Trigger.
-2. Nach Zeile 1341: Helper-Konstanten `batteryChargingW`, `batteryDischargingW` einführen.
-3. Learning-Event-Insert (~3217): in `if`-Block einwickeln.
-
-Keine DB-Migration, keine Schema-Änderung.
+### Reihenfolge der Ausführung
+1. Migration erstellen (DB-Schema zuerst).
+2. Edge-Function-Dateien editieren.
+3. Auto-Deploy erfolgt durch die Plattform.
