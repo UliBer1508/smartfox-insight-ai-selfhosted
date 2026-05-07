@@ -1492,6 +1492,17 @@ export type Database = {
           total_minutes: number
         }[]
       }
+      get_ml_follow_rate: {
+        Args: { days_back?: number }
+        Returns: {
+          day: string
+          followed: number
+          overridden: number
+          reward_when_followed: number
+          reward_when_overridden: number
+          total_with_ml: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
