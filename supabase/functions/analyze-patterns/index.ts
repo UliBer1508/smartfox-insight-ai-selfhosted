@@ -353,6 +353,7 @@ serve(async (req) => {
 - Batterie-SOC: ${batterySoc}% ${batterySoc > 80 ? '✅' : batterySoc > 50 ? '➖' : batterySoc > 20 ? '⚠️' : '❌'}
 - PV-Leistung: ${pvPower}W
 - Verbrauch: ${consumption}W
+${preheatingAdvice ? '\n**' + preheatingAdvice + '**\n' : ''}
 
 **WETTER:**
 ${weatherData ? `- Außentemp: ${weatherData.temperature_c}°C, Bewölkung: ${weatherData.cloud_cover_percent}%, Strahlung: ${weatherData.direct_radiation_wm2 || 0}W/m²` : '- Keine Wetterdaten verfügbar'}
