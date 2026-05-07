@@ -1,47 +1,118 @@
-## Plan: 5 KI/ML-Verbesserungen
+# Plan: ML/KI tiefer in pv-automation integrieren
 
-Alle 5 Verbesserungen wie spezifiziert umsetzen — rein serverseitig in Edge Functions + 1 Migration.
+Drei aufeinander abgestimmte Verbesserungen, die ML-Outputs aktiv in die Heizungssteuerung einbringen und sichtbar machen.
 
-### 1. `supabase/functions/evaluate-decision/index.ts`
-- `calculateReward` komplett ersetzen durch normalisierte Variante (alle Komponenten in [-1,+1], gewichtete Summe mit `weights`-Objekt: energy_cost 0.35, pv_usage 0.30, comfort 0.25, battery 0.05, forecast 0.05).
-- `breakdown._weights` mitspeichern für Transparenz.
-- Hinweis: bestehende Breakdown-Keys (`energy_cost`, `comfort_bonus`, `pv_usage_bonus`, `battery_efficiency`, `efficiency_bonus`, `forecast_quality`) ändern sich zu `energy_cost`, `pv_usage`, `comfort`, `battery`, `forecast`. `efficiency_bonus` entfällt — kein Konsument im Code (verifiziert in `update-learned-policies` und Frontend).
+---
 
-### 2. `supabase/functions/ml-feature-extraction/index.ts`
-- Konfidenz-Block (Zeilen 151–196) ersetzen: neue 3-Faktor-Berechnung
-  - cycleScore (40%): basierend auf `heatingCycles` (sigmoid-artig)
-  - consistencyScore (30%): Variationskoeffizient der Heizraten aus `tempSamples`
-  - recencyScore (30%): Tage seit letztem Sample
-- `confidence = round((cycle*0.4 + consistency*0.3 + recency*0.3) * 100)/100`
-- `sample_count` und Return-Objekt unverändert.
+## 1. `learning_confidence` aktiv nutzen in `pv-automation`
 
-### 3. `supabase/functions/update-learned-policies/index.ts`
-- Hilfsfunktion `getViennaHour(date)` via `Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: 'numeric', hour12: false })` direkt nach den Imports einfügen.
-- Im Event-Loop die grobe DST-Näherung (`month >= 2 && month <= 9 ? 2 : 1`) durch `const viennaHour = getViennaHour(eventDate);` ersetzen.
+**Datei:** `supabase/functions/pv-automation/index.ts` (Zeile ~2842–2876)
 
-### 4. `supabase/functions/update-learned-policies/index.ts` (Verbesserung 5)
-- Schwelle `if (data.rewards.length < 3) continue;` → `if (data.rewards.length < 1) continue;`
-- `sampleConfidence = Math.min(0.95, 1 - Math.exp(-data.rewards.length * 0.3))`
-- Im Upsert: `avg_reward: round(bestAvgReward * sampleConfidence * 1000)/1000`, neues Feld `learning_confidence: round(sampleConfidence * 1000)/1000`.
+Aktuelle Schwelle für Exploitation: `sample_count >= 20 && success_rate > 0.5`. Neue dreistufige Logik basierend auf `learning_confidence`:
 
-### 5. Migration `supabase/migrations/<timestamp>_add_learning_confidence.sql`
-```sql
-ALTER TABLE learned_policies
-  ADD COLUMN IF NOT EXISTS learning_confidence float DEFAULT 0;
-COMMENT ON COLUMN learned_policies.learning_confidence IS
-  'Konfidenz basierend auf Anzahl Samples: 1=0.26, 3=0.59, 10+=0.95';
+```text
+learning_confidence >= 0.7  → Exploitation (Policy folgen)
+learning_confidence 0.4-0.7 → Soft-Hint: Policy nur folgen wenn sie mit Budget-
+                              Logik kompatibel ist (kein activate gegen leeres
+                              Budget, kein deactivate eines Komfort-gesättigten
+                              Raums); sonst Standard-Pfad
+learning_confidence < 0.4   → Policy ignorieren, immer LLM/Standard
 ```
 
-### 6. `supabase/functions/analyze-patterns/index.ts` (Verbesserung 4)
-- Nach `peakHours`-Berechnung (≈ Zeile 305) den `preheatingAdvice`-Block einfügen (Vorausschau auf nächsten Peak / Peak-Ende, Wiener Zeit via `Intl`).
-- Im `optimize_decision`-Prompt direkt nach dem `**ENERGIESITUATION:**`-Block (nach Zeile 323) einfügen:
-  `${preheatingAdvice ? '\n**' + preheatingAdvice + '**\n' : ''}`
+Zusätzlich `learnedPolicy.recommended_temp` nur übernehmen wenn innerhalb `[night_temp, comfort_temp]` des Raums (Safety-Clamp).
 
-### Keine Änderungen
-- Keine Frontend-Anpassungen.
-- Keine Anpassungen an `learned_policies`-Konsumenten in `pv-automation` nötig (lesen `recommended_action`/`recommended_temp`, nicht `avg_reward`).
+Reasoning-Text erweitern: `📊 Policy (conf 0.82, 12 Samples, ...)` damit im UI sichtbar warum die Policy gewählt/ignoriert wurde.
 
-### Reihenfolge der Ausführung
-1. Migration erstellen (DB-Schema zuerst).
-2. Edge-Function-Dateien editieren.
-3. Auto-Deploy erfolgt durch die Plattform.
+**Tracking:** Pro Entscheidung in das bereits bestehende `learning_events.action`-Objekt zwei Felder schreiben:
+- `ml_recommendation`: `{ action, temp, confidence }` (immer was die Policy gesagt hätte)
+- `ml_followed`: `boolean` (ob pv-automation der Empfehlung gefolgt ist)
+
+---
+
+## 2. `preheatingAdvice` strukturell als Pre-Heat-Trigger nutzen
+
+**Problem heute:** `analyze-patterns` berechnet `preheatingAdvice` (z.B. "Peak in 60 min, jetzt vorheizen"), schreibt es aber nur in den LLM-Prompt. `pv-automation` sieht es nicht.
+
+**Lösung:** Strukturierte Speicherung + Konsum:
+
+**a) `analyze-patterns/index.ts`** (Zeile ~336):
+Nach Berechnung von `preheatingAdvice` zusätzlich strukturiertes Objekt in `system_settings` upserten:
+```ts
+await supabase.from('system_settings').upsert({
+  key: 'preheating_signal',
+  value: {
+    computed_at: now.toISOString(),
+    type: 'preheat' | 'store_heat' | 'none',
+    target_peak_hour: nextPeakHour?.hour,
+    minutes_to_peak: minutesToPeak,
+    expected_peak_w: nextPeakHour?.watts,
+    advice_text: preheatingAdvice,
+  }
+}, { onConflict: 'key' });
+```
+
+**b) `pv-automation/index.ts`** (vor Raum-Loop, ca. Zeile 2620 nach learnedPolicies-Block):
+Signal lesen, nur valide wenn `computed_at` jünger als 30 min:
+
+```ts
+const { data: preheatRow } = await supabase
+  .from('system_settings').select('value')
+  .eq('key', 'preheating_signal').maybeSingle();
+const preheatSignal = (preheatRow?.value && 
+  Date.now() - new Date(preheatRow.value.computed_at).getTime() < 30*60*1000)
+  ? preheatRow.value : null;
+```
+
+**Wirkung im Raum-Loop:**
+- `type === 'preheat'` (Peak in ≤90 min, aktuell wenig PV): Eco-Budget-Schwelle für Phase 1 wird **temporär abgesenkt** — Räume mit `current < eco - 0.2` dürfen bereits jetzt aus der Batterie heizen, auch wenn `effectiveExport` sonst zu klein wäre. Hard-Locks (SOC < heating_min_battery_soc, harter PV-Gate ohne Tagesprognose) bleiben unverändert.
+- `type === 'store_heat'` (Peak endet in ≤60 min, aktuell viel PV): Phase 2 (Komfort) wird **bevorzugt** für Räume mit hoher `floor_area_m2` ausgeführt → Estrich-Speicherung. Setzt einen Bonus auf `comfortBudget` (z.B. +500W) wenn `pvPower > 4000`.
+- Reasoning-Text: `🔥 Pre-Heat aktiv (Peak in 60min)` bzw. `💾 Store-Heat (Peak endet bald)`.
+
+Sicherheits-Constraints:
+- Pre-Heat darf **nicht** Komfort-Hard-Lock bei niedrigem SOC umgehen.
+- Pre-Heat darf **nicht** Manual-Override ignorieren.
+- Wenn `quotaExhausted` → Signal wird gelesen aber kein zusätzlicher Tuya-Call ausgelöst.
+
+---
+
+## 3. ML-Follow-Rate Dashboard-Widget
+
+**a) Neue RPC** (Migration): `get_ml_follow_rate(days_back int)` aggregiert aus `learning_events`:
+```sql
+SELECT
+  date_trunc('day', timestamp AT TIME ZONE 'Europe/Vienna')::date as day,
+  COUNT(*) FILTER (WHERE action ? 'ml_recommendation') as total_with_ml,
+  COUNT(*) FILTER (WHERE (action->>'ml_followed')::bool = true) as followed,
+  COUNT(*) FILTER (WHERE (action->>'ml_followed')::bool = false) as overridden,
+  AVG(reward) FILTER (WHERE (action->>'ml_followed')::bool = true) as reward_when_followed,
+  AVG(reward) FILTER (WHERE (action->>'ml_followed')::bool = false) as reward_when_overridden
+FROM learning_events
+WHERE timestamp >= now() - (days_back || ' days')::interval
+  AND action ? 'ml_recommendation'
+GROUP BY 1 ORDER BY 1 DESC;
+```
+
+**b) Neue Komponente** `src/components/heating/MLFollowRateWidget.tsx`:
+- Zeigt für letzte 7 Tage:
+  - Follow-Rate in % (followed / total_with_ml) als großen KPI
+  - Avg Reward wenn ML gefolgt vs. überstimmt (Vergleich)
+  - Mini-Bar-Chart pro Tag (folgte/überstimmte Anzahl)
+- Lädt via `supabase.rpc('get_ml_follow_rate', { days_back: 7 })`
+- Refresh alle 5 Minuten
+
+**c) Einbindung:** In `HeatingDashboard.tsx` neben dem bestehenden `AIStatusWidget` platzieren (oder darunter, je nach Layout-Slot).
+
+---
+
+## Reihenfolge
+
+1. Migration: RPC `get_ml_follow_rate` anlegen.
+2. `pv-automation`: Konfidenz-Gating + Pre-Heat-Konsum + ml_recommendation/ml_followed-Tracking.
+3. `analyze-patterns`: `preheating_signal` in `system_settings` upserten.
+4. UI: `MLFollowRateWidget.tsx` + Einbindung im Dashboard.
+5. Memory-Update: `mem://arch/ai-system-limitations` ergänzen um Konfidenz-Stufen + Pre-Heat-Mechanik.
+
+## Out of Scope
+- Keine Änderung der Reward-Funktion (gerade erst normalisiert).
+- Keine Änderung am LLM-Exploration-Throttle.
+- Keine Migration bestehender `learning_events` (neue Felder nur ab jetzt).

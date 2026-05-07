@@ -336,6 +336,50 @@ serve(async (req) => {
         }
       }
 
+      // Strukturiertes Pre-Heat-Signal in system_settings persistieren,
+      // damit pv-automation es konsumieren kann (TTL-Check via computed_at).
+      try {
+        const signalType = preheatingAdvice.startsWith('⚡') ? 'preheat'
+          : preheatingAdvice.startsWith('⏰') ? 'store_heat'
+          : 'none';
+        const nextPeakHourCalc = Object.entries(hourlyWatts || {})
+          .map(([time, watts]) => {
+            const h = parseInt((time.includes(' ') ? time.split(' ')[1] : time).split(':')[0]);
+            return { hour: h, watts: watts as number };
+          })
+          .filter(e => {
+            const ch = parseInt(new Date().toLocaleTimeString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false }));
+            return e.hour > ch && e.watts > 3000;
+          })
+          .sort((a, b) => a.hour - b.hour)[0];
+        const nowVienna = new Date();
+        const ch = parseInt(nowVienna.toLocaleTimeString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false }));
+        const payload = {
+          key: 'preheating_signal',
+          value: {
+            computed_at: new Date().toISOString(),
+            type: signalType,
+            target_peak_hour: nextPeakHourCalc?.hour ?? null,
+            minutes_to_peak: nextPeakHourCalc ? (nextPeakHourCalc.hour - ch) * 60 : null,
+            expected_peak_w: nextPeakHourCalc?.watts ?? null,
+            advice_text: preheatingAdvice || '',
+          },
+          updated_at: new Date().toISOString(),
+        };
+        await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+          method: 'POST',
+          headers: {
+            apikey: serviceRoleKey,
+            Authorization: `Bearer ${serviceRoleKey}`,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (e) {
+        console.warn('[analyze-patterns] could not upsert preheating_signal:', e);
+      }
+
       prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
 
 ⚠️ **WICHTIG: ALLE ERFORDERLICHEN DATEN SIND UNTEN AUFGEFÜHRT. GIB NUR KONKRETE EMPFEHLUNGEN, KEINE RÜCKFRAGEN!**

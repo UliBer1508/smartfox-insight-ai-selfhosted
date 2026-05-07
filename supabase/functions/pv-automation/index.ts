@@ -1796,6 +1796,33 @@ Deno.serve(async (req) => {
         console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
       }
 
+      // ============= PRE-HEAT-SIGNAL aus analyze-patterns =============
+      // Wenn ein Peak in ≤90 min ansteht (preheat) oder bald endet (store_heat),
+      // dürfen Eco/Komfort-Budgets temporär angehoben werden.
+      // Hard-Locks (SOC-Gate, harter PV-Gate) bleiben unberührt.
+      let preheatSignal: { type?: string; minutes_to_peak?: number; expected_peak_w?: number; advice_text?: string } | null = null;
+      try {
+        const { data: psRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'preheating_signal')
+          .maybeSingle();
+        const v = psRow?.value as any;
+        if (v?.computed_at && Date.now() - new Date(v.computed_at).getTime() < 30 * 60 * 1000 && v?.type && v.type !== 'none') {
+          preheatSignal = v;
+          if (v.type === 'preheat' && batterySoc >= heatingMinSoc) {
+            const bonus = 800;
+            availableBudget = Math.max(availableBudget, bonus);
+            console.log(`[PRE-HEAT] 🔥 preheat aktiv (Peak in ~${v.minutes_to_peak}min, ${v.expected_peak_w}W) → Eco-Budget min ${bonus}W`);
+          } else if (v.type === 'store_heat' && pvPower > 4000) {
+            comfortBudget = comfortBudget + 500;
+            console.log(`[PRE-HEAT] 💾 store_heat aktiv (Peak endet bald, PV ${pvPower}W) → Komfort +500W → ${comfortBudget}W`);
+          }
+        }
+      } catch (e) {
+        console.warn('[PRE-HEAT] Could not read preheating_signal:', e);
+      }
+
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
@@ -2781,6 +2808,9 @@ Deno.serve(async (req) => {
         let expectedEnergyWh: number | undefined;
         let confidence: number | undefined;
         let mlDecision: MLDecision | null | undefined = null; // Außerhalb definiert für spätere Referenz
+        // ML-Tracking: Was hat die Policy empfohlen, sind wir gefolgt?
+        let mlRecommendationForTracking: { action: string; temp: number | null; confidence: number; sample_count: number } | null = null;
+        let mlFollowedDecision: boolean | null = null;
 
         // WICHTIG: Nachtzeit-Check ZUERST - hat IMMER Priorität über ML!
         const nightStart = settings?.night_start_time || '22:00';
@@ -2838,28 +2868,68 @@ Deno.serve(async (req) => {
             }
             // Sonst: keep, Eco-Setpoint wird beibehalten
           } else {
-            // ML decision: Erst Learned Policy prüfen, dann LLM als Fallback
+            // ML decision: Erst Learned Policy mit Konfidenz-Gating prüfen, dann LLM
             const learnedPolicy = useMLDecisions ? learnedPolicies.get(room.id) : null;
-            
-            if (learnedPolicy && learnedPolicy.sample_count >= 20 && learnedPolicy.success_rate > 0.5) {
-              // EXPLOITATION: Gelernte Policy nutzen (genug Daten + gute Erfolgsrate)
-              action = learnedPolicy.recommended_action === 'activate' ? 'activate' : 
+            const policyConfidence = Number(learnedPolicy?.learning_confidence ?? 0);
+
+            // Safety-Clamp für recommended_temp: Innerhalb [night_temp, comfort_temp]
+            const clampPolicyTemp = (t: number | null | undefined): number | null => {
+              if (t == null) return null;
+              return Math.max(nightTemp, Math.min(comfortTemp, Number(t)));
+            };
+
+            // Map ML-Recommendation für Tracking (immer, unabhängig ob gefolgt)
+            mlRecommendationForTracking = learnedPolicy ? {
+              action: learnedPolicy.recommended_action,
+              temp: clampPolicyTemp(learnedPolicy.recommended_temp),
+              confidence: policyConfidence,
+              sample_count: learnedPolicy.sample_count
+            } : null;
+
+            // Stufe 1: HIGH confidence → Exploitation
+            if (learnedPolicy && policyConfidence >= 0.7 && learnedPolicy.success_rate > 0.4) {
+              action = learnedPolicy.recommended_action === 'activate' ? 'activate' :
                        learnedPolicy.recommended_action === 'deactivate' ? 'deactivate' : 'keep';
-              if (learnedPolicy.recommended_temp) {
-                targetTemp = learnedPolicy.recommended_temp;
-              }
-              reasoning = `📊 Gelernte Policy (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg, avg_reward: ${learnedPolicy.avg_reward?.toFixed(2)})`;
+              const clampedTemp = clampPolicyTemp(learnedPolicy.recommended_temp);
+              if (clampedTemp != null) targetTemp = clampedTemp;
+              reasoning = `📊 Policy HIGH (conf ${policyConfidence.toFixed(2)}, ${learnedPolicy.sample_count}S, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg)`;
+              mlFollowedDecision = true;
               console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              
-              // ============= PV-GATE FÜR ML-ACTIVATE =============
-              // Auch gelernte Policies dürfen NUR bei tatsächlichem PV-Überschuss aktivieren
+
               if (action === 'activate' && pvPower < 500) {
-                console.log(`[PV-Automation] ${room.name}: ⚠️ Learned Policy will activate, aber PV nur ${pvPower}W → BLOCKIERT`);
+                console.log(`[PV-Automation] ${room.name}: ⚠️ Policy will activate, aber PV nur ${pvPower}W → BLOCKIERT`);
                 action = 'keep';
                 reasoning += ' → BLOCKIERT (kein PV)';
+                mlFollowedDecision = false;
               }
-            } else {
-              // EXPLORATION: LLM-Entscheidung nutzen (zu wenig Daten oder schlechte Ergebnisse) — mit Throttle
+            }
+            // Stufe 2: MEDIUM confidence → Soft-Hint, nur folgen wenn budgetkompatibel
+            else if (learnedPolicy && policyConfidence >= 0.4) {
+              const policyAction = learnedPolicy.recommended_action;
+              const compatible =
+                (policyAction === 'activate' && availableBudget > 0 && pvPower >= 500) ||
+                (policyAction === 'deactivate' && !room.comfort_saturated_at) ||
+                (policyAction === 'keep');
+
+              if (compatible) {
+                action = policyAction === 'activate' ? 'activate' :
+                         policyAction === 'deactivate' ? 'deactivate' : 'keep';
+                const clampedTemp = clampPolicyTemp(learnedPolicy.recommended_temp);
+                if (clampedTemp != null) targetTemp = clampedTemp;
+                reasoning = `📊 Policy MED-Soft (conf ${policyConfidence.toFixed(2)}, ${learnedPolicy.sample_count}S, kompatibel)`;
+                mlFollowedDecision = true;
+                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
+              } else {
+                console.log(`[PV-Automation] ${room.name}: Policy MED nicht kompatibel (${policyAction}, conf ${policyConfidence.toFixed(2)}) → Standard-Pfad`);
+                mlFollowedDecision = false;
+              }
+            }
+            // Stufe 3: LOW confidence → Policy ignorieren, LLM-Exploration
+            else {
+              if (learnedPolicy) {
+                console.log(`[PV-Automation] ${room.name}: Policy LOW (conf ${policyConfidence.toFixed(2)}, ${learnedPolicy.sample_count}S) → ignoriert, LLM-Exploration`);
+                mlFollowedDecision = false;
+              }
               const lastExpStr = mlExplorationMap[room.id];
               const lastExpMs = lastExpStr ? new Date(lastExpStr).getTime() : 0;
               const minsSinceLastExp = (Date.now() - lastExpMs) / 60000;
@@ -2872,9 +2942,17 @@ Deno.serve(async (req) => {
                 if (mlDecision) {
                   mlExplorationUpdates[room.id] = new Date().toISOString();
                 }
-                if (learnedPolicy) {
-                  console.log(`[PV-Automation] ${room.name}: Policy unzureichend (${learnedPolicy.sample_count} Samples, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg) → LLM-Exploration`);
-                }
+              }
+            }
+
+            // Pre-Heat-Override: Wenn preheat-Signal aktiv und Raum ist unter eco → activate forcieren
+            if (preheatSignal?.type === 'preheat' && action !== 'activate' && action !== 'deactivate') {
+              const tempDeficit = ecoTemp - (room.current_temp ?? ecoTemp);
+              if (tempDeficit > 0.2 && batterySoc >= heatingMinSoc && !room.comfort_saturated_at) {
+                action = 'activate';
+                targetTemp = ecoTemp;
+                reasoning = `🔥 Pre-Heat (Peak in ~${preheatSignal.minutes_to_peak}min) → Eco vorheizen`;
+                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
               }
             }
 
@@ -2890,7 +2968,7 @@ Deno.serve(async (req) => {
                 reasoning = mlDecision.reasoning + ' (KI)';
                 expectedEnergyWh = mlDecision.expected_energy_wh;
                 confidence = mlDecision.confidence;
-                
+
                 // ============= PV-GATE FÜR ML-ACTIVATE =============
                 // ML darf NUR bei tatsächlichem PV-Überschuss aktivieren
                 if (action === 'activate' && pvPower < 500) {
@@ -3220,13 +3298,17 @@ Deno.serve(async (req) => {
           ml_features: latestMlFeatures.find(f => f.room_id === room.id) || null
         };
 
-        const eventAction = {
+        const eventAction: Record<string, unknown> = {
           target_temp: targetTemp,
           reasoning,
           expected_energy_wh: expectedEnergyWh,
           previous_state: room.pv_auto_active,
-          ml_based: usedMlDecision && !!mlDecision
+          ml_based: usedMlDecision && !!mlDecision,
         };
+        if (mlRecommendationForTracking) {
+          eventAction.ml_recommendation = mlRecommendationForTracking;
+          eventAction.ml_followed = mlFollowedDecision === true;
+        }
 
         // Learning-Event nur bei tatsächlichen Aktionen oder ML-Entscheidungen anlegen.
         // Vermeidet ~80% Volumen (skip/keep ohne Reward-Information).
