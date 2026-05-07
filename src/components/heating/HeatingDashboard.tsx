@@ -103,7 +103,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
   const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
   const [roomStrategy, setRoomStrategy] = useState<string>('');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
-  const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // syncIntervalRef entfernt — Auto-Sync deaktiviert (siehe unten)
 
   // Auto-Sync deaktiviert: Tuya-Cloud-Sync verbraucht 2 Calls/Sync und sprengte
   // die Tagesquote. Stattdessen liest das Dashboard `current_temp` und `is_heating`
