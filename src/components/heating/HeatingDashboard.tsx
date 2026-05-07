@@ -336,6 +336,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           soc={latestSoc} 
         />
 
+        <MLFollowRateWidget />
+
         {/* PV Forecast Card */}
         <PvForecastCard
           todayForecast={todayForecast}
