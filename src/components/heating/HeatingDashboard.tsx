@@ -24,6 +24,7 @@ import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { AIStatusWidget } from './AIStatusWidget';
+import { MLFollowRateWidget } from './MLFollowRateWidget';
 import { ApiErrorBanner } from './ApiErrorBanner';
 import { usePushAllTemps } from '@/hooks/usePushAllTemps';
 import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot, Send } from 'lucide-react';
