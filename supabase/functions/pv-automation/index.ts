@@ -1796,6 +1796,33 @@ Deno.serve(async (req) => {
         console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
       }
 
+      // ============= PRE-HEAT-SIGNAL aus analyze-patterns =============
+      // Wenn ein Peak in ≤90 min ansteht (preheat) oder bald endet (store_heat),
+      // dürfen Eco/Komfort-Budgets temporär angehoben werden.
+      // Hard-Locks (SOC-Gate, harter PV-Gate) bleiben unberührt.
+      let preheatSignal: { type?: string; minutes_to_peak?: number; expected_peak_w?: number; advice_text?: string } | null = null;
+      try {
+        const { data: psRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'preheating_signal')
+          .maybeSingle();
+        const v = psRow?.value as any;
+        if (v?.computed_at && Date.now() - new Date(v.computed_at).getTime() < 30 * 60 * 1000 && v?.type && v.type !== 'none') {
+          preheatSignal = v;
+          if (v.type === 'preheat' && batterySoc >= heatingMinSoc) {
+            const bonus = 800;
+            availableBudget = Math.max(availableBudget, bonus);
+            console.log(`[PRE-HEAT] 🔥 preheat aktiv (Peak in ~${v.minutes_to_peak}min, ${v.expected_peak_w}W) → Eco-Budget min ${bonus}W`);
+          } else if (v.type === 'store_heat' && pvPower > 4000) {
+            comfortBudget = comfortBudget + 500;
+            console.log(`[PRE-HEAT] 💾 store_heat aktiv (Peak endet bald, PV ${pvPower}W) → Komfort +500W → ${comfortBudget}W`);
+          }
+        }
+      } catch (e) {
+        console.warn('[PRE-HEAT] Could not read preheating_signal:', e);
+      }
+
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
