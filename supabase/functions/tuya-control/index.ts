@@ -619,6 +619,25 @@ Deno.serve(async (req) => {
         if (syncQuotaData.today !== wienDate) { syncQuotaData.calls_today = 0; syncQuotaData.today = wienDate; }
         if (syncQuotaData.calls_today > (syncQuotaData.daily_limit || 33) * 2) syncQuotaData.calls_today = syncQuotaData.daily_limit || 33;
         if (syncQuotaData.calls_this_month > (syncQuotaData.monthly_limit || 900) * 2) syncQuotaData.calls_this_month = syncQuotaData.monthly_limit || 900;
+
+        // LAST-SYNC-GATE: max. 1 Tuya-Sync pro 60 Min. Erspart unnötige Calls,
+        // weil current_temp/is_heating ohnehin via lokalem Collector aktuell sind.
+        // Bypass mit ?force=1 für manuelle Refresh-Aktionen.
+        const forceSync = url.searchParams.get('force') === '1';
+        const lastSyncMs = syncQuotaData.last_sync_at ? new Date(syncQuotaData.last_sync_at).getTime() : 0;
+        const minutesSinceSync = lastSyncMs > 0 ? (Date.now() - lastSyncMs) / 60000 : 9999;
+        if (!forceSync && minutesSinceSync < 60) {
+          console.log(`[tuya-control] sync-all gated: last sync ${minutesSinceSync.toFixed(1)}min ago (<60min) → DB-Daten`);
+          const results = rooms.map(r => ({
+            roomId: r.id, name: r.name,
+            currentTemp: r.current_temp, targetTemp: r.target_temp,
+            isHeating: r.is_heating, synced: false, gated: true,
+            minutesSinceSync: Math.round(minutesSinceSync),
+          }));
+          return new Response(JSON.stringify({ success: true, results, gated: true, minutesSinceSync: Math.round(minutesSinceSync) }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
         
         const ml = syncQuotaData.monthly_limit || 900;
         const dl = syncQuotaData.daily_limit || 33;
