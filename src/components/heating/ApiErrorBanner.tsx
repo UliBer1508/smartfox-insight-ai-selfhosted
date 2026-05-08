@@ -2,6 +2,7 @@ import { AlertTriangle, RefreshCw, X, WifiOff, Key, AlertCircle } from 'lucide-r
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useApiErrors, ApiError } from '@/hooks/useApiErrors';
+import { useControlMode } from '@/hooks/useControlMode';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
