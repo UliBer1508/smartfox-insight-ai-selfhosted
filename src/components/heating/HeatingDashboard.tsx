@@ -49,6 +49,15 @@ interface HeatingDashboardProps {
 
 export function HeatingDashboard({ readings, currentReading, energyIn, energyOut, pvEnergy, isLoadingPv }: HeatingDashboardProps) {
   const { settings } = useHeatingSettings();
+  const { mode: controlMode } = useControlMode();
+  const isLocalMode = controlMode === 'local';
+  const modeLabel = isLocalMode ? 'Lokaler Service (LAN)' : 'Cloud API';
+  const pushTooltip = isLocalMode
+    ? 'Sendet alle Zieltemperaturen über den lokalen Service (LAN)'
+    : 'Sendet alle Zieltemperaturen via Tuya Cloud API';
+  const syncTooltip = isLocalMode
+    ? 'Liest aktuelle Temperaturen über den lokalen Service (LAN)'
+    : 'Liest aktuelle Temperaturen via Tuya Cloud API';
   const { 
     isAnalyzing, 
     analysisResult, 
