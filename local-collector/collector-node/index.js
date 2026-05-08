@@ -241,6 +241,49 @@ async function syncThermostats() {
 
       if (!error) {
         console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
+
+        // === ML-Datenverdichtung: NUR im Lokalmodus ===
+        if (currentMode === 'local' && deviceConfig.room_id) {
+          const nowIso = new Date().toISOString();
+
+          // A1: hochfrequentes Temperatur-Sample
+          supabase.from('room_temperature_samples').insert({
+            room_id: deviceConfig.room_id,
+            temperature: status.current_temp,
+            is_heating: !!status.is_heating,
+            pv_power_w: lastPvPower != null ? Math.round(lastPvPower) : null,
+            timestamp: nowIso
+          }).then(({ error: sErr }) => {
+            if (sErr) console.error(`[ML-Sample] ${deviceConfig.name}:`, sErr.message);
+          });
+
+          // A2: Heating-Event bei Statuswechsel
+          const prev = lastHeatingState.get(deviceConfig.room_id);
+          const newIsHeating = !!status.is_heating;
+          if (!prev || prev.is_heating !== newIsHeating) {
+            const eventType = newIsHeating ? 'heating_start' : 'heating_stop';
+            const durationMin = (prev && !newIsHeating)
+              ? Math.max(0, Math.round((Date.now() - prev.since_ts) / 60000))
+              : null;
+            supabase.from('room_heating_logs').insert({
+              room_id: deviceConfig.room_id,
+              event_type: eventType,
+              current_temp: status.current_temp,
+              target_temp: status.target_temp,
+              duration_minutes: durationMin,
+              pv_surplus_w: lastPvPower != null ? Math.round(lastPvPower) : null,
+              timestamp: nowIso
+            }).then(({ error: hErr }) => {
+              if (hErr) console.error(`[ML-Event] ${deviceConfig.name}:`, hErr.message);
+            });
+            lastHeatingState.set(deviceConfig.room_id, {
+              is_heating: newIsHeating,
+              since_ts: Date.now(),
+              current_temp: status.current_temp
+            });
+          }
+        }
+
         return { name: deviceConfig.name, ok: true };
       }
       console.error(`[Tuya] ${deviceConfig.name} DB-Update Fehler:`, error.message);
