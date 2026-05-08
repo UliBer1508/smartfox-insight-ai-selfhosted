@@ -45,11 +45,15 @@ export function useControlMode() {
     },
     onSuccess: (_, newMode) => {
       queryClient.invalidateQueries({ queryKey: ['tuya-control-mode'] });
-      toast.success(
-        newMode === 'cloud'
-          ? 'Cloud API-Modus aktiviert'
-          : 'Lokaler Service-Modus aktiviert'
-      );
+      if (newMode === 'cloud') {
+        toast.success('Cloud API-Modus aktiviert', {
+          description: 'Befehle laufen über die Tuya Cloud API. API-Quota gilt wieder.',
+        });
+      } else {
+        toast.success('Lokaler Service-Modus aktiviert', {
+          description: 'Befehle laufen über LAN (Port 6668). Cloud-Quota irrelevant.',
+        });
+      }
     },
     onError: (error) => {
       toast.error(`Fehler beim Umschalten: ${error.message}`);

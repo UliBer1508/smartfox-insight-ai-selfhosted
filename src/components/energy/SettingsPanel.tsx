@@ -40,9 +40,19 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
         {/* Tuya API-Verbindung */}
         <AccordionItem value="tuya" className="border rounded-lg overflow-hidden">
           <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-1">
               <Plug className="h-5 w-5 text-primary" />
               <span className="font-semibold">Tuya API-Verbindung</span>
+              <span
+                className={`ml-auto mr-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
+                  mode === 'local'
+                    ? 'bg-primary/10 text-primary border-primary/30'
+                    : 'bg-muted text-muted-foreground border-border'
+                }`}
+              >
+                {mode === 'local' ? <MonitorSmartphone className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
+                {mode === 'local' ? 'Lokal aktiv' : 'Cloud aktiv'}
+              </span>
             </div>
           </AccordionTrigger>
           <AccordionContent className="p-4 space-y-4">

@@ -13,6 +13,7 @@ import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
 import { useAutomation } from '@/hooks/useAutomation';
 import { useApiErrors } from '@/hooks/useApiErrors';
+import { useControlMode } from '@/hooks/useControlMode';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
 import { BatteryReserveStatus } from './BatteryReserveStatus';
@@ -48,6 +49,15 @@ interface HeatingDashboardProps {
 
 export function HeatingDashboard({ readings, currentReading, energyIn, energyOut, pvEnergy, isLoadingPv }: HeatingDashboardProps) {
   const { settings } = useHeatingSettings();
+  const { mode: controlMode } = useControlMode();
+  const isLocalMode = controlMode === 'local';
+  const modeLabel = isLocalMode ? 'Lokaler Service (LAN)' : 'Cloud API';
+  const pushTooltip = isLocalMode
+    ? 'Sendet alle Zieltemperaturen über den lokalen Service (LAN)'
+    : 'Sendet alle Zieltemperaturen via Tuya Cloud API';
+  const syncTooltip = isLocalMode
+    ? 'Liest aktuelle Temperaturen über den lokalen Service (LAN)'
+    : 'Liest aktuelle Temperaturen via Tuya Cloud API';
   const { 
     isAnalyzing, 
     analysisResult, 
@@ -369,7 +379,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                 Thermostat-Steuerung
               </CardTitle>
               <CardDescription>
-                Live-Temperaturen und manuelle Steuerung
+                Live-Temperaturen und manuelle Steuerung · <span className={isLocalMode ? 'text-primary font-medium' : 'font-medium'}>{modeLabel}</span>
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -387,7 +397,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                   await loadRooms();
                 }}
                 disabled={isPushing || isSyncing}
-                title="Alle Zieltemperaturen direkt an die Thermostate senden"
+                title={pushTooltip}
               >
                 {isPushing ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -401,6 +411,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                 size="sm"
                 onClick={handleSyncThermostats}
                 disabled={isSyncing || isPushing}
+                title={syncTooltip}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
                 Sync
