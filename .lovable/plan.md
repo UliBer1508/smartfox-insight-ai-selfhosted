@@ -1,56 +1,34 @@
-## Problem
+## Ziel
 
-Im Lokal-Modus queued `pv-automation` vor jedem `set_temp` zusätzlich ein `set_mode`-Command mit numerischem `value: 0`. Der v2-Service erwartet aber Strings (`auto` / `manual` / `off`) → `CMD ERR: Ungültiger Modus: 0`.
+Im **Lokal-Modus** (`tuya_control_mode = 'local'`) sollen Cloud-spezifische Warn-Banner nicht mehr erscheinen, da sie irrelevant sind.
 
-**Folgen aus den Logs:**
-- 11 `set_mode`-Errors pro Automation-Lauf (alle ~2 Min)
-- Das nachfolgende `set_temp` läuft jedes Mal sauber durch (`CMD OK`)
-- Heizungssteuerung funktioniert vollständig — nur `api_errors` füllt sich mit Lärm und das UI-Banner blinkt rot
+## Cloud-spezifische Banner, die im Lokal-Modus ausgeblendet werden
 
-**Warum ist `set_mode` überflüssig?**  
-`tuya-thermostat.js` setzt im v2-Service in `setTemperature()` atomar `mode='manual'` + `target_temp` in einem Roundtrip:
-```js
-device.set({ multiple: true, data: { [MODE]: 'manual', [TARGET_TEMP]: tempValue } })
-```
-Das vorgeschaltete `set_mode`-Command ist Legacy-Ballast aus der Cloud-Ära.
+| Banner | Datei | Grund |
+|---|---|---|
+| Quota erschöpft | `ApiErrorBanner.tsx` (`quota_exhausted`) | Kein Cloud-Call → keine Quota |
+| Token abgelaufen | `ApiErrorBanner.tsx` (`token_expired`) | Cloud-Token irrelevant |
+| Kein Steuerkanal | `ApiErrorBanner.tsx` (`no_control_channel`) | Bezieht sich auf Cloud-Quota erschöpft + Local down |
+| Tuya Subscription Ablauf | `TuyaSubscriptionAlert.tsx` | Cloud-Subscription irrelevant |
 
-## Fix
+Behalten bleiben (auch im Lokal-Modus relevant):
+- `device_offline` – Thermostat per LAN nicht erreichbar
+- `night_frost_failed` – Sicherheits-Rückstellung gescheitert (auch lokal kritisch)
+- Sonstige API-Fehler aus dem lokalen Service (`source='tuya-local'`)
 
-**Eine Code-Änderung in einer Datei:**  
-`supabase/functions/pv-automation/index.ts` → Funktion `queueLocalTemperatureCommand` (~Zeile 415–455): den `set_mode`-Insert ersatzlos entfernen. Nur noch `set_temp` einreihen.
+## Umsetzung
 
-```ts
-// ENTFERNT: redundanter set_mode-Insert (v2-Service setzt mode atomar in setTemperature)
-const { error } = await supabase.from('thermostat_commands').insert({
-  room_id: roomId,
-  command: 'set_temp',
-  value: temperature,
-  status: 'pending',
-});
-```
+1. `ApiErrorBanner.tsx`
+   - `useControlMode()` einbinden
+   - Filter: bei `mode === 'local'` Errors mit `error_type ∈ {quota_exhausted, token_expired, no_control_channel}` rauswerfen
+   - Wenn nach Filter keine Errors übrig → `null`
 
-## Aufräumen (gleicher Schritt)
+2. `HeatingDashboard.tsx` (oder wo `TuyaSubscriptionAlert` gerendert wird)
+   - `useControlMode()` checken und `TuyaSubscriptionAlert` nur rendern wenn `mode === 'cloud'`
 
-Bestehende „Ungültiger Modus"-Einträge der letzten Stunde als resolved markieren, damit das Banner sich beruhigt:
+3. Keine DB-Änderungen, keine Edge-Function-Änderungen.
 
-```sql
-UPDATE api_errors
-SET resolved_at = now()
-WHERE source = 'tuya-local'
-  AND error_message LIKE '%Ungültiger Modus%'
-  AND resolved_at IS NULL;
-```
+## Test
 
-## Verifikation nach Deploy
-
-1. Edge Function deployt automatisch
-2. Nächster Automation-Lauf (~2 Min): in den Service-Logs erscheinen **nur noch** `CMD OK Raum: set_temp=XX` — keine `Ungültiger Modus`-Errors mehr
-3. `api_errors`-Tabelle bekommt keine neuen Einträge mit dieser Meldung
-4. Heizungssteuerung läuft unverändert (Temperaturen werden weiter korrekt gesetzt)
-
-## Was NICHT geändert wird
-
-- Lokaler v2-Service auf dem PC bleibt unangetastet
-- DB-Schema bleibt unverändert
-- Cloud-Pfad in `tuya-control` bleibt funktional
-- UI-Buttons (manuelles Set-Temp im Frontend) — falls die ebenfalls `set_mode` queuen, prüfen wir das in einem zweiten kleinen Lauf
+- Toggle in Settings cloud↔local: Banner verschwinden/erscheinen sofort (staleTime 30s, ggf. invalidate triggert es schon)
+- Existierende Quota-Errors in DB werden im Lokal-Modus ignoriert, ohne resolved zu werden (bleiben für Audit)
