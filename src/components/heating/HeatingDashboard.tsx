@@ -397,7 +397,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                   await loadRooms();
                 }}
                 disabled={isPushing || isSyncing}
-                title="Alle Zieltemperaturen direkt an die Thermostate senden"
+                title={pushTooltip}
               >
                 {isPushing ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
