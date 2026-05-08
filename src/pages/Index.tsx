@@ -116,6 +116,11 @@ const Index = () => {
 
       if (error) throw error;
 
+      if (data?.rateLimited) {
+        toast.warning('KI-Limit erreicht (Gemini Free Tier). Bitte in ein paar Minuten erneut versuchen.');
+        return;
+      }
+
       if (data.roomHeatingPlan) {
         const plan = data.roomHeatingPlan;
         setRoomStrategy(plan.strategy || '');
