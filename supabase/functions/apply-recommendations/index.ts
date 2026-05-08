@@ -511,7 +511,42 @@ Deno.serve(async (req) => {
 
       let noControlLogged = false;
 
+      // ============= PV-AUTOMATION CONFLICT GUARD =============
+      // pv-automation (every 2 min) is the sole setpoint authority. Skip rooms
+      // where pv-automation is active or recently changed setpoints to prevent
+      // setpoint flapping (target 22→19→22→19 in minute cycles).
+      const { data: parallelCapacity } = await supabase
+        .from('system_settings')
+        .select('value, updated_at')
+        .eq('key', 'parallel_heating_capacity')
+        .maybeSingle();
+      const pvAutomationRecentMs = parallelCapacity?.updated_at
+        ? Date.now() - new Date(parallelCapacity.updated_at).getTime()
+        : Number.POSITIVE_INFINITY;
+      const pvAutomationActive = pvAutomationRecentMs < 5 * 60 * 1000;
+
       for (const room of rooms as Room[]) {
+        // Skip if pv-automation owns this room
+        if (room.pv_auto_active === true) {
+          results.skipped.push({
+            roomId: room.id,
+            name: room.name,
+            reason: 'pv-automation aktiv – kein Override',
+          });
+          continue;
+        }
+        if (pvAutomationActive && room.last_auto_change) {
+          const lastAutoMs = Date.now() - new Date(room.last_auto_change).getTime();
+          if (lastAutoMs < 10 * 60 * 1000) {
+            results.skipped.push({
+              roomId: room.id,
+              name: room.name,
+              reason: `pv-automation hat vor ${Math.round(lastAutoMs / 60000)} min gesetzt – kein Override`,
+            });
+            continue;
+          }
+        }
+
         // Check manual override first
         if (room.manual_override_until) {
           const overrideUntil = new Date(room.manual_override_until);
