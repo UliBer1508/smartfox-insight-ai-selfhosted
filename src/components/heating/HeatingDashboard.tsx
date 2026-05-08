@@ -13,6 +13,7 @@ import { useTuyaControl } from '@/hooks/useTuyaControl';
 import { useRoomHeatingLogs } from '@/hooks/useRoomHeatingLogs';
 import { useAutomation } from '@/hooks/useAutomation';
 import { useApiErrors } from '@/hooks/useApiErrors';
+import { useControlMode } from '@/hooks/useControlMode';
 import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
 import { BatteryReserveStatus } from './BatteryReserveStatus';
