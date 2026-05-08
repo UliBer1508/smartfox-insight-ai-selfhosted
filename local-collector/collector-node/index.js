@@ -188,6 +188,7 @@ async function saveReading(froniusData) {
     }
     
     console.log(`[Fronius] Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%`);
+    lastPvPower = reading.pv_power;
     return true;
   } catch (error) {
     console.error('[DB] Speichern fehlgeschlagen:', error.message);
