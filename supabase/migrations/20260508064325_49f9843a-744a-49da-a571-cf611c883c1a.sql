@@ -1,0 +1,4 @@
+ALTER TABLE public.rooms DISABLE TRIGGER USER;
+UPDATE public.rooms SET thermostat_ip = '192.168.188.135', thermostat_local_ip = '192.168.188.135' WHERE name = 'Wohnzimmer';
+UPDATE public.rooms SET thermostat_ip = '192.168.188.174', thermostat_local_ip = '192.168.188.174' WHERE name = 'Haustür';
+ALTER TABLE public.rooms ENABLE TRIGGER USER;
