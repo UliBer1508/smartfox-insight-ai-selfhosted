@@ -112,19 +112,25 @@ serve(async (req) => {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Forecast.Solar API error:', response.status, errorText);
-      
-      // Handle rate limiting
-      if (response.status === 429) {
-        return new Response(
-          JSON.stringify({ error: 'API rate limit exceeded. Try again later.' }),
-          { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      
+      console.error('Forecast.Solar API error:', response.status, errorText.substring(0, 200));
+
+      const isRateLimit = response.status === 429;
+      const isUpstreamDown = response.status >= 500;
+
+      // Return 200 with fallback flag so the client doesn't crash / show hard error
       return new Response(
-        JSON.stringify({ error: 'Failed to fetch forecast from Forecast.Solar' }),
-        { status: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        JSON.stringify({
+          success: false,
+          fallback: true,
+          error: isRateLimit
+            ? 'Forecast.Solar Rate-Limit erreicht. Bitte später erneut versuchen.'
+            : isUpstreamDown
+              ? 'Forecast.Solar ist aktuell nicht erreichbar. Bestehende Prognose wird weiter verwendet.'
+              : `Forecast.Solar Fehler (${response.status})`,
+          upstream_status: response.status,
+          forecasts: [],
+        }),
+        { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
