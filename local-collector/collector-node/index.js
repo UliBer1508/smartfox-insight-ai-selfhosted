@@ -549,12 +549,19 @@ async function main() {
     process.exit(1);
   }
   
+  // Steuermodus initial laden
+  await refreshControlMode();
+  lastModeCheck = Date.now();
+  console.log(`[Mode] Aktueller Steuermodus: ${currentMode}`);
+
   // Get polling interval from database or config
   const pollingInterval = await getPollingInterval();
   console.log(`[Config] Polling-Intervall: ${pollingInterval} Sekunden`);
-  
+
   if (config.tuya?.enabled) {
-    console.log(`[Config] Thermostat-Sync: alle ${config.tuya.sync_interval_seconds || 60} Sekunden`);
+    const baseSec = config.tuya.sync_interval_seconds || 60;
+    const localSec = config.tuya.sync_interval_seconds_local || 45;
+    console.log(`[Config] Thermostat-Sync: cloud=${baseSec}s, local=${localSec}s`);
   }
   
   // Initial poll
