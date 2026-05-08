@@ -1,55 +1,56 @@
 ## Problem
 
-`auto-discovery.js` matcht 0/10 Thermostate, weil:
+Im Lokal-Modus queued `pv-automation` vor jedem `set_temp` zusätzlich ein `set_mode`-Command mit numerischem `value: 0`. Der v2-Service erwartet aber Strings (`auto` / `manual` / `off`) → `CMD ERR: Ungültiger Modus: 0`.
 
-1. **Default-Protokollversion v3.3 wird getestet, alle TGP508 sprechen aber v3.5** (bestätigt durch snapshot.json: alle Geräte mit productKey `z3b3rp7ouquncuaz` haben `"ver": "3.5"`).
-2. **Zwei DB-IPs sind veraltet** — DHCP hat neue IPs vergeben, deshalb „PORT GESCHLOSSEN":
-   - Wohnzimmer: `192.168.188.171` → **`192.168.188.135`**
-   - Haustür: `192.168.188.114` → **`192.168.188.174`**
+**Folgen aus den Logs:**
+- 11 `set_mode`-Errors pro Automation-Lauf (alle ~2 Min)
+- Das nachfolgende `set_temp` läuft jedes Mal sauber durch (`CMD OK`)
+- Heizungssteuerung funktioniert vollständig — nur `api_errors` füllt sich mit Lärm und das UI-Banner blinkt rot
 
-## Lösung (3 Schritte, keine Code-Änderungen)
-
-### Schritt 1: snapshot.json an die richtige Stelle legen
-Du kopierst die hochgeladene Datei in den Service-Ordner:
+**Warum ist `set_mode` überflüssig?**  
+`tuya-thermostat.js` setzt im v2-Service in `setTemperature()` atomar `mode='manual'` + `target_temp` in einem Roundtrip:
+```js
+device.set({ multiple: true, data: { [MODE]: 'manual', [TARGET_TEMP]: tempValue } })
 ```
-C:\Users\ulibe\tuya-thermostat\tuya-thermostat-v2\snapshot.json
+Das vorgeschaltete `set_mode`-Command ist Legacy-Ballast aus der Cloud-Ära.
+
+## Fix
+
+**Eine Code-Änderung in einer Datei:**  
+`supabase/functions/pv-automation/index.ts` → Funktion `queueLocalTemperatureCommand` (~Zeile 415–455): den `set_mode`-Insert ersatzlos entfernen. Nur noch `set_temp` einreihen.
+
+```ts
+// ENTFERNT: redundanter set_mode-Insert (v2-Service setzt mode atomar in setTemperature)
+const { error } = await supabase.from('thermostat_commands').insert({
+  room_id: roomId,
+  command: 'set_temp',
+  value: temperature,
+  status: 'pending',
+});
 ```
-(Sie wurde aus dem alten collector-Ordner übernommen, war nur am falschen Ort.)
 
-Damit liest `auto-discovery.js` für jedes Gerät die korrekte Protokoll-Version v3.5 statt der Default-Annahme v3.3.
+## Aufräumen (gleicher Schritt)
 
-### Schritt 2: DB-IPs für Wohnzimmer und Haustür korrigieren
-Ein einziges UPDATE auf `rooms` setzt für beide Räume:
-- `thermostat_ip` und `thermostat_local_ip` auf die aktuellen IPs aus snapshot.json.
+Bestehende „Ungültiger Modus"-Einträge der letzten Stunde als resolved markieren, damit das Banner sich beruhigt:
 
 ```sql
-UPDATE public.rooms
-SET thermostat_ip = '192.168.188.135', thermostat_local_ip = '192.168.188.135'
-WHERE name = 'Wohnzimmer';
-
-UPDATE public.rooms
-SET thermostat_ip = '192.168.188.174', thermostat_local_ip = '192.168.188.174'
-WHERE name = 'Haustür';
+UPDATE api_errors
+SET resolved_at = now()
+WHERE source = 'tuya-local'
+  AND error_message LIKE '%Ungültiger Modus%'
+  AND resolved_at IS NULL;
 ```
 
-### Schritt 3: Auto-Discovery erneut laufen lassen (du, lokal)
-```cmd
-cd C:\Users\ulibe\tuya-thermostat\tuya-thermostat-v2
-node auto-discovery.js
-```
-Erwartet: **12/12 IPs erreichbar, 12/12 Match v3.5**.
+## Verifikation nach Deploy
 
-## Was NICHT passiert
+1. Edge Function deployt automatisch
+2. Nächster Automation-Lauf (~2 Min): in den Service-Logs erscheinen **nur noch** `CMD OK Raum: set_temp=XX` — keine `Ungültiger Modus`-Errors mehr
+3. `api_errors`-Tabelle bekommt keine neuen Einträge mit dieser Meldung
+4. Heizungssteuerung läuft unverändert (Temperaturen werden weiter korrekt gesetzt)
 
-- Kein Eingriff in die Local Keys (die in der DB sind aller Wahrscheinlichkeit nach gültig — bestätigt sich beim erfolgreichen Match in Schritt 3).
-- Keine Code-Änderungen am `tuya-thermostat-v2/` Service.
-- Keine Edge-Function- oder UI-Änderungen.
+## Was NICHT geändert wird
 
-## Falls Schritt 3 trotzdem fehlschlägt
-
-Plan B liegt bereit:
-- TinyTuya-Wizard ausführen → frische `devices.json` mit aktuellen Local Keys
-- DB-Update aller `local_key`-Felder
-- Erneuter Discovery-Lauf
-
-Aber wahrscheinlich nicht nötig — die häufigste Ursache (falsche Version + alte IPs) wird mit den 2 Schritten behoben.
+- Lokaler v2-Service auf dem PC bleibt unangetastet
+- DB-Schema bleibt unverändert
+- Cloud-Pfad in `tuya-control` bleibt funktional
+- UI-Buttons (manuelles Set-Temp im Frontend) — falls die ebenfalls `set_mode` queuen, prüfen wir das in einem zweiten kleinen Lauf

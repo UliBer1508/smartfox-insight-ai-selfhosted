@@ -431,14 +431,7 @@ Deno.serve(async (req) => {
           return { queued: true, alreadyQueued: true };
         }
 
-        // Queue mode command first, then temperature
-        await supabase.from('thermostat_commands').insert({
-          room_id: roomId,
-          command: 'set_mode',
-          value: 0, // 'manual' mode indicator for local service
-          status: 'pending',
-        });
-
+        // v2-Service setzt mode='manual' atomar in setTemperature() — kein extra set_mode nötig.
         const { error } = await supabase.from('thermostat_commands').insert({
           room_id: roomId,
           command: 'set_temp',

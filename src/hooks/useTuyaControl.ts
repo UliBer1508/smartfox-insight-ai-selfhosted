@@ -93,15 +93,8 @@ export function useTuyaControl() {
 
     try {
       if (mode === 'local') {
-        // LOKAL-MODUS: Befehl in thermostat_commands schreiben
-        // Queue mode command first (manual mode)
-        await supabase.from('thermostat_commands').insert({
-          room_id: roomId,
-          command: 'set_mode',
-          value: 0,
-          status: 'pending',
-        });
-        // Then queue temperature command
+        // LOKAL-MODUS: Befehl in thermostat_commands schreiben.
+        // v2-Service setzt mode='manual' atomar in setTemperature() — kein extra set_mode nötig.
         const { error: insertError } = await supabase.from('thermostat_commands').insert({
           room_id: roomId,
           command: 'set_temp',
