@@ -79,6 +79,8 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
                 </Button>
               ))}
 
+              <ControlModeBadge onClick={() => onTabChange('settings')} />
+
               {!isMobile && <div className="w-px h-6 bg-border mx-1" />}
 
               {isInstallable && !isInstalled && (
