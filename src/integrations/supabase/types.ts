@@ -1139,6 +1139,42 @@ export type Database = {
         }
         Relationships: []
       }
+      service_health: {
+        Row: {
+          created_at: string
+          devices_configured: number | null
+          devices_ok: number | null
+          id: string
+          last_error_count: number | null
+          last_sync: string | null
+          service_name: string
+          sync_count: number | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          devices_configured?: number | null
+          devices_ok?: number | null
+          id?: string
+          last_error_count?: number | null
+          last_sync?: string | null
+          service_name: string
+          sync_count?: number | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          devices_configured?: number | null
+          devices_ok?: number | null
+          id?: string
+          last_error_count?: number | null
+          last_sync?: string | null
+          service_name?: string
+          sync_count?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       smartfox_settings: {
         Row: {
           api_path: string | null
