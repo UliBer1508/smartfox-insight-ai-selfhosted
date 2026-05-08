@@ -1,56 +1,45 @@
-# Tuya Service v2.0 lokal aktivieren
+## Problem
 
-## Was hier in Lovable passiert
+`node auto-discovery.js` zeigt "Keine Räume mit tuya_device_id und local_key!", obwohl alle 12 Räume in der DB korrekt befüllt sind.
 
-### 1. Migration: Tabelle `service_health`
-Neue Tabelle für Health-Checks lokaler Services (Tuya, Fronius etc.):
+**Root Cause:** Die RLS-Policies auf `public.rooms` erlauben dem Anon-Key nur **UPDATE**, aber kein **SELECT**. Der lokale Service liest mit dem Anon-Key → bekommt 0 Räume zurück.
+
+Zum Vergleich: `thermostat_commands` hat sowohl SELECT als auch UPDATE für anon. `rooms` fehlt die SELECT-Policy.
+
+Der zweite Fehler (`uv_handle assertion in async.c`) ist ein Node/libuv-Folgefehler beim Hard-Exit, sobald das Skript wegen "0 Räume" abbricht während Tuya-Discovery-Sockets noch offen sind. Verschwindet automatisch, sobald Ursache 1 behoben ist.
+
+## Lösung
+
+### Migration: SELECT-Policy für anon auf `rooms`
 
 ```sql
-CREATE TABLE public.service_health (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  service_name        text UNIQUE NOT NULL,
-  last_sync           timestamptz,
-  sync_count          integer DEFAULT 0,
-  last_error_count    integer DEFAULT 0,
-  devices_configured  integer DEFAULT 0,
-  devices_ok          integer DEFAULT 0,
-  created_at          timestamptz DEFAULT now(),
-  updated_at          timestamptz DEFAULT now()
-);
-
-CREATE INDEX idx_service_health_name ON public.service_health(service_name);
-
-ALTER TABLE public.service_health ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Anon collector can read rooms"
+ON public.rooms
+FOR SELECT
+TO anon
+USING (true);
 ```
 
-**RLS-Policies** (passend zu eurem Schema, NICHT permissiv wie im Upload-SQL):
-- `authenticated` → ALL (auth.uid() IS NOT NULL)
-- `anon` → INSERT, UPDATE, SELECT (für lokalen Tuya-Service mit Anon-Key, analog zu `api_errors` und `rooms`)
+Das ist konsistent mit:
+- `thermostat_commands` (anon SELECT + UPDATE)
+- `data_retention_settings` (anon SELECT)
+- `battery_daily_tracking` (anon SELECT + INSERT + UPDATE)
+- `service_health` (anon SELECT + INSERT + UPDATE)
 
-### 2. Memory `mem://deployment/tuya-local-service-implementation` aktualisieren
-Auf v2.0 erweitern:
-- Secrets aus `.env` (nicht mehr in `config.json`)
-- Auto-Versionserkennung v3.3/v3.5 via `snapshot.json`
-- DB-Retry mit exponentiellem Backoff (3×)
-- Health-Check schreibt nach `service_health`
-- `auto-discovery.js` parallel scant Port 6668
-- `generate-config.js` bezieht Räume aus DB
+### Memory-Update
+
+`mem://auth/rls-policies-local-collector` ergänzen: `rooms` braucht SELECT für anon (nicht nur UPDATE), damit lokale Services Konfiguration lesen können.
 
 ## Was NICHT geändert wird
-- `local-collector/collector-node/` bleibt komplett unangetastet
+
+- Keine Code-Änderungen am `tuya-thermostat-v2/` Service (liegt lokal beim User)
 - Keine Edge-Functions
 - Kein UI
 
-## Lokale Aktivierung (auf deinem PC)
+## Nach der Migration
 
+User führt nochmals aus:
 ```cmd
-cd C:\...\tuya-thermostat-v2
-npm install
-copy .env.example .env
-notepad .env                  :: SUPABASE_ANON_KEY eintragen
 node auto-discovery.js
-node generate-config.js
-npm start
 ```
-
-⚠️ Vorher Tuya-Teil im alten `collector-node` stoppen, sonst doppelte Steuerung.
+→ sollte alle 12 Räume listen und Discovery starten.
