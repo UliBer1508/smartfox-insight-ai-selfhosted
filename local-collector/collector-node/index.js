@@ -76,7 +76,37 @@ if (config.tuya?.enabled) {
 
 let lastThermostatSync = 0;
 let lastAutomationTrigger = 0;
+let lastModeCheck = 0;
 const AUTOMATION_INTERVAL_MS = 2 * 60 * 1000; // 2 Minuten
+const MODE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // alle 5min Mode neu prüfen
+
+// Aktueller Tuya-Steuermodus ('cloud' | 'local'). Default cloud → keine ML-Datenverdichtung.
+let currentMode = 'cloud';
+// Letzter bekannter Heizstatus pro room_id für Event-Detection (nur Lokalmodus)
+const lastHeatingState = new Map(); // room_id → { is_heating, since_ts, current_temp }
+// Letztes PV-Power-Reading (für Sample-Anreicherung)
+let lastPvPower = null;
+
+async function refreshControlMode() {
+  try {
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'tuya_control_mode')
+      .maybeSingle();
+    if (error) return;
+    const v = data?.value;
+    const mode = (typeof v === 'string' ? v : v?.mode) || 'cloud';
+    if (mode !== currentMode) {
+      console.log(`[Mode] Steuermodus gewechselt: ${currentMode} → ${mode}`);
+      currentMode = mode;
+      if (mode !== 'local') {
+        // Reset Heating-State-Cache bei Wechsel weg von local
+        lastHeatingState.clear();
+      }
+    }
+  } catch (_) { /* ignore */ }
+}
 // HTTP GET request helper
 function httpGet(url, timeout = 5000) {
   return new Promise((resolve, reject) => {
