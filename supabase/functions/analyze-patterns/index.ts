@@ -911,10 +911,20 @@ Kurze Einschätzung auf Deutsch.`;
       console.error('AI error:', aiResponse.status, aiResponse.error);
       
       if (aiResponse.status === 429) {
-        return new Response(JSON.stringify({ error: 'Rate limit', decisions: [] }), {
-          status: 429,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
+        // Soft-fail: return 200 so callers (UI + pv-automation) don't break / blank-screen.
+        // The deterministic budget logic is the final filter anyway.
+        return new Response(
+          JSON.stringify({
+            error: 'Rate limit',
+            rateLimited: true,
+            decisions: [],
+            analysis: 'KI-Analyse aktuell rate-limited (Gemini Free Tier). Bitte später erneut versuchen.',
+          }),
+          {
+            status: 200,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        );
       }
       
       throw new Error(`AI error: ${aiResponse.status} - ${aiResponse.error}`);
