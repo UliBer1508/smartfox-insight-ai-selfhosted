@@ -157,6 +157,15 @@ export function useActiveHeatingRooms(): ActiveHeatingRoomsResult {
         if (c.starts > c.stops && c.lastStart) {
           const room = roomMap.get(roomId);
           if (room) {
+            // Reconciliation: Verwaister offener Zyklus (heating_stop verpasst) —
+            // wenn Sync frisch ist UND is_heating=false, ist Realität verlässlicher.
+            const syncMs = room.last_thermostat_sync
+              ? now - new Date(room.last_thermostat_sync).getTime()
+              : Infinity;
+            if (room.is_heating === false && syncMs < SYNC_FRESH_SEC * 1000) {
+              console.warn(`[ActiveHeatingRooms] Verwaister offener Zyklus für ${room.name} ignoriert (is_heating=false, sync=${Math.round(syncMs/1000)}s)`);
+              continue;
+            }
             const startMs = new Date(c.lastStart).getTime();
             fromLogs.push({
               room_id: roomId,
