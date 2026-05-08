@@ -76,7 +76,37 @@ if (config.tuya?.enabled) {
 
 let lastThermostatSync = 0;
 let lastAutomationTrigger = 0;
+let lastModeCheck = 0;
 const AUTOMATION_INTERVAL_MS = 2 * 60 * 1000; // 2 Minuten
+const MODE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // alle 5min Mode neu prüfen
+
+// Aktueller Tuya-Steuermodus ('cloud' | 'local'). Default cloud → keine ML-Datenverdichtung.
+let currentMode = 'cloud';
+// Letzter bekannter Heizstatus pro room_id für Event-Detection (nur Lokalmodus)
+const lastHeatingState = new Map(); // room_id → { is_heating, since_ts, current_temp }
+// Letztes PV-Power-Reading (für Sample-Anreicherung)
+let lastPvPower = null;
+
+async function refreshControlMode() {
+  try {
+    const { data, error } = await supabase
+      .from('system_settings')
+      .select('value')
+      .eq('key', 'tuya_control_mode')
+      .maybeSingle();
+    if (error) return;
+    const v = data?.value;
+    const mode = (typeof v === 'string' ? v : v?.mode) || 'cloud';
+    if (mode !== currentMode) {
+      console.log(`[Mode] Steuermodus gewechselt: ${currentMode} → ${mode}`);
+      currentMode = mode;
+      if (mode !== 'local') {
+        // Reset Heating-State-Cache bei Wechsel weg von local
+        lastHeatingState.clear();
+      }
+    }
+  } catch (_) { /* ignore */ }
+}
 // HTTP GET request helper
 function httpGet(url, timeout = 5000) {
   return new Promise((resolve, reject) => {
@@ -158,6 +188,7 @@ async function saveReading(froniusData) {
     }
     
     console.log(`[Fronius] Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%`);
+    lastPvPower = reading.pv_power;
     return true;
   } catch (error) {
     console.error('[DB] Speichern fehlgeschlagen:', error.message);
@@ -210,6 +241,49 @@ async function syncThermostats() {
 
       if (!error) {
         console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
+
+        // === ML-Datenverdichtung: NUR im Lokalmodus ===
+        if (currentMode === 'local' && deviceConfig.room_id) {
+          const nowIso = new Date().toISOString();
+
+          // A1: hochfrequentes Temperatur-Sample
+          supabase.from('room_temperature_samples').insert({
+            room_id: deviceConfig.room_id,
+            temperature: status.current_temp,
+            is_heating: !!status.is_heating,
+            pv_power_w: lastPvPower != null ? Math.round(lastPvPower) : null,
+            timestamp: nowIso
+          }).then(({ error: sErr }) => {
+            if (sErr) console.error(`[ML-Sample] ${deviceConfig.name}:`, sErr.message);
+          });
+
+          // A2: Heating-Event bei Statuswechsel
+          const prev = lastHeatingState.get(deviceConfig.room_id);
+          const newIsHeating = !!status.is_heating;
+          if (!prev || prev.is_heating !== newIsHeating) {
+            const eventType = newIsHeating ? 'heating_start' : 'heating_stop';
+            const durationMin = (prev && !newIsHeating)
+              ? Math.max(0, Math.round((Date.now() - prev.since_ts) / 60000))
+              : null;
+            supabase.from('room_heating_logs').insert({
+              room_id: deviceConfig.room_id,
+              event_type: eventType,
+              current_temp: status.current_temp,
+              target_temp: status.target_temp,
+              duration_minutes: durationMin,
+              pv_surplus_w: lastPvPower != null ? Math.round(lastPvPower) : null,
+              timestamp: nowIso
+            }).then(({ error: hErr }) => {
+              if (hErr) console.error(`[ML-Event] ${deviceConfig.name}:`, hErr.message);
+            });
+            lastHeatingState.set(deviceConfig.room_id, {
+              is_heating: newIsHeating,
+              since_ts: Date.now(),
+              current_temp: status.current_temp
+            });
+          }
+        }
+
         return { name: deviceConfig.name, ok: true };
       }
       console.error(`[Tuya] ${deviceConfig.name} DB-Update Fehler:`, error.message);
@@ -377,26 +451,34 @@ async function triggerPvAutomation() {
 // Main polling loop
 async function poll() {
   const now = Date.now();
-  
-  console.log(`\n${new Date().toLocaleTimeString()} - Polling...`);
-  
+
+  console.log(`\n${new Date().toLocaleTimeString()} - Polling... (mode=${currentMode})`);
+
+  // Steuermodus zyklisch refreshen (alle 5min)
+  if (now - lastModeCheck >= MODE_CHECK_INTERVAL_MS) {
+    await refreshControlMode();
+    lastModeCheck = now;
+  }
+
   // Fronius-Daten abrufen (jedes Mal)
   const froniusData = await fetchFroniusData();
   if (froniusData) {
     await saveReading(froniusData);
   }
-  
+
   // Thermostat-Befehle verarbeiten (jedes Mal, für schnelle Reaktion)
   await processCommands();
-  
+
   // PV-Automation triggern (alle 2 Minuten)
   if (now - lastAutomationTrigger >= AUTOMATION_INTERVAL_MS) {
     await triggerPvAutomation();
     lastAutomationTrigger = now;
   }
-  
-  // Thermostate synchronisieren (alle X Sekunden)
-  const syncInterval = (config.tuya?.sync_interval_seconds || 60) * 1000;
+
+  // Thermostate synchronisieren — Lokalmodus erlaubt kürzeres Intervall
+  const baseSyncSec = config.tuya?.sync_interval_seconds || 60;
+  const localSyncSec = config.tuya?.sync_interval_seconds_local || 45;
+  const syncInterval = (currentMode === 'local' ? localSyncSec : baseSyncSec) * 1000;
   if (now - lastThermostatSync >= syncInterval) {
     await syncThermostats();
     lastThermostatSync = now;
@@ -467,12 +549,19 @@ async function main() {
     process.exit(1);
   }
   
+  // Steuermodus initial laden
+  await refreshControlMode();
+  lastModeCheck = Date.now();
+  console.log(`[Mode] Aktueller Steuermodus: ${currentMode}`);
+
   // Get polling interval from database or config
   const pollingInterval = await getPollingInterval();
   console.log(`[Config] Polling-Intervall: ${pollingInterval} Sekunden`);
-  
+
   if (config.tuya?.enabled) {
-    console.log(`[Config] Thermostat-Sync: alle ${config.tuya.sync_interval_seconds || 60} Sekunden`);
+    const baseSec = config.tuya.sync_interval_seconds || 60;
+    const localSec = config.tuya.sync_interval_seconds_local || 45;
+    console.log(`[Config] Thermostat-Sync: cloud=${baseSec}s, local=${localSec}s`);
   }
   
   // Initial poll

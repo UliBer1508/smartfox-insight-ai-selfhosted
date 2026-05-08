@@ -5,6 +5,7 @@
   "tuya": {
     "enabled": false,
     "sync_interval_seconds": 60,
+    "sync_interval_seconds_local": 45,
     "devices": [
       {
         "name": "Beispiel Thermostat",

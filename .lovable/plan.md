@@ -1,53 +1,82 @@
-## Ziel
+# KI/ML-Verbesserungen — strikt nur im Lokalmodus
 
-Sichtbar machen, in welchem Steuerungsmodus (Cloud / Lokal) das System läuft – an den wenigen Stellen, an denen das fürs Verständnis tatsächlich relevant ist. Kein Rauschen, keine doppelten Hinweise.
+## Garantie: Cloud-Modus bleibt unverändert
 
-## Vorgeschlagene Hinweis-Stellen
+Alle Änderungen werden **konditional auf `mode === 'local'`** gegated. Sobald du in Settings auf Cloud zurückstellst, läuft alles wieder mit den heutigen Cloud-Frequenzen und -Logik. Kein Code-Pfad wird ohne diesen Check aktiviert.
 
-### 1. Globaler Modus-Badge im App-Header (immer sichtbar)
-- Dezenter Badge oben rechts (neben User-Menü / Settings-Icon):
-  - Cloud: ☁️ „Cloud"
-  - Lokal: 🖧 „Lokal" (in Akzentfarbe)
-- Klickbar → springt zu Settings → Tuya-Verbindung
-- Tooltip: „Steuerungsmodus: Lokaler Service (LAN, Port 6668)" bzw. „Tuya Cloud API"
-- Komponente: neue `ControlModeBadge.tsx`, eingebunden in `Header.tsx` (oder dem App-Layout-Wrapper)
+## Modus-Erkennung
 
-### 2. Thermostat-Steuerung Card (`HeatingDashboard.tsx`)
-- In der `CardDescription` der Karte „Thermostat-Steuerung" den Modus zeigen:
-  - „Live-Temperaturen und manuelle Steuerung · **Lokaler Service**"
-  - Bei Cloud-Mode entsprechend „· Cloud API"
-- Mini-Icon vor dem Text (MonitorSmartphone / Cloud)
+Quelle: `system_settings.tuya_control_mode` (`'cloud' | 'local'`) — bereits vorhanden, wird vom `useControlMode` Hook und von Edge-Functions gelesen.
 
-### 3. „Alle pushen" und „Sync" Buttons (`HeatingDashboard.tsx`)
-- Tooltip ergänzen, was im aktuellen Modus passiert:
-  - Lokal: „Sendet Befehle über lokalen Service (LAN)"
-  - Cloud: „Sendet Befehle via Tuya Cloud API"
-- Kein neuer visueller Inhalt, nur `title`-Attribut.
+- **Im Collector** (`local-collector/collector-node/index.js`): Beim Start UND zyklisch alle 5 min `tuya_control_mode` aus DB lesen → `currentMode` Variable. Nur wenn `currentMode === 'local'` werden die neuen Pfade ausgeführt.
+- **In Edge-Functions** (`update-learned-policies` Cron): Beim Trigger zuerst Mode prüfen → bei Cloud Default-Verhalten beibehalten.
 
-### 4. Toast bei Modus-Umschaltung (`useControlMode.ts`)
-- Bestehender Erfolgs-Toast bekommt Beschreibung:
-  - Lokal aktiviert: „Befehle laufen jetzt über LAN. Cloud-Quota irrelevant."
-  - Cloud aktiviert: „Befehle laufen über Tuya Cloud API. Quota gilt wieder."
+## Phase A — Datenverdichtung (nur Lokalmodus)
 
-### 5. Settings-Panel Akkordeon-Header „Tuya API-Verbindung"
-- Im Trigger des Accordion-Items rechts neben dem Titel ein Mini-Badge:
-  - „Lokal aktiv" / „Cloud aktiv"
-- So sieht man den Modus auch wenn der Akkordeon-Inhalt zu ist
+### A1. Hochfrequente Temperatur-Samples
+`local-collector/collector-node/index.js` → `syncThermostats()`:
+```text
+nach erfolgreichem Tuya-Read pro Raum:
+  if (currentMode === 'local') {
+    insert room_temperature_samples {
+      room_id, temperature, is_heating, pv_power_w, timestamp
+    }
+  }
+```
+Cloud-Modus: kein Sample-Insert (so wie heute).
 
-### Bewusst NICHT
+### A2. Echte Heating-Events bei Statuswechsel
+Pro Raum `lastIsHeating` im Collector-Memory cachen.
+```text
+if (currentMode === 'local' && newIsHeating !== lastIsHeating) {
+  insert room_heating_logs {
+    event_type: newIsHeating ? 'heating_start' : 'heating_stop',
+    current_temp, target_temp, timestamp,
+    duration_minutes (bei stop berechnen aus letztem start)
+  }
+}
+```
+Cloud-Modus: bestehende Schätz-Logik bleibt aktiv.
 
-- Keine Hinweise pro Thermostat-Karte (zu redundant bei 12 Räumen)
-- Kein Hinweis im DailyHeatingSchedule oder PV-Forecast (nicht relevant)
-- Keine zusätzliche Info-Banner – der Mode-Badge im Header reicht als „immer sichtbar"
+### A3. Sync-Intervall-Default
+`config.example.json`: neue Option `sync_interval_seconds_local: 45` zusätzlich zum bestehenden `sync_interval_seconds: 60`. Collector wählt je nach `currentMode`. Cloud-Default unverändert.
 
-## Komponenten-Änderungen (Übersicht)
+## Phase B — ML-Pipeline an Lokal-Datenrate anpassen
 
-| Datei | Änderung |
-|---|---|
-| `src/components/layout/ControlModeBadge.tsx` | NEU – Badge mit Tooltip + Click-Navigation |
-| `src/components/layout/Header.tsx` (oder Hauptlayout) | Badge einbinden |
-| `src/components/heating/HeatingDashboard.tsx` | CardDescription + Button-Tooltips |
-| `src/hooks/useControlMode.ts` | Toast-Description erweitern |
-| `src/components/energy/SettingsPanel.tsx` | Mini-Badge im Accordion-Trigger |
+### B1. `update-learned-policies` Cron-Frequenz
+Aktuell: 1×/Tag. Plan: zusätzlich pg_cron-Job alle 6h, **der intern Mode prüft** und nur läuft wenn `local`:
+```text
+if (mode !== 'local') { return { skipped: 'cloud mode' } }
+```
+Der bestehende 03:00-Job bleibt erhalten und läuft in beiden Modi (Backup).
 
-Keine Backend-, DB- oder Edge-Function-Änderungen. Nur Frontend/UI.
+### B2. `ml-feature-extraction` Confidence-Berechnung
+Aktuelle Confidence-Formel basiert auf `sample_count`. Bei Lokalmodus sind 10× mehr Samples normal → Schwellen entsprechend skalieren, **aber nur wenn die Datenpunkte aus den letzten 24h tatsächlich > N**. Selbstkalibrierend, kein expliziter Mode-Check nötig — funktioniert in beiden Modi korrekt.
+
+### B3. Neue Features (Migration, additiv)
+Neue nullable Spalten in `room_ml_features`:
+- `thermal_inertia_seconds numeric`
+- `weather_correlation_score numeric`
+
+Werden nur befüllt wenn genug dichte Samples vorhanden — im Cloud-Modus bleiben sie NULL, nichts bricht.
+
+## Phase C — Optional, später
+
+Cross-Room-Wärmetransfer-Analyse als separate Edge-Function. Erst nach 1–2 Wochen Lokal-Daten evaluieren.
+
+## Was NICHT geändert wird
+
+- Kern-Budget-Logik (Phase 1 Eco → Phase 2 Komfort, Sticky Eco, Komfort-Sättigung)
+- AI-Whitelist & 20:00–09:00 Suppression
+- Cloud-Modus-Verhalten in **jeder** Hinsicht
+- Bestehende pg_cron Jobs (nur additiv ergänzt)
+
+## Rollback
+
+Modus zurück auf Cloud → alle neuen Inserts/Jobs no-op. Migration B3 lässt nullable Spalten ungefüllt. Kein DB-Cleanup nötig.
+
+## Empfehlung
+
+Mit **Phase A1 + A2** starten (Collector-Änderungen, ein PR). Nach 3–7 Tagen Daten in `room_temperature_samples` und `room_heating_logs` prüfen — dann Phase B angehen.
+
+Soll ich Phase A umsetzen?
