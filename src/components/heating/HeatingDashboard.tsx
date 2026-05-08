@@ -379,7 +379,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                 Thermostat-Steuerung
               </CardTitle>
               <CardDescription>
-                Live-Temperaturen und manuelle Steuerung
+                Live-Temperaturen und manuelle Steuerung · <span className={isLocalMode ? 'text-primary font-medium' : 'font-medium'}>{modeLabel}</span>
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
