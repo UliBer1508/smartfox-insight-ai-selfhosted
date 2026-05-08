@@ -1,45 +1,55 @@
 ## Problem
 
-`node auto-discovery.js` zeigt "Keine Räume mit tuya_device_id und local_key!", obwohl alle 12 Räume in der DB korrekt befüllt sind.
+`auto-discovery.js` matcht 0/10 Thermostate, weil:
 
-**Root Cause:** Die RLS-Policies auf `public.rooms` erlauben dem Anon-Key nur **UPDATE**, aber kein **SELECT**. Der lokale Service liest mit dem Anon-Key → bekommt 0 Räume zurück.
+1. **Default-Protokollversion v3.3 wird getestet, alle TGP508 sprechen aber v3.5** (bestätigt durch snapshot.json: alle Geräte mit productKey `z3b3rp7ouquncuaz` haben `"ver": "3.5"`).
+2. **Zwei DB-IPs sind veraltet** — DHCP hat neue IPs vergeben, deshalb „PORT GESCHLOSSEN":
+   - Wohnzimmer: `192.168.188.171` → **`192.168.188.135`**
+   - Haustür: `192.168.188.114` → **`192.168.188.174`**
 
-Zum Vergleich: `thermostat_commands` hat sowohl SELECT als auch UPDATE für anon. `rooms` fehlt die SELECT-Policy.
+## Lösung (3 Schritte, keine Code-Änderungen)
 
-Der zweite Fehler (`uv_handle assertion in async.c`) ist ein Node/libuv-Folgefehler beim Hard-Exit, sobald das Skript wegen "0 Räume" abbricht während Tuya-Discovery-Sockets noch offen sind. Verschwindet automatisch, sobald Ursache 1 behoben ist.
+### Schritt 1: snapshot.json an die richtige Stelle legen
+Du kopierst die hochgeladene Datei in den Service-Ordner:
+```
+C:\Users\ulibe\tuya-thermostat\tuya-thermostat-v2\snapshot.json
+```
+(Sie wurde aus dem alten collector-Ordner übernommen, war nur am falschen Ort.)
 
-## Lösung
+Damit liest `auto-discovery.js` für jedes Gerät die korrekte Protokoll-Version v3.5 statt der Default-Annahme v3.3.
 
-### Migration: SELECT-Policy für anon auf `rooms`
+### Schritt 2: DB-IPs für Wohnzimmer und Haustür korrigieren
+Ein einziges UPDATE auf `rooms` setzt für beide Räume:
+- `thermostat_ip` und `thermostat_local_ip` auf die aktuellen IPs aus snapshot.json.
 
 ```sql
-CREATE POLICY "Anon collector can read rooms"
-ON public.rooms
-FOR SELECT
-TO anon
-USING (true);
+UPDATE public.rooms
+SET thermostat_ip = '192.168.188.135', thermostat_local_ip = '192.168.188.135'
+WHERE name = 'Wohnzimmer';
+
+UPDATE public.rooms
+SET thermostat_ip = '192.168.188.174', thermostat_local_ip = '192.168.188.174'
+WHERE name = 'Haustür';
 ```
 
-Das ist konsistent mit:
-- `thermostat_commands` (anon SELECT + UPDATE)
-- `data_retention_settings` (anon SELECT)
-- `battery_daily_tracking` (anon SELECT + INSERT + UPDATE)
-- `service_health` (anon SELECT + INSERT + UPDATE)
-
-### Memory-Update
-
-`mem://auth/rls-policies-local-collector` ergänzen: `rooms` braucht SELECT für anon (nicht nur UPDATE), damit lokale Services Konfiguration lesen können.
-
-## Was NICHT geändert wird
-
-- Keine Code-Änderungen am `tuya-thermostat-v2/` Service (liegt lokal beim User)
-- Keine Edge-Functions
-- Kein UI
-
-## Nach der Migration
-
-User führt nochmals aus:
+### Schritt 3: Auto-Discovery erneut laufen lassen (du, lokal)
 ```cmd
+cd C:\Users\ulibe\tuya-thermostat\tuya-thermostat-v2
 node auto-discovery.js
 ```
-→ sollte alle 12 Räume listen und Discovery starten.
+Erwartet: **12/12 IPs erreichbar, 12/12 Match v3.5**.
+
+## Was NICHT passiert
+
+- Kein Eingriff in die Local Keys (die in der DB sind aller Wahrscheinlichkeit nach gültig — bestätigt sich beim erfolgreichen Match in Schritt 3).
+- Keine Code-Änderungen am `tuya-thermostat-v2/` Service.
+- Keine Edge-Function- oder UI-Änderungen.
+
+## Falls Schritt 3 trotzdem fehlschlägt
+
+Plan B liegt bereit:
+- TinyTuya-Wizard ausführen → frische `devices.json` mit aktuellen Local Keys
+- DB-Update aller `local_key`-Felder
+- Erneuter Discovery-Lauf
+
+Aber wahrscheinlich nicht nötig — die häufigste Ursache (falsche Version + alte IPs) wird mit den 2 Schritten behoben.
