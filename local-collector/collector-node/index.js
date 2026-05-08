@@ -451,26 +451,34 @@ async function triggerPvAutomation() {
 // Main polling loop
 async function poll() {
   const now = Date.now();
-  
-  console.log(`\n${new Date().toLocaleTimeString()} - Polling...`);
-  
+
+  console.log(`\n${new Date().toLocaleTimeString()} - Polling... (mode=${currentMode})`);
+
+  // Steuermodus zyklisch refreshen (alle 5min)
+  if (now - lastModeCheck >= MODE_CHECK_INTERVAL_MS) {
+    await refreshControlMode();
+    lastModeCheck = now;
+  }
+
   // Fronius-Daten abrufen (jedes Mal)
   const froniusData = await fetchFroniusData();
   if (froniusData) {
     await saveReading(froniusData);
   }
-  
+
   // Thermostat-Befehle verarbeiten (jedes Mal, für schnelle Reaktion)
   await processCommands();
-  
+
   // PV-Automation triggern (alle 2 Minuten)
   if (now - lastAutomationTrigger >= AUTOMATION_INTERVAL_MS) {
     await triggerPvAutomation();
     lastAutomationTrigger = now;
   }
-  
-  // Thermostate synchronisieren (alle X Sekunden)
-  const syncInterval = (config.tuya?.sync_interval_seconds || 60) * 1000;
+
+  // Thermostate synchronisieren — Lokalmodus erlaubt kürzeres Intervall
+  const baseSyncSec = config.tuya?.sync_interval_seconds || 60;
+  const localSyncSec = config.tuya?.sync_interval_seconds_local || 45;
+  const syncInterval = (currentMode === 'local' ? localSyncSec : baseSyncSec) * 1000;
   if (now - lastThermostatSync >= syncInterval) {
     await syncThermostats();
     lastThermostatSync = now;
