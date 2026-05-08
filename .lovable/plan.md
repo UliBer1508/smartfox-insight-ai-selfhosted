@@ -1,27 +1,33 @@
-## Problem
+## Aktion
 
-Der Banner zeigt "Thermostat-Verbindungsfehler Waschraum/Toilette" an, obwohl der Collector aktuell sauber läuft.
+Haustür wieder voll in die Automation aufnehmen — wie alle anderen Räume.
 
-**Ursache:** Es sind **22 uralte Fehler** in `api_errors` offen — vom **19. Februar** und **20. April 2026**. Sie wurden damals nie als `resolved` markiert. Da der Banner alle nicht-resolved Fehler zeigt, hängen die seit Wochen sichtbar.
+## DB-Updates
 
-**Aktueller Status:** Console zeigt `[ActiveHeatingRooms] Stufe A (Logs): 1` — die Heizung wird live korrekt erkannt. Keine neuen `connection_error`/`token_expired`-Einträge seit dem 26. April.
+**1. Raum-Flags reaktivieren** (`rooms`-Tabelle, Haustür):
+- `automation_enabled = true`
+- `pv_auto_enabled = true`
+- `heating_paused_reason = null` (alter night_frost_failed-Marker entfernen)
+- `target_temp = 19` (Eco — wie andere Tag-Räume)
 
-## Fix — DB-Aufräumen
-
-Alle veralteten Verbindungsfehler (älter als 1 Stunde) als resolved markieren:
+**2. Local-Command queuen** (`thermostat_commands`):
+- `set_temp` auf 19°C → wird vom laufenden Local-Service in Pötschach automatisch abgeholt und physisch gesetzt.
 
 ```sql
-UPDATE api_errors
-SET resolved_at = NOW(), is_acknowledged = true
-WHERE resolved_at IS NULL
-  AND error_type IN ('connection_error', 'token_expired')
-  AND created_at < NOW() - INTERVAL '1 hour';
-```
+UPDATE rooms
+SET automation_enabled = true,
+    pv_auto_enabled = true,
+    heating_paused_reason = NULL,
+    target_temp = 19,
+    updated_at = NOW()
+WHERE name = 'Haustür';
 
-Betrifft 22 Einträge (alle Räume, Stand vor heute).
+INSERT INTO thermostat_commands (room_id, command, value, status)
+SELECT id, 'set_temp', 19, 'pending' FROM rooms WHERE name = 'Haustür';
+```
 
 ## Resultat
 
-- Banner verschwindet sofort
-- Falls **echter** neuer Verbindungsfehler auftritt (Collector down, Thermostat offline), erscheint er ganz normal wieder im Banner
-- Cloud-Modus-spezifische Fehler (`token_expired`) sind im aktuellen Local-Modus ohnehin durch den Banner-Filter ausgeblendet
+- Local-Service holt Command innerhalb ~45s ab → Thermostat physisch auf 19°C
+- Ab nächstem PV-Automation-Lauf (alle 2min) wird die Haustür wie alle anderen Räume nach Budget/PV gesteuert
+- Nachts wird sie zusammen mit dem Rest auf Frost (16°C) zurückgestellt
