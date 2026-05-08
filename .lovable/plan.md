@@ -1,67 +1,80 @@
-## Problem
+## Diagnose
 
-**Raumübersicht:** "Wirtschaftsraum heizt" (rotes Symbol)
-**Local-Service-Anzeige:** "Kein Raum heizt"
+Bei 3,3 kW Überschuss (PV 10,4 kW, SOC 100 %, Verbrauch 6,8 kW) zeigt die DB:
+- `pv-automation` (cron `*/2 min`) entscheidet korrekt: Phase 2 Komfort 22 °C für die Räume mit Priorität 1–5 (Bad Uli, Zimmer Uli/Luis/Luca, Kinder Bad). Logs zeigen `PV-HEIZEN - ☀️ Phase 2: Komfort 22°C ... Budget OK`.
+- Trotzdem `is_heating=false` in allen Räumen, `consumption ≈ 6,8 kW` zeigt aber, dass die Estriche faktisch laufen — die Status-Erkennung ist sekundär. Das Hauptproblem ist:
 
-**Ursache:** Datenkonflikt in der Quelle.
+### Root Cause: Zwei konkurrierende Steuerschleifen
 
-In `room_heating_logs` existiert ein `heating_start` um 06:00 UTC für den Wirtschaftsraum — aber **kein zugehöriges `heating_stop`**. Der Stufe-A-Algorithmus in `useActiveHeatingRooms.ts` zählt Starts vs. Stops und schließt: "Zyklus ist offen → Raum heizt seit 4h".
+`thermostat_commands` der letzten 30 Min zeigt ein **Setpoint-Flapping** im Minutentakt:
 
-Realität:
-- `rooms.is_heating = false`
-- `current_temp = 19.7°C`, `target_temp = 19°C` (über Hysterese-Aus-Schwelle 19.3°C)
-- `last_thermostat_sync` < 1min — also frisch
-- Local-Service liefert die Wahrheit: nichts heizt
-
-Der `heating_stop` wurde irgendwann zwischen 06:00 und jetzt verpasst (Polling-Lücke beim Übergang).
-
-## Fix in 2 Teilen
-
-### Teil 1 — Sofort: verwaisten Start-Log korrigieren
-
-Synthetischen `heating_stop` einfügen, damit der offene Zyklus geschlossen wird und das Banner sofort verschwindet:
-
-```sql
-INSERT INTO room_heating_logs (room_id, event_type, timestamp, duration_minutes)
-SELECT 
-  (SELECT id FROM rooms WHERE name='Wirtschaftsraum'),
-  'heating_stop',
-  NOW(),
-  EXTRACT(EPOCH FROM (NOW() - '2026-05-08 06:00:09.348+00'::timestamptz))/60;
+```
+09:46:04  set_temp 22  ← pv-automation (Komfort)
+09:53:32  set_temp 19/18/17 ← ALLE Räume auf night_temp ❗
+09:54:03  set_temp 22  ← pv-automation korrigiert zurück
+09:56:02  set_temp 22  ← pv-automation
+...
 ```
 
-### Teil 2 — Reconciliation in der UI
+Die Quelle der „19/18/17"-Welle: **`apply-recommendations`** (cron `apply-heating-recommendations */15 * * * *`).
 
-Stufe A blind den Logs zu vertrauen ist die eigentliche Schwäche. Wenn ein Raum in den Logs als "offen" gilt, **aber** parallel:
-- `is_heating = false` UND
-- Sync ist frisch (< 10 min)
+Sie liest `room_recommendations`. Dort steht für heute, generiert um **07:00 vor Sonnenaufgang**, gültig **09:00–12:00**:
+- Bad Uli/Zimmer*/Wohnzimmer → 19 °C
+- Wirtschaftsraum/Flur/Waschraum → 18 °C
+- Toilette → 17 °C
+- Büro → 19 °C
 
-…dann ist die Realität (`is_heating=false`) verlässlicher als ein verwaister Log. Diesen Cross-Check in `src/hooks/useActiveHeatingRooms.ts` (Zeilen 156–171) ergänzen:
+Begründung in der DB: „Aktuelle Raumtemperatur liegt über der Nacht-Solltemperatur, und es ist kein PV-Überschuss zum Heizen verfügbar."
 
-```ts
-for (const [roomId, c] of roomEventCounts) {
-  if (c.starts > c.stops && c.lastStart) {
-    const room = roomMap.get(roomId);
-    if (!room) continue;
+Das ist die **alte AI-Tagesplanung von vor Sonnenaufgang**, die `pv-automation v2` (Budget-Logik, Komfort-Sättigung, ML-Policies, Phase 1/2, Pre-Heat-Signal) komplett überflüssig macht und ihr aktiv widerspricht. `apply-recommendations` hat keine Budget-Awareness und keinen Komfort/Phase-Begriff — sie schreibt blind, was die KI um 07:00 für „kein PV erwartet" eingeplant hat.
 
-    // Reconciliation: Wenn Sync frisch ist UND is_heating=false,
-    // ist der offene Log-Zyklus ein verwaister Start (heating_stop nicht geloggt).
-    const syncMs = room.last_thermostat_sync 
-      ? now - new Date(room.last_thermostat_sync).getTime() 
-      : Infinity;
-    if (room.is_heating === false && syncMs < SYNC_FRESH_SEC * 1000) {
-      console.warn(`[ActiveHeatingRooms] Verwaister offener Zyklus für ${room.name} ignoriert (is_heating=false, sync=${Math.round(syncMs/1000)}s)`);
-      continue;
-    }
+Folge: Thermostat sieht Target 22 → 19 → 22 → 19 im 1–2-Minuten-Takt. Hardware-Hysterese (+0,3 °C off / -0,2 °C on) wird nie stabil unterschritten → kein sauberes Heizen, `is_heating` flackert/bleibt false.
 
-    const startMs = new Date(c.lastStart).getTime();
-    fromLogs.push({ /* …unverändert… */ });
-  }
-}
-```
+### Warum das jetzt erst kracht
 
-## Resultat
+`pv-automation v2` (Komfort-Sättigung, Eco-Restoration, Battery-Full-Bonus, ML-Konsum) ist die **alleinige Wahrheitsquelle**. `apply-recommendations` stammt aus der v1-Architektur, in der die KI noch direkt Tagesfahrpläne durchstellte. Memory-Eintrag dazu fehlt — daher ist der Konflikt nicht dokumentiert und seit Wochen latent.
 
-- Banner zeigt sofort "kein Raum heizt" — konsistent mit dem Local-Service
-- Künftige verwaiste Start-Logs werden automatisch ignoriert, sobald der Local-Service `is_heating=false` meldet und der Sync frisch ist
-- Echte aktive Räume (mit `is_heating=true` oder stale Sync) werden weiterhin korrekt aus den Logs angezeigt
+## Lösung (keine neue Logik, nur Konflikt entfernen)
+
+**Strategie:** `apply-recommendations` aus dem automatischen Pfad nehmen. `pv-automation` konsumiert KI-Empfehlungen ohnehin ML-seitig (`learned_policies` + `preheating_signal`, vgl. `mem://arch/ai-system-limitations`). Eine zweite Steuerschicht ist redundant.
+
+### Änderungen
+
+1. **pg_cron Job `apply-heating-recommendations` deaktivieren / entfernen** (Migration: `cron.unschedule('apply-heating-recommendations')`). `pv-automation-check */2 min` bleibt einzige Setpoint-Quelle.
+
+2. **Safety-Net in `apply-recommendations/index.ts`**: Falls die Funktion manuell (UI-Button) oder versehentlich getriggert wird, pro Raum überspringen wenn:
+   - `pv_auto_active === true`, ODER
+   - `last_auto_change` jünger als 10 Min, ODER
+   - aktive `pv-automation`-Heartbeat-Marker in `system_settings.parallel_heating_capacity.computed_at` < 5 Min.
+   
+   Begründung-Skip wird in `results.skipped` mit `reason: 'pv-automation aktiv – kein Override'` geloggt. Verhindert dauerhaft, dass parallele Trigger Setpoint-Flapping erzeugen.
+
+3. **Stale `room_recommendations` von heute neutralisieren**: Insert-Statement, das alle Empfehlungen für `date = CURRENT_DATE` mit `start_time ≥ '08:00'` löscht (Datenbereinigung, nicht-strukturell). Danach ist die DB konsistent mit der neuen Architektur. (Tabelle bleibt erhalten — `analyze-patterns` darf weiter Empfehlungen für die Zukunft schreiben; sie werden nur nicht mehr automatisch ausgeführt.)
+
+4. **Memory-Update**: Neuer Eintrag `mem://arch/recommendations-not-auto-applied` und Vermerk im Core-Block, dass `apply-recommendations` kein Cron-Pfad mehr ist und `pv-automation` die einzige Setpoint-Autorität ist.
+
+### Was bewusst NICHT geändert wird
+
+- `analyze-patterns` (KI-Tagesplanung) bleibt unverändert — Empfehlungen sind weiter sichtbar in der UI als Beratung.
+- `pv-automation`-Logik bleibt 1:1 (Budget, Phase 1/2, Komfort-Sättigung, ML-Policies). Kein neuer Code in der Heizungssteuerung.
+- Lokaler Collector / Tuya-Cloud-Pfad / Hysterese: unverändert.
+- `is_heating`-Erkennung: unverändert. Wenn das Flapping weg ist, läuft die normale 3-stufige Kaskade (`mem://arch/active-heating-status-source`) wieder sauber.
+
+### Erwartetes Ergebnis nach Deploy
+
+Innerhalb von 2–4 Minuten:
+- Keine `set_temp 19/18/17`-Welle mehr alle 15 Min.
+- Targets der prio-1–5-Räume bleiben stabil bei 22 °C.
+- `is_heating` wird true sobald lokaler Collector den nächsten Datenpunkt liefert.
+- 3,3 kW Überschuss + Batterie-Full-Bonus werden über die normale Komfort-Phase verbraucht.
+
+## Technische Details (für Reviewer)
+
+| Komponente | Aktion |
+|---|---|
+| `cron.job` | `unschedule('apply-heating-recommendations')` via Migration |
+| `supabase/functions/apply-recommendations/index.ts` | Safety-Skip-Block in Schleife `for (const room of rooms)` direkt nach Manual-Override-Check |
+| `room_recommendations` | DELETE WHERE date = CURRENT_DATE AND start_time >= '08:00' |
+| `mem://index.md` + neuer Memory-Eintrag | Architektur-Regel dokumentieren |
+
+Keine RLS-, Schema- oder Edge-Function-Verträge ändern sich.
