@@ -173,6 +173,7 @@ interface Room {
   eco_temp: number | null;
   night_temp: number | null;
   manual_override_until: string | null;
+  pv_auto_active: boolean | null;
 }
 
 interface Recommendation {
