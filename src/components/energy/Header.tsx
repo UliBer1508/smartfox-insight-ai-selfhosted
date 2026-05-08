@@ -5,6 +5,7 @@ import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { ControlModeBadge } from '@/components/layout/ControlModeBadge';
 
 interface HeaderProps {
   activeTab: 'dashboard' | 'settings' | 'analysis' | 'heating';
