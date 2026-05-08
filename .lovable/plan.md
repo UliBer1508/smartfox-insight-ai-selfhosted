@@ -1,45 +1,56 @@
-Ziel: Tuya-Tagesquote nicht mehr sprengen, ohne die "Überschuss-Umverteilung" kaputt zu machen. Strategie wird von prädiktiv (Vorausberechnung "effective Export") auf **reaktiv** (warten bis Zähler echten Überschuss zeigt) umgestellt.
+# Tuya Service v2.0 lokal aktivieren
 
-## Was geändert wird
+## Was hier in Lovable passiert
 
-### 1. Dashboard-Auto-Sync abschalten (Cloud-Modus)
-- `HeatingDashboard.tsx`: Der 5-Minuten-Auto-Sync wird im Cloud-Modus entfernt.
-- Beim Öffnen wird **nur einmal** synchronisiert, falls der letzte Tuya-Sync älter als 60 Minuten ist.
-- Manueller Refresh-Button bleibt jederzeit verfügbar.
-- Lokaler Modus bleibt unverändert (kein Cloud-Verbrauch).
+### 1. Migration: Tabelle `service_health`
+Neue Tabelle für Health-Checks lokaler Services (Tuya, Fronius etc.):
 
-### 2. `sync-all` mit Last-Sync-Gate
-- In `tuya-control/sync-all`: Wenn `last_sync_at` jünger als 60 Min → DB-Daten zurückgeben, kein Tuya-Call.
-- Gilt auch für den Sync-Aufruf aus `pv-automation` (Zeile ~1105).
+```sql
+CREATE TABLE public.service_health (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  service_name        text UNIQUE NOT NULL,
+  last_sync           timestamptz,
+  sync_count          integer DEFAULT 0,
+  last_error_count    integer DEFAULT 0,
+  devices_configured  integer DEFAULT 0,
+  devices_ok          integer DEFAULT 0,
+  created_at          timestamptz DEFAULT now(),
+  updated_at          timestamptz DEFAULT now()
+);
 
-### 3. Reaktive Heizstrategie statt prädiktiver Umverteilung
-In `pv-automation/index.ts`:
-- **Kein "effective Export"-Trick mehr**: Komfort-Budget = nur **echter Zähler-Export** minus Baseload-Puffer. Heizleistung wird nicht mehr dazugerechnet.
-- **Stabilitäts-Filter**: Ein neuer Raum darf erst aktiviert werden, wenn der Überschuss ≥ Schwelle für mindestens 2 aufeinanderfolgende Runs (≈4 Min) stabil war. Verhindert Flackern bei Wolken.
-- **Mindest-Heizdauer pro Raum**: 25 Minuten, bevor ein Raum wieder umgeschaltet werden darf (verhindert Ping-Pong).
-- **Komfort-Sättigung bleibt**: Raum erreicht Komfort → zurück auf Eco. Aber das frei werdende Budget wird **nicht im selben Run umverteilt** — erst der nächste Run sieht den realen Export am Zähler und entscheidet dann.
+CREATE INDEX idx_service_health_name ON public.service_health(service_name);
 
-### 4. Quota-Gate konsistent
-- Einheitliche Berechnung des effektiven Tageslimits in `tuya-control` und `pv-automation` (Monatsrest / verbleibende Tage).
-- Log zeigt `calls_today / effectiveDailyLimit / configuredDailyLimit`, damit klar ist, warum bei z.B. 108/200 schon Schluss ist.
-- `push-all-temps` bekommt denselben Quota-Gate.
+ALTER TABLE public.service_health ENABLE ROW LEVEL SECURITY;
+```
 
-### 5. Datenquelle für Ist-Temperatur
-- `current_temp` und `is_heating` werden aus der DB gelesen (über lokalen Collector aktuell gehalten), nicht mehr alle 5 Min via Tuya geholt.
-- Nur noch 1 Drift-Check-Sync pro Stunde (über das Last-Sync-Gate gesteuert).
+**RLS-Policies** (passend zu eurem Schema, NICHT permissiv wie im Upload-SQL):
+- `authenticated` → ALL (auth.uid() IS NOT NULL)
+- `anon` → INSERT, UPDATE, SELECT (für lokalen Tuya-Service mit Anon-Key, analog zu `api_errors` und `rooms`)
 
-### 6. Memory-Update
-- `mem://arch/pv-automation-strategy-v2` und Core-Strategie aktualisieren: "Reaktive Umverteilung" statt "effective Export + parallel-Plan".
-- `mem://integration/tuya/api-quota-management-v2` aktualisieren: Dashboard-Sync deaktiviert, sync-Gate 60 Min.
+### 2. Memory `mem://deployment/tuya-local-service-implementation` aktualisieren
+Auf v2.0 erweitern:
+- Secrets aus `.env` (nicht mehr in `config.json`)
+- Auto-Versionserkennung v3.3/v3.5 via `snapshot.json`
+- DB-Retry mit exponentiellem Backoff (3×)
+- Health-Check schreibt nach `service_health`
+- `auto-discovery.js` parallel scant Port 6668
+- `generate-config.js` bezieht Räume aus DB
 
-## Was nicht geändert wird
-- Phase 1 (Eco) vor Phase 2 (Komfort) bleibt.
-- Prioritäten 1–12 bleiben.
-- Komfort-Sättigung / Estrich-Speicher bleibt.
-- Nacht-/Frostschutz-Logik bleibt.
-- ML-/Pre-Heat-Integration bleibt, aber respektiert das neue Quota-Gate.
+## Was NICHT geändert wird
+- `local-collector/collector-node/` bleibt komplett unangetastet
+- Keine Edge-Functions
+- Kein UI
 
-## Erwartetes Ergebnis
-- Tuya-Calls/Tag sinken von ~280+ auf ~30–50.
-- Quota wird nicht mehr vorzeitig erschöpft.
-- Heizung reagiert ehrlich auf echten PV-Überschuss; bei wechselhaftem Wetter ~3–5 Min langsamer, dafür kein Akku-/Netzbezug durch Fehlprognose.
+## Lokale Aktivierung (auf deinem PC)
+
+```cmd
+cd C:\...\tuya-thermostat-v2
+npm install
+copy .env.example .env
+notepad .env                  :: SUPABASE_ANON_KEY eintragen
+node auto-discovery.js
+node generate-config.js
+npm start
+```
+
+⚠️ Vorher Tuya-Teil im alten `collector-node` stoppen, sonst doppelte Steuerung.
