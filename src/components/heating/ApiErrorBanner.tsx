@@ -34,7 +34,7 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
   const [isRetrying, setIsRetrying] = useState(false);
 
   // Im Lokal-Modus: Cloud-spezifische Fehler ausblenden (Quota, Token, No-Channel)
-  const cloudOnlyTypes = new Set(['quota_exhausted', 'token_expired', 'no_control_channel']);
+  const cloudOnlyTypes = new Set(['quota_exhausted', 'token_expired', 'no_control_channel', 'night_frost_failed']);
   const errors = mode === 'local'
     ? rawErrors.filter(e => !cloudOnlyTypes.has(e.error_type))
     : rawErrors;
