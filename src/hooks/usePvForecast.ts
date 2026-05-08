@@ -49,7 +49,13 @@ export function usePvForecast() {
       const { data, error } = await supabase.functions.invoke('fetch-pv-forecast');
       
       if (error) throw error;
-      
+
+      if (data?.fallback) {
+        toast.warning(data.error || 'Prognose-Dienst aktuell nicht erreichbar');
+        await loadForecasts();
+        return data;
+      }
+
       if (data?.error) {
         throw new Error(data.error);
       }
