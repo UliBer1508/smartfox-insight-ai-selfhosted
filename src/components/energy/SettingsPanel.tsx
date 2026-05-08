@@ -102,7 +102,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             </div>
 
             <TuyaConnectionTest />
-            <TuyaSubscriptionAlert />
+            {mode === 'cloud' && <TuyaSubscriptionAlert />}
           </AccordionContent>
         </AccordionItem>
 

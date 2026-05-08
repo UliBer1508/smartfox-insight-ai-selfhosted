@@ -2,6 +2,7 @@ import { AlertTriangle, RefreshCw, X, WifiOff, Key, AlertCircle } from 'lucide-r
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { useApiErrors, ApiError } from '@/hooks/useApiErrors';
+import { useControlMode } from '@/hooks/useControlMode';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { cn } from '@/lib/utils';
@@ -28,10 +29,17 @@ function formatErrorTime(createdAt: string): string {
 }
 
 export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: ApiErrorBannerProps) {
-  const { errors, acknowledgeError, hasErrors, refetch } = useApiErrors();
+  const { errors: rawErrors, acknowledgeError, refetch } = useApiErrors();
+  const { mode } = useControlMode();
   const [isRetrying, setIsRetrying] = useState(false);
 
-  if (!hasErrors) return null;
+  // Im Lokal-Modus: Cloud-spezifische Fehler ausblenden (Quota, Token, No-Channel)
+  const cloudOnlyTypes = new Set(['quota_exhausted', 'token_expired', 'no_control_channel']);
+  const errors = mode === 'local'
+    ? rawErrors.filter(e => !cloudOnlyTypes.has(e.error_type))
+    : rawErrors;
+
+  if (errors.length === 0) return null;
 
   // Group errors by type
   const tokenErrors = errors.filter(e => e.error_type === 'token_expired');
