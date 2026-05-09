@@ -1296,6 +1296,7 @@ export type Database = {
           room_id: string
           status: string | null
           value: number | null
+          value_text: string | null
         }
         Insert: {
           command: string
@@ -1306,6 +1307,7 @@ export type Database = {
           room_id: string
           status?: string | null
           value?: number | null
+          value_text?: string | null
         }
         Update: {
           command?: string
@@ -1316,6 +1318,7 @@ export type Database = {
           room_id?: string
           status?: string | null
           value?: number | null
+          value_text?: string | null
         }
         Relationships: [
           {
