@@ -1,25 +1,55 @@
-## Schritt 1: DB-Migration für Mode-Befehle
+## Schritt 3: Mode-Guard in `pv-automation`
 
-Fügt der Tabelle `thermostat_commands` eine Text-Spalte hinzu, damit nicht-numerische Befehlswerte (z.B. `manual`, `auto`) gespeichert werden können.
+Verhindert, dass Tuya-Thermostate im Modus `auto`/`temporary`/`away` hängen bleiben und ihre internen Schedules unsere Setpoints überschreiben. Lösung: Vor jedem Setpoint-Write proaktiv `set_mode=manual` einreihen (deduped).
 
-### Migration
+### Änderung: `queueLocalTemperatureCommand` (ab Zeile 415)
 
-```sql
-ALTER TABLE public.thermostat_commands
-ADD COLUMN value_text text;
+Vor dem `set_temp` INSERT zusätzlich einen `set_mode=manual` Command einreihen — aber nur, wenn nicht bereits ein pending `set_mode`-Befehl für diesen Raum existiert.
 
-COMMENT ON COLUMN public.thermostat_commands.value_text IS
-  'String-Wert für nicht-numerische Befehle wie set_mode (manual/auto). Bei numerischen Befehlen (set_temperature) wird weiterhin value verwendet.';
+```typescript
+// NEU: Mode-Guard — sicherstellen dass Thermostat im manual-Modus ist
+const { data: pendingMode } = await supabase
+  .from('thermostat_commands')
+  .select('id')
+  .eq('room_id', roomId)
+  .eq('command', 'set_mode')
+  .eq('status', 'pending')
+  .limit(1)
+  .maybeSingle();
+
+if (!pendingMode?.id) {
+  await supabase.from('thermostat_commands').insert({
+    room_id: roomId,
+    command: 'set_mode',
+    value_text: 'manual',
+    status: 'pending',
+  });
+}
+
+// Bestehender set_temp INSERT (unverändert)
+const { error } = await supabase.from('thermostat_commands').insert({
+  room_id: roomId,
+  command: 'set_temp',
+  value: temperature,
+  status: 'pending',
+});
 ```
+
+Den irreführenden Kommentar in Zeile 434 entfernen (v2-Service setzt Mode **nicht** atomar).
 
 ### Auswirkungen
 
-- **Bestehende Daten**: Keine Änderung. Spalte ist nullable, alle alten Zeilen bleiben gültig.
-- **Bestehende Befehle** (`set_temperature`, etc.): Lesen weiter `value` (numeric) — keine Code-Änderung nötig.
-- **Neue Befehle** (`set_mode`): Schreiben `value_text = 'manual'`/`'auto'`, `value` bleibt NULL.
-- **RLS**: Unverändert, neue Spalte fällt unter bestehende Policies.
+- **Pro Setpoint-Wechsel:** maximal 1 zusätzlicher `set_mode`-Command. Dedup via Pending-Check verhindert Spam.
+- **Bei stabilem `manual`-Modus:** der Service führt den Befehl trotzdem aus (idempotent) — minimaler Overhead (~70ms pro Raum).
+- **Cloud-Modus** (Zeile 450+): nicht betroffen, dort läuft Tuya-API direkt.
+- **Nacht-Übergang:** automatisch abgedeckt, da pv-automation beim Nacht-Setpoint sowieso `queueLocalTemperatureCommand` aufruft.
 
-### Nächste Schritte (NICHT Teil dieser Migration)
+### Voraussetzung (bereits erledigt)
 
-- **Schritt 2** (manuell durch dich am externen Node-Service): `index.js` `set_mode` Handler liest `cmd.value_text` statt `cmd.value`.
-- **Schritt 3** (Folge-Plan): `pv-automation` Edge Function schreibt `set_mode=manual` Command beim Nacht-Übergang und vor jedem Setpoint-Write, wenn der zuletzt bekannte Modus ≠ `manual`.
+✅ DB-Spalte `value_text` (Schritt 1)
+✅ Lokaler Service liest `cmd.value_text ?? cmd.value` für `set_mode` (Schritt 2)
+
+### Nicht Teil dieses Plans
+
+- Kein neues DB-Feld für "letzter bekannter Modus" — Dedup via Pending-Check reicht.
+- Keine Cloud-API-Änderung — bei Cloud-Pfad steuert Tuya selbst und Schedules sind dort kein Problem.

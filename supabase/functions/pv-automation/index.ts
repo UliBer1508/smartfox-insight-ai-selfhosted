@@ -431,7 +431,27 @@ Deno.serve(async (req) => {
           return { queued: true, alreadyQueued: true };
         }
 
-        // v2-Service setzt mode='manual' atomar in setTemperature() — kein extra set_mode nötig.
+        // Mode-Guard: Sicherstellen, dass Thermostat im 'manual'-Modus ist.
+        // Sonst überschreibt der interne Tuya-Schedule (mode=auto/temporary) unsere Setpoints.
+        // Dedup: Nur einreihen, wenn nicht bereits ein pending set_mode für diesen Raum existiert.
+        const { data: pendingMode } = await supabase
+          .from('thermostat_commands')
+          .select('id')
+          .eq('room_id', roomId)
+          .eq('command', 'set_mode')
+          .eq('status', 'pending')
+          .limit(1)
+          .maybeSingle();
+
+        if (!pendingMode?.id) {
+          await supabase.from('thermostat_commands').insert({
+            room_id: roomId,
+            command: 'set_mode',
+            value_text: 'manual',
+            status: 'pending',
+          });
+        }
+
         const { error } = await supabase.from('thermostat_commands').insert({
           room_id: roomId,
           command: 'set_temp',
