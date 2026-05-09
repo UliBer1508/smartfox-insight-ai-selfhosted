@@ -1040,6 +1040,7 @@ export type Database = {
           thermostat_type: string | null
           tuya_device_id: string | null
           updated_at: string | null
+          work_state: string | null
         }
         Insert: {
           automation_enabled?: boolean | null
@@ -1088,6 +1089,7 @@ export type Database = {
           thermostat_type?: string | null
           tuya_device_id?: string | null
           updated_at?: string | null
+          work_state?: string | null
         }
         Update: {
           automation_enabled?: boolean | null
@@ -1136,6 +1138,7 @@ export type Database = {
           thermostat_type?: string | null
           tuya_device_id?: string | null
           updated_at?: string | null
+          work_state?: string | null
         }
         Relationships: []
       }
