@@ -1,37 +1,25 @@
-## Ziel
-Bis 08:00 Vienna stehen **alle** Räume zuverlässig auf Nacht-Setpoint (5°C bei `frost_only`), keine Ausnahmen durch `auto`-Modus am Thermostat.
+## Schritt 1: DB-Migration für Mode-Befehle
 
-## Sofort-Fix (jetzt anwenden)
+Fügt der Tabelle `thermostat_commands` eine Text-Spalte hinzu, damit nicht-numerische Befehlswerte (z.B. `manual`, `auto`) gespeichert werden können.
 
-1. **`thermostat_commands` einfügen** für die zwei Ausreißer — pro Raum **zwei** Commands:
-   - `mode = manual` (zwingt Thermostat aus dem Schedule raus)
-   - `set_temperature = 5`
-   
-   Räume:
-   - Wirtschaftsraum
-   - Toilette Eingang
-   
-2. Dadurch holt der lokale Tuya-Service die Commands binnen 5s ab, schreibt sie via DPS 2 + DPS 4 → Thermostat folgt wieder unserem Setpoint.
+### Migration
 
-3. **`heating_paused_reason` leeren** für alle Räume, deren `last_thermostat_sync` jünger als 5 Min ist (Service ist nachweislich wieder online).
+```sql
+ALTER TABLE public.thermostat_commands
+ADD COLUMN value_text text;
 
-## Strukturelle Absicherung (Code-Änderung)
+COMMENT ON COLUMN public.thermostat_commands.value_text IS
+  'String-Wert für nicht-numerische Befehle wie set_mode (manual/auto). Bei numerischen Befehlen (set_temperature) wird weiterhin value verwendet.';
+```
 
-Im **`pv-automation` Edge Function** (alleinige Setpoint-Autorität) bei jeder Nacht-Phase folgendes ergänzen:
+### Auswirkungen
 
-- **Mode-Guard:** Vor jedem Setpoint-Write prüfen, ob letzter bekannter Mode (aus `service_health` / `room_temperature_samples` Metadaten oder neuem Feld) ≠ `manual` → zusätzlichen `set_mode=manual` Command vorschalten.
-- **Effektivitäts-Check:** Wenn nach 2 Sync-Zyklen (=2 min) `target_temp` aus dem Sync nicht dem zuletzt geschriebenen Wert entspricht → Mode-Reset + Setpoint erneut schreiben.
-- **Reason-Cleanup:** Nach jedem erfolgreichen Sync (`last_thermostat_sync` < 2 Min alt) `heating_paused_reason` zurücksetzen, wenn der Grund mit `'... Lokaler Service offline ...'` beginnt.
+- **Bestehende Daten**: Keine Änderung. Spalte ist nullable, alle alten Zeilen bleiben gültig.
+- **Bestehende Befehle** (`set_temperature`, etc.): Lesen weiter `value` (numeric) — keine Code-Änderung nötig.
+- **Neue Befehle** (`set_mode`): Schreiben `value_text = 'manual'`/`'auto'`, `value` bleibt NULL.
+- **RLS**: Unverändert, neue Spalte fällt unter bestehende Policies.
 
-## Optional: Reporting
+### Nächste Schritte (NICHT Teil dieser Migration)
 
-Settings-Banner: „X Räume im Auto-Modus — wird automatisch korrigiert" mit Liste der betroffenen Räume, solange Mismatch besteht.
-
-## Reihenfolge
-
-1. Sofort-Fix per `INSERT INTO thermostat_commands` + `UPDATE rooms SET heating_paused_reason = NULL` (kein Code-Deploy nötig).
-2. Anschließend pv-automation Patch (Mode-Guard + Reason-Cleanup) + Deploy.
-
-## Bestätigung nötig
-
-Soll ich Schritt 1 (Sofort-Fix per Insert) **jetzt direkt** ausführen, und Schritt 2 (Code-Änderung) danach implementieren?
+- **Schritt 2** (manuell durch dich am externen Node-Service): `index.js` `set_mode` Handler liest `cmd.value_text` statt `cmd.value`.
+- **Schritt 3** (Folge-Plan): `pv-automation` Edge Function schreibt `set_mode=manual` Command beim Nacht-Übergang und vor jedem Setpoint-Write, wenn der zuletzt bekannte Modus ≠ `manual`.
