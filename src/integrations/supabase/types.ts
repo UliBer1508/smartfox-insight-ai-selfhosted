@@ -1545,6 +1545,20 @@ export type Database = {
           total_with_ml: number
         }[]
       }
+      get_weekly_energy_summary: {
+        Args: { days_back?: number }
+        Returns: {
+          avg_outdoor_c: number
+          avg_power: number
+          date: string
+          energy_in_kwh: number
+          energy_out_kwh: number
+          heating_kwh: number
+          peak_power: number
+          pv_kwh: number
+          reading_count: number
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
