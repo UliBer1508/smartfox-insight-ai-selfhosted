@@ -1,96 +1,90 @@
 
-# KI-Musteranalyse: Fortschritt Richtung 100 % PV-Eigenverbrauch
+# Jahres-Trendgrafik für Eigenverbrauch (Woche & Monat)
 
 ## Ziel
 
-Die Karte „KI-Musteranalyse" wird vom reinen Trigger-Panel zu einem **Fortschritts-Cockpit**. Für jede Analyseebene (Tag / Woche / Monat / Match) gibt es:
-1. Eine **kurze KI-Zusammenfassung** in Klartext (3–5 Sätze).
-2. Eine **statistische Anzeige**, wie nah wir an 100 % PV-Eigenverbrauch sind.
-3. Einen **Trend** (Verlauf über Zeit), damit Lerneffekt sichtbar wird.
+Zusätzlich zur bestehenden Tag/Woche/Monat-Auswertung eine **Langzeit-Trendgrafik** in der Karte „KI-Musteranalyse", die zeigt, wie sich der Eigenverbrauch (SCR) **wöchentlich und monatlich über das gesamte Jahr** entwickelt – sichtbar machen, ob die ML/PV-Optimierung Richtung 100 % wirkt.
 
-Die Backend-Daten dafür liegen bereits vor in `daily_pattern_scores` (kpi_self_consumption_ratio, kpi_pv_heating_coverage, kpi_grid_import_kwh, score) und `learning_events`.
+## Datengrundlage
 
-## Leitkennzahl
+`daily_pattern_scores` (vorhanden, durch Backfill bis 365 Tage befüllbar):
+- `date`, `kpi_self_consumption_ratio`, `kpi_pv_heating_coverage`, `kpi_grid_import_kwh`, `score`, `pv_kwh`
 
-**Self-Consumption-Ratio (SCR)** = `self_consumption_kwh / pv_kwh` (0–100 %).
-Sekundärkennzahlen:
-- **PV-Heating-Coverage** = Anteil Heizenergie aus PV
-- **Grid-Import (kWh)** – soll Richtung 0 fallen
-- **Daily Score** (0–100) – Gesamtnote
-- **ML-Lernfortschritt** = Anzahl `learning_events` mit positiver Reward-Tendenz, gleitender Mittelwert
+Aggregation client-seitig:
+- **Wöchentlich** (ISO-Woche, Mo–So): Ø SCR, Ø Coverage, Σ PV-kWh, Σ Netzbezug
+- **Monatlich**: gleiche Aggregate
+- **Trendlinie**: lineare Regression über die Aggregat-Punkte → Steigung in pp/Monat als KPI
 
-## UI-Layout pro Tab (Tag / Woche / Monat)
+## UI-Layout
+
+Neuer Block **unterhalb** des bestehenden Cockpits, vor den Tab-spezifischen Inhalten oder als eigener „Jahr"-Tab. Empfehlung: **eigener 4. Tab „Jahr"** in derselben Tab-Leiste (Tag · Woche · Monat · **Jahr**), damit die bestehenden Tabs unverändert kompakt bleiben.
 
 ```text
-┌─ KI-Musteranalyse ─────────────────────────────────────┐
-│ [Tag] [Woche] [Monat] [Match heute]                    │
-├────────────────────────────────────────────────────────┤
-│ ┌──────────────┐  ┌──────────────────────────────────┐ │
-│ │  84 %        │  │  Trend (30 Tage)                 │ │
-│ │  Eigen-      │  │  ▁▂▂▃▄▄▅▆▆▇▇  +12 % vs. Vorper. │ │
-│ │  verbrauch   │  │                                  │ │
-│ │  ▲ +6 %      │  │  Ø 78 %  Best 96 %  Schlecht 41 %│ │
-│ └──────────────┘  └──────────────────────────────────┘ │
-│ ┌──────────────────────────────────────────────────────┐
-│ │ Fortschritt zu 100 %:  [██████████░░░] 84 %         │
-│ │ Heizung aus PV: 71 %   Netzbezug: 3,2 kWh           │
-│ │ Score: 82 / 100        ML-Konfidenz: 0.74           │
-│ └──────────────────────────────────────────────────────┘
-│ ┌─ Zusammenfassung (KI) ──────────────────────────────┐ │
-│ │ „Heute 84 % Eigenverbrauch – bester Wert seit 9 Tg. │ │
-│ │  Komfort-Bonus 320 W aus Pattern-Recall hat sich    │ │
-│ │  ausgezahlt. Verlust-Treiber: Netzbezug 18:00–20:00 │ │
-│ │  (Akku leer). Empfehlung: Vorheizen bis 17:00."     │ │
-│ └─────────────────────────────────────────────────────┘ │
-│ ▸ Automatik (collapsible, wie heute)                   │
-│ ▸ Manuell ausführen                                    │
-└────────────────────────────────────────────────────────┘
+┌─ Jahr ──────────────────────────────────────────────┐
+│ Granularität: ( ) Woche  (•) Monat   Range: 12M ▾  │
+├─────────────────────────────────────────────────────┤
+│  100% ┤ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Ziel             │
+│   80% ┤              ▂▃▄▅▆▆▇       ← Trend +1.2pp/M│
+│   60% ┤      ▁▂▃▃▄▄                                │
+│   40% ┤▁▂▂                                         │
+│   20% ┤                                            │
+│       └────────────────────────────────────────────│
+│        Jan  Feb  Mär  Apr  Mai  ...                │
+│                                                     │
+│  KPI-Strip:                                        │
+│  Bestmonat: Mai 84%   Schlechtester: Jan 38%       │
+│  Trend: +1.2 pp / Monat   Δ Jahr: +18 pp           │
+│  Σ PV: 14.2 MWh   Σ Netzbezug: 1.8 MWh             │
+└─────────────────────────────────────────────────────┘
 ```
 
-## Inhalte pro Ebene
+Charts via **Recharts** (bereits im Projekt): `ComposedChart` mit:
+- **Bar** = SCR pro Woche/Monat (Hauptserie)
+- **Line** = 4-Perioden gleitender Mittelwert
+- **ReferenceLine** = lineare Regression (Trendlinie)
+- **ReferenceLine** = 100 % Ziel (gestrichelt)
 
-| Ebene | Datenfenster | Hauptchart | Zusammenfassung |
-|---|---|---|---|
-| **Tag** | letzte 24 h + Vergleich Vortag | Stundenbalken SCR | „Was lief gut/schlecht heute, welche Stunde war Verlust-Treiber" |
-| **Woche** | 7 Tage | Tagesbalken SCR + Linie Score | „Welcher Wochentag/Wetterbucket performt am besten" |
-| **Monat** | 30 Tage | Linie SCR + 7-Tage-MA | „Trend Verbesserung in %, beste/schlechteste Tage, Wirkung der ML-Settings" |
-| **Match heute** | aktuelles Signature-Bucket | Vergleich heute vs. bester historischer Tag mit gleicher Signatur | „Heute ähnelt 04.05. (Score 100). Erwarteter Endwert: 92 %. Pattern-Recall aktiv." |
+Tooltip pro Punkt: Periode, SCR %, PV kWh, Netzbezug kWh, Score.
 
-## Statistik-Komponenten (neu)
+## Komponenten (neu)
 
-1. **`SelfConsumptionGauge`** – großer Prozentwert + Delta vs. Vorperiode (▲/▼).
-2. **`ProgressTo100Bar`** – horizontale Fortschrittsleiste mit Markern (Ø, Best, Ziel 100 %).
-3. **`TrendSparkline`** – kompakter Verlauf der letzten N Perioden, eingefärbt nach Richtung.
-4. **`KpiGrid`** – 4 kleine Kacheln: SCR, Heizung-aus-PV, Netzbezug, Score.
-5. **`AISummaryCard`** – Klartext aus Gemini, max. 5 Sätze, mit Reload-Button.
-6. **`MLProgressIndicator`** – „ML-Lernkurve": Reward-Mittelwert letzte 7 vs. vorige 7 Tage, Konfidenz-Badge.
+1. **`YearTrendChart.tsx`** (`src/components/energy/stats/`)
+   - Props: `granularity: 'week' | 'month'`, `monthsBack: number` (Default 12)
+   - Liest direkt aus `daily_pattern_scores` für die letzten N Monate
+   - Aggregiert lokal (ISO-Woche oder Monat in `Europe/Vienna`)
+   - Berechnet lineare Regression + Δ Jahr
+2. **`useYearlyStats.ts`** (Hook)
+   - Lädt Tagesdaten ≤365 Tage zurück
+   - Liefert beide Aggregate (Woche + Monat) gecached
+3. Integration: neuer Tab **„Jahr"** in `AnalysisPanel.tsx` mit Granularitäts-Toggle (Switch/RadioGroup) und Range-Select (3M / 6M / 12M).
 
-Alle nutzen Design-Tokens (`--primary`, `--muted`, etc.), keine harten Farben.
+## KPIs im Trend-Block
 
-## Datenbeschaffung
+- Trend-Steigung **pp/Monat** (positiv = Verbesserung)
+- Δ vom ersten zum letzten Punkt der Range (in pp)
+- Bestperiode + Wert
+- Schlechteste Periode + Wert
+- Σ PV kWh / Σ Netzbezug kWh über Range
 
-- **Read-only** aus `daily_pattern_scores` (bereits gefüllt durch Backfill).
-- Aggregation client-seitig in einem neuen Hook **`useSelfConsumptionStats(range: 'day'|'week'|'month')`**.
-- KI-Zusammenfassung: bestehende Edge Function `analyze-patterns` erweitern um Response-Feld `summary_text` (3–5 Sätze, Gemini), gespeichert in `system_settings` Key `analysis_summary_<type>` mit Timestamp → UI zeigt Cache + „Neu generieren"-Button.
+## KI-Erweiterung (optional, klein)
 
-## Backend-Anpassungen (minimal)
-
-1. **`analyze-patterns/index.ts`**: Bei jedem Lauf zusätzlich Klartext-Summary erzeugen (Gemini, deutsch, max. 5 Sätze) und in `system_settings` ablegen.
-2. **Kein Schema-Change** – alle Werte existieren in `daily_pattern_scores` und `learning_events`.
-
-## Frontend-Änderungen
-
-- `src/components/energy/AnalysisPanel.tsx`: Tab-Inhalte um Stats-Block + Summary-Block erweitern (vor „Automatik"-Box).
-- `src/hooks/useSelfConsumptionStats.ts` (neu): lädt + aggregiert.
-- `src/components/energy/stats/` (neu): die 6 Komponenten oben.
+`analysis-summary` Edge Function um `range: 'year'` ergänzen → liefert Klartext-Bewertung des Jahresverlaufs („Ø-Verbesserung +1,2 pp/Monat, Sommer-Plateau ab Juni, Winter-Schwäche Dez–Jan ist erwartbar"). Cached in `system_settings.analysis_summary_year`.
 
 ## Out of Scope
 
-- Keine Änderung an `pv-automation`, Eco/Komfort-Logik, Sticky-Eco, SOC-Gates.
-- Keine neuen Tabellen, keine Migration.
-- Pattern-Recall-Block in der Heizungs-Karte bleibt unverändert (zeigt weiterhin Match-Strength + Slider).
+- Keine Schema-Änderung
+- Kein Touch an `pv-automation` oder Eco/Komfort-Logik
+- Kein Vergleich mehrerer Jahre (nur rollierende 12 Monate)
+- Cockpit-Komponente bleibt unverändert
 
 ## Lieferumfang
 
-- 1 erweiterte Edge Function (Summary), 1 Hook, 6 kleine Stats-Komponenten, Integration in 4 Tabs.
-- Memory-Update: `mem://features/analysis/progress-cockpit`.
+- 1 neue Hook (`useYearlyStats`)
+- 1 neue Komponente (`YearTrendChart`)
+- 1 neuer Tab in `AnalysisPanel`
+- Erweiterung `analysis-summary` um `range: 'year'`
+- Memory-Update: `mem://features/analysis/year-trend`
+
+## Voraussetzung
+
+`daily_pattern_scores` muss historisch gefüllt sein. Aktuell sind 30 Tage da → User sollte nochmal **Backfill 90 Tage** (oder mehr, max sinnvoll: 365) ausführen, sobald genug Quelldaten vorliegen. UI zeigt Hinweis falls <8 Wochen Daten vorhanden.
