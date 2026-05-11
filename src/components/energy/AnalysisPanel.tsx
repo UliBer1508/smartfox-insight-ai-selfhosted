@@ -246,6 +246,10 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 }
               />
             </TabsContent>
+
+            <TabsContent value="yearly" className="space-y-3 mt-4">
+              <YearTrendChart />
+            </TabsContent>
           </Tabs>
 
           {dirty && (
