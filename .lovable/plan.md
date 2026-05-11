@@ -1,95 +1,129 @@
-## Ursachenanalyse
+## Analyse: Was tut die KI heute – und was fehlt?
 
-**Befund:** `daily_patterns` enthält als jüngsten Eintrag den **17.02.2026** (heute: 11.05.2026). Der Wochenvergleichs-Hook (`usePatternAnalysis.analyzeWeeklyComparison`) liest stur die letzten 7 Zeilen aus dieser Tabelle und schickt sie als „Wochendaten" an die KI → daher analysiert sie Februar.
+### IST-Zustand
 
-**Drei zusammenhängende Bugs:**
+| Analyse-Typ | Was es tut | Persistenz | Wirkung auf Steuerung |
+|---|---|---|---|
+| `daily_pattern` | Freitext | ❌ | ❌ |
+| `weekly_comparison` | Strukturiert (trend, self_consumption_ratio, top_grid_import_hours) | ✅ `system_settings.weekly_insight` | ✅ Pre-Heat-Bonus + Efficiency-Throttle |
+| `optimize_decision` | Snapshot + Preheat-Signal | ✅ `preheating_signal` | ✅ Pre-Heat-Slot |
+| `learned_policies` | Pro (room, hour) Setpoint | ✅ Tabelle | ✅ Hinweis |
 
-1. **Daily-Aggregator schreibt nur historische Tage.**  
-   `aggregate-energy-data` erzeugt `daily_patterns` ausschließlich aus `hourly_aggregates`, die **älter als `hourly_retention_days` (Default 90 Tage)** sind (Step 2, Zeile 117–171). Heute − 90 Tage ≈ 10.02. → genau der vorhandene Datenstand. Aktuelle Tage werden nie aggregiert, weil sie noch innerhalb der Retention liegen.
+### Lücken gegenüber „PV-Ausnutzung optimieren"
 
-2. **`total_energy_in / total_energy_out` sind durchgehend `0`.**  
-   Der Aggregator summiert die `total_energy_*`-Spalten der `hourly_aggregates`, die jedoch beim 1-Minuten-Polling nicht als kWh-Δ pro Stunde befüllt werden (Zählerstände, keine Differenzen). Damit fehlt der KI die wichtigste Wochenkennzahl.
-
-3. **Wochenanalyse-Ergebnis fließt nirgendwohin.**  
-   `analyze-patterns` mit `type='weekly_comparison'` gibt nur Text zurück. Es gibt keine Persistenz analog zum `preheating_signal`, daher kann `pv-automation` daraus nichts lernen.
+1. Keine **Tages-Signatur** (Wetter × PV-Bucket × Temp × Wochentag).
+2. Kein **Erfolgs-KPI pro Tag** (Eigenverbrauchsquote, PV-Heiz-Anteil).
+3. Kein **Best/Worst-Vergleich** mit zugehörigen Settings.
+4. Keine **Wiederanwendung** historischer Sieger-Settings.
+5. Keine **Monatsanalyse**, keine **automatische Ausführung** der Tages-/Wochenanalyse.
+6. **RPC-Bugs**: `get_weekly_energy_summary` liefert `energy_in_kwh = 0` und `avg_outdoor_c = NULL`.
 
 ---
 
 ## Lösungskonzept
 
-### Schritt 1 — Datenquelle korrigieren (Quick-Win, behebt Februar-Problem)
+### 1. RPC-Fixes (Voraussetzung)
 
-`useHookPatternAnalysis.analyzeWeeklyComparison` umbauen: statt aus `daily_patterns` aus einer neuen RPC `get_weekly_energy_summary(days_back integer default 7)` lesen, die **on-the-fly aus `energy_readings` + `hourly_aggregates` der letzten 7 Tage** berechnet:
-- pro Tag: peak_power, avg_power
-- Energie-In/Out aus `energy_readings.energy_in/energy_out` als (max − min) pro Tag (Zählerstand-Differenz, korrekt)
-- PV-Ertrag aus `pv_power` integriert
-- Heizverbrauch aus `room_heating_logs` joinen
-- Außentemperatur-Schnitt aus `weather_data`
+`get_weekly_energy_summary` reparieren:
+- `energy_in_kwh / energy_out_kwh` aus `hourly_aggregates` summieren (Zähler-Reset-sicher), zusätzlich `feed_in_kwh`.
+- Weather-Join Zeitzonen-Fenster fixen → `avg_outdoor_c` befüllt.
 
-Damit ist der Wochenvergleich sofort wieder aktuell und reichhaltiger als heute.
+### 2. Tages-Signatur + Score (neue Tabelle `daily_pattern_scores`)
 
-### Schritt 2 — Aggregator entkoppeln (strukturell)
+```text
+date                        PRIMARY KEY
+sig_weather                 sunny | mixed | cloudy
+sig_pv_bucket               low | mid | high      (expected_kwh: <30 / 30-60 / >60)
+sig_temp_bucket             cold | mild | warm    (<5 / 5-15 / >15 °C)
+sig_weekday                 workday | weekend
+kpi_self_consumption_ratio  (pv_kwh − feed_in)/pv_kwh
+kpi_pv_heating_coverage     heating_kwh_während_export / heating_kwh_total
+kpi_grid_import_kwh
+kpi_battery_end_soc
+score                       0..100
+settings_snapshot           jsonb (room targets, heating_min_battery_soc, …)
+rank_in_signature           Top-N pro Signatur
+```
 
-In `aggregate-energy-data` einen neuen Schritt „**daily snapshot for yesterday**" hinzufügen, der unabhängig von `hourly_retention_days` läuft:
-- Für `gestern` (Vienna-TZ) `daily_patterns` upserten — auch wenn die Hourly-Daten noch in Retention sind.
-- Energie-Felder aus `energy_readings`-Zählerstands-Differenz (max − min am Tag), nicht aus `total_energy_in` der Hourlies.
-- Bestehender Step 2 (Konsolidierung beim Löschen) bleibt als Backup.
+### 3. Pattern-Matcher: bucket-exact + 3/4-Fallback
 
-Cron `aggregate-energy-data-daily` (03:00) läuft bereits — keine zusätzliche Schedule nötig.
+RPC `match_today_pattern(today_signature jsonb, top_n int) → daily_pattern_scores[]`
+- **A bucket-exact**: alle 4 Dimensionen gleich → Top-N nach `score DESC`.
+- **B 3-von-4**: wenn A < N, fülle mit 3-Match auf.
+- **C weak**: wenn leer, Top-N nach gleichem `sig_pv_bucket` (PV ist wichtigste Dimension).
+- Rückgabe enthält `match_quality: exact | partial | weak`.
 
-### Schritt 3 — Lücke 18.02.–10.05. einmalig auffüllen
+### 4. Automatik – Settings DIREKT IN DEN KARTEN
 
-Backfill-Aufruf der erweiterten Funktion mit `body: {time:'backfill', days:90}` — schreibt fehlende `daily_patterns` aus vorhandenen `energy_readings`. Einmalig manuell triggern.
+Die Cron-Parameter werden **nicht im globalen Settings-Panel**, sondern **inline in der jeweiligen Karte** bearbeitbar:
 
-### Schritt 4 — ML-/PV-Anbindung
+**Karte „KI-Musteranalyse" (`AnalysisPanel`)** bekommt drei Tab-Karten *Tag / Woche / Monat*; jede Karte zeigt einen kleinen Zahnrad-Bereich „Automatik" mit:
+- Toggle „Automatisch ausführen"
+- Zeit-Picker (Tagesanalyse), Wochentag+Zeit (Wochen), Tag-des-Monats+Zeit (Monat)
+- Manueller „Jetzt ausführen"-Button
+- letzter Lauf + nächster geplanter Lauf
 
-Im `analyze-patterns` Block `type==='weekly_comparison'`:
-- Tool-Calling aktivieren mit Schema  
-  `{ trend: 'improving|stable|worsening', avg_self_consumption_ratio, top_grid_import_hours, recommendations: [{ key, value, reason }], summary }`
-- Ergebnis in `system_settings.weekly_insight` persistieren (analog zum bereits existierenden `preheating_signal`-Pattern, Zeile 339–381).
-- `pv-automation` liest `weekly_insight` (TTL 7 Tage) und nutzt z. B.:
-  - `top_grid_import_hours` → Pre-Heat-Fenster bevorzugt vor diesen Stunden
-  - `avg_self_consumption_ratio < 0.6` → Komfort-Bonus reduzieren (mehr Eco)
-  - `trend='worsening'` → Komfort-Sättigung früher auslösen
+**Karte „Heizungsoptimierung" (`HeatingDashboard` / `LearningProgress`)** bekommt einen Inline-Bereich „Pattern-Recall":
+- Toggle „Best-Match heute übernehmen"
+- Zeit-Picker für `match_today` (Default 05:30, vor Tagesstart)
+- Stärke-Slider „Wie stark Sieger-Settings übernehmen" (0–100 %)
+- Anzeige der aktuell übernommenen Overrides + Match-Quality-Badge
 
-`AISettingsSuggestions` zeigt die `recommendations` als anwendbare Vorschläge (Whitelist bleibt aktiv, siehe `mem://features/heating/ai-settings-suggestions-hardened`).
+Persistenz dieser Felder als neue Spalten in `heating_settings`:
 
-### Schritt 5 — UI
+```text
+analysis_daily_enabled        bool   default true
+analysis_daily_time           time   default '03:30'
+analysis_weekly_enabled       bool   default true
+analysis_weekly_weekday       int    default 0      (0 = So)
+analysis_weekly_time          time   default '04:00'
+analysis_monthly_enabled      bool   default true
+analysis_monthly_dom          int    default 1
+analysis_monthly_time         time   default '04:30'
+analysis_match_today_enabled  bool   default true
+analysis_match_today_time     time   default '05:30'
+pattern_recall_strength       int    default 50     (% Bonus-Übernahme)
+```
 
-`AnalysisPanel` zeigt beim Wochenvergleich Datumsbereich („KW 19, 04.05.–10.05.2026") explizit über der KI-Antwort, damit veraltete Daten sofort auffallen.
+### 5. Scheduler
+
+Eine schlanke Edge-Function **`analysis-scheduler`** wird via pg_cron alle 15 min getriggert, liest die Settings und entscheidet pro Job ob heute fällig → triggert
+- `compute-daily-score` (gestriger Tag)
+- `analyze-patterns?type=match_today` (schreibt `system_settings.best_match_today`)
+- `analyze-patterns?type=weekly_comparison` (Sonntag)
+- `analyze-patterns?type=monthly_pattern` (1. des Monats, schreibt `monthly_playbook`)
+
+So sind Zeit/Wochentag/Tag-des-Monats UI-änderbar ohne `cron.schedule` neu zu bauen.
+
+### 6. Konsum in `pv-automation`
+
+Liest zusätzlich `best_match_today` (TTL 24 h):
+- `match_quality = exact|partial`: Komfort-Bonus skaliert mit `pattern_recall_strength`; `pre_heat_window` bevorzugt aus Sieger-Tag.
+- `weak`/leer: Verhalten unverändert.
+- Sticky-Eco / SOC-Hard-Lock / Priorities bleiben **finaler Filter**.
+
+### 7. Wochen- + Monatsanalyse erweitern
+
+- **Weekly**: zusätzlich `best_day`, `worst_day` mit Signatur und Settings-Diff.
+- **Monthly** (`type='monthly_pattern'`): aggregiert Scores nach Signatur über 30 d → `system_settings.monthly_playbook = [{ signature, recommended_overrides, sample_size, avg_score }]`. Soft-Skip wenn < 21 Score-Tage.
+
+### 8. UI-Inhalt der Karten
+
+`AnalysisPanel` Tabs:
+- **Tag**: heutige Signatur + Top-3 ähnlichste historische Tage (Score, Δ Eigenverbrauch, Match-Quality-Badge, übernommene Overrides) **+** Automatik-Inline-Settings.
+- **Woche**: Insight + Best/Worst-Tag-Karte **+** Automatik-Inline-Settings.
+- **Monat**: Playbook-Tabelle **+** Automatik-Inline-Settings.
+
+`HeatingDashboard`/`LearningProgress`: Pattern-Recall-Inline-Settings + aktuelle Auswirkung.
 
 ---
 
-## Technische Umsetzungsskizze
+## Reihenfolge der Umsetzung
 
-```text
-Migration:
-  CREATE FUNCTION get_weekly_energy_summary(days_back int)
-    RETURNS TABLE(date, peak_power, avg_power, energy_in_kwh,
-                  energy_out_kwh, pv_kwh, heating_kwh, avg_outdoor_c)
-
-Edge:
-  aggregate-energy-data
-    + Step 0: upsertYesterdayDailyPattern()
-    + Branch body.time === 'backfill' → loop days_back
-
-  analyze-patterns (type=weekly_comparison)
-    + tool 'weekly_insight'
-    + upsert system_settings.weekly_insight
-
-  pv-automation
-    + readWeeklyInsight() (TTL 7d)
-    + nutzt top_grid_import_hours + self_consumption_ratio
-
-Frontend:
-  src/hooks/usePatternAnalysis.ts
-    - dailyPatterns-Quelle ersetzen durch RPC
-  src/components/energy/AnalysisPanel.tsx
-    + Datumsbereich-Header
-```
-
-## Auswirkung
-- Wochenvergleich zeigt sofort die echte letzte Woche.
-- KI bekommt korrekte Energiebilanz statt Nullen.
-- ML/`pv-automation` lernt aus Wochen-Trend (echter Closed Loop statt nur Tagesentscheidung).
-- Strukturschuld im Aggregator beseitigt — daily_patterns ist nicht mehr an Retention gekoppelt.
+1. **Migration**: RPC-Fixes, Tabelle `daily_pattern_scores`, neue `heating_settings`-Spalten, RPC `match_today_pattern`.
+2. **Edge-Function** `compute-daily-score` (+ Backfill 30 d).
+3. **Edge-Function** `analysis-scheduler` (15-min pg_cron, dispatcht je Settings).
+4. **`analyze-patterns`** erweitern: `type='match_today'`, `type='monthly_pattern'`, Wochen-Insight um best/worst.
+5. **`pv-automation`** liest `best_match_today` mit `pattern_recall_strength`.
+6. **UI**: `AnalysisPanel` Tabs Tag/Woche/Monat mit Inline-Automatik; Pattern-Recall-Box in Heizungs-Karte.
+7. **Memory**: `mem://features/heating/pattern-recall`, `mem://features/heating/analysis-scheduler`.
