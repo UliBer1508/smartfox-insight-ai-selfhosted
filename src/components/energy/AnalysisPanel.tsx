@@ -9,13 +9,14 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { EnergyReading } from '@/types/energy';
-import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save } from 'lucide-react';
+import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import type { HeatingSettings } from '@/types/heating';
 import { ProgressCockpit } from './stats/ProgressCockpit';
+import { YearTrendChart } from './stats/YearTrendChart';
 
 interface AnalysisPanelProps {
   readings: EnergyReading[];
@@ -151,7 +152,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
           </div>
 
           <Tabs defaultValue="daily" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="daily" className="text-xs sm:text-sm">
                 <TrendingUp className="w-4 h-4 sm:mr-2" />
                 <span className="hidden sm:inline">Tag</span>
@@ -163,6 +164,10 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
               <TabsTrigger value="monthly" className="text-xs sm:text-sm">
                 <CalendarDays className="w-4 h-4 sm:mr-2" />
                 <span className="hidden sm:inline">Monat</span>
+              </TabsTrigger>
+              <TabsTrigger value="yearly" className="text-xs sm:text-sm">
+                <LineChart className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Jahr</span>
               </TabsTrigger>
             </TabsList>
 
@@ -240,6 +245,10 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                   </div>
                 }
               />
+            </TabsContent>
+
+            <TabsContent value="yearly" className="space-y-3 mt-4">
+              <YearTrendChart />
             </TabsContent>
           </Tabs>
 
