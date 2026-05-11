@@ -152,7 +152,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
           </div>
 
           <Tabs defaultValue="daily" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="daily" className="text-xs sm:text-sm">
                 <TrendingUp className="w-4 h-4 sm:mr-2" />
                 <span className="hidden sm:inline">Tag</span>
@@ -164,6 +164,10 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
               <TabsTrigger value="monthly" className="text-xs sm:text-sm">
                 <CalendarDays className="w-4 h-4 sm:mr-2" />
                 <span className="hidden sm:inline">Monat</span>
+              </TabsTrigger>
+              <TabsTrigger value="yearly" className="text-xs sm:text-sm">
+                <LineChart className="w-4 h-4 sm:mr-2" />
+                <span className="hidden sm:inline">Jahr</span>
               </TabsTrigger>
             </TabsList>
 
