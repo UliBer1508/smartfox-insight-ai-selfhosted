@@ -923,6 +923,140 @@ ${readings.map((r: Record<string, unknown>) => `${r.date}: Peak ${Math.round(Num
 
 Analysiere Trends (Eigenverbrauchsquote, Netzbezugs-Spitzen-Stunden, Heizeffizienz vs Außentemp). Gib konkrete Optimierungsempfehlungen für die PV-Heizungssteuerung. Antworte via Tool-Call.`;
 
+    } else if (type === 'match_today') {
+      // Heutige Signatur berechnen und Top-Treffer + Empfehlungen persistieren
+      try {
+        const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' });
+        // Forecast & Wetter laden
+        const fcRes = await fetch(`${supabaseUrl}/rest/v1/pv_forecasts?date=eq.${todayStr}&select=expected_kwh`, {
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+        });
+        const fc = await fcRes.json();
+        const expected_pv_kwh = Number(fc?.[0]?.expected_kwh ?? 0);
+        const wRes = await fetch(`${supabaseUrl}/rest/v1/weather_data?timestamp=gte.${todayStr}T00:00:00&order=timestamp.desc&limit=1&select=temperature_c`, {
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+        });
+        const w = await wRes.json();
+        const tempC = w?.[0]?.temperature_c == null ? null : Number(w[0].temperature_c);
+
+        const sig_pv_bucket = expected_pv_kwh < 30 ? 'low' : expected_pv_kwh < 60 ? 'mid' : 'high';
+        const sig_temp_bucket = tempC == null ? 'mild' : tempC < 5 ? 'cold' : tempC < 15 ? 'mild' : 'warm';
+        const sig_weather = expected_pv_kwh >= 50 ? 'sunny' : expected_pv_kwh >= 25 ? 'mixed' : 'cloudy';
+        const dow = new Date().getUTCDay();
+        const sig_weekday = (dow === 0 || dow === 6) ? 'weekend' : 'workday';
+        const signature = { sig_weather, sig_pv_bucket, sig_temp_bucket, sig_weekday };
+
+        const matchRes = await fetch(`${supabaseUrl}/rest/v1/rpc/match_today_pattern`, {
+          method: 'POST',
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ today_signature: signature, top_n: 3 }),
+        });
+        const matches = await matchRes.json();
+        const top = Array.isArray(matches) && matches.length > 0 ? matches[0] : null;
+
+        const payload = {
+          key: 'best_match_today',
+          value: {
+            computed_at: new Date().toISOString(),
+            signature,
+            top_days: matches ?? [],
+            match_quality: top?.match_quality ?? 'none',
+            recommended_overrides: top?.settings_snapshot ?? null,
+          },
+          updated_at: new Date().toISOString(),
+        };
+        await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+          method: 'POST',
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(payload),
+        });
+
+        return new Response(JSON.stringify({ ok: true, signature, matches }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: String(e) }), {
+          status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
+    } else if (type === 'weekly_comparison_auto') {
+      // Auto-Variante: lädt Daten selbst und delegiert an weekly_comparison
+      const wkRes = await fetch(`${supabaseUrl}/rest/v1/rpc/get_weekly_energy_summary`, {
+        method: 'POST',
+        headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ days_back: 7 }),
+      });
+      const wk = await wkRes.json();
+      const validDays = (Array.isArray(wk) ? wk : []).filter((d: any) => (d.reading_count ?? 0) > 0);
+      if (validDays.length < 2) {
+        return new Response(JSON.stringify({ ok: false, reason: 'not enough data' }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      // re-call self synchron mit type='weekly_comparison'
+      const recurse = await fetch(`${supabaseUrl}/functions/v1/analyze-patterns`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'weekly_comparison', readings: validDays, heatingSettings: heatingSettings ?? {}, rooms: rooms ?? [] }),
+      });
+      return new Response(await recurse.text(), { status: recurse.status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
+
+    } else if (type === 'monthly_pattern') {
+      // Aggregiere daily_pattern_scores der letzten 30 Tage je Signatur
+      const sinceDate = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+      const dpsRes = await fetch(`${supabaseUrl}/rest/v1/daily_pattern_scores?date=gte.${sinceDate}&select=*&order=date.desc`, {
+        headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+      });
+      const dps: any[] = await dpsRes.json();
+      if (!Array.isArray(dps) || dps.length < 21) {
+        const payload = {
+          key: 'monthly_playbook',
+          value: { computed_at: new Date().toISOString(), insufficient_data: true, sample_size: dps?.length ?? 0, playbook: [] },
+          updated_at: new Date().toISOString(),
+        };
+        await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+          method: 'POST',
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+          body: JSON.stringify(payload),
+        });
+        return new Response(JSON.stringify({ ok: true, insufficient_data: true, sample_size: dps?.length ?? 0 }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      const groups: Record<string, any[]> = {};
+      for (const r of dps) {
+        const k = `${r.sig_weather}|${r.sig_pv_bucket}|${r.sig_temp_bucket}|${r.sig_weekday}`;
+        (groups[k] ||= []).push(r);
+      }
+      const playbook = Object.entries(groups).map(([k, rows]) => {
+        rows.sort((a, b) => Number(b.score) - Number(a.score));
+        const best = rows[0];
+        const [sw, spv, st, swd] = k.split('|');
+        return {
+          signature: { sig_weather: sw, sig_pv_bucket: spv, sig_temp_bucket: st, sig_weekday: swd },
+          sample_size: rows.length,
+          avg_score: rows.reduce((s, r) => s + Number(r.score || 0), 0) / rows.length,
+          best_day: best.date,
+          best_score: Number(best.score),
+          recommended_overrides: best.settings_snapshot ?? {},
+        };
+      }).sort((a, b) => b.avg_score - a.avg_score);
+
+      const payload = {
+        key: 'monthly_playbook',
+        value: { computed_at: new Date().toISOString(), sample_size: dps.length, playbook },
+        updated_at: new Date().toISOString(),
+      };
+      await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+        method: 'POST',
+        headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(payload),
+      });
+      return new Response(JSON.stringify({ ok: true, sample_size: dps.length, signatures: playbook.length }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+
     } else {
       prompt = `Aktueller Energiestatus:
 Leistung: ${readings?.power_io}W, Import: ${readings?.energy_in}kWh, Export: ${readings?.energy_out}kWh
