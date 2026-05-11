@@ -105,7 +105,9 @@ export function usePatternAnalysis() {
 
       if (error) throw error;
 
-      setAnalysis(data.analysis);
+      const fmt = (s: string) => new Date(s).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const range = `📅 Zeitraum: ${fmt(validDays[validDays.length - 1].date)} – ${fmt(validDays[0].date)} (${validDays.length} Tage)\n\n`;
+      setAnalysis(range + (data.analysis || ''));
       toast.success('Wochenanalyse abgeschlossen');
     } catch (error) {
       console.error('Weekly analysis error:', error);
