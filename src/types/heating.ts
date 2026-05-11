@@ -79,6 +79,18 @@ export interface HeatingSettings {
   // Hartes SOC-Gate für Heizung
   heating_min_battery_soc?: number;
   heating_soc_gate_mode?: 'strict' | 'soft';
+  // Analyse-Automatik
+  analysis_daily_enabled?: boolean;
+  analysis_daily_time?: string;
+  analysis_weekly_enabled?: boolean;
+  analysis_weekly_weekday?: number;
+  analysis_weekly_time?: string;
+  analysis_monthly_enabled?: boolean;
+  analysis_monthly_dom?: number;
+  analysis_monthly_time?: string;
+  analysis_match_today_enabled?: boolean;
+  analysis_match_today_time?: string;
+  pattern_recall_strength?: number;
   created_at?: string;
   updated_at?: string;
 }
