@@ -113,7 +113,7 @@ export function usePatternAnalysis() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [dailyPatterns]);
+  }, []);
 
   const analyzeCurrentStatus = useCallback(async (reading: EnergyReading) => {
     setIsAnalyzing(true);
