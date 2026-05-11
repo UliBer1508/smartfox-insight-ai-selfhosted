@@ -1465,35 +1465,6 @@ Deno.serve(async (req) => {
         console.log(`[PRE-HEAT] dayWindowStart=${dayWindowStartHour}h (Vorlauf ${floorResponseHours}h vor ${formatDayStart(settings)}, Untergrenze 06:00)`);
       }
 
-      // Wochenbasierte Einsicht (TTL 7 Tage): top_grid_import_hours → Pre-Heat-Bonus,
-      // niedrige Eigenverbrauchsquote → Komfort-Bonus reduzieren.
-      try {
-        const { data: wiRow } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'weekly_insight')
-          .maybeSingle();
-        const wi = wiRow?.value as any;
-        if (wi?.computed_at && Date.now() - new Date(wi.computed_at).getTime() < 7 * 24 * 60 * 60 * 1000) {
-          const currentHour = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false });
-          const hour = parseInt(currentHour, 10);
-          const importHours: number[] = Array.isArray(wi.top_grid_import_hours) ? wi.top_grid_import_hours : [];
-          // Vorheizen 1-2h vor erwarteter Netzbezugs-Spitze, falls SOC ok und genug PV
-          if (importHours.some(h => h - hour >= 1 && h - hour <= 2) && batterySoc >= heatingMinSoc && pvPower > 1500) {
-            availableBudget = Math.max(availableBudget, 600);
-            console.log(`[WEEKLY] 📅 Vor-Spitzen-Vorheizen aktiv (Spitze in ${importHours.join(',')}h) → Eco-Budget min 600W`);
-          }
-          const scr = Number(wi.avg_self_consumption_ratio);
-          if (Number.isFinite(scr) && scr < 0.6 && comfortBudget > 0) {
-            const before = comfortBudget;
-            comfortBudget = Math.max(0, Math.round(comfortBudget * 0.7));
-            console.log(`[WEEKLY] ⚠️ Eigenverbrauch ${Math.round(scr * 100)}% < 60% → Komfort-Budget gedrosselt ${before}W → ${comfortBudget}W`);
-          }
-        }
-      } catch (e) {
-        console.warn('[WEEKLY] Could not read weekly_insight:', e);
-      }
-
 
       // Budget-Modus bestimmen
       let budgetMode: 'pv_optimized' | 'grid_sequential' | 'unlimited' = 'unlimited';
