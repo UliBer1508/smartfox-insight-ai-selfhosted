@@ -70,13 +70,24 @@ export function usePatternAnalysis() {
   }, []);
 
   const analyzeWeeklyComparison = useCallback(async () => {
-    if (dailyPatterns.length < 2) {
-      toast.error('Nicht genug Tagesdaten für Wochenvergleich');
-      return;
-    }
-
     setIsAnalyzing(true);
     try {
+      // Live-Aggregation der letzten 7 Tage statt veralteter daily_patterns
+      const { data: weekData, error: weekError } = await supabase
+        .rpc('get_weekly_energy_summary', { days_back: 7 });
+
+      if (weekError) throw weekError;
+      if (!weekData || weekData.length < 2) {
+        toast.error('Nicht genug Daten für Wochenvergleich');
+        return;
+      }
+
+      const validDays = (weekData as any[]).filter(d => (d.reading_count ?? 0) > 0);
+      if (validDays.length < 2) {
+        toast.error('Nicht genug Messwerte für Wochenvergleich');
+        return;
+      }
+
       // Lade Verbraucher-Kontext
       const [settingsResult, roomsResult] = await Promise.all([
         supabase.from('heating_settings').select('*').limit(1).single(),
@@ -84,8 +95,8 @@ export function usePatternAnalysis() {
       ]);
 
       const { data, error } = await supabase.functions.invoke('analyze-patterns', {
-        body: { 
-          readings: dailyPatterns, 
+        body: {
+          readings: validDays,
           type: 'weekly_comparison',
           heatingSettings: settingsResult.data,
           rooms: roomsResult.data
@@ -94,7 +105,9 @@ export function usePatternAnalysis() {
 
       if (error) throw error;
 
-      setAnalysis(data.analysis);
+      const fmt = (s: string) => new Date(s).toLocaleDateString('de-AT', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const range = `📅 Zeitraum: ${fmt(validDays[validDays.length - 1].date)} – ${fmt(validDays[0].date)} (${validDays.length} Tage)\n\n`;
+      setAnalysis(range + (data.analysis || ''));
       toast.success('Wochenanalyse abgeschlossen');
     } catch (error) {
       console.error('Weekly analysis error:', error);
@@ -102,7 +115,7 @@ export function usePatternAnalysis() {
     } finally {
       setIsAnalyzing(false);
     }
-  }, [dailyPatterns]);
+  }, []);
 
   const analyzeCurrentStatus = useCallback(async (reading: EnergyReading) => {
     setIsAnalyzing(true);

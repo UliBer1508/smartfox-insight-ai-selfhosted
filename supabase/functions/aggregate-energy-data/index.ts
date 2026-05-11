@@ -15,7 +15,76 @@ Deno.serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    console.log('Starting energy data aggregation...');
+    // Optional body: { time?: 'daily'|'backfill', days?: number }
+    let mode: 'daily' | 'backfill' = 'daily';
+    let backfillDays = 90;
+    try {
+      const body = await req.json().catch(() => ({}));
+      if (body?.time === 'backfill') mode = 'backfill';
+      if (body?.days && Number.isFinite(body.days)) backfillDays = Math.max(1, Math.min(365, body.days));
+    } catch (_) { /* no body */ }
+
+    console.log(`Starting energy data aggregation (mode=${mode})...`);
+
+    // === Daily snapshot: schreibe daily_patterns für vergangene Tage live aus energy_readings ===
+    // Unabhängig von hourly_retention_days. Behebt veraltete Wochenanalyse.
+    const snapshotDays = mode === 'backfill' ? backfillDays : 2; // gestern + heute (heute idempotent)
+    const snapshotResults: { date: string; rows: number }[] = [];
+
+    for (let i = 1; i <= snapshotDays; i++) {
+      const day = new Date();
+      day.setDate(day.getDate() - i);
+      const y = day.getFullYear();
+      const m = String(day.getMonth() + 1).padStart(2, '0');
+      const d = String(day.getDate()).padStart(2, '0');
+      const dateStr = `${y}-${m}-${d}`;
+      const dayStart = new Date(`${dateStr}T00:00:00`).toISOString();
+      const dayEnd = new Date(`${dateStr}T23:59:59.999`).toISOString();
+
+      const { data: dayReadings, error: dayErr } = await supabase
+        .from('energy_readings')
+        .select('timestamp, power_io, energy_in, energy_out')
+        .gte('timestamp', dayStart)
+        .lte('timestamp', dayEnd)
+        .order('timestamp', { ascending: true })
+        .limit(2000);
+
+      if (dayErr || !dayReadings || dayReadings.length === 0) {
+        snapshotResults.push({ date: dateStr, rows: 0 });
+        continue;
+      }
+
+      const powers = dayReadings.map((r: any) => Number(r.power_io) || 0);
+      const ins = dayReadings.map((r: any) => Number(r.energy_in) || 0);
+      const outs = dayReadings.map((r: any) => Number(r.energy_out) || 0);
+      const peakPower = Math.max(...powers);
+      const peakIdx = powers.indexOf(peakPower);
+      const totalIn = Math.max(...ins) - Math.min(...ins);
+      const totalOut = Math.max(...outs) - Math.min(...outs);
+
+      const { error: upErr } = await supabase.from('daily_patterns').upsert({
+        date: dateStr,
+        peak_power: peakPower,
+        peak_time: dayReadings[peakIdx]?.timestamp,
+        avg_power: Math.round(powers.reduce((a, b) => a + b, 0) / powers.length),
+        total_energy_in: totalIn,
+        total_energy_out: totalOut,
+        net_energy: totalOut - totalIn,
+        pattern_type: totalOut > totalIn ? 'export' : 'import',
+      }, { onConflict: 'date' });
+
+      if (upErr) console.error(`daily_patterns upsert error for ${dateStr}:`, upErr);
+      snapshotResults.push({ date: dateStr, rows: dayReadings.length });
+    }
+    console.log(`Daily snapshots written: ${snapshotResults.filter(s => s.rows > 0).length}/${snapshotResults.length}`);
+
+    if (mode === 'backfill') {
+      return new Response(
+        JSON.stringify({ success: true, mode, snapshots: snapshotResults }),
+        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
 
     // Get retention settings
     const { data: settings } = await supabase

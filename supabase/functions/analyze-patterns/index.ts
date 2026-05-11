@@ -862,8 +862,7 @@ Ordne Spitzen den bekannten Verbrauchern zu. Antworte auf Deutsch.`;
 
     } else if (type === 'weekly_comparison') {
       const totalHeatingPower = rooms?.reduce((sum: number, r: Record<string, unknown>) => sum + ((r.heating_power_w as number) || 800), 0) || 0;
-      
-      // Heizungstyp ermitteln
+
       const heatingTypeRaw = heatingSettings?.heating_type || 'direct_electric';
       const heatingTypeLabels: Record<string, string> = {
         'direct_electric': 'Direkte elektrische Fußbodenheizung (Stromdirektheizung)',
@@ -872,18 +871,57 @@ Ordne Spitzen den bekannten Verbrauchern zu. Antworte auf Deutsch.`;
       };
       const heatingTypeLabel = heatingTypeLabels[heatingTypeRaw] || 'Stromdirektheizung';
 
-      prompt = `Wochenvergleich:
+      // Tool-Calling für strukturiertes weekly_insight
+      useToolCalling = true;
+      toolName = 'weekly_insight';
+      toolDefinition = {
+        type: 'function',
+        function: {
+          name: 'weekly_insight',
+          description: 'Strukturierte Wochenanalyse für PV-Optimierung',
+          parameters: {
+            type: 'object',
+            properties: {
+              trend: { type: 'string', enum: ['improving', 'stable', 'worsening'] },
+              avg_self_consumption_ratio: { type: 'number', description: '0..1, PV selbst genutzt / PV produziert' },
+              top_grid_import_hours: {
+                type: 'array',
+                items: { type: 'integer', minimum: 0, maximum: 23 },
+                description: 'Stunden (0-23) mit höchstem Netzbezug diese Woche'
+              },
+              recommendations: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    key: { type: 'string' },
+                    value: {},
+                    reason: { type: 'string' }
+                  },
+                  required: ['key', 'value', 'reason']
+                }
+              },
+              summary: { type: 'string' }
+            },
+            required: ['trend', 'avg_self_consumption_ratio', 'top_grid_import_hours', 'recommendations', 'summary']
+          }
+        }
+      };
+
+      const dateRange = readings.length > 0
+        ? `${readings[readings.length - 1].date} bis ${readings[0].date}`
+        : 'unbekannt';
+
+      prompt = `Wochenvergleich (${dateRange}):
 
 **HEIZUNGSANLAGE:** ${heatingTypeLabel}
-${heatingTypeRaw === 'direct_electric' ? '(Keine Wärmepumpe - nur Stromdirektheizung-relevante Tipps!)' : ''}
-
 **Verbraucher:** Heizung ${totalHeatingPower}W, Warmwasser ${heatingSettings?.hotwater_power_w || 6000}W
 **Batterie:** ${heatingSettings?.battery_capacity_kwh || 13.8}kWh, Heiz-Min-SoC ${heatingSettings?.heating_min_battery_soc || 80}%
 
-**Daten:**
-${readings.map((r: Record<string, unknown>) => `${r.date}: Peak ${r.peak_power}W, Avg ${r.avg_power}W, Import ${r.total_energy_in}kWh, Export ${r.total_energy_out}kWh`).join('\n')}
+**Tagesdaten (live aggregiert):**
+${readings.map((r: Record<string, unknown>) => `${r.date}: Peak ${Math.round(Number(r.peak_power))}W, Avg ${Math.round(Number(r.avg_power))}W, Bezug ${Number(r.energy_in_kwh).toFixed(1)}kWh, Einsp. ${Number(r.energy_out_kwh).toFixed(1)}kWh, PV ${Number(r.pv_kwh).toFixed(1)}kWh, Heizung ${Number(r.heating_kwh).toFixed(1)}kWh${r.avg_outdoor_c != null ? `, Außen ${Number(r.avg_outdoor_c).toFixed(1)}°C` : ''}`).join('\n')}
 
-Analysiere Trends und gib Empfehlungen. Deutsch.`;
+Analysiere Trends (Eigenverbrauchsquote, Netzbezugs-Spitzen-Stunden, Heizeffizienz vs Außentemp). Gib konkrete Optimierungsempfehlungen für die PV-Heizungssteuerung. Antworte via Tool-Call.`;
 
     } else {
       prompt = `Aktueller Energiestatus:
@@ -953,6 +991,30 @@ Kurze Einschätzung auf Deutsch.`;
             });
           } else if (toolName === 'create_room_heating_plan') {
             return new Response(JSON.stringify({ roomHeatingPlan: result }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          } else if (toolName === 'weekly_insight') {
+            // Persistiere strukturierte Wocheneinsichten für pv-automation
+            try {
+              await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+                method: 'POST',
+                headers: {
+                  apikey: serviceRoleKey,
+                  Authorization: `Bearer ${serviceRoleKey}`,
+                  'Content-Type': 'application/json',
+                  Prefer: 'resolution=merge-duplicates,return=minimal',
+                },
+                body: JSON.stringify({
+                  key: 'weekly_insight',
+                  value: { ...result, computed_at: new Date().toISOString() },
+                  updated_at: new Date().toISOString(),
+                }),
+              });
+            } catch (e) {
+              console.warn('[analyze-patterns] could not upsert weekly_insight:', e);
+            }
+            const formatted = `**Trend:** ${result.trend}\n**Eigenverbrauch:** ${Math.round((result.avg_self_consumption_ratio || 0) * 100)}%\n**Spitzenstunden Netzbezug:** ${(result.top_grid_import_hours || []).join(', ')}h\n\n${result.summary || ''}\n\n**Empfehlungen:**\n${(result.recommendations || []).map((r: any) => `- ${r.key}=${JSON.stringify(r.value)}: ${r.reason}`).join('\n')}`;
+            return new Response(JSON.stringify({ analysis: formatted, weeklyInsight: result }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
           } else {
