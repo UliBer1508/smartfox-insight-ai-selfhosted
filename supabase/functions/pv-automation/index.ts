@@ -1837,6 +1837,34 @@ Deno.serve(async (req) => {
         console.warn('[PRE-HEAT] Could not read preheating_signal:', e);
       }
 
+      // Wochenbasierte Einsicht (TTL 7 Tage): top_grid_import_hours → Pre-Heat-Bonus,
+      // niedrige Eigenverbrauchsquote → Komfort-Bonus reduzieren.
+      try {
+        const { data: wiRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'weekly_insight')
+          .maybeSingle();
+        const wi = wiRow?.value as any;
+        if (wi?.computed_at && Date.now() - new Date(wi.computed_at).getTime() < 7 * 24 * 60 * 60 * 1000) {
+          const hourStr = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false });
+          const hour = parseInt(hourStr, 10);
+          const importHours: number[] = Array.isArray(wi.top_grid_import_hours) ? wi.top_grid_import_hours : [];
+          if (importHours.some(h => h - hour >= 1 && h - hour <= 2) && batterySoc >= heatingMinSoc && pvPower > 1500) {
+            availableBudget = Math.max(availableBudget, 600);
+            console.log(`[WEEKLY] 📅 Vor-Spitzen-Vorheizen aktiv (Spitze in ${importHours.join(',')}h) → Eco-Budget min 600W`);
+          }
+          const scr = Number(wi.avg_self_consumption_ratio);
+          if (Number.isFinite(scr) && scr < 0.6 && comfortBudget > 0) {
+            const before = comfortBudget;
+            comfortBudget = Math.max(0, Math.round(comfortBudget * 0.7));
+            console.log(`[WEEKLY] ⚠️ Eigenverbrauch ${Math.round(scr * 100)}% < 60% → Komfort-Budget gedrosselt ${before}W → ${comfortBudget}W`);
+          }
+        }
+      } catch (e) {
+        console.warn('[WEEKLY] Could not read weekly_insight:', e);
+      }
+
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
