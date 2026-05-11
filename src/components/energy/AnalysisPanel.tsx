@@ -167,6 +167,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
             </TabsList>
 
             <TabsContent value="daily" className="space-y-3 mt-4">
+              <ProgressCockpit range="day" />
               <Button
                 variant="outline"
                 onClick={() => onAnalyzeDaily(readings)}
@@ -180,6 +181,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
             </TabsContent>
 
             <TabsContent value="weekly" className="space-y-3 mt-4">
+              <ProgressCockpit range="week" />
               <Button
                 variant="outline"
                 onClick={onAnalyzeWeekly}
@@ -212,6 +214,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
             </TabsContent>
 
             <TabsContent value="monthly" className="space-y-3 mt-4">
+              <ProgressCockpit range="month" />
               <Button
                 variant="outline"
                 onClick={runMonthlyAnalysis}
