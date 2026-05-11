@@ -19,15 +19,15 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useYearlyStats, type Granularity } from '@/hooks/useYearlyStats';
+import { useYearlyStats, type Granularity, type RangeKey } from '@/hooks/useYearlyStats';
 
 const pct = (v: number, d = 0) => `${(v * 100).toFixed(d)} %`;
 const ppNum = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)} pp`;
 
 export const YearTrendChart: React.FC = () => {
   const [granularity, setGranularity] = useState<Granularity>('month');
-  const [monthsBack, setMonthsBack] = useState(12);
-  const { points, stats, loading, error, rawDayCount } = useYearlyStats(granularity, monthsBack);
+  const [rangeKey, setRangeKey] = useState<RangeKey>('12m');
+  const { points, stats, loading, error, rawDayCount } = useYearlyStats(granularity, rangeKey);
 
   // 4-period moving average
   const chartData = points.map((p, i) => {
@@ -76,12 +76,14 @@ export const YearTrendChart: React.FC = () => {
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Zeitraum</Label>
-          <Select value={String(monthsBack)} onValueChange={(v) => setMonthsBack(parseInt(v, 10))}>
-            <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
+          <Select value={rangeKey} onValueChange={(v) => setRangeKey(v as RangeKey)}>
+            <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="3">Letzte 3 Monate</SelectItem>
-              <SelectItem value="6">Letzte 6 Monate</SelectItem>
-              <SelectItem value="12">Letzte 12 Monate</SelectItem>
+              <SelectItem value="3m">Letzte 3 Monate</SelectItem>
+              <SelectItem value="6m">Letzte 6 Monate</SelectItem>
+              <SelectItem value="12m">Letzte 12 Monate</SelectItem>
+              <SelectItem value="thisYear">Dieses Jahr</SelectItem>
+              <SelectItem value="lastYear">Letztes Jahr</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -98,7 +98,29 @@ function linearRegression(values: number[]): { slope: number; intercept: number 
   return { slope, intercept: meanY - slope * meanX };
 }
 
-export function useYearlyStats(granularity: Granularity, monthsBack: number) {
+export type RangeKey = '3m' | '6m' | '12m' | 'thisYear' | 'lastYear';
+
+function resolveRange(range: RangeKey): { from: Date; to: Date | null } {
+  const now = new Date();
+  if (range === 'thisYear') {
+    return { from: new Date(now.getFullYear(), 0, 1), to: null };
+  }
+  if (range === 'lastYear') {
+    return {
+      from: new Date(now.getFullYear() - 1, 0, 1),
+      to: new Date(now.getFullYear() - 1, 11, 31),
+    };
+  }
+  const months = range === '3m' ? 3 : range === '6m' ? 6 : 12;
+  const from = new Date();
+  from.setMonth(from.getMonth() - months);
+  return { from, to: null };
+}
+
+export function useYearlyStats(granularity: Granularity, range: RangeKey | number) {
+  const rangeKey: RangeKey = typeof range === 'number'
+    ? (range === 3 ? '3m' : range === 6 ? '6m' : '12m')
+    : range;
   const [rows, setRows] = useState<RawRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -108,14 +130,13 @@ export function useYearlyStats(granularity: Granularity, monthsBack: number) {
     (async () => {
       setLoading(true);
       try {
-        const since = new Date();
-        since.setMonth(since.getMonth() - monthsBack);
-        const { data, error: err } = await supabase
+        const { from, to } = resolveRange(rangeKey);
+        let q = supabase
           .from('daily_pattern_scores')
           .select('date, kpi_self_consumption_ratio, kpi_pv_heating_coverage, kpi_grid_import_kwh, pv_kwh, score')
-          .gte('date', since.toISOString().slice(0, 10))
-          .order('date', { ascending: true })
-          .limit(400);
+          .gte('date', from.toISOString().slice(0, 10));
+        if (to) q = q.lte('date', to.toISOString().slice(0, 10));
+        const { data, error: err } = await q.order('date', { ascending: true }).limit(500);
         if (err) throw err;
         if (!cancelled) setRows((data || []) as RawRow[]);
       } catch (e) {
@@ -127,7 +148,7 @@ export function useYearlyStats(granularity: Granularity, monthsBack: number) {
     return () => {
       cancelled = true;
     };
-  }, [monthsBack]);
+  }, [rangeKey]);
 
   const points = useMemo(() => aggregate(rows, granularity), [rows, granularity]);
 
