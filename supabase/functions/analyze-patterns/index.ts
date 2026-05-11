@@ -993,6 +993,30 @@ Kurze Einschätzung auf Deutsch.`;
             return new Response(JSON.stringify({ roomHeatingPlan: result }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
+          } else if (toolName === 'weekly_insight') {
+            // Persistiere strukturierte Wocheneinsichten für pv-automation
+            try {
+              await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+                method: 'POST',
+                headers: {
+                  apikey: serviceRoleKey,
+                  Authorization: `Bearer ${serviceRoleKey}`,
+                  'Content-Type': 'application/json',
+                  Prefer: 'resolution=merge-duplicates,return=minimal',
+                },
+                body: JSON.stringify({
+                  key: 'weekly_insight',
+                  value: { ...result, computed_at: new Date().toISOString() },
+                  updated_at: new Date().toISOString(),
+                }),
+              });
+            } catch (e) {
+              console.warn('[analyze-patterns] could not upsert weekly_insight:', e);
+            }
+            const formatted = `**Trend:** ${result.trend}\n**Eigenverbrauch:** ${Math.round((result.avg_self_consumption_ratio || 0) * 100)}%\n**Spitzenstunden Netzbezug:** ${(result.top_grid_import_hours || []).join(', ')}h\n\n${result.summary || ''}\n\n**Empfehlungen:**\n${(result.recommendations || []).map((r: any) => `- ${r.key}=${JSON.stringify(r.value)}: ${r.reason}`).join('\n')}`;
+            return new Response(JSON.stringify({ analysis: formatted, weeklyInsight: result }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
           } else {
             return new Response(JSON.stringify({ heatingPlan: result }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
