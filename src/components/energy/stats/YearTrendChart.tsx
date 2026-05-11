@@ -19,15 +19,15 @@ import {
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Loader2, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useYearlyStats, type Granularity } from '@/hooks/useYearlyStats';
+import { useYearlyStats, type Granularity, type RangeKey } from '@/hooks/useYearlyStats';
 
 const pct = (v: number, d = 0) => `${(v * 100).toFixed(d)} %`;
 const ppNum = (v: number) => `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)} pp`;
 
 export const YearTrendChart: React.FC = () => {
   const [granularity, setGranularity] = useState<Granularity>('month');
-  const [monthsBack, setMonthsBack] = useState(12);
-  const { points, stats, loading, error, rawDayCount } = useYearlyStats(granularity, monthsBack);
+  const [rangeKey, setRangeKey] = useState<RangeKey>('12m');
+  const { points, stats, loading, error, rawDayCount } = useYearlyStats(granularity, rangeKey);
 
   // 4-period moving average
   const chartData = points.map((p, i) => {
