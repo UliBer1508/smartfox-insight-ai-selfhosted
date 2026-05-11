@@ -17,6 +17,7 @@ import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
+import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 
 
