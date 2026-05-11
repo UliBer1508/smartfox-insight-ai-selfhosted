@@ -152,6 +152,72 @@ export type Database = {
         }
         Relationships: []
       }
+      daily_pattern_scores: {
+        Row: {
+          avg_outdoor_c: number | null
+          created_at: string
+          date: string
+          expected_pv_kwh: number | null
+          feed_in_kwh: number | null
+          heating_kwh: number | null
+          kpi_battery_end_soc: number | null
+          kpi_grid_import_kwh: number | null
+          kpi_pv_heating_coverage: number | null
+          kpi_self_consumption_ratio: number | null
+          pv_kwh: number | null
+          rank_in_signature: number | null
+          score: number
+          settings_snapshot: Json | null
+          sig_pv_bucket: string
+          sig_temp_bucket: string
+          sig_weather: string
+          sig_weekday: string
+          updated_at: string
+        }
+        Insert: {
+          avg_outdoor_c?: number | null
+          created_at?: string
+          date: string
+          expected_pv_kwh?: number | null
+          feed_in_kwh?: number | null
+          heating_kwh?: number | null
+          kpi_battery_end_soc?: number | null
+          kpi_grid_import_kwh?: number | null
+          kpi_pv_heating_coverage?: number | null
+          kpi_self_consumption_ratio?: number | null
+          pv_kwh?: number | null
+          rank_in_signature?: number | null
+          score?: number
+          settings_snapshot?: Json | null
+          sig_pv_bucket: string
+          sig_temp_bucket: string
+          sig_weather: string
+          sig_weekday: string
+          updated_at?: string
+        }
+        Update: {
+          avg_outdoor_c?: number | null
+          created_at?: string
+          date?: string
+          expected_pv_kwh?: number | null
+          feed_in_kwh?: number | null
+          heating_kwh?: number | null
+          kpi_battery_end_soc?: number | null
+          kpi_grid_import_kwh?: number | null
+          kpi_pv_heating_coverage?: number | null
+          kpi_self_consumption_ratio?: number | null
+          pv_kwh?: number | null
+          rank_in_signature?: number | null
+          score?: number
+          settings_snapshot?: Json | null
+          sig_pv_bucket?: string
+          sig_temp_bucket?: string
+          sig_weather?: string
+          sig_weekday?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       daily_patterns: {
         Row: {
           avg_power: number
@@ -394,6 +460,16 @@ export type Database = {
       }
       heating_settings: {
         Row: {
+          analysis_daily_enabled: boolean | null
+          analysis_daily_time: string | null
+          analysis_match_today_enabled: boolean | null
+          analysis_match_today_time: string | null
+          analysis_monthly_dom: number | null
+          analysis_monthly_enabled: boolean | null
+          analysis_monthly_time: string | null
+          analysis_weekly_enabled: boolean | null
+          analysis_weekly_time: string | null
+          analysis_weekly_weekday: number | null
           avg_night_cycles_per_room: number | null
           battery_buffer_bonus_w: number | null
           battery_buffer_enabled: boolean | null
@@ -433,6 +509,7 @@ export type Database = {
           night_heating_mode: string | null
           night_start_time: string | null
           night_temp: number
+          pattern_recall_strength: number | null
           power_budget_enabled: boolean | null
           power_budget_tolerance_w: number | null
           preheat_hours: number
@@ -449,6 +526,16 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          analysis_daily_enabled?: boolean | null
+          analysis_daily_time?: string | null
+          analysis_match_today_enabled?: boolean | null
+          analysis_match_today_time?: string | null
+          analysis_monthly_dom?: number | null
+          analysis_monthly_enabled?: boolean | null
+          analysis_monthly_time?: string | null
+          analysis_weekly_enabled?: boolean | null
+          analysis_weekly_time?: string | null
+          analysis_weekly_weekday?: number | null
           avg_night_cycles_per_room?: number | null
           battery_buffer_bonus_w?: number | null
           battery_buffer_enabled?: boolean | null
@@ -488,6 +575,7 @@ export type Database = {
           night_heating_mode?: string | null
           night_start_time?: string | null
           night_temp?: number
+          pattern_recall_strength?: number | null
           power_budget_enabled?: boolean | null
           power_budget_tolerance_w?: number | null
           preheat_hours?: number
@@ -504,6 +592,16 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          analysis_daily_enabled?: boolean | null
+          analysis_daily_time?: string | null
+          analysis_match_today_enabled?: boolean | null
+          analysis_match_today_time?: string | null
+          analysis_monthly_dom?: number | null
+          analysis_monthly_enabled?: boolean | null
+          analysis_monthly_time?: string | null
+          analysis_weekly_enabled?: boolean | null
+          analysis_weekly_time?: string | null
+          analysis_weekly_weekday?: number | null
           avg_night_cycles_per_room?: number | null
           battery_buffer_bonus_w?: number | null
           battery_buffer_enabled?: boolean | null
@@ -543,6 +641,7 @@ export type Database = {
           night_heating_mode?: string | null
           night_start_time?: string | null
           night_temp?: number
+          pattern_recall_strength?: number | null
           power_budget_enabled?: boolean | null
           power_budget_tolerance_w?: number | null
           preheat_hours?: number
@@ -1553,10 +1652,27 @@ export type Database = {
           date: string
           energy_in_kwh: number
           energy_out_kwh: number
+          feed_in_kwh: number
           heating_kwh: number
           peak_power: number
           pv_kwh: number
           reading_count: number
+        }[]
+      }
+      match_today_pattern: {
+        Args: { today_signature: Json; top_n?: number }
+        Returns: {
+          date: string
+          kpi_pv_heating_coverage: number
+          kpi_self_consumption_ratio: number
+          match_dimensions: number
+          match_quality: string
+          score: number
+          settings_snapshot: Json
+          sig_pv_bucket: string
+          sig_temp_bucket: string
+          sig_weather: string
+          sig_weekday: string
         }[]
       }
     }
