@@ -76,12 +76,14 @@ export const YearTrendChart: React.FC = () => {
         </div>
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Zeitraum</Label>
-          <Select value={String(monthsBack)} onValueChange={(v) => setMonthsBack(parseInt(v, 10))}>
-            <SelectTrigger className="w-32 h-9"><SelectValue /></SelectTrigger>
+          <Select value={rangeKey} onValueChange={(v) => setRangeKey(v as RangeKey)}>
+            <SelectTrigger className="w-44 h-9"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="3">Letzte 3 Monate</SelectItem>
-              <SelectItem value="6">Letzte 6 Monate</SelectItem>
-              <SelectItem value="12">Letzte 12 Monate</SelectItem>
+              <SelectItem value="3m">Letzte 3 Monate</SelectItem>
+              <SelectItem value="6m">Letzte 6 Monate</SelectItem>
+              <SelectItem value="12m">Letzte 12 Monate</SelectItem>
+              <SelectItem value="thisYear">Dieses Jahr</SelectItem>
+              <SelectItem value="lastYear">Letztes Jahr</SelectItem>
             </SelectContent>
           </Select>
         </div>
