@@ -438,7 +438,8 @@ const Index = () => {
                     )}
                   </TabsContent>
 
-                  <TabsContent value="learning" className="mt-4">
+                  <TabsContent value="learning" className="mt-4 space-y-4">
+                    <PatternRecallBlock />
                     <LearningProgress />
                   </TabsContent>
                 </Tabs>
