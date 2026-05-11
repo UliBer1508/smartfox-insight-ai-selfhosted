@@ -62,6 +62,18 @@ const defaultSettings: HeatingSettings = {
   // Hartes SOC-Gate
   heating_min_battery_soc: 80,
   heating_soc_gate_mode: 'strict',
+  // Analyse-Automatik
+  analysis_daily_enabled: true,
+  analysis_daily_time: '03:30',
+  analysis_weekly_enabled: true,
+  analysis_weekly_weekday: 0,
+  analysis_weekly_time: '04:00',
+  analysis_monthly_enabled: true,
+  analysis_monthly_dom: 1,
+  analysis_monthly_time: '04:30',
+  analysis_match_today_enabled: true,
+  analysis_match_today_time: '05:30',
+  pattern_recall_strength: 50,
 };
 
 export function useHeatingSettings() {

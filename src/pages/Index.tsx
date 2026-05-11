@@ -17,6 +17,7 @@ import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
+import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 
 
@@ -438,7 +439,8 @@ const Index = () => {
                     )}
                   </TabsContent>
 
-                  <TabsContent value="learning" className="mt-4">
+                  <TabsContent value="learning" className="mt-4 space-y-4">
+                    <PatternRecallBlock />
                     <LearningProgress />
                   </TabsContent>
                 </Tabs>

@@ -1865,6 +1865,40 @@ Deno.serve(async (req) => {
         console.warn('[WEEKLY] Could not read weekly_insight:', e);
       }
 
+      // Pattern-Recall (TTL 24h): best_match_today * pattern_recall_strength → Komfort-Bonus + Pre-Heat-Fenster
+      try {
+        const { data: bmRow } = await supabase
+          .from('system_settings')
+          .select('value')
+          .eq('key', 'best_match_today')
+          .maybeSingle();
+        const bm = bmRow?.value as any;
+        const strength = Math.max(0, Math.min(100, Number((settings as any)?.pattern_recall_strength ?? 50)));
+        if (bm?.computed_at && Date.now() - new Date(bm.computed_at).getTime() < 24 * 60 * 60 * 1000 && strength > 0) {
+          const quality = String(bm.match_quality || 'none');
+          const qFactor = quality === 'exact' ? 1.0 : quality === 'partial' ? 0.6 : 0;
+          if (qFactor > 0) {
+            const bonus = Math.round((strength / 100) * 400 * qFactor);
+            if (bonus > 0 && comfortBudget > 0) {
+              comfortBudget += bonus;
+              console.log(`[PATTERN-RECALL] ✨ ${quality} match (strength ${strength}%) → Komfort +${bonus}W → ${comfortBudget}W`);
+            }
+            // Pre-Heat-Fenster aus Winner-Tag (falls gute Coverage)
+            const top = Array.isArray(bm.top_days) && bm.top_days.length > 0 ? bm.top_days[0] : null;
+            const cov = Number(top?.kpi_pv_heating_coverage ?? 0);
+            const hourStr = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false });
+            const hour = parseInt(hourStr, 10);
+            // Heuristik: 10–14 Uhr typisches PV-Heizfenster
+            if (cov >= 0.6 && hour >= 10 && hour <= 14 && batterySoc >= heatingMinSoc && pvPower > 1500) {
+              availableBudget = Math.max(availableBudget, 600);
+              console.log(`[PATTERN-RECALL] 🔥 Winner-Tag ${top?.date} (Coverage ${Math.round(cov*100)}%) → Eco-Budget min 600W`);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[PATTERN-RECALL] Could not read best_match_today:', e);
+      }
+
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
