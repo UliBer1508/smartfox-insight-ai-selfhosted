@@ -1,96 +1,96 @@
+
+# KI-Musteranalyse: Fortschritt Richtung 100 % PV-Eigenverbrauch
+
 ## Ziel
 
-Nächste Ausbau-Schritte umsetzen:
-1. **`pv-automation`**: nutzt `best_match_today` zusätzlich zu `weekly_insight` (Komfort-Bonus + Pre-Heat-Fenster, skaliert mit `pattern_recall_strength`).
-2. **UI**: Inline-Automatik-Einstellungen + Tag/Woche/Monat-Tabs in beiden Karten.
+Die Karte „KI-Musteranalyse" wird vom reinen Trigger-Panel zu einem **Fortschritts-Cockpit**. Für jede Analyseebene (Tag / Woche / Monat / Match) gibt es:
+1. Eine **kurze KI-Zusammenfassung** in Klartext (3–5 Sätze).
+2. Eine **statistische Anzeige**, wie nah wir an 100 % PV-Eigenverbrauch sind.
+3. Einen **Trend** (Verlauf über Zeit), damit Lerneffekt sichtbar wird.
 
----
+Die Backend-Daten dafür liegen bereits vor in `daily_pattern_scores` (kpi_self_consumption_ratio, kpi_pv_heating_coverage, kpi_grid_import_kwh, score) und `learning_events`.
 
-## 1) `pv-automation` — Pattern-Recall-Integration
+## Leitkennzahl
 
-In `supabase/functions/pv-automation/index.ts` direkt nach dem `weekly_insight`-Block (~Zeile 1866):
+**Self-Consumption-Ratio (SCR)** = `self_consumption_kwh / pv_kwh` (0–100 %).
+Sekundärkennzahlen:
+- **PV-Heating-Coverage** = Anteil Heizenergie aus PV
+- **Grid-Import (kWh)** – soll Richtung 0 fallen
+- **Daily Score** (0–100) – Gesamtnote
+- **ML-Lernfortschritt** = Anzahl `learning_events` mit positiver Reward-Tendenz, gleitender Mittelwert
 
-- Lese `system_settings.best_match_today` (TTL 24h).
-- Lese `heating_settings.pattern_recall_strength` (0–100, Default 50).
-- Match-Quality-Logik:
-  - `exact` → Bonus = 100 % der Stärke
-  - `partial` → Bonus = 60 % der Stärke
-  - `weak`/leer → kein Effekt
-- Effekt:
-  - **Komfort-Budget-Bonus**: `comfortBudget += round(strength% × 400W × qualityFactor)` (max +400 W).
-  - **Pre-Heat-Fenster aus Winner-Tag**: falls Winner gute `kpi_pv_heating_coverage` hatte und aktuelle Stunde im Winner-Heizfenster liegt → `availableBudget = max(availableBudget, 600W)`.
-- Logging mit `[PATTERN-RECALL]` Präfix für Nachvollziehbarkeit.
-- Schreibe `pattern_recall_applied` in den `learning_events.action`-Block (Audit).
+## UI-Layout pro Tab (Tag / Woche / Monat)
 
-Sticky-Eco/SOC-Gate/Battery-Bonus bleiben unverändert — Pattern-Recall ist nur ein zusätzlicher Modifier.
+```text
+┌─ KI-Musteranalyse ─────────────────────────────────────┐
+│ [Tag] [Woche] [Monat] [Match heute]                    │
+├────────────────────────────────────────────────────────┤
+│ ┌──────────────┐  ┌──────────────────────────────────┐ │
+│ │  84 %        │  │  Trend (30 Tage)                 │ │
+│ │  Eigen-      │  │  ▁▂▂▃▄▄▅▆▆▇▇  +12 % vs. Vorper. │ │
+│ │  verbrauch   │  │                                  │ │
+│ │  ▲ +6 %      │  │  Ø 78 %  Best 96 %  Schlecht 41 %│ │
+│ └──────────────┘  └──────────────────────────────────┘ │
+│ ┌──────────────────────────────────────────────────────┐
+│ │ Fortschritt zu 100 %:  [██████████░░░] 84 %         │
+│ │ Heizung aus PV: 71 %   Netzbezug: 3,2 kWh           │
+│ │ Score: 82 / 100        ML-Konfidenz: 0.74           │
+│ └──────────────────────────────────────────────────────┘
+│ ┌─ Zusammenfassung (KI) ──────────────────────────────┐ │
+│ │ „Heute 84 % Eigenverbrauch – bester Wert seit 9 Tg. │ │
+│ │  Komfort-Bonus 320 W aus Pattern-Recall hat sich    │ │
+│ │  ausgezahlt. Verlust-Treiber: Netzbezug 18:00–20:00 │ │
+│ │  (Akku leer). Empfehlung: Vorheizen bis 17:00."     │ │
+│ └─────────────────────────────────────────────────────┘ │
+│ ▸ Automatik (collapsible, wie heute)                   │
+│ ▸ Manuell ausführen                                    │
+└────────────────────────────────────────────────────────┘
+```
 
----
+## Inhalte pro Ebene
 
-## 2) UI — Inline-Automatik in den beiden Karten
+| Ebene | Datenfenster | Hauptchart | Zusammenfassung |
+|---|---|---|---|
+| **Tag** | letzte 24 h + Vergleich Vortag | Stundenbalken SCR | „Was lief gut/schlecht heute, welche Stunde war Verlust-Treiber" |
+| **Woche** | 7 Tage | Tagesbalken SCR + Linie Score | „Welcher Wochentag/Wetterbucket performt am besten" |
+| **Monat** | 30 Tage | Linie SCR + 7-Tage-MA | „Trend Verbesserung in %, beste/schlechteste Tage, Wirkung der ML-Settings" |
+| **Match heute** | aktuelles Signature-Bucket | Vergleich heute vs. bester historischer Tag mit gleicher Signatur | „Heute ähnelt 04.05. (Score 100). Erwarteter Endwert: 92 %. Pattern-Recall aktiv." |
 
-### 2a) Karte „KI-Musteranalyse" (`src/components/energy/AnalysisPanel.tsx`)
+## Statistik-Komponenten (neu)
 
-Innerhalb der Card neue Tabs **Tag / Woche / Monat**. Jeder Tab:
+1. **`SelfConsumptionGauge`** – großer Prozentwert + Delta vs. Vorperiode (▲/▼).
+2. **`ProgressTo100Bar`** – horizontale Fortschrittsleiste mit Markern (Ø, Best, Ziel 100 %).
+3. **`TrendSparkline`** – kompakter Verlauf der letzten N Perioden, eingefärbt nach Richtung.
+4. **`KpiGrid`** – 4 kleine Kacheln: SCR, Heizung-aus-PV, Netzbezug, Score.
+5. **`AISummaryCard`** – Klartext aus Gemini, max. 5 Sätze, mit Reload-Button.
+6. **`MLProgressIndicator`** – „ML-Lernkurve": Reward-Mittelwert letzte 7 vs. vorige 7 Tage, Konfidenz-Badge.
 
-- Manueller Trigger-Button (bestehend für Tag/Woche, neu für Monat → ruft `analyze-patterns?type=monthly_pattern`).
-- **Automatik-Box** (kollabierbar, kompakt):
-  - Toggle „Automatisch ausführen"
-  - Tag-Tab: Time-Picker (`analysis_daily_time`)
-  - Woche-Tab: Wochentag-Select + Time-Picker (`analysis_weekly_weekday`, `analysis_weekly_time`)
-  - Monat-Tab: Tag-des-Monats-Number (1–28) + Time-Picker (`analysis_monthly_dom`, `analysis_monthly_time`)
-  - „Letzte/Nächste Ausführung" Anzeige (aus `system_settings.last_*_run`)
-  - Speicher-Button → `useHeatingSettings.saveSettings({...})`
-- Zusätzlich oben in der Card: **Backfill-Block** (Tage-Auswahl 7/30/90 + Button → `compute-daily-score` mit `{backfill: N}`).
+Alle nutzen Design-Tokens (`--primary`, `--muted`, etc.), keine harten Farben.
 
-Component erhält `settings`/`saveSettings` als Props (oder ruft `useHeatingSettings` direkt).
+## Datenbeschaffung
 
-### 2b) Karte „Heizungs-Optimierung" (`src/pages/Index.tsx` Zeilen 299–446)
+- **Read-only** aus `daily_pattern_scores` (bereits gefüllt durch Backfill).
+- Aggregation client-seitig in einem neuen Hook **`useSelfConsumptionStats(range: 'day'|'week'|'month')`**.
+- KI-Zusammenfassung: bestehende Edge Function `analyze-patterns` erweitern um Response-Feld `summary_text` (3–5 Sätze, Gemini), gespeichert in `system_settings` Key `analysis_summary_<type>` mit Timestamp → UI zeigt Cache + „Neu generieren"-Button.
 
-Im `learning`-Tab **oben** ein neuer **Pattern-Recall-Block**:
-- Toggle „Pattern-Recall aktiv" (`analysis_match_today_enabled`)
-- Time-Picker für tägliches Matching (`analysis_match_today_time`)
-- Slider „Stärke" 0–100 (`pattern_recall_strength`)
-- Badge mit aktueller Match-Quality (lesen aus `system_settings.best_match_today.match_quality`) + Datum des Winners
-- Button „Jetzt matchen" → ruft `analyze-patterns` mit `{type: 'match_today'}`
-- Speicher-Button
+## Backend-Anpassungen (minimal)
 
-Karte sonst unverändert.
+1. **`analyze-patterns/index.ts`**: Bei jedem Lauf zusätzlich Klartext-Summary erzeugen (Gemini, deutsch, max. 5 Sätze) und in `system_settings` ablegen.
+2. **Kein Schema-Change** – alle Werte existieren in `daily_pattern_scores` und `learning_events`.
 
-### 2c) Hook-Update
+## Frontend-Änderungen
 
-`src/hooks/useHeatingSettings.ts`: defaults erweitern um die 11 neuen Felder (Werte aus Migration). Typ `HeatingSettings` in `src/types/heating.ts` ebenfalls erweitern.
-
----
-
-## Technische Details
-
-- **Backfill-Tage-Auswahl**: 7/30/90 fix (keine freie Eingabe).
-- **Time-Picker**: `<Input type="time">` (shadcn-kompatibel).
-- **Wochentag-Select**: 0=So…6=Sa.
-- **`last_run`/`next_run`**: `analysis-scheduler` schreibt `system_settings.last_<job>_run` nach jedem Lauf — UI zeigt das nur an (read-only). Falls Feld noch nicht existiert: später als kleines Backend-Patch nachziehen, UI-seitig erstmal leer-tolerant rendern.
-- **Polling**: Match-Quality-Badge per 60s-Intervall aus `system_settings.best_match_today` lesen (analog zu bestehendem Polling-Pattern).
-
----
-
-## Geänderte Dateien
-
-- `supabase/functions/pv-automation/index.ts` (Pattern-Recall-Block einfügen)
-- `src/types/heating.ts` (11 neue optionale Felder)
-- `src/hooks/useHeatingSettings.ts` (Defaults erweitern)
-- `src/components/energy/AnalysisPanel.tsx` (Tabs + Automatik + Backfill)
-- `src/pages/Index.tsx` (Pattern-Recall-Block im learning-Tab)
-
----
-
-## Memory-Updates nach Build
-
-- `mem://features/heating/pattern-recall` — Recall-Logik & Strength-Skalierung
-- `mem://features/heating/analysis-scheduler` — Cron + UI-Inline-Settings
-- Index-Update unter „Machine Learning"
-
----
+- `src/components/energy/AnalysisPanel.tsx`: Tab-Inhalte um Stats-Block + Summary-Block erweitern (vor „Automatik"-Box).
+- `src/hooks/useSelfConsumptionStats.ts` (neu): lädt + aggregiert.
+- `src/components/energy/stats/` (neu): die 6 Komponenten oben.
 
 ## Out of Scope
 
-- Kein neuer Settings-Panel-Tab (du wolltest explizit Inline in den Karten).
-- Kein Anpassen der bestehenden Eco-/Komfort-/Sticky-Logik.
+- Keine Änderung an `pv-automation`, Eco/Komfort-Logik, Sticky-Eco, SOC-Gates.
+- Keine neuen Tabellen, keine Migration.
+- Pattern-Recall-Block in der Heizungs-Karte bleibt unverändert (zeigt weiterhin Match-Strength + Slider).
+
+## Lieferumfang
+
+- 1 erweiterte Edge Function (Summary), 1 Hook, 6 kleine Stats-Komponenten, Integration in 4 Tabs.
+- Memory-Update: `mem://features/analysis/progress-cockpit`.
