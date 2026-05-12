@@ -202,7 +202,7 @@ ${forecasts.map(f => `- ${f.date}: ${f.expected_kwh} kWh erwartet`).join('\n')}
 - Comfort-Temp: ${settings.comfort_temp}°C
 - Eco-Temp: ${settings.eco_temp}°C
 - Nacht-Temp: ${settings.night_temp}°C
-- Heiz-Min-Batterie-SOC: ${settings.heating_min_battery_soc ?? 80}%
+- heating_min_battery_soc (UNTERGRENZE für Komfort-Heizung, KEINE Lade-Cap): ${settings.heating_min_battery_soc ?? 80}%
 - PV-Kapazität: ${settings.pv_capacity_kwp} kWp
 - Batterie-Kapazität: ${settings.battery_capacity_kwh} kWh
 - PV-Schwelle Ein: ${settings.pv_surplus_threshold_on ?? 'Standard'} W
@@ -241,6 +241,25 @@ Die Heizung nutzt eine 4-Stufen PV-Logik:
 - Stufe 2: eco erreicht, Batterie ≥ 95%, kein WW → comfort heizen
 - Stufe 3: ALLE Räume ≥ comfort, Export reicht → Super-Comfort (+1°C)
 - Stufe 4: Sonst → halten
+
+HARDWARE-FAKTEN (NICHT VERHANDELBAR — diese Aussagen NIEMALS widersprechen):
+- Die Batterie wird AUSSCHLIESSLICH vom Smartfox/Fronius-Wechselrichter gesteuert.
+  Die Software kann das LADEN der Batterie NICHT beeinflussen. Es gibt KEINE
+  Ladeobergrenze, KEIN Lade-Limit, KEINE Einstellung wie "Batterie nur bis X% laden,
+  Rest in Heizung". Schlage so etwas NIEMALS vor.
+- Warmwasser wird autonom von Smartfox gesteuert (Schwellwert/Zeitfenster nur als
+  Info für unsere Heiz-Logik, keine direkte WW-Steuerung).
+
+SEMANTIK heating_min_battery_soc (KRITISCH — häufige Fehlinterpretation):
+- Das ist eine UNTERGRENZE (Floor) für die Heizungs-Nutzung der Batterie, KEINE Obergrenze.
+- Bedeutung: Nur der SOC-Anteil OBERHALB dieses Werts darf für Komfort-Heizung
+  verbraucht werden. Sobald SOC < heating_min_battery_soc → Komfort-Hard-Lock
+  (comfortBudget = 0, Eco bleibt erlaubt).
+- Beispiel: Wert 90% → die obersten 10% der Batterie sind für Komfort-Heizung
+  freigegeben, 90% bleiben als Reserve geschützt.
+- Höherer Wert = MEHR Reserve, WENIGER Batterie für Heizung.
+- Niedrigerer Wert = WENIGER Reserve, MEHR Batterie für Heizung.
+- Empfehle Erhöhung wenn Reserve zu klein, Senkung wenn Heizung zu oft am Gate scheitert.
 
 Wichtige Regeln:
 - Schlage NUR Änderungen vor, die auch wirklich sinnvoll sind basierend auf den Daten
