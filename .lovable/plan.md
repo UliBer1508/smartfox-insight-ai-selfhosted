@@ -1,90 +1,52 @@
-
-# Jahres-Trendgrafik für Eigenverbrauch (Woche & Monat)
-
 ## Ziel
 
-Zusätzlich zur bestehenden Tag/Woche/Monat-Auswertung eine **Langzeit-Trendgrafik** in der Karte „KI-Musteranalyse", die zeigt, wie sich der Eigenverbrauch (SCR) **wöchentlich und monatlich über das gesamte Jahr** entwickelt – sichtbar machen, ob die ML/PV-Optimierung Richtung 100 % wirkt.
+Verhindern, dass die KI-Einstellungsvorschläge `heating_min_battery_soc` als Lade-Obergrenze missverstehen und unsinnige Empfehlungen wie „Batterie nur bis X% laden, Rest in Heizung" abgeben. Die Batterie wird ausschließlich von Smartfox/Fronius gesteuert — die Software kann den Ladevorgang nicht beeinflussen.
 
-## Datengrundlage
+## Faktenlage (geprüft)
 
-`daily_pattern_scores` (vorhanden, durch Backfill bis 365 Tage befüllbar):
-- `date`, `kpi_self_consumption_ratio`, `kpi_pv_heating_coverage`, `kpi_grid_import_kwh`, `score`, `pv_kwh`
+- `mem://features/heating/soc-thresholds-consolidated`: `heating_min_battery_soc` (default 80%) ist die **Untergrenze**, ab der Komfort-Heizung blockiert wird (SOC-Gate, Komfort-Hard-Lock).
+- `mem://arch/pv-automation-budget-logic-v2`: SOC-Gate „schützt definierten Schwellwert" — also Floor, nicht Cap.
+- `mem://hardware/energy-system-specifications` & Core-Memory: „Fronius manages battery."
+- Im Edge-Function-Prompt von `generate-settings-suggestions/index.ts` steht aktuell nur `Heiz-Min-Batterie-SOC: 80%` ohne Erklärung der Semantik und ohne Hinweis auf Smartfox-autonome Ladesteuerung. Daher rät das Modell eine plausibel klingende, aber falsche Bedeutung.
 
-Aggregation client-seitig:
-- **Wöchentlich** (ISO-Woche, Mo–So): Ø SCR, Ø Coverage, Σ PV-kWh, Σ Netzbezug
-- **Monatlich**: gleiche Aggregate
-- **Trendlinie**: lineare Regression über die Aggregat-Punkte → Steigung in pp/Monat als KPI
+→ Die KI-Aussage war fachlich falsch, nicht nur missverständlich.
 
-## UI-Layout
+## Umsetzung
 
-Neuer Block **unterhalb** des bestehenden Cockpits, vor den Tab-spezifischen Inhalten oder als eigener „Jahr"-Tab. Empfehlung: **eigener 4. Tab „Jahr"** in derselben Tab-Leiste (Tag · Woche · Monat · **Jahr**), damit die bestehenden Tabs unverändert kompakt bleiben.
+### 1. `supabase/functions/generate-settings-suggestions/index.ts`
+System-Prompt um einen klaren Hardware-/Semantik-Block ergänzen, direkt nach der 4-Stufen-Logik:
 
-```text
-┌─ Jahr ──────────────────────────────────────────────┐
-│ Granularität: ( ) Woche  (•) Monat   Range: 12M ▾  │
-├─────────────────────────────────────────────────────┤
-│  100% ┤ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Ziel             │
-│   80% ┤              ▂▃▄▅▆▆▇       ← Trend +1.2pp/M│
-│   60% ┤      ▁▂▃▃▄▄                                │
-│   40% ┤▁▂▂                                         │
-│   20% ┤                                            │
-│       └────────────────────────────────────────────│
-│        Jan  Feb  Mär  Apr  Mai  ...                │
-│                                                     │
-│  KPI-Strip:                                        │
-│  Bestmonat: Mai 84%   Schlechtester: Jan 38%       │
-│  Trend: +1.2 pp / Monat   Δ Jahr: +18 pp           │
-│  Σ PV: 14.2 MWh   Σ Netzbezug: 1.8 MWh             │
-└─────────────────────────────────────────────────────┘
+```
+HARDWARE-FAKTEN (nicht verhandelbar):
+- Die Batterie wird ausschließlich vom Smartfox/Fronius-Wechselrichter gesteuert.
+  Die Software kann das LADEN der Batterie NICHT beeinflussen.
+  Schlage NIEMALS Ladeobergrenzen, Lade-Limits oder „Batterie nur bis X% laden"
+  vor — solche Einstellungen existieren nicht.
+- Warmwasser wird autonom von Smartfox gesteuert. Schlage keine WW-Steuerung
+  über die Heizungs-Settings vor.
+
+SEMANTIK heating_min_battery_soc (KRITISCH):
+- Das ist eine UNTERGRENZE (Floor), KEINE Obergrenze.
+- Bedeutung: Nur SOC-Anteil ÜBER diesem Wert darf für Komfort-Heizung verbraucht werden.
+- Beispiel: Wert 90% → die obersten 10% der Batterie sind für Heizung freigegeben,
+  90% bleiben als Reserve geschützt.
+- Sobald SOC < heating_min_battery_soc: Komfort-Hard-Lock (comfortBudget = 0),
+  Eco bleibt erlaubt.
+- Höherer Wert = weniger Batterie für Heizung verfügbar = mehr Reserve.
+- Niedrigerer Wert = mehr Batterie für Heizung verfügbar = weniger Reserve.
 ```
 
-Charts via **Recharts** (bereits im Projekt): `ComposedChart` mit:
-- **Bar** = SCR pro Woche/Monat (Hauptserie)
-- **Line** = 4-Perioden gleitender Mittelwert
-- **ReferenceLine** = lineare Regression (Trendlinie)
-- **ReferenceLine** = 100 % Ziel (gestrichelt)
+Zusätzlich im Datenkontext-Block die Bezeichnung umbenennen, damit sie selbsterklärend ist:
+- `Heiz-Min-Batterie-SOC: 80%` → `heating_min_battery_soc (Untergrenze für Komfort-Heizung): 80%`
 
-Tooltip pro Punkt: Periode, SCR %, PV kWh, Netzbezug kWh, Score.
+### 2. `supabase/functions/analyze-patterns/index.ts`
+Gleichen Hardware-/Semantik-Block in den System-Prompt aufnehmen (gleiche Verwechslungsgefahr).
 
-## Komponenten (neu)
+### 3. Memory-Update
+Neue Memory-Datei `mem://arch/ai-prompt-hardware-facts.md` anlegen, damit künftige Edge-Function-Prompts diesen Block standardmäßig enthalten. Index aktualisieren.
 
-1. **`YearTrendChart.tsx`** (`src/components/energy/stats/`)
-   - Props: `granularity: 'week' | 'month'`, `monthsBack: number` (Default 12)
-   - Liest direkt aus `daily_pattern_scores` für die letzten N Monate
-   - Aggregiert lokal (ISO-Woche oder Monat in `Europe/Vienna`)
-   - Berechnet lineare Regression + Δ Jahr
-2. **`useYearlyStats.ts`** (Hook)
-   - Lädt Tagesdaten ≤365 Tage zurück
-   - Liefert beide Aggregate (Woche + Monat) gecached
-3. Integration: neuer Tab **„Jahr"** in `AnalysisPanel.tsx` mit Granularitäts-Toggle (Switch/RadioGroup) und Range-Select (3M / 6M / 12M).
+## Nicht im Scope
 
-## KPIs im Trend-Block
-
-- Trend-Steigung **pp/Monat** (positiv = Verbesserung)
-- Δ vom ersten zum letzten Punkt der Range (in pp)
-- Bestperiode + Wert
-- Schlechteste Periode + Wert
-- Σ PV kWh / Σ Netzbezug kWh über Range
-
-## KI-Erweiterung (optional, klein)
-
-`analysis-summary` Edge Function um `range: 'year'` ergänzen → liefert Klartext-Bewertung des Jahresverlaufs („Ø-Verbesserung +1,2 pp/Monat, Sommer-Plateau ab Juni, Winter-Schwäche Dez–Jan ist erwartbar"). Cached in `system_settings.analysis_summary_year`.
-
-## Out of Scope
-
-- Keine Schema-Änderung
-- Kein Touch an `pv-automation` oder Eco/Komfort-Logik
-- Kein Vergleich mehrerer Jahre (nur rollierende 12 Monate)
-- Cockpit-Komponente bleibt unverändert
-
-## Lieferumfang
-
-- 1 neue Hook (`useYearlyStats`)
-- 1 neue Komponente (`YearTrendChart`)
-- 1 neuer Tab in `AnalysisPanel`
-- Erweiterung `analysis-summary` um `range: 'year'`
-- Memory-Update: `mem://features/analysis/year-trend`
-
-## Voraussetzung
-
-`daily_pattern_scores` muss historisch gefüllt sein. Aktuell sind 30 Tage da → User sollte nochmal **Backfill 90 Tage** (oder mehr, max sinnvoll: 365) ausführen, sobald genug Quelldaten vorliegen. UI zeigt Hinweis falls <8 Wochen Daten vorhanden.
+- Keine Änderung der Automatisierungslogik selbst (Floor-Verhalten ist korrekt).
+- Keine UI-Änderungen.
+- Keine DB-/Migrations-Änderungen.
