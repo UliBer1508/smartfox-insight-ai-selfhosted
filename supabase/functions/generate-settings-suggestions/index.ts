@@ -316,8 +316,16 @@ Verwende NIEMALS deutsche Bezeichnungen wie soll_temp, ziel_temp, heizleistung e
 
     if (!aiResponse.ok) {
       console.error('AI call failed:', aiResponse.error);
-      return new Response(JSON.stringify({ error: 'KI-Analyse fehlgeschlagen', details: aiResponse.error }), {
-        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      const isRateLimit = aiResponse.status === 429;
+      return new Response(JSON.stringify({
+        suggestions: [],
+        overall_analysis: isRateLimit
+          ? 'KI-Analyse momentan nicht verfügbar (Rate-Limit erreicht). Bitte in einigen Minuten erneut versuchen.'
+          : `KI-Analyse fehlgeschlagen: ${aiResponse.error}`,
+        fallback: true,
+        rate_limited: isRateLimit,
+      }), {
+        status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
     }
 
