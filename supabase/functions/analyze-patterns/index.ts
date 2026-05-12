@@ -380,9 +380,19 @@ serve(async (req) => {
         console.warn('[analyze-patterns] could not upsert preheating_signal:', e);
       }
 
-      prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
+       prompt = `Du bist ein ML-basiertes Heizungsoptimierungssystem. Dein Ziel ist es, Energie zu sparen und Komfort zu gewährleisten.
 
 ⚠️ **WICHTIG: ALLE ERFORDERLICHEN DATEN SIND UNTEN AUFGEFÜHRT. GIB NUR KONKRETE EMPFEHLUNGEN, KEINE RÜCKFRAGEN!**
+
+**HARDWARE-FAKTEN (NICHT VERHANDELBAR):**
+- Die Batterie wird AUSSCHLIESSLICH vom Smartfox/Fronius-Wechselrichter gesteuert. Die Software kann das LADEN der Batterie NICHT beeinflussen. Es gibt KEINE Ladeobergrenze und KEINE Einstellung wie "Batterie nur bis X% laden, Rest in Heizung". Schlage so etwas NIEMALS vor.
+- Warmwasser wird autonom von Smartfox gesteuert.
+
+**SEMANTIK heating_min_battery_soc (KRITISCH):**
+- Das ist eine UNTERGRENZE (Floor) für die Heizungs-Nutzung der Batterie, KEINE Obergrenze.
+- Nur der SOC-Anteil OBERHALB dieses Werts darf für Komfort-Heizung verbraucht werden. Sobald SOC darunter fällt → Komfort-Hard-Lock (comfortBudget = 0, Eco bleibt erlaubt).
+- Beispiel: Wert 90% → obersten 10% der Batterie für Heizung frei, 90% Reserve.
+- Höherer Wert = mehr Reserve, weniger Heizung-Budget. Niedrigerer Wert = umgekehrt.
 
 **HEIZUNGSANLAGE (BEKANNT):**
 - Typ: ${heatingTypeLabel}
