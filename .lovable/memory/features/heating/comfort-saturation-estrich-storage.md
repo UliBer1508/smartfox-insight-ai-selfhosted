@@ -15,6 +15,13 @@ Sobald `current_temp >= comfort_temp - 0.1` UND `target_temp >= comfort_temp - 0
 ## Re-Komfort-Sperre (Hysterese)
 Komfort-gesättigte Räume werden tagsüber NICHT erneut Komfort-Kandidat, **außer** `current_temp < eco_temp - 0.5°C`. Dann darf bei Budget erneut auf Komfort hochgeheizt werden.
 
+## Battery-Full-Override
+Bei vollem Akku + großem Echt-Export wird die Sättigungs-Sperre überstimmt:
+- Bedingung: `batterySoc ≥ 95%` UND `gridExport ≥ 3000W` UND `expectedPvKwh ≥ 5kWh` UND nicht Nacht.
+- `isComfortSaturated()` gibt `false` zurück, solange `current_temp < pv_boost_max_temp − 0.2°C` (Fallback-Cap = `comfort_temp + 1.5°C`).
+- Saturation-Pre-Pass markiert Räume NICHT auf Eco zurück, solange Override aktiv und Hardcap nicht erreicht.
+- Verhindert Einspeisung/Wechselrichter-Abregelung bei voller Batterie und langem Sonnentag.
+
 ## Reset
 - Beim Nacht-Modus-Übergang (`night_start_time`): `comfort_saturated_at = NULL`
 - Sättigungen vom Vortag werden via Datums-Vergleich (Wien-Zeit) ignoriert.
