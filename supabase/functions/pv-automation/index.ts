@@ -2345,17 +2345,16 @@ Deno.serve(async (req) => {
       todayWienStart.setHours(0, 0, 0, 0);
 
       // ============= BATTERY-FULL-OVERRIDE für Komfort-Sättigung =============
-      // Wenn Batterie voll, anhaltender Echt-Export hoch und genug Tagesprognose übrig,
+      // Wenn Batterie voll, anhaltender Echt-Export hoch und Tag mit Sonne (Tagesprognose ≥ 5 kWh),
       // darf das System die heutige Sättigungs-Sperre überstimmen und Räume bis zum
       // pv_boost_max_temp-Cap weiter aufheizen — sonst geht Überschuss ins Netz/Abregelung.
-      const remainingPvKwh = Math.max(0, (expectedPvKwh || 0) - (pvEnergy || 0));
       const batteryFullOverride =
         !isNight &&
         (batterySoc ?? 0) >= 95 &&
         gridExport >= 3000 &&
-        remainingPvKwh >= 5;
+        (expectedPvKwh || 0) >= 5;
       if (batteryFullOverride) {
-        console.log(`[BATTERY-FULL-OVERRIDE] 🔋✅ SOC ${batterySoc}% ≥ 95%, Export ${gridExport}W ≥ 3000W, Prognose-Rest ${remainingPvKwh.toFixed(1)}kWh ≥ 5kWh → Komfort-Sättigung wird ignoriert (bis pv_boost_max_temp-Cap)`);
+        console.log(`[BATTERY-FULL-OVERRIDE] 🔋✅ SOC ${batterySoc}% ≥ 95%, Export ${gridExport}W ≥ 3000W, Tagesprognose ${expectedPvKwh}kWh → Komfort-Sättigung wird ignoriert (bis pv_boost_max_temp-Cap)`);
       }
 
       // Helper: Hardcap-Temp für einen Raum (pv_boost_max_temp oder comfort+1.5 als Fallback)
