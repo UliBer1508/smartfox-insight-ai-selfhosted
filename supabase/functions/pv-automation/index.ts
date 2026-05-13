@@ -2344,6 +2344,27 @@ Deno.serve(async (req) => {
       const todayWienStart = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
       todayWienStart.setHours(0, 0, 0, 0);
 
+      // ============= BATTERY-FULL-OVERRIDE für Komfort-Sättigung =============
+      // Wenn Batterie voll, anhaltender Echt-Export hoch und Tag mit Sonne (Tagesprognose ≥ 5 kWh),
+      // darf das System die heutige Sättigungs-Sperre überstimmen und Räume bis zum
+      // pv_boost_max_temp-Cap weiter aufheizen — sonst geht Überschuss ins Netz/Abregelung.
+      const batteryFullOverride =
+        !isNight &&
+        (batterySoc ?? 0) >= 95 &&
+        gridExport >= 3000 &&
+        (expectedPvKwh || 0) >= 5;
+      if (batteryFullOverride) {
+        console.log(`[BATTERY-FULL-OVERRIDE] 🔋✅ SOC ${batterySoc}% ≥ 95%, Export ${gridExport}W ≥ 3000W, Tagesprognose ${expectedPvKwh}kWh → Komfort-Sättigung wird ignoriert (bis pv_boost_max_temp-Cap)`);
+      }
+
+      // Helper: Hardcap-Temp für einen Raum (pv_boost_max_temp oder comfort+1.5 als Fallback)
+      const getBoostCap = (rp: typeof roomsWithPriority[0]) => {
+        const cap = (rp.room as any).pv_boost_max_temp;
+        if (cap && Number(cap) > 0) return Number(cap);
+        const ct = rp.room.comfort_temp || settings?.comfort_temp || 21;
+        return ct + 1.5;
+      };
+
       // Helper: Ist Raum heute komfort-gesättigt? (current_temp noch >= eco_temp - 0.5)
       const isComfortSaturated = (rp: typeof roomsWithPriority[0]) => {
         const sat = (rp.room as any).comfort_saturated_at;
@@ -2352,6 +2373,8 @@ Deno.serve(async (req) => {
         if (satTime < todayWienStart.getTime()) return false; // Sättigung vom Vortag → ungültig
         const ecoT = rp.room.eco_temp || settings?.eco_temp || 19;
         const cur = rp.room.current_temp || 0;
+        // Battery-Full-Override: solange unter Hardcap, gilt der Raum NICHT als gesättigt
+        if (batteryFullOverride && cur < getBoostCap(rp) - 0.2) return false;
         return cur >= ecoT - 0.5; // Hysterese: erst unter eco-0.5°C wieder Komfort-fähig
       };
 
@@ -2369,7 +2392,10 @@ Deno.serve(async (req) => {
         const reachedComfort = currentTemp >= comfortTemp - 0.1;
         const setpointIsComfort = currentTarget >= comfortTemp - 0.1;
         const alreadySaturated = isComfortSaturated(rp);
-        if (reachedComfort && setpointIsComfort && !alreadySaturated) {
+        // Battery-Full-Override: solange Raum unter pv_boost_max_temp-Cap, NICHT auf Eco zurückfallen
+        const boostCap = getBoostCap(rp);
+        const overrideActive = batteryFullOverride && currentTemp < boostCap - 0.2;
+        if (reachedComfort && setpointIsComfort && !alreadySaturated && !overrideActive) {
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: false, // → führt zu deactivate auf eco_temp im Action-Loop
             reason: `Komfort-Sättigung: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C → Eco (Estrich speichert)`,
@@ -2381,6 +2407,8 @@ Deno.serve(async (req) => {
             comfort_saturated_at: new Date().toISOString(),
           }).eq('id', rp.room.id);
           console.log(`[KOMFORT-SAT] ${rp.room.name}: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C → Setpoint ${ecoTemp}°C, Estrich-Speicher aktiv`);
+        } else if (reachedComfort && setpointIsComfort && overrideActive) {
+          console.log(`[BATTERY-FULL-OVERRIDE] ${rp.room.name}: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C, halte Komfort-Setpoint (Cap ${boostCap}°C noch nicht erreicht)`);
         }
       }
 
