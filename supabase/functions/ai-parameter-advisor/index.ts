@@ -1,0 +1,226 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const GEMINI_KEY = Deno.env.get('GOOGLE_AI_API_KEY')!;
+
+interface WhitelistRow {
+  parameter_key: string;
+  scope: 'global' | 'room';
+  storage_table: string;
+  storage_column: string;
+  data_type: string;
+  min_value: number | null;
+  max_value: number | null;
+  allowed_values: unknown;
+  autonomy_level: string;
+  description: string | null;
+}
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+  const startedAt = new Date().toISOString();
+
+  try {
+    // 1) Snapshot
+    const [
+      { data: whitelist },
+      { data: rooms },
+      { data: heatingSettings },
+      { data: systemSettingsRows },
+      { data: latestEnergy },
+      { data: forecast },
+      { data: dailyScores },
+      { data: recentDecisions },
+    ] = await Promise.all([
+      sb.from('ai_parameter_whitelist').select('*').eq('enabled', true),
+      sb.from('rooms').select('id,name,current_temp,target_temp,is_heating,eco_temp,comfort_temp,night_temp,pv_boost_max_temp,priority,automation_enabled'),
+      sb.from('heating_settings').select('*').limit(1).maybeSingle(),
+      sb.from('system_settings').select('key,value'),
+      sb.from('energy_readings').select('timestamp,power_io,pv_power,battery_soc,consumption').order('timestamp', { ascending: false }).limit(1),
+      sb.from('pv_forecasts').select('date,expected_kwh,hourly_watts').gte('date', new Date().toISOString().slice(0, 10)).order('date').limit(2),
+      sb.from('daily_pattern_scores').select('date,sig_weather,sig_pv_bucket,kpi_self_consumption_ratio,kpi_pv_heating_coverage,kpi_grid_import_kwh,score').order('date', { ascending: false }).limit(7),
+      sb.from('ai_parameter_decisions').select('parameter_key,proposed_value,confidence,outcome_score,created_at').order('created_at', { ascending: false }).limit(20),
+    ]);
+
+    const wl = (whitelist ?? []) as WhitelistRow[];
+    if (wl.length === 0) {
+      return new Response(JSON.stringify({ ok: true, skipped: 'empty_whitelist' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const sysMap: Record<string, unknown> = {};
+    for (const r of systemSettingsRows ?? []) sysMap[(r as any).key] = (r as any).value;
+
+    const energy = latestEnergy?.[0] ?? null;
+    const today = forecast?.[0] ?? null;
+
+    const snapshot = {
+      timestamp: startedAt,
+      energy_now: energy,
+      forecast_today: today,
+      kpis_last_7d: dailyScores ?? [],
+      heating_settings: heatingSettings,
+      system_settings: sysMap,
+      rooms: rooms ?? [],
+    };
+
+    // 2) Build prompt
+    const whitelistDoc = wl.map((w) => ({
+      key: w.parameter_key,
+      scope: w.scope,
+      type: w.data_type,
+      min: w.min_value,
+      max: w.max_value,
+      allowed: w.allowed_values,
+      description: w.description,
+    }));
+
+    const prompt = `Du bist ein Steuerungs-Optimierer für ein PV-Heizsystem (15.8 kWp PV, 13.8 kWh Batterie, 12 Räume mit Tuya-Thermostaten).
+Deine Aufgabe: Schlage konkrete Parameter-Änderungen vor, die Eigenverbrauchsquote (SCR) und Komfort verbessern.
+WICHTIG: Du SCHREIBST KEINE Werte. Deine Vorschläge werden nur dokumentiert (Shadow-Mode).
+
+ERLAUBTE PARAMETER (du darfst NUR diese vorschlagen, innerhalb der Grenzen):
+${JSON.stringify(whitelistDoc, null, 2)}
+
+AKTUELLER SYSTEM-SNAPSHOT:
+${JSON.stringify(snapshot, null, 2)}
+
+DEINE LETZTEN ENTSCHEIDUNGEN (Lerneffekt):
+${JSON.stringify(recentDecisions ?? [], null, 2)}
+
+REGELN:
+- Schlage nur Änderungen vor, die du für klar besser hältst (kein "ändern um zu ändern").
+- Für room-Parameter MUSST du room_id angeben (aus dem Snapshot).
+- proposed_value MUSS in den Grenzen / allowed_values liegen.
+- Wenn aktueller Wert bereits gut ist: leeres decisions-Array zurückgeben.
+- confidence: 0..1, ehrlich. Niedrige confidence bei Unsicherheit.
+- expected_outcome: kurze Vorhersage was sich verbessern sollte (z.B. {"scr_delta": "+0.05", "comfort_delta": "+15min"}).
+
+Antworte STRIKT als JSON:
+{
+  "decisions": [
+    {
+      "parameter_key": "...",
+      "scope": "global" | "room",
+      "room_id": "uuid or null",
+      "current_value": "...",
+      "proposed_value": "...",
+      "reasoning": "kurz, max 2 Sätze",
+      "confidence": 0.0-1.0,
+      "expected_outcome": { ... }
+    }
+  ],
+  "summary": "1 Satz Gesamteinschätzung"
+}`;
+
+    // 3) Call Gemini
+    const geminiResp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+        }),
+      },
+    );
+
+    if (!geminiResp.ok) {
+      const txt = await geminiResp.text();
+      console.error('[ai-parameter-advisor] Gemini error', geminiResp.status, txt);
+      return new Response(JSON.stringify({ ok: false, error: `gemini_${geminiResp.status}` }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const geminiJson = await geminiResp.json();
+    const txt: string = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
+    let parsed: any;
+    try {
+      parsed = JSON.parse(txt);
+    } catch {
+      console.error('[ai-parameter-advisor] JSON parse failed', txt.slice(0, 500));
+      return new Response(JSON.stringify({ ok: false, error: 'parse_failed' }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const decisions = Array.isArray(parsed?.decisions) ? parsed.decisions : [];
+
+    // 4) Validate against whitelist + persist
+    const wlMap = new Map(wl.map((w) => [`${w.parameter_key}|${w.scope}`, w]));
+    const inserts: any[] = [];
+    const rejected: any[] = [];
+
+    for (const d of decisions) {
+      const w = wlMap.get(`${d.parameter_key}|${d.scope}`);
+      if (!w) { rejected.push({ d, reason: 'not_in_whitelist' }); continue; }
+
+      // Range / allowed_values check
+      if (w.data_type === 'number' || w.data_type === 'integer') {
+        const n = Number(d.proposed_value);
+        if (!Number.isFinite(n)) { rejected.push({ d, reason: 'not_a_number' }); continue; }
+        if (w.min_value !== null && n < Number(w.min_value)) { rejected.push({ d, reason: 'below_min' }); continue; }
+        if (w.max_value !== null && n > Number(w.max_value)) { rejected.push({ d, reason: 'above_max' }); continue; }
+      }
+      if (Array.isArray(w.allowed_values) && !w.allowed_values.map(String).includes(String(d.proposed_value))) {
+        rejected.push({ d, reason: 'not_in_allowed_values' }); continue;
+      }
+      if (d.scope === 'room' && !d.room_id) { rejected.push({ d, reason: 'missing_room_id' }); continue; }
+
+      inserts.push({
+        parameter_scope: d.scope,
+        room_id: d.scope === 'room' ? d.room_id : null,
+        parameter_key: d.parameter_key,
+        current_value: d.current_value != null ? String(d.current_value) : null,
+        proposed_value: String(d.proposed_value),
+        reasoning: d.reasoning ?? null,
+        confidence: typeof d.confidence === 'number' ? d.confidence : null,
+        context_snapshot: { soc: energy?.battery_soc, pv: energy?.pv_power, grid: energy?.power_io, forecast_kwh: today?.expected_kwh },
+        expected_outcome: d.expected_outcome ?? {},
+        decision_mode: 'shadow',
+      });
+    }
+
+    if (inserts.length > 0) {
+      const { error: insErr } = await sb.from('ai_parameter_decisions').insert(inserts);
+      if (insErr) {
+        console.error('[ai-parameter-advisor] insert failed', insErr);
+        return new Response(JSON.stringify({ ok: false, error: insErr.message }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        proposed: decisions.length,
+        accepted: inserts.length,
+        rejected: rejected.length,
+        rejected_details: rejected,
+        summary: parsed?.summary ?? null,
+      }),
+      { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    );
+  } catch (e) {
+    console.error('[ai-parameter-advisor] fatal', e);
+    return new Response(JSON.stringify({ ok: false, error: String(e) }), {
+      status: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+});

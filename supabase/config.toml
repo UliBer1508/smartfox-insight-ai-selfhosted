@@ -41,3 +41,9 @@ verify_jwt = false
 
 [functions.generate-settings-suggestions]
 verify_jwt = false
+
+[functions.ai-parameter-advisor]
+verify_jwt = false
+
+[functions.ai-parameter-evaluator]
+verify_jwt = false

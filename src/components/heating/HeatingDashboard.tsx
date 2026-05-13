@@ -33,6 +33,7 @@ import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { AISettingsSuggestions } from './AISettingsSuggestions';
+import { AIShadowDecisions } from './AIShadowDecisions';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
@@ -367,6 +368,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
 
       {/* AI Settings Suggestions */}
       <AISettingsSuggestions />
+
+      {/* AI Shadow Decisions (Phase 1: Vorschläge dokumentieren, nicht anwenden) */}
+      <AIShadowDecisions />
 
       {/* Heating History Chart */}
       <HeatingHistoryChart rooms={rooms} />

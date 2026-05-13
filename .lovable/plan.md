@@ -1,45 +1,119 @@
-## Diagnose
+## Ziel
 
-Aktueller Zustand (gerade eben):
-- **PV-Export: ~9.9 kW**, **Batterie: 98.8% SOC**, Prognose heute 42 kWh
-- `comfortBudget = 9730 W`, davon nur **1900 W** in Nutzung
-- **Alle 12 Räume haben `comfort_saturated_at` von heute** gesetzt
+Die KI soll schrittweise Verantwortung für **dynamische Steuerparameter** übernehmen — aber zunächst nur als **Schatten-Entscheider** (Shadow Mode). Sie schlägt Werte vor und dokumentiert Begründungen, ändert aber **nichts selbst**. Erst nach Auswertung der Logs entscheiden wir pro Parameter, ob die KI Schreibrechte bekommt.
 
-Ursache (Code: `pv-automation/index.ts` Zeilen 2347–2400, Memory `comfort-saturation-estrich-storage`):
+## Phase 1 — Parameter-Whitelist definieren
 
-Die Komfort-Sättigungs-Logik blockiert jedes Komfort-Upgrade, sobald ein Raum heute schon einmal Komfort erreicht hat. Re-Komfort erlaubt sie erst, wenn `current_temp < eco_temp − 0.5 °C`. Reset erfolgt erst beim Nacht-Übergang.
+Wir legen fest, welche Parameter die KI überhaupt anfassen darf. Vorschlag (aus den heutigen Painpoints abgeleitet):
 
-Da derzeit alle Räume bei oder über `eco_temp − 0.5` liegen, gilt jeder Raum als „gesättigt" → Phase 2 wird komplett übersprungen, obwohl `comfortBudget = 9730 W` und Battery-Full-Bonus aktiv sind. Die ~9.9 kW Überschuss gehen ins Netz statt in den Estrich.
+| Kategorie | Parameter | Quelle | Heutiges Verhalten |
+|---|---|---|---|
+| Komfort-Sättigung | `comfort_saturation_override_enabled` (neu) | `system_settings` | hardcoded Battery-Full-Override |
+| Komfort-Sättigung | Override-Schwellen: `soc_min`, `grid_export_min`, `forecast_min_kwh` (neu) | `system_settings` | hardcoded 95 / 3000 / 5 |
+| Budget | `parallel_heating_capacity` | `system_settings` | manuell |
+| Budget | `baseload_buffer_w` (neu, falls separat) | `system_settings` | hardcoded |
+| Pre-Heat | `pattern_recall_strength` | `heating_settings` | manuell, 0–100 |
+| SOC-Gate | `heating_min_battery_soc` | `heating_settings` | manuell |
+| Nacht | `night_heating_mode` (`frost_only` / `maintain`) | `heating_settings` | manuell |
+| Pro Raum | `pv_boost_max_temp`, `eco_temp`, `comfort_temp` | `rooms` | manuell |
 
-Das ist designtes Verhalten („Estrich speichert"), aber bei voller Batterie + großem anhaltenden Export zu konservativ.
+**Bewusst ausgeschlossen** (zu sicherheitsrelevant): `night_temp` (Frostschutz), `night_start_time`/`night_end_time`, `tuya_device_id`, alle Hardware-Felder.
 
-## Lösung
+→ **Entscheidungspunkt:** Ist diese Liste vollständig / korrekt? Streichungen, Ergänzungen?
 
-**Battery-Full-Override** für die Saturation-Sperre: Wenn Batterie voll, anhaltender Echt-Export hoch und genug Tagesprognose übrig, darf das System die heutige Sättigung überstimmen und Komfort-Upgrades durchführen — bis ein Raum den `pv_boost_max_temp`-Hardcap erreicht.
+## Phase 2 — Schema für KI-Entscheidungs-Log
 
-### Bedingungen für Override (alle müssen gelten)
+Neue Tabelle `ai_parameter_decisions`:
 
-- `batterySoc ≥ 95 %`
-- `gridExport ≥ 3000 W` (echter Zähler-Export, nicht effective)
-- Tagesprognose-Rest ≥ 5 kWh (verhindert Override am Spätnachmittag)
-- Raum hat `pv_boost_max_temp` gesetzt UND `current_temp < pv_boost_max_temp − 0.2 °C`
+- `decision_id`, `created_at`
+- `parameter_scope` (`global` | `room`) + `room_id` (nullable)
+- `parameter_key` (aus Whitelist)
+- `current_value`, `proposed_value`
+- `reasoning` (Volltext, von Gemini)
+- `confidence` (0–1)
+- `context_snapshot` (jsonb: SOC, Export, Forecast, Innentemps, Wetter)
+- `expected_outcome` (jsonb: prognostizierter SCR, kWh-Eigenverbrauch, Komfortminuten)
+- `decision_mode` (`shadow` | `applied`) — startet immer auf `shadow`
+- `applied_at`, `applied_by` (nullable)
+- `outcome_evaluated_at`, `actual_outcome` (jsonb), `outcome_score` (numeric, nullable)
 
-### Code-Änderung
+Dazu Tabelle `ai_parameter_whitelist`:
+- `parameter_key`, `scope`, `min_value`, `max_value`, `allowed_values` (jsonb)
+- `autonomy_level` (`shadow` | `suggest` | `auto`) — initial alle `shadow`
+- `enabled`, `notes`
 
-Eine Stelle in `supabase/functions/pv-automation/index.ts`:
+→ Whitelist ist **DB-getrieben**, nicht im Code — so können wir später pro Parameter freigeben, ohne Deploy.
 
-1. Vor der Schleife in Zeile ~2362 (Komfort-Sättigungs-Block) und der Schleife in Zeile ~2389 (Phase 2) berechne ein `batteryFullOverride`-Flag.
-2. `isComfortSaturated()` gibt `false` zurück, wenn Override aktiv und Raum unter `pv_boost_max_temp` liegt.
-3. Im Sättigungs-Block (Z. 2369–2384) wird `reachedComfort` an Override gekoppelt: bei aktivem Override wird `comfort_saturated_at` nicht neu gesetzt, solange `current < pv_boost_max_temp`.
-4. Logging mit Tag `[BATTERY-FULL-OVERRIDE]` für Nachvollziehbarkeit.
+## Phase 3 — Edge-Function `ai-parameter-advisor`
 
-### Out of Scope
+Neue Function, läuft per pg_cron alle 15 min (oder bei großen Events: SOC>95, Export>5kW, Forecast-Update).
 
-- Keine Änderung an Eco-/Comfort-Budget-Berechnung
-- Keine Änderung an Nacht-Logik, SOC-Gate oder Hardcap (`pv_boost_max_temp` bleibt absolute Obergrenze)
-- Keine UI-/Settings-Änderung — Schwellwerte sind als Konstanten gut, da das ein Edge-Case ist
-- Kein Schema- oder Migrations-Bedarf
+Ablauf:
+1. Lädt aktuellen System-Snapshot (SOC, Export, PV, Innentemps pro Raum, Forecast, letzte 24h KPIs aus `daily_pattern_scores`).
+2. Lädt aktive Whitelist-Parameter.
+3. Schickt strukturierten Prompt an Gemini mit:
+   - Ist-Zustand
+   - Erlaubte Parameter + Range
+   - Letzte 7 Tage `daily_pattern_scores`
+   - Letzte eigene `ai_parameter_decisions` (Lerneffekt)
+4. Erwartet **strukturierten JSON-Output** (Schema-validiert):
+   ```
+   { decisions: [{ parameter_key, scope, room_id?, proposed_value, reasoning, confidence, expected_outcome }] }
+   ```
+5. Schreibt jede Entscheidung in `ai_parameter_decisions` mit `decision_mode='shadow'`.
+6. **Schreibt KEINE realen Settings** in dieser Phase.
 
-### Erwartetes Verhalten
+Rate-Limit-Schutz: max. 1 Aufruf / 15 min, bei Gemini-429 → next-run skip + Log.
 
-Im aktuellen Zustand würden Räume mit `pv_boost_max_temp > current_temp` (z. B. Bad Uli 20.5 °C, Wohnzimmer 21.5 °C, falls Boost-Cap z. B. 23 °C) wieder Komfort-Setpoint bekommen, bis Batterie unter 95 % fällt oder Cap erreicht.
+## Phase 4 — Outcome-Tracking
+
+Cron 1×/Tag (z.B. 03:00, nach `daily_pattern_scores`):
+- Für jede shadow-Decision der letzten 24h: vergleiche `expected_outcome` vs. tatsächlich (SCR, kWh, Komfortminuten aus den schon vorhandenen KPIs).
+- Schreibe `actual_outcome` + `outcome_score` (−1 bis +1).
+
+→ Damit haben wir nach ~14 Tagen eine **echte Treffer-Statistik** pro Parameter.
+
+## Phase 5 — UI: „KI-Vorschläge & Schatten-Entscheidungen"
+
+Neuer Tab in der KI-Musteranalyse-Seite (oder in Settings):
+- Tabelle: letzte 50 Shadow-Decisions
+- Spalten: Zeitstempel, Parameter, Vorgeschlagen, Begründung (expandable), Confidence, Outcome-Score (wenn evaluiert)
+- Filter: nur unevaluierte / nur hohe Confidence / pro Parameter
+- Aggregations-Header pro Parameter: Avg Outcome-Score, Hit-Rate, Anzahl Entscheidungen
+- **Kein Apply-Button** in dieser Phase.
+
+## Phase 6 — Freigabe-Mechanismus (später, nach Auswertung)
+
+Pro Parameter in `ai_parameter_whitelist` umschalten:
+- `shadow` → `suggest`: UI zeigt Apply-Button, Mensch bestätigt
+- `suggest` → `auto`: KI darf direkt schreiben (mit Audit-Log + Rollback-Fenster 1h)
+
+→ Diese Phase ist **nicht Teil dieses Plans** — kommt erst nach 2–4 Wochen Daten.
+
+## Out of Scope
+
+- Keine Änderung an `pv-automation` Budget-Logik
+- Keine Änderung an `analyze-patterns` (bleibt für Heizpläne zuständig)
+- Keine ML-/Reward-Integration in dieser Phase (Outcome-Score reicht)
+- Keine automatische Parameter-Änderung — strikt Shadow
+
+## Technische Skizze
+
+```text
+┌──────────────────┐    ┌──────────────────────┐    ┌─────────────────────────┐
+│ pg_cron 15min    │ -> │ ai-parameter-advisor │ -> │ ai_parameter_decisions  │
+└──────────────────┘    │ (Gemini, JSON-Schema)│    │ (mode='shadow')         │
+                        └──────────────────────┘    └─────────────────────────┘
+                                                              │
+┌──────────────────┐    ┌──────────────────────┐              │
+│ pg_cron daily    │ -> │ outcome-evaluator    │  ────────────┘
+└──────────────────┘    └──────────────────────┘
+
+UI (read-only) <── ai_parameter_decisions + ai_parameter_whitelist
+```
+
+## Offene Fragen
+
+1. **Parameter-Liste** (Tabelle oben) — passt das, oder andere Auswahl?
+2. **Frequenz** — alle 15 min oder lieber event-getrieben (SOC-Sprung, Export-Spitze)?
+3. **UI-Ort** — neuer Tab in „KI-Musteranalyse" oder eigene Seite „KI-Entscheidungen"?
