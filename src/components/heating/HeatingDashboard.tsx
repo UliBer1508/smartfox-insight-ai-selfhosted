@@ -33,6 +33,7 @@ import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { AISettingsSuggestions } from './AISettingsSuggestions';
+import { AIShadowDecisions } from './AIShadowDecisions';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
