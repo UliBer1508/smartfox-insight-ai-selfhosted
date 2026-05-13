@@ -14,6 +14,120 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_parameter_decisions: {
+        Row: {
+          actual_outcome: Json | null
+          applied_at: string | null
+          applied_by: string | null
+          confidence: number | null
+          context_snapshot: Json
+          created_at: string
+          current_value: string | null
+          decision_mode: string
+          expected_outcome: Json | null
+          id: string
+          outcome_evaluated_at: string | null
+          outcome_score: number | null
+          parameter_key: string
+          parameter_scope: string
+          proposed_value: string
+          reasoning: string | null
+          room_id: string | null
+        }
+        Insert: {
+          actual_outcome?: Json | null
+          applied_at?: string | null
+          applied_by?: string | null
+          confidence?: number | null
+          context_snapshot?: Json
+          created_at?: string
+          current_value?: string | null
+          decision_mode?: string
+          expected_outcome?: Json | null
+          id?: string
+          outcome_evaluated_at?: string | null
+          outcome_score?: number | null
+          parameter_key: string
+          parameter_scope: string
+          proposed_value: string
+          reasoning?: string | null
+          room_id?: string | null
+        }
+        Update: {
+          actual_outcome?: Json | null
+          applied_at?: string | null
+          applied_by?: string | null
+          confidence?: number | null
+          context_snapshot?: Json
+          created_at?: string
+          current_value?: string | null
+          decision_mode?: string
+          expected_outcome?: Json | null
+          id?: string
+          outcome_evaluated_at?: string | null
+          outcome_score?: number | null
+          parameter_key?: string
+          parameter_scope?: string
+          proposed_value?: string
+          reasoning?: string | null
+          room_id?: string | null
+        }
+        Relationships: []
+      }
+      ai_parameter_whitelist: {
+        Row: {
+          allowed_values: Json | null
+          autonomy_level: string
+          created_at: string
+          data_type: string
+          description: string | null
+          enabled: boolean
+          id: string
+          max_value: number | null
+          min_value: number | null
+          notes: string | null
+          parameter_key: string
+          scope: string
+          storage_column: string
+          storage_table: string
+          updated_at: string
+        }
+        Insert: {
+          allowed_values?: Json | null
+          autonomy_level?: string
+          created_at?: string
+          data_type: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          max_value?: number | null
+          min_value?: number | null
+          notes?: string | null
+          parameter_key: string
+          scope: string
+          storage_column: string
+          storage_table: string
+          updated_at?: string
+        }
+        Update: {
+          allowed_values?: Json | null
+          autonomy_level?: string
+          created_at?: string
+          data_type?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          max_value?: number | null
+          min_value?: number | null
+          notes?: string | null
+          parameter_key?: string
+          scope?: string
+          storage_column?: string
+          storage_table?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       api_errors: {
         Row: {
           created_at: string
