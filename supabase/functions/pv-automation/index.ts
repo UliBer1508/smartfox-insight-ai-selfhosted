@@ -2393,7 +2393,10 @@ Deno.serve(async (req) => {
         const reachedComfort = currentTemp >= comfortTemp - 0.1;
         const setpointIsComfort = currentTarget >= comfortTemp - 0.1;
         const alreadySaturated = isComfortSaturated(rp);
-        if (reachedComfort && setpointIsComfort && !alreadySaturated) {
+        // Battery-Full-Override: solange Raum unter pv_boost_max_temp-Cap, NICHT auf Eco zurückfallen
+        const boostCap = getBoostCap(rp);
+        const overrideActive = batteryFullOverride && currentTemp < boostCap - 0.2;
+        if (reachedComfort && setpointIsComfort && !alreadySaturated && !overrideActive) {
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: false, // → führt zu deactivate auf eco_temp im Action-Loop
             reason: `Komfort-Sättigung: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C → Eco (Estrich speichert)`,
@@ -2405,6 +2408,8 @@ Deno.serve(async (req) => {
             comfort_saturated_at: new Date().toISOString(),
           }).eq('id', rp.room.id);
           console.log(`[KOMFORT-SAT] ${rp.room.name}: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C → Setpoint ${ecoTemp}°C, Estrich-Speicher aktiv`);
+        } else if (reachedComfort && setpointIsComfort && overrideActive) {
+          console.log(`[BATTERY-FULL-OVERRIDE] ${rp.room.name}: ${currentTemp.toFixed(1)}°C ≥ ${comfortTemp}°C, halte Komfort-Setpoint (Cap ${boostCap}°C noch nicht erreicht)`);
         }
       }
 
