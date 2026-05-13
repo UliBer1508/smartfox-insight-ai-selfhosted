@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Check, Download, Smartphone, Share, Plus } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { SEO } from '@/components/SEO';
 
 const Install = () => {
   const { isInstallable, isInstalled, isIOS, promptInstall } = usePWAInstall();
@@ -17,6 +18,11 @@ const Install = () => {
 
   return (
     <div className="flex-1 bg-background flex items-center justify-center p-4">
+      <SEO
+        title="App installieren — Fronius Smart AI"
+        description="Installieren Sie Fronius Smart AI als Progressive Web App auf Ihrem Smartphone oder Tablet für schnellen Zugriff auf Ihr Energie-Management."
+        path="/install"
+      />
       <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur">
         <CardHeader className="text-center space-y-4">
           <div className="mx-auto w-24 h-24 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 flex items-center justify-center shadow-lg shadow-emerald-500/20">

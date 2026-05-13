@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
+import { SEO } from '@/components/SEO';
 import { Header } from '@/components/energy/Header';
 import { PowerGauge } from '@/components/energy/PowerGauge';
 import { EnergyStats } from '@/components/energy/EnergyStats';
@@ -166,8 +167,29 @@ const Index = () => {
     }
   }, [rooms, readings, heatingSettings, saveRoomRecommendations, loadRoomRecommendations]);
 
+  const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
+    dashboard: {
+      title: 'Dashboard — Fronius Smart AI',
+      description: 'Live-Übersicht von PV-Erzeugung, Batterie-Speicher, Verbrauch und aktiver Heizungsleistung in Echtzeit.',
+    },
+    heating: {
+      title: 'Heizung — Fronius Smart AI',
+      description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten und Nachtmodus für 12 Tuya-Thermostate.',
+    },
+    analysis: {
+      title: 'KI-Analyse — Fronius Smart AI',
+      description: 'KI-gestützte Musteranalyse von Heiz- und Energieverhalten mit Tages-, Wochen- und Monats-Trends.',
+    },
+    settings: {
+      title: 'Einstellungen — Fronius Smart AI',
+      description: 'Konfiguration von Smartfox, Tuya, Heizungsparametern, Datenaufbewahrung und Energiekosten.',
+    },
+  };
+  const meta = tabMeta[activeTab];
+
   return (
     <div className="flex-1 flex flex-col bg-background grid-pattern overflow-x-hidden">
+      <SEO title={meta.title} description={meta.description} path="/" />
       <Header activeTab={activeTab} onTabChange={setActiveTab} />
 
       <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 md:pb-6">

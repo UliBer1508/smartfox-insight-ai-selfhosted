@@ -1,0 +1,15 @@
+# Fronius Smart AI
+
+> KI-gestütztes Energie-Management mit Fronius-Integration und intelligenter Heizungssteuerung für Photovoltaik-Anlagen mit Batteriespeicher und Tuya-Thermostaten.
+
+Fronius Smart AI ist eine private Progressive Web App zur Steuerung einer Photovoltaik-Anlage (Fronius Wechselrichter, Smartfox Energy Manager) und zur intelligenten Verteilung von Solarüberschuss auf 12 Tuya TGP508 Heizthermostate. Die App optimiert den Eigenverbrauch über eine zweistufige Logik (Eco vor Komfort) und lernt Heizmuster mit einer Schatten-KI.
+
+## Pages
+
+- [Dashboard](/): Live-Übersicht von PV-Erzeugung, Batterie, Verbrauch und aktiver Heizung. Erfordert Anmeldung.
+- [Anmelden](/auth): Anmeldung und Registrierung für den Zugriff auf das Energie-Management.
+- [App installieren](/install): Anleitung zur Installation der Progressive Web App auf Mobilgeräten.
+
+## Optional
+
+- [Sitemap](/sitemap.xml)
