@@ -361,18 +361,17 @@ Deno.serve(async (req) => {
         }
       }
 
-      // Local channel heartbeat: bei lokalem Modus auf letzten executed command prüfen
+      // Local channel heartbeat: nutzt service_health.last_sync (5 min) statt last executed command,
+      // damit ruhige Phasen (Komfort-Sättigung, Nacht, Pause) keinen Fehlalarm auslösen.
       let localServiceActive = true;
       if (controlMode === 'local') {
-        const { data: recentLocalExec } = await supabase
-          .from('thermostat_commands')
-          .select('executed_at')
-          .eq('status', 'executed')
-          .order('executed_at', { ascending: false })
-          .limit(1);
-
-        const lastExec = recentLocalExec?.[0]?.executed_at;
-        localServiceActive = !!(lastExec && (Date.now() - new Date(lastExec).getTime()) < 15 * 60 * 1000);
+        const { data: health } = await supabase
+          .from('service_health')
+          .select('last_sync')
+          .eq('service_name', 'tuya-thermostat')
+          .maybeSingle();
+        const lastSync = health?.last_sync;
+        localServiceActive = !!(lastSync && (Date.now() - new Date(lastSync).getTime()) < 5 * 60 * 1000);
 
         if (localServiceActive) {
           await supabase
