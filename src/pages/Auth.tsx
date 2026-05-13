@@ -61,6 +61,11 @@ export default function Auth() {
 
   return (
     <div className="flex-1 flex items-center justify-center bg-background p-4">
+      <SEO
+        title="Anmelden — Fronius Smart AI"
+        description="Melden Sie sich an, um Ihr Fronius Energie-Management, die Heizungssteuerung und KI-Analyse zu verwalten."
+        path="/auth"
+      />
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
           <div className="flex justify-center mb-4">
