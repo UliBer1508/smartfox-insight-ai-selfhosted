@@ -369,6 +369,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
       {/* AI Settings Suggestions */}
       <AISettingsSuggestions />
 
+      {/* AI Shadow Decisions (Phase 1: Vorschläge dokumentieren, nicht anwenden) */}
+      <AIShadowDecisions />
+
       {/* Heating History Chart */}
       <HeatingHistoryChart rooms={rooms} />
 
