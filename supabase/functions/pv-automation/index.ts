@@ -395,15 +395,25 @@ Deno.serve(async (req) => {
       let forcedLocalFallback = false;
 
       const checkLocalServiceActive = async (): Promise<boolean> => {
+        // Single Source of Truth: service_health.last_sync für tuya-thermostat (5 min Schwelle).
+        // last_local_command_at ist KEIN zuverlässiges Liveness-Signal (kann normal lange still sein
+        // bei Komfort-Sättigung, Nacht, Pause). lastLocalExec wird nur noch für Logging gefüllt.
         const { data: recentLocalExec } = await supabase
           .from('thermostat_commands')
           .select('executed_at')
           .eq('status', 'executed')
           .order('executed_at', { ascending: false })
           .limit(1);
-
         lastLocalExec = recentLocalExec?.[0]?.executed_at || null;
-        return !!(lastLocalExec && (Date.now() - new Date(lastLocalExec).getTime()) < 15 * 60 * 1000);
+
+        const { data: health } = await supabase
+          .from('service_health')
+          .select('last_sync')
+          .eq('service_name', 'tuya-thermostat')
+          .maybeSingle();
+
+        const lastSync = health?.last_sync;
+        return !!(lastSync && (Date.now() - new Date(lastSync).getTime()) < 5 * 60 * 1000);
       };
 
       // NOTE: Auto-switch to local mode is DISABLED - local service is not yet functional.
