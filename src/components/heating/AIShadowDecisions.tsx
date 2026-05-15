@@ -283,9 +283,28 @@ export function AIShadowDecisions() {
           ))}
         </div>
 
+        {lastRun && (
+          <div className={`text-sm rounded border px-3 py-2 ${lastRun.ok ? 'bg-muted/30 border-border' : 'bg-destructive/10 border-destructive/30 text-destructive'}`}>
+            <span className="font-medium">
+              {lastRun.ok ? '✓ Letzte Analyse' : '⚠ Letzte Analyse fehlgeschlagen'}
+            </span>{' '}
+            <span className="text-muted-foreground">
+              ({formatDistanceToNow(new Date(lastRun.at), { locale: de, addSuffix: true })})
+            </span>
+            <div className="mt-1">{lastRun.message}</div>
+            {!lastRun.ok && (
+              <div className="text-xs text-muted-foreground mt-1">
+                Cron läuft stündlich — nächster automatischer Versuch zur vollen Stunde.
+              </div>
+            )}
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.
+            {lastRun?.ok === false
+              ? 'Keine KI-Vorschläge verfügbar — siehe Fehlermeldung oben.'
+              : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
           </p>
         ) : (
           <div className="overflow-x-auto">
