@@ -1,46 +1,75 @@
 ## Ziel
-Die 3 stehenden Banner-Fehler (Waschraum `local_service_offline`, Heartbeat `no_control_channel`, Haustür `connection_error` 09.05.) verschwinden dauerhaft, ohne dass echte Fehler maskiert werden. Setpoint-Logik (`pv-automation`) und Control-Mode (`local`) bleiben unangetastet.
 
-## Umsetzung (3 Bausteine)
+Eine einzige KI-Parameter-UI (`AIShadowDecisions`) mit Whitelist-Validierung, Outcome-Tracking und optionalem Apply-Button. `AISettingsSuggestions` und die zugehörige Edge-Function werden entfernt — keine Doppel-Quota, keine Bypass-Apply-Pfade mehr.
 
-### A — Heartbeat-Fix (keine neuen Fehlalarme)
-Datei: `supabase/functions/automation-heartbeat/index.ts` (bzw. der Code-Pfad, der `no_control_channel` / `local_service_offline` schreibt).
+## Änderungen
 
-- Single Source of Truth für „Local Service lebt" = `service_health.last_sync` für `service_name = 'tuya-thermostat'`.
-- Schwelle: `last_sync` älter als **5 min** → offline. Sonst: kein Fehler eintragen, auch wenn `last_local_command_at` älter ist (das ist normal in Komfort-Sättigung / Nacht / Pause).
-- Pro Raum: `connection_error` nur loggen, wenn ein **konkreter Command** in den letzten 30 min `failed`/`expired` ist — nicht aus Inaktivität ableiten.
+### 1. Entfernen
 
-### B — Auto-Resolver (Selbstheilung)
-Neue Edge Function `supabase/functions/auto-resolve-api-errors/index.ts` + `pg_cron` alle 5 min.
+- `src/components/heating/AISettingsSuggestions.tsx`
+- `src/hooks/useSettingsSuggestions.ts`
+- `supabase/functions/generate-settings-suggestions/` (inkl. Deploy-Cleanup)
+- Einbindung der Karte aus dem HeatingDashboard / Settings (dort wo sie gerendert wird)
 
-Setzt `resolved_at = now()` für unresolved `api_errors`, wenn die Ursache nachweislich weg ist:
-- `local_service_offline`, `no_control_channel`, `night_frost_failed` → wenn `service_health.last_sync` < 5 min alt.
-- `connection_error` (raumbezogen) → wenn der Raum in den letzten 30 min einen `executed` Command hat **oder** der Fehler älter als 2 h und kein neuer Fehler dazugekommen ist.
-- Sicherheitsnetz: alle unresolved Fehler älter als 24 h → `resolved_at = now()` mit Hinweis im Log (verhindert Banner-Müll).
+### 2. `AIShadowDecisions` erweitern (`src/components/heating/AIShadowDecisions.tsx`)
 
-Cron via `supabase--insert` (nicht Migration), Auth: lokales JWT-Decoding wie bei anderen Triggern.
+- Whitelist (`ai_parameter_whitelist`) zusätzlich laden, indexiert nach `parameter_key`
+- Pro Decision-Zeile prüfen: passender Whitelist-Eintrag und `autonomy_level`
+  - `shadow` → kein Apply-Button (heutiges Verhalten)
+  - `suggest` → Button **„Übernehmen"** sichtbar
+  - `auto` → Badge **„Auto"**, kein Button (Zukunft, hier nur sichtbar)
+- Apply-Aktion: schreibt `proposed_value` in `whitelist.storage_table`/`storage_column`
+  - Bei `scope='room'`: `UPDATE rooms SET <col> = <val> WHERE id = decision.room_id`
+  - Bei `scope='global'`: `UPDATE heating_settings SET <col> = <val>` (single row)
+  - Vor dem Schreiben Range/`allowed_values`-Check (defensive Doppel-Validierung)
+  - Nach Erfolg `ai_parameter_decisions.applied_at = now()`, `applied_by = 'user'` setzen
+- Spalte „Status" in der Tabelle: `Offen` / `Übernommen am …` / `Verworfen` / `Outcome ±x`
+- Toast bei Erfolg/Fehler
 
-### C — Einmal-Cleanup
-SQL via `supabase--insert`:
-```sql
-UPDATE api_errors SET resolved_at = now()
-WHERE resolved_at IS NULL AND created_at < now() - interval '1 hour';
+### 3. Autonomie-Steuerung in der UI (klein)
+
+- Im erweiterten Bereich (Expand-Row) ein Select `Autonomy: shadow / suggest / auto`, der den Whitelist-Eintrag des Parameters umstellt (Update auf `ai_parameter_whitelist` per parameter_key + scope)
+- Damit kann der User einzelne Parameter aus dem Schatten in den „Suggest"-Modus heben, ohne die DB direkt zu editieren
+
+### 4. Memory-Update
+
+- `mem://features/heating/ai-shadow-decisions` ergänzen: Apply-Pfad implementiert, Trigger via `autonomy_level`
+- Alte Memory `mem://features/heating/ai-settings-suggestions-hardened` als deprecated markieren bzw. löschen
+- Index aktualisieren
+
+## Technische Details
+
+**Apply-Logik (vereinfacht):**
+
+```ts
+const wl = whitelistByKey[d.parameter_key];
+// Range-Check
+const num = Number(d.proposed_value);
+if (wl.data_type === 'number') {
+  if (wl.min_value != null && num < wl.min_value) reject();
+  if (wl.max_value != null && num > wl.max_value) reject();
+} else if (wl.allowed_values && !wl.allowed_values.includes(d.proposed_value)) reject();
+
+// Write
+const value = wl.data_type === 'number' ? num
+            : wl.data_type === 'boolean' ? d.proposed_value === 'true'
+            : d.proposed_value;
+
+if (wl.scope === 'room') {
+  await supabase.from('rooms').update({ [wl.storage_column]: value }).eq('id', d.room_id);
+} else {
+  const { data: s } = await supabase.from('heating_settings').select('id').limit(1).single();
+  await supabase.from('heating_settings').update({ [wl.storage_column]: value }).eq('id', s.id);
+}
+await supabase.from('ai_parameter_decisions').update({ applied_at: new Date().toISOString(), applied_by: 'user' }).eq('id', d.id);
 ```
-Banner ist sofort leer.
 
-## Out of Scope
-- `pv-automation` Setpoint-Logik
-- `tuya_control_mode` (bleibt `local`, kein Auto-Failover)
-- Local Collector / LAN-Service
-- UI-Filter im `ApiErrorBanner` (nicht nötig, da B+C die Quelle sauber halten)
+**Edge-Function-Cleanup:** `supabase--delete_edge_functions(['generate-settings-suggestions'])` nach dem Code-Delete.
 
-## Memory-Updates nach Implementierung
-- Neue Leaf: `mem://features/heating/api-error-auto-resolve` (Resolver-Regeln + Cron-Intervall)
-- Update: `mem://features/heating/api-error-reporting` (Heartbeat nutzt `service_health.last_sync`, 5 min Schwelle)
-- Update: `mem://features/heating/api-error-visibility` (Selbstheilung statt manuellem Acknowledge)
-- Update: `mem://index.md` Memories-Sektion
+**Quota-Effekt:** Nur noch `ai-parameter-advisor` (alle 15 min) ruft Gemini → halbierte Last, Rate-Limit-Problem entschärft.
 
-## Verifikation nach Deploy
-1. `SELECT * FROM api_errors WHERE resolved_at IS NULL` → erwartet: leer
-2. Heartbeat 1× manuell triggern → erwartet: kein neuer Eintrag bei gesundem `service_health`
-3. Cron-Job in `cron.job` sichtbar, nächster Run < 5 min
+## Was nicht geändert wird
+
+- `ai-parameter-advisor`, `ai-parameter-evaluator`, `ai_parameter_whitelist`-Schema bleiben unverändert
+- Schreibpfade in `heating_settings`/`rooms` selbst bleiben gleich
+- Kein Auto-Apply in dieser Iteration (nur „suggest" mit Button)

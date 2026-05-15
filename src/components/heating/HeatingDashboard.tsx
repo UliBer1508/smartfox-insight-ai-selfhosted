@@ -32,7 +32,7 @@ import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain,
 import { Progress } from '@/components/ui/progress';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
-import { AISettingsSuggestions } from './AISettingsSuggestions';
+
 import { AIShadowDecisions } from './AIShadowDecisions';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -366,10 +366,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         />
       </div>
 
-      {/* AI Settings Suggestions */}
-      <AISettingsSuggestions />
-
-      {/* AI Shadow Decisions (Phase 1: Vorschläge dokumentieren, nicht anwenden) */}
+      {/* KI-Parameter-Vorschläge (Schatten/Suggest/Auto via ai_parameter_whitelist) */}
       <AIShadowDecisions />
 
       {/* Heating History Chart */}
