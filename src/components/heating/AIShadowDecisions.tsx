@@ -127,7 +127,7 @@ export function AIShadowDecisions() {
       return;
     }
     const v = validate(d.proposed_value, wl);
-    if (!v.ok) {
+    if (v.ok === false) {
       toast.error(`Validierung fehlgeschlagen: ${v.error}`);
       return;
     }
