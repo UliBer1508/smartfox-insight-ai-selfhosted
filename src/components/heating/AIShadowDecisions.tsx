@@ -79,6 +79,7 @@ export function AIShadowDecisions() {
   const [whitelist, setWhitelist] = useState<WhitelistRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
+  const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
@@ -86,12 +87,8 @@ export function AIShadowDecisions() {
   const load = async () => {
     setLoading(true);
     const [{ data: dec }, { data: rs }, { data: wl }] = await Promise.all([
-      supabase
-        .from('ai_parameter_decisions')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50),
-      supabase.from('rooms').select('id,name'),
+      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('rooms').select('id, name'),
       supabase.from('ai_parameter_whitelist').select('*').eq('enabled', true),
     ]);
     setDecisions((dec ?? []) as Decision[]);
@@ -112,11 +109,29 @@ export function AIShadowDecisions() {
     setRunning(true);
     const { data, error } = await supabase.functions.invoke('ai-parameter-advisor');
     setRunning(false);
+    const nowIso = new Date().toISOString();
     if (error) {
-      toast.error(`KI-Analyse fehlgeschlagen: ${error.message}`);
+      const body = (error as { context?: { body?: unknown } })?.context?.body;
+      const msg = (typeof body === 'object' && body && 'message' in body)
+        ? String((body as { message: unknown }).message)
+        : error.message;
+      setLastRun({ at: nowIso, ok: false, message: msg });
+      toast.error(`KI-Analyse fehlgeschlagen: ${msg}`);
       return;
     }
-    toast.success(`KI-Analyse: ${data?.accepted ?? 0} Vorschläge gespeichert (${data?.rejected ?? 0} verworfen)`);
+    if (data?.ok === false) {
+      const msg = data?.message ?? data?.error ?? 'Unbekannter Fehler';
+      setLastRun({ at: nowIso, ok: false, message: msg });
+      toast.error(`KI-Analyse fehlgeschlagen: ${msg}`);
+      return;
+    }
+    const accepted = data?.accepted ?? 0;
+    const rejected = data?.rejected ?? 0;
+    const okMsg = accepted > 0
+      ? `${accepted} Vorschläge gespeichert (${rejected} verworfen)`
+      : 'Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot.';
+    setLastRun({ at: nowIso, ok: true, message: okMsg });
+    toast.success(`KI-Analyse: ${okMsg}`);
     load();
   };
 
@@ -268,9 +283,28 @@ export function AIShadowDecisions() {
           ))}
         </div>
 
+        {lastRun && (
+          <div className={`text-sm rounded border px-3 py-2 ${lastRun.ok ? 'bg-muted/30 border-border' : 'bg-destructive/10 border-destructive/30 text-destructive'}`}>
+            <span className="font-medium">
+              {lastRun.ok ? '✓ Letzte Analyse' : '⚠ Letzte Analyse fehlgeschlagen'}
+            </span>{' '}
+            <span className="text-muted-foreground">
+              ({formatDistanceToNow(new Date(lastRun.at), { locale: de, addSuffix: true })})
+            </span>
+            <div className="mt-1">{lastRun.message}</div>
+            {!lastRun.ok && (
+              <div className="text-xs text-muted-foreground mt-1">
+                Cron läuft stündlich — nächster automatischer Versuch zur vollen Stunde.
+              </div>
+            )}
+          </div>
+        )}
+
         {filtered.length === 0 ? (
           <p className="text-sm text-muted-foreground py-8 text-center">
-            Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.
+            {lastRun?.ok === false
+              ? 'Keine KI-Vorschläge verfügbar — siehe Fehlermeldung oben.'
+              : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
           </p>
         ) : (
           <div className="overflow-x-auto">

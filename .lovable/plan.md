@@ -1,75 +1,41 @@
-## Ziel
+## Ursache
 
-Eine einzige KI-Parameter-UI (`AIShadowDecisions`) mit Whitelist-Validierung, Outcome-Tracking und optionalem Apply-Button. `AISettingsSuggestions` und die zugehörige Edge-Function werden entfernt — keine Doppel-Quota, keine Bypass-Apply-Pfade mehr.
+Edge-Function-Logs zeigen den Grund für „Noch keine KI-Vorschläge":
 
-## Änderungen
-
-### 1. Entfernen
-
-- `src/components/heating/AISettingsSuggestions.tsx`
-- `src/hooks/useSettingsSuggestions.ts`
-- `supabase/functions/generate-settings-suggestions/` (inkl. Deploy-Cleanup)
-- Einbindung der Karte aus dem HeatingDashboard / Settings (dort wo sie gerendert wird)
-
-### 2. `AIShadowDecisions` erweitern (`src/components/heating/AIShadowDecisions.tsx`)
-
-- Whitelist (`ai_parameter_whitelist`) zusätzlich laden, indexiert nach `parameter_key`
-- Pro Decision-Zeile prüfen: passender Whitelist-Eintrag und `autonomy_level`
-  - `shadow` → kein Apply-Button (heutiges Verhalten)
-  - `suggest` → Button **„Übernehmen"** sichtbar
-  - `auto` → Badge **„Auto"**, kein Button (Zukunft, hier nur sichtbar)
-- Apply-Aktion: schreibt `proposed_value` in `whitelist.storage_table`/`storage_column`
-  - Bei `scope='room'`: `UPDATE rooms SET <col> = <val> WHERE id = decision.room_id`
-  - Bei `scope='global'`: `UPDATE heating_settings SET <col> = <val>` (single row)
-  - Vor dem Schreiben Range/`allowed_values`-Check (defensive Doppel-Validierung)
-  - Nach Erfolg `ai_parameter_decisions.applied_at = now()`, `applied_by = 'user'` setzen
-- Spalte „Status" in der Tabelle: `Offen` / `Übernommen am …` / `Verworfen` / `Outcome ±x`
-- Toast bei Erfolg/Fehler
-
-### 3. Autonomie-Steuerung in der UI (klein)
-
-- Im erweiterten Bereich (Expand-Row) ein Select `Autonomy: shadow / suggest / auto`, der den Whitelist-Eintrag des Parameters umstellt (Update auf `ai_parameter_whitelist` per parameter_key + scope)
-- Damit kann der User einzelne Parameter aus dem Schatten in den „Suggest"-Modus heben, ohne die DB direkt zu editieren
-
-### 4. Memory-Update
-
-- `mem://features/heating/ai-shadow-decisions` ergänzen: Apply-Pfad implementiert, Trigger via `autonomy_level`
-- Alte Memory `mem://features/heating/ai-settings-suggestions-hardened` als deprecated markieren bzw. löschen
-- Index aktualisieren
-
-## Technische Details
-
-**Apply-Logik (vereinfacht):**
-
-```ts
-const wl = whitelistByKey[d.parameter_key];
-// Range-Check
-const num = Number(d.proposed_value);
-if (wl.data_type === 'number') {
-  if (wl.min_value != null && num < wl.min_value) reject();
-  if (wl.max_value != null && num > wl.max_value) reject();
-} else if (wl.allowed_values && !wl.allowed_values.includes(d.proposed_value)) reject();
-
-// Write
-const value = wl.data_type === 'number' ? num
-            : wl.data_type === 'boolean' ? d.proposed_value === 'true'
-            : d.proposed_value;
-
-if (wl.scope === 'room') {
-  await supabase.from('rooms').update({ [wl.storage_column]: value }).eq('id', d.room_id);
-} else {
-  const { data: s } = await supabase.from('heating_settings').select('id').limit(1).single();
-  await supabase.from('heating_settings').update({ [wl.storage_column]: value }).eq('id', s.id);
-}
-await supabase.from('ai_parameter_decisions').update({ applied_at: new Date().toISOString(), applied_by: 'user' }).eq('id', d.id);
+```
+2026-05-15T06:55:21Z ERROR Gemini error 429 …
+  Quota exceeded for metric: generate_content_free_tier_requests, limit: 20, model: gemini-2.5-flash
+2026-05-15T07:00:05Z ERROR Gemini error 503 (UNAVAILABLE)
+2026-05-15T07:02:59Z ERROR Gemini error 503 (UNAVAILABLE)
 ```
 
-**Edge-Function-Cleanup:** `supabase--delete_edge_functions(['generate-settings-suggestions'])` nach dem Code-Delete.
+Drei zusammenhängende Probleme:
 
-**Quota-Effekt:** Nur noch `ai-parameter-advisor` (alle 15 min) ruft Gemini → halbierte Last, Rate-Limit-Problem entschärft.
+1. **Quota:** `gemini-2.5-flash` Free-Tier = **20 Requests/Tag**. Der Cron `ai-parameter-advisor-15min` feuert **96×/Tag** → täglich nach ~5h erschöpft.
+2. **Service-Spitzen:** Selbst bei freiem Kontingent kommen aktuell `503 UNAVAILABLE` zurück (Modell-Last).
+3. **UI verschluckt den Fehler:** `triggerRun()` zeigt `toast.success(`accepted: 0 …`)` auch wenn die Function `{ ok:false, error:"gemini_503" }` zurückgibt — der Empty-State bleibt mit dem generischen „Klick auf Jetzt analysieren" stehen.
 
-## Was nicht geändert wird
+## Plan
 
-- `ai-parameter-advisor`, `ai-parameter-evaluator`, `ai_parameter_whitelist`-Schema bleiben unverändert
-- Schreibpfade in `heating_settings`/`rooms` selbst bleiben gleich
-- Kein Auto-Apply in dieser Iteration (nur „suggest" mit Button)
+### 1. Quota-freundlicheres Modell für den Advisor
+`supabase/functions/ai-parameter-advisor/index.ts`: Wechsel von `gemini-2.5-flash` auf **`gemini-2.5-flash-lite`** (Free-Tier 1000 RPD, 30 RPM, gleiche JSON-Tool-Fähigkeit, klassifikations-/extraktions-tauglich für Parameter-Vorschläge). Memory-Eintrag „AI Standardization" wird ergänzt: Advisor läuft auf `flash-lite`, Sonderfälle dürfen weiterhin `flash` nutzen.
+
+### 2. Cron entlasten + Retry/Backoff
+- Cron `ai-parameter-advisor-15min` umstellen auf **stündlich** (`0 * * * *`) → 24 Calls/Tag, weit unter Limit, deckt Tageszyklus weiterhin sauber ab.
+- In der Function bei `429`/`503` einmaliger Retry mit 30 s Wartezeit (Gemini liefert `retryDelay`), bevor `ok:false` zurückkommt.
+- Bei finalem 429/503: Antwort mit HTTP-Status `503` und Body `{ ok:false, error, retry_after }`, damit der Client einen echten Fehlerpfad bekommt.
+
+### 3. UI: Fehler sichtbar machen
+`src/components/heating/AIShadowDecisions.tsx`:
+- `triggerRun()` prüft jetzt `data?.ok === false` und zeigt einen verständlichen Toast (z. B. „Gemini-Limit erreicht — neuer Versuch um HH:MM").
+- Letzter Fehler wird in lokalem State gehalten und im Empty-State **statt** des Platzhaltertexts angezeigt: Datum + Grund + Hinweis „Cron läuft stündlich, nächster automatischer Versuch um …".
+- Wenn die letzte Analyse erfolgreich war, aber 0 Vorschläge geliefert hat, klare Meldung „Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot."
+
+### 4. Memory-Update
+- `mem://arch/ai-provider-standardization` ergänzen: Modell-Tabelle Advisor=`flash-lite`, Default-Quoten-Strategie.
+- `mem://features/heating/ai-shadow-decisions` ergänzen: Cron-Frequenz stündlich, UI-Fehler-Surface.
+
+## Out of Scope
+- Wechsel auf Lovable AI Gateway (laut Memory ausgeschlossen).
+- Auto-Apply-Logik (`autonomy_level: auto`) bleibt UI-only ohne Ausführung.
+- Änderungen an `ai-parameter-evaluator` oder Whitelist-Schema.
