@@ -79,19 +79,13 @@ export function AIShadowDecisions() {
   const [whitelist, setWhitelist] = useState<WhitelistRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
-  const [applying, setApplying] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
+  const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
 
   const load = async () => {
     setLoading(true);
     const [{ data: dec }, { data: rs }, { data: wl }] = await Promise.all([
-      supabase
-        .from('ai_parameter_decisions')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50),
-      supabase.from('rooms').select('id,name'),
+      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('rooms').select('id, name'),
       supabase.from('ai_parameter_whitelist').select('*').eq('enabled', true),
     ]);
     setDecisions((dec ?? []) as Decision[]);
@@ -112,11 +106,29 @@ export function AIShadowDecisions() {
     setRunning(true);
     const { data, error } = await supabase.functions.invoke('ai-parameter-advisor');
     setRunning(false);
+    const nowIso = new Date().toISOString();
     if (error) {
-      toast.error(`KI-Analyse fehlgeschlagen: ${error.message}`);
+      const body = (error as { context?: { body?: unknown } })?.context?.body;
+      const msg = (typeof body === 'object' && body && 'message' in body)
+        ? String((body as { message: unknown }).message)
+        : error.message;
+      setLastRun({ at: nowIso, ok: false, message: msg });
+      toast.error(`KI-Analyse fehlgeschlagen: ${msg}`);
       return;
     }
-    toast.success(`KI-Analyse: ${data?.accepted ?? 0} Vorschläge gespeichert (${data?.rejected ?? 0} verworfen)`);
+    if (data?.ok === false) {
+      const msg = data?.message ?? data?.error ?? 'Unbekannter Fehler';
+      setLastRun({ at: nowIso, ok: false, message: msg });
+      toast.error(`KI-Analyse fehlgeschlagen: ${msg}`);
+      return;
+    }
+    const accepted = data?.accepted ?? 0;
+    const rejected = data?.rejected ?? 0;
+    const okMsg = accepted > 0
+      ? `${accepted} Vorschläge gespeichert (${rejected} verworfen)`
+      : 'Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot.';
+    setLastRun({ at: nowIso, ok: true, message: okMsg });
+    toast.success(`KI-Analyse: ${okMsg}`);
     load();
   };
 
