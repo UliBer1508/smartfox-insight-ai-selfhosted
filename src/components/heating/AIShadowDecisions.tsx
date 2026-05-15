@@ -80,6 +80,9 @@ export function AIShadowDecisions() {
   const [loading, setLoading] = useState(false);
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
+  const [applying, setApplying] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
 
   const load = async () => {
     setLoading(true);
