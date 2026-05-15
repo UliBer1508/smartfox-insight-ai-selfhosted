@@ -122,9 +122,9 @@ Antworte STRIKT als JSON:
   "summary": "1 Satz Gesamteinschätzung"
 }`;
 
-    // 3) Call Gemini
-    const geminiResp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`,
+    // 3) Call Gemini (flash-lite for higher free-tier quota: 1000 RPD vs 20 RPD)
+    const callGemini = async () => fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -135,11 +135,38 @@ Antworte STRIKT als JSON:
       },
     );
 
-    if (!geminiResp.ok) {
+    let geminiResp = await callGemini();
+
+    // Retry once on 429/503 with backoff
+    if (!geminiResp.ok && (geminiResp.status === 429 || geminiResp.status === 503)) {
+      const retryAfterTxt = await geminiResp.text();
+      console.warn('[ai-parameter-advisor] Gemini', geminiResp.status, '— retry in 30s');
+      await new Promise((r) => setTimeout(r, 30000));
+      geminiResp = await callGemini();
+      if (!geminiResp.ok) {
+        const txt = await geminiResp.text();
+        console.error('[ai-parameter-advisor] Gemini retry failed', geminiResp.status, txt);
+        return new Response(JSON.stringify({
+          ok: false,
+          error: `gemini_${geminiResp.status}`,
+          message: geminiResp.status === 429
+            ? 'Gemini-Tageslimit erreicht — bitte später erneut versuchen.'
+            : 'Gemini ist gerade überlastet — bitte später erneut versuchen.',
+          retry_after_seconds: 60,
+        }), {
+          status: 503,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    } else if (!geminiResp.ok) {
       const txt = await geminiResp.text();
       console.error('[ai-parameter-advisor] Gemini error', geminiResp.status, txt);
-      return new Response(JSON.stringify({ ok: false, error: `gemini_${geminiResp.status}` }), {
-        status: 200,
+      return new Response(JSON.stringify({
+        ok: false,
+        error: `gemini_${geminiResp.status}`,
+        message: `Gemini-Fehler ${geminiResp.status}`,
+      }), {
+        status: 502,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
