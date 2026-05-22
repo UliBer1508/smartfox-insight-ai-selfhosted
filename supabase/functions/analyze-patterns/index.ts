@@ -21,6 +21,23 @@ interface AIResponse {
   status: number;
   data?: any;
   error?: string;
+  rateLimited?: boolean;
+}
+
+interface MLDecision {
+  room_id: string;
+  room_name: string;
+  action: 'activate' | 'deactivate' | 'keep';
+  target_temp: number;
+  reasoning: string;
+  expected_energy_wh?: number;
+  confidence?: number;
+}
+
+interface MLDecisionResponse {
+  decisions?: MLDecision[];
+  overall_strategy?: string;
+  error?: string;
 }
 
 async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
@@ -30,7 +47,11 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
   }
 
   try {
-    console.log('Calling Google Gemini API (gemini-2.5-flash)...');
+    const requestedModel = requestBody.model?.replace(/^google\//, '') || 'gemini-2.5-flash';
+    const modelName = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'].includes(requestedModel)
+      ? requestedModel
+      : 'gemini-2.5-flash';
+    console.log(`Calling Google Gemini API (${modelName})...`);
     
     // Convert OpenAI-style messages to Gemini format
     const systemInstruction = requestBody.messages.find(m => m.role === 'system');
@@ -53,7 +74,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     const geminiBody: any = {
       contents,
       generationConfig: {
-        temperature: 0.7,
+        temperature: modelName === 'gemini-2.5-flash-lite' ? 0.35 : 0.7,
+        maxOutputTokens: 4096,
       },
     };
 
@@ -69,7 +91,7 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GOOGLE_AI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,8 +102,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     if (!response.ok) {
       const errorText = await response.text();
       if (response.status === 429) {
-        console.error('❌ Rate limit exceeded');
-        return { ok: false, status: 429, error: 'Rate limit exceeded - bitte später erneut versuchen' };
+        console.warn('⚠️ Gemini rate limit exceeded');
+        return { ok: false, status: 429, error: 'Rate limit exceeded - verwende deterministischen Fallback', rateLimited: true };
       }
       console.error('Gemini API error:', response.status, errorText);
       return { ok: false, status: response.status, error: errorText };
@@ -92,6 +114,10 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
 
     // Convert Gemini response to OpenAI-compatible format for downstream parsing
     const candidate = geminiData.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    if (finishReason === 'MAX_TOKENS') {
+      return { ok: false, status: 422, error: 'Gemini response truncated (MAX_TOKENS)' };
+    }
     const parts = candidate?.content?.parts || [];
     
     const functionCall = parts.find((p: any) => p.functionCall);
@@ -157,6 +183,91 @@ function getLocalHour(timezone: string = 'Europe/Berlin'): number {
     hour: '2-digit',
     hour12: false 
   }));
+}
+
+function buildDeterministicHeatingDecision(body: Record<string, any>, reason: string): MLDecisionResponse {
+  const reading = Array.isArray(body.readings) ? body.readings[0] : body.readings;
+  const settings = body.heatingSettings ?? {};
+  const rooms = Array.isArray(body.rooms) ? body.rooms : [];
+  const surplus = Number(reading?.power_io ?? 0) < 0 ? Math.abs(Number(reading.power_io)) : 0;
+  const pvPower = Number(reading?.pv_power ?? 0);
+  const batterySoc = Number(reading?.battery_soc ?? 50);
+  const thresholdOn = Number(settings?.pv_surplus_threshold_on ?? 500);
+  const thresholdOff = Number(settings?.pv_surplus_threshold_off ?? 200);
+  const heatingMinSoc = Number(settings?.heating_min_battery_soc ?? 80);
+  const { isNight } = isNightTimeFromSettings(settings?.night_start_time || '20:00', settings?.night_end_time || '08:00', 'Europe/Vienna');
+
+  const decisions: MLDecision[] = rooms.map((room: Record<string, any>) => {
+    const ecoTemp = Number(room.eco_temp ?? settings?.eco_temp ?? 19);
+    const comfortTemp = Number(room.comfort_temp ?? settings?.comfort_temp ?? 21);
+    const nightTemp = Number(room.night_temp ?? settings?.night_temp ?? 17);
+    const currentTemp = Number(room.current_temp ?? room.target_temp ?? ecoTemp);
+    const targetTemp = Number(room.target_temp ?? ecoTemp);
+    const roomPower = Number(room.calculated_power_w ?? room.heating_power_w ?? 800);
+
+    if (isNight) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: targetTemp > nightTemp + 0.1 ? 'deactivate' : 'keep',
+        target_temp: nightTemp,
+        reasoning: `${reason}: Nachtmodus, sichere Absenkung auf Nacht-Sollwert`,
+        expected_energy_wh: 0,
+        confidence: 0.72,
+      };
+    }
+
+    if (currentTemp >= comfortTemp - 0.2 || targetTemp > comfortTemp) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: 'deactivate',
+        target_temp: ecoTemp,
+        reasoning: `${reason}: Komfort erreicht, Estrichspeicher nutzen und auf Eco zurücknehmen`,
+        expected_energy_wh: 0,
+        confidence: 0.8,
+      };
+    }
+
+    if (surplus < thresholdOff || pvPower < 500 || batterySoc < heatingMinSoc) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: targetTemp > ecoTemp + 0.1 ? 'deactivate' : 'keep',
+        target_temp: ecoTemp,
+        reasoning: `${reason}: kein sicheres Komfort-Budget, Eco halten`,
+        expected_energy_wh: 0,
+        confidence: 0.75,
+      };
+    }
+
+    if (surplus >= thresholdOn && pvPower >= 1000 && currentTemp < ecoTemp - 0.2) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: 'activate',
+        target_temp: ecoTemp,
+        reasoning: `${reason}: PV-Überschuss verfügbar, Raum zuerst auf Eco bringen`,
+        expected_energy_wh: Math.round(roomPower * Math.max(0.25, ecoTemp - currentTemp) * 0.75),
+        confidence: 0.78,
+      };
+    }
+
+    return {
+      room_id: String(room.id),
+      room_name: String(room.name ?? 'Raum'),
+      action: 'keep',
+      target_temp: Math.min(Math.max(targetTemp, ecoTemp), comfortTemp),
+      reasoning: `${reason}: aktuelle Zieltemperatur ist im sicheren Bereich`,
+      expected_energy_wh: 0,
+      confidence: 0.7,
+    };
+  });
+
+  return {
+    decisions,
+    overall_strategy: `${reason}: deterministische PV-/SOC-/Temperatur-Regeln aktiv, KI-Ausfall blockiert den Autopilot nicht.`,
+  };
 }
 
 serve(async (req) => {
@@ -1074,7 +1185,7 @@ Kurze Einschätzung auf Deutsch.`;
     }
 
     const aiRequestBody: AIRequestBody = {
-      model: 'google/gemini-2.5-flash',
+      model: type === 'optimize_decision' ? 'google/gemini-2.5-flash-lite' : 'google/gemini-2.5-flash',
       messages: [
         { role: 'system', content: 'Du bist ein Experte für Energiemanagement und Heizungsoptimierung. Antworte auf Deutsch.' },
         { role: 'user', content: prompt }
@@ -1092,6 +1203,14 @@ Kurze Einschätzung auf Deutsch.`;
     if (!aiResponse.ok) {
       console.error('AI error:', aiResponse.status, aiResponse.error);
       
+      if (type === 'optimize_decision') {
+        const fallback = buildDeterministicHeatingDecision({ readings, rooms, heatingSettings }, aiResponse.status === 429 ? 'KI-Rate-Limit' : 'KI-Fallback');
+        return new Response(JSON.stringify({ ...fallback, fallback: true, error: aiResponse.error }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       if (aiResponse.status === 429) {
         // Soft-fail: return 200 so callers (UI + pv-automation) don't break / blank-screen.
         // The deterministic budget logic is the final filter anyway.

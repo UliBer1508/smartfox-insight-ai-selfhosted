@@ -22,6 +22,25 @@ interface WhitelistRow {
   description: string | null;
 }
 
+function extractJSON(raw: string): any {
+  let cleaned = raw
+    .replace(/^```json\s*/im, '')
+    .replace(/^```\s*/im, '')
+    .replace(/```\s*$/im, '')
+    .trim();
+
+  if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
+    const objStart = cleaned.indexOf('{');
+    const arrStart = cleaned.indexOf('[');
+    const isArray = arrStart !== -1 && (objStart === -1 || arrStart < objStart);
+    const start = isArray ? arrStart : objStart;
+    const end = isArray ? cleaned.lastIndexOf(']') : cleaned.lastIndexOf('}');
+    if (start !== -1 && end > start) cleaned = cleaned.slice(start, end + 1);
+  }
+
+  return JSON.parse(cleaned);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -207,7 +226,7 @@ Antworte STRIKT als JSON:
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.3, responseMimeType: 'application/json' },
+          generationConfig: { temperature: 0.3, responseMimeType: 'application/json', maxOutputTokens: 4096 },
         }),
       },
     );
@@ -224,14 +243,19 @@ Antworte STRIKT als JSON:
         const txt = await geminiResp.text();
         console.error('[ai-parameter-advisor] Gemini retry failed', geminiResp.status, txt);
         return new Response(JSON.stringify({
-          ok: false,
+          ok: true,
+          rate_limited: true,
           error: `gemini_${geminiResp.status}`,
           message: geminiResp.status === 429
-            ? 'Gemini-Tageslimit erreicht — bitte später erneut versuchen.'
-            : 'Gemini ist gerade überlastet — bitte später erneut versuchen.',
+            ? 'Gemini-Tageslimit erreicht — Autopilot bleibt mit den bestehenden Regeln aktiv.'
+            : 'Gemini ist gerade überlastet — Autopilot bleibt mit den bestehenden Regeln aktiv.',
+          proposed: 0,
+          accepted: 0,
+          rejected: 0,
+          auto_applied: 0,
           retry_after_seconds: 60,
         }), {
-          status: 503,
+          status: 200,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
@@ -239,23 +263,35 @@ Antworte STRIKT als JSON:
       const txt = await geminiResp.text();
       console.error('[ai-parameter-advisor] Gemini error', geminiResp.status, txt);
       return new Response(JSON.stringify({
-        ok: false,
+        ok: true,
+        skipped: 'gemini_error',
         error: `gemini_${geminiResp.status}`,
-        message: `Gemini-Fehler ${geminiResp.status}`,
+        message: `Gemini-Fehler ${geminiResp.status} — Autopilot bleibt mit bestehenden Regeln aktiv.`,
+        proposed: 0,
+        accepted: 0,
+        rejected: 0,
+        auto_applied: 0,
       }), {
-        status: 502,
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     const geminiJson = await geminiResp.json();
+    if (geminiJson?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+      console.error('[ai-parameter-advisor] Gemini response truncated');
+      return new Response(JSON.stringify({ ok: true, skipped: 'truncated_response', proposed: 0, accepted: 0, rejected: 0, auto_applied: 0 }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     const txt: string = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
     let parsed: any;
     try {
-      parsed = JSON.parse(txt);
+      parsed = extractJSON(txt);
     } catch {
       console.error('[ai-parameter-advisor] JSON parse failed', txt.slice(0, 500));
-      return new Response(JSON.stringify({ ok: false, error: 'parse_failed' }), {
+      return new Response(JSON.stringify({ ok: true, skipped: 'parse_failed', proposed: 0, accepted: 0, rejected: 0, auto_applied: 0 }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
