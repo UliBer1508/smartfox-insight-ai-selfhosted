@@ -1,0 +1,1 @@
+DROP TRIGGER IF EXISTS trg_ai_decisions_validate_outcome ON public.ai_parameter_decisions;
