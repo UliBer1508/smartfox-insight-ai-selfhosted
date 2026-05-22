@@ -210,6 +210,7 @@ export function AIShadowDecisions() {
   };
 
   const filtered = decisions.filter((d) => {
+    if (paramFilter && d.parameter_key !== paramFilter) return false;
     if (filter === 'unevaluated') return !d.outcome_evaluated_at;
     if (filter === 'evaluated') return !!d.outcome_evaluated_at;
     return true;
