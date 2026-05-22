@@ -216,6 +216,21 @@ export function AIShadowDecisions() {
     return true;
   });
 
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allExpanded = expanded.size === filtered.length && filtered.length > 0;
+  const expandAll = () => {
+    if (allExpanded) setExpanded(new Set());
+    else setExpanded(new Set(filtered.map((d) => d.id)));
+  };
+
   // Aggregations
   const byParam = new Map<string, { total: number; avgScore: number | null; evaluated: number }>();
   for (const d of decisions) {
@@ -379,17 +394,17 @@ export function AIShadowDecisions() {
               {filtered.map((d) => {
                 const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
                 const canApply = wl && wl.autonomy_level === 'suggest' && !d.applied_at;
-                const isOpen = expanded === d.id;
+                const isOpen = expanded.has(d.id);
                 return (
                   <div
                     key={d.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setExpanded(isOpen ? null : d.id)}
+                    onClick={() => toggleExpanded(d.id)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        setExpanded(isOpen ? null : d.id);
+                        toggleExpanded(d.id);
                       }
                     }}
                     className="rounded-lg border bg-card p-3 active:bg-muted/50 cursor-pointer"
@@ -498,7 +513,7 @@ export function AIShadowDecisions() {
                     <Fragment key={d.id}>
                       <TableRow
                         className="cursor-pointer"
-                        onClick={() => setExpanded(expanded === d.id ? null : d.id)}
+                        onClick={() => toggleExpanded(d.id)}
                       >
                         <TableCell className="text-xs">
                           {formatDistanceToNow(new Date(d.created_at), { addSuffix: true, locale: de })}
@@ -528,13 +543,13 @@ export function AIShadowDecisions() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setExpanded(expanded === d.id ? null : d.id)}
+                            onClick={(e) => { e.stopPropagation(); toggleExpanded(d.id); }}
                           >
-                            {expanded === d.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {expanded.has(d.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </Button>
                         </TableCell>
                       </TableRow>
-                      {expanded === d.id && (
+                      {expanded.has(d.id) && (
                         <TableRow>
                           <TableCell colSpan={8} className="bg-muted/20">
                             <div className="text-xs space-y-2 py-2">
