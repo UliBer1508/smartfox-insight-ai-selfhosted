@@ -15,7 +15,7 @@ import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { PowerStats } from '@/components/energy/PowerStats';
 import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 
-import { RoomRecommendations } from '@/components/heating/RoomRecommendations';
+
 import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
 import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
@@ -30,15 +30,14 @@ import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useEnergyCalculation } from '@/hooks/useEnergyCalculation';
 import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
 import { useRooms } from '@/hooks/useRooms';
-import { useAutomation } from '@/hooks/useAutomation';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Activity, Database, Clock, Zap, Thermometer, Home, Loader2, Sun, Battery, Brain, Bot } from 'lucide-react';
+import { Activity, Database, Clock, Zap, Thermometer, Home, Loader2, Sun, Battery, Brain } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
+
 
 const Index = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis' | 'heating'>('dashboard');
@@ -70,19 +69,9 @@ const Index = () => {
   } = useHeatingAnalysis();
   const {
     rooms,
-    getCurrentRecommendation,
     saveRoom,
     updateRoomLocally,
-    saveRecommendations: saveRoomRecommendations,
-    loadRecommendations: loadRoomRecommendations,
   } = useRooms();
-  const {
-    applyRecommendations,
-    isApplying,
-  } = useAutomation();
-
-  const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
-  const [roomStrategy, setRoomStrategy] = useState<string>('');
 
   useEffect(() => {
     loadDailyPatterns();
@@ -93,79 +82,6 @@ const Index = () => {
     analyzeHeating(readings, heatingSettings);
   }, [analyzeHeating, readings, heatingSettings]);
 
-  // Handler für raumspezifische Analyse
-  const handleAnalyzeRooms = useCallback(async () => {
-    if (rooms.length === 0) {
-      toast.error('Bitte lege zuerst Räume an');
-      return;
-    }
-    
-    if (readings.length < 5) {
-      toast.error('Nicht genügend Energiedaten für Analyse');
-      return;
-    }
-
-    setIsAnalyzingRooms(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('analyze-patterns', {
-        body: { 
-          readings: readings.slice(-100),
-          heatingSettings: heatingSettings,
-          rooms: rooms,
-          type: 'room_heating_optimization'
-        }
-      });
-
-      if (error) throw error;
-
-      if (data?.rateLimited) {
-        toast.warning('KI-Limit erreicht (Gemini Free Tier). Bitte in ein paar Minuten erneut versuchen.');
-        return;
-      }
-
-      if (data.roomHeatingPlan) {
-        const plan = data.roomHeatingPlan;
-        setRoomStrategy(plan.strategy || '');
-        
-        // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
-        const today = getLocalDateString();
-        const newRecommendations = plan.rooms.flatMap((roomPlan: any) => {
-          const room = rooms.find(r => r.name === roomPlan.room_name);
-          if (!room?.id) return [];
-          
-          // Explizit Wiener Zeit verwenden
-          const currentHour = getViennaHour();
-          const currentPeriod = roomPlan.periods?.find((p: any) => {
-            const startHour = parseInt(p.start_time.split(':')[0]);
-            const endHour = parseInt(p.end_time.split(':')[0]);
-            return currentHour >= startHour && currentHour < endHour;
-          }) || roomPlan.periods?.[0];
-          
-          return {
-            room_id: room.id,
-            date: today,
-            period_number: 1,
-            start_time: currentPeriod?.start_time || '06:00',
-            end_time: currentPeriod?.end_time || '22:00',
-            recommended_temp: roomPlan.recommended_temp,
-            reason: roomPlan.reason,
-            priority: roomPlan.priority
-          };
-        });
-
-        await saveRoomRecommendations(newRecommendations);
-        await loadRoomRecommendations();
-        toast.success('Raumspezifische Empfehlungen erstellt');
-      } else if (data.error) {
-        throw new Error(data.error);
-      }
-    } catch (error) {
-      console.error('Room analysis error:', error);
-      toast.error('Fehler bei der Raumanalyse');
-    } finally {
-      setIsAnalyzingRooms(false);
-    }
-  }, [rooms, readings, heatingSettings, saveRoomRecommendations, loadRoomRecommendations]);
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
     dashboard: {
@@ -410,53 +326,27 @@ const Index = () => {
                   </TabsContent>
 
                   <TabsContent value="rooms" className="space-y-4 mt-4">
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <Button 
-                        onClick={handleAnalyzeRooms}
-                        disabled={isAnalyzingRooms || readings.length < 5 || rooms.length === 0}
-                        className="w-full sm:w-auto"
-                      >
-                        {isAnalyzingRooms ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Analysiere Räume...
-                          </>
-                        ) : (
-                          <>
-                            <Home className="w-4 h-4 mr-2" />
-                            Raumempfehlungen erstellen
-                          </>
-                        )}
-                      </Button>
-                      <Button 
-                        onClick={applyRecommendations}
-                        disabled={isApplying || rooms.length === 0}
-                        variant="outline"
-                        className="w-full sm:w-auto"
-                      >
-                        {isApplying ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Wende an...
-                          </>
-                        ) : (
-                          <>
-                            <Bot className="w-4 h-4 mr-2" />
-                            Empfehlungen anwenden
-                          </>
-                        )}
-                      </Button>
-                    </div>
-
                     {rooms.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <Home className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Lege zuerst Räume an, um raumspezifische Empfehlungen zu erhalten.</p>
+                        <p>Lege zuerst Räume an, um die KI-Automatik nutzen zu können.</p>
                         <p className="text-xs mt-2">Gehe zu Einstellungen → Räume verwalten.</p>
                       </div>
                     ) : (
-                      <div className="text-sm text-muted-foreground">
-                        {rooms.length} Räume konfiguriert. Klicke auf &quot;Raumempfehlungen erstellen&quot; für individuelle Temperaturempfehlungen.
+                      <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
+                        <p className="font-medium flex items-center gap-2">
+                          <Brain className="w-4 h-4 text-primary" />
+                          KI-Autopilot aktiv
+                        </p>
+                        <p className="text-muted-foreground">
+                          {rooms.length} Räume werden vollautomatisch über die PV-Automation und den
+                          KI-Parameter-Advisor gesteuert. Manuelle „Raumempfehlungen erstellen" und
+                          „Empfehlungen anwenden" sind nicht mehr nötig.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Status &amp; Live-Werte siehst du im Tab <strong>Heizung</strong>.
+                          KI-Parameter-Vorschläge im Tab <strong>ML-Status</strong>.
+                        </p>
                       </div>
                     )}
                   </TabsContent>
@@ -468,17 +358,9 @@ const Index = () => {
                 </Tabs>
               </CardContent>
             </Card>
-
-            {/* Aktuelle Thermostat-Empfehlungen */}
-            {rooms.length > 0 && (
-              <RoomRecommendations 
-                rooms={rooms}
-                getCurrentRecommendation={getCurrentRecommendation}
-                strategy={roomStrategy}
-              />
-            )}
           </div>
         )}
+
 
         {activeTab === 'heating' && (
           <HeatingDashboard 

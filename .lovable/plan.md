@@ -1,47 +1,45 @@
-## Problem
+# Cleanup: Manuelle Empfehlungs-Buttons entfernen
 
-`daily_pattern_scores` ist die zentrale Lern-/Vergleichsbasis (Advisor, `match_today_pattern`, Pattern-Recall, Progress-Cockpit). Aktuell wird die Tabelle **nur** befüllt, wenn jemand `compute-daily-score` manuell mit `{ "backfill": N }` oder `{ "date": "..." }` aufruft. Es gibt **keinen pg_cron-Eintrag** für `compute-daily-score` (verifiziert: `cron.job` enthält ihn nicht). Lücken müssen daher per Hand gefüllt werden.
+Da `pv-automation` die alleinige Setpoint-Autorität ist und der KI-Autopilot (`ai_auto_mode_enabled` + `ai-parameter-advisor` Cron alle 15min) Parameter automatisch anwendet, sind die manuellen Buttons "Raumempfehlungen erstellen" und "Empfehlungen anwenden" funktionslos bzw. konfliktanfällig.
 
-## Lösung — drei kleine, unabhängige Änderungen
+## Was entfernt wird
 
-### 1. Täglicher Cron für „gestern"
-Neuer pg_cron-Job:
-```
-jobname: compute-daily-score-daily
-schedule: 30 2 * * *      -- 02:30 UTC = 03:30/04:30 Europe/Vienna, nach 'aggregate-energy-data-daily' (03:00 UTC)
-body:    {}                -- Standard = gestern, exakt der bestehende Default
-```
-Begründung Zeitpunkt: `aggregate-energy-data-daily` läuft um 03:00 UTC, `analysis-scheduler` triggert die Tages-/Wochenanalyse erst über den `analysis_daily_time`-Slot (UI-konfigurierbar, Default 03:30). Wir setzen `compute-daily-score` knapp davor, damit die Wochenanalyse bereits einen frischen Score sieht.
+### 1. UI – `src/pages/Index.tsx`
+- Tab "Raumweise" Buttons "Raumempfehlungen erstellen" + "Empfehlungen anwenden" (Zeilen ~412–462).
+- Zugehörige States/Handler: `isAnalyzingRooms`, `roomStrategy`, `handleAnalyzeRooms`, `applyRecommendations`/`isApplying` aus `useAutomation`, `saveRoomRecommendations`/`loadRoomRecommendations` aus dem Recommendations-Hook.
+- Komponente `<RoomRecommendations>` aus dem Index entfernen (zeigt nur veraltete manuell erzeugte Vorschläge).
+- Tab "Raumweise" wird zu einem reinen Hinweis-Tab oder fällt komplett weg (Tabs: TGP508 Global, ML-Status bleiben).
 
-→ via **Supabase Insert Tool** (keine Migration, weil URL+anon-Key enthalten).
+### 2. UI – `src/components/heating/HeatingDashboard.tsx`
+- Toten Code räumen: `applyRecommendations` aus `useAutomation`-Destructure, `isAnalyzingRooms`-State, `handleAnalyzeRooms`-Funktion, `saveRoomRecommendations`/`loadRoomRecommendations`, Import `RoomRecommendations`.
+- Sichtbare Buttons "Alle pushen" + "Sync" bleiben unverändert.
 
-### 2. Self-Backfill für Lücken (max 7 Tage rückwirkend)
-In `supabase/functions/compute-daily-score/index.ts` am Anfang des Default-Pfads ergänzen:
-- Vor dem Score-Lauf prüfen, welche der letzten 7 Tage (`current_date - 7 .. current_date - 1`) in `daily_pattern_scores` fehlen.
-- Fehlende Tage in `dates[]` einreihen (max. 7), zusätzlich zu „gestern".
-- Bestehender Code für mehrere Dates läuft bereits in einer Schleife — kein weiterer Umbau nötig.
+### 3. Hook – `src/hooks/useAutomation.ts`
+- Komplett entfernen, da nur `apply-recommendations` aufgerufen wird (toggle/apply/status). Keine anderen Konsumenten nach den UI-Cleanups.
 
-So holt der tägliche Cron Lücken automatisch nach (z. B. wenn Edge Function 1–2 Tage offline war), ohne dass jemals wieder manuell gebackfillt werden muss.
+### 4. Komponente – `src/components/heating/RoomRecommendations.tsx`
+- Datei löschen (nur an o. g. zwei Stellen importiert).
 
-### 3. „Just-in-time"-Self-Heal im Advisor
-In `ai-parameter-advisor` (läuft 15-minütlich) vor dem Snapshot prüfen:
-- Wenn `daily_pattern_scores` für `current_date - 1` fehlt **und** die aktuelle Zeit > 04:00 Europe/Vienna ist (Daten müssten da sein):
-  - Asynchron (fire-and-forget) `compute-daily-score` mit `{}` triggern.
-  - Aktueller Advisor-Lauf benutzt den vorhandenen Datenstand — beim nächsten 15-min-Tick ist der Score da.
+### 5. Edge Function – `apply-recommendations`
+- Verzeichnis `supabase/functions/apply-recommendations/` löschen.
+- `supabase--delete_edge_functions(["apply-recommendations"])` ausführen.
+- `supabase/config.toml` Eintrag (falls vorhanden) entfernen.
+- Kein aktiver pg_cron-Job existiert mehr (laut Memory bereits abgeschaltet), nichts an Cron zu ändern.
 
-Damit erholt sich das System auch dann selbst, wenn der 02:30-Cron einmal nicht angestoßen wurde (z. B. Resume nach Pause der Cloud).
+### 6. Hook für Raum-Recommendations (falls eigenständig)
+- Prüfen, ob `saveRecommendations`/`loadRecommendations`-Hook nur hier verwendet wird; wenn ja, entfernen. Sonst belassen.
 
-## Was sich NICHT ändert
-- `compute-daily-score` Endpoint bleibt rückwärtskompatibel — der manuelle Backfill-Button im Frontend (falls vorhanden) funktioniert weiter, ist nur nicht mehr nötig.
-- Keine neue Tabelle, keine Schema-Migration.
-- Whitelist + Range-Checks + Pattern-Block im Advisor (gerade hinzugefügt) bleiben unverändert.
+## Was bleibt
+- KI-Autopilot (`ai-parameter-advisor`, 15min Cron), Whitelist + `validate_ai_auto_apply`-Trigger.
+- `pv-automation` als alleinige Setpoint-Quelle.
+- Musteranalyse, Pattern-Recall, Progress-Cockpit, ML-Loop – alle unverändert.
+- Tabelle `room_recommendations` bleibt als historisches Datenmodell (kein Migrations-Drop, um Recovery offen zu halten); kann später separat aufgeräumt werden.
 
-## Geänderte / neue Dateien
-- `supabase/functions/compute-daily-score/index.ts` — Self-Backfill der letzten 7 Tage im Default-Pfad.
-- `supabase/functions/ai-parameter-advisor/index.ts` — Just-in-time-Trigger bei fehlendem „gestern"-Score.
-- pg_cron-Eintrag `compute-daily-score-daily` (über Insert-Tool).
+## Verifikation
+- Build sauber.
+- `/` Route: Karte "Heizungs-Optimierung" zeigt nur noch "TGP508 Global" und "ML-Status" (oder Raumweise-Tab mit reinem Status-Text).
+- HeatingDashboard unverändert sichtbar, "Alle pushen" + "Sync" funktionieren.
+- `supabase functions list` enthält `apply-recommendations` nicht mehr.
 
-## Verifikation nach dem Build
-- `SELECT date FROM daily_pattern_scores ORDER BY date DESC LIMIT 10;` zeigt heute lückenlos.
-- Cron-Liste enthält `compute-daily-score-daily`.
-- Advisor-Log enthält ggf. „daily_score missing — triggered backfill".
+## Memory-Update
+- `mem://arch/recommendations-not-auto-applied` aktualisieren: Edge Function entfernt, manuelle UI entfernt; nur KI-Autopilot + pv-automation steuern.
