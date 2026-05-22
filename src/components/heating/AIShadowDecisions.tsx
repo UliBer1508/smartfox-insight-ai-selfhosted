@@ -85,7 +85,7 @@ export function AIShadowDecisions() {
   const [running, setRunning] = useState(false);
   const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
 
@@ -215,6 +215,21 @@ export function AIShadowDecisions() {
     if (filter === 'evaluated') return !!d.outcome_evaluated_at;
     return true;
   });
+
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allExpanded = expanded.size === filtered.length && filtered.length > 0;
+  const expandAll = () => {
+    if (allExpanded) setExpanded(new Set());
+    else setExpanded(new Set(filtered.map((d) => d.id)));
+  };
 
   // Aggregations
   const byParam = new Map<string, { total: number; avgScore: number | null; evaluated: number }>();
@@ -349,6 +364,16 @@ export function AIShadowDecisions() {
 
 
 
+        {filtered.length > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{filtered.length} Vorschläge</span>
+            <Button variant="ghost" size="sm" onClick={expandAll}>
+              {allExpanded ? <ChevronUp className="h-4 w-4 mr-1" /> : <ChevronDown className="h-4 w-4 mr-1" />}
+              {allExpanded ? 'Alle zuklappen' : 'Alle aufklappen'}
+            </Button>
+          </div>
+        )}
+
         {lastRun && (
           <div className={`text-sm rounded border px-3 py-2 ${lastRun.ok ? 'bg-muted/30 border-border' : 'bg-destructive/10 border-destructive/30 text-destructive'}`}>
             <span className="font-medium">
@@ -379,17 +404,17 @@ export function AIShadowDecisions() {
               {filtered.map((d) => {
                 const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
                 const canApply = wl && wl.autonomy_level === 'suggest' && !d.applied_at;
-                const isOpen = expanded === d.id;
+                const isOpen = expanded.has(d.id);
                 return (
                   <div
                     key={d.id}
                     role="button"
                     tabIndex={0}
-                    onClick={() => setExpanded(isOpen ? null : d.id)}
+                    onClick={() => toggleExpanded(d.id)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        setExpanded(isOpen ? null : d.id);
+                        toggleExpanded(d.id);
                       }
                     }}
                     className="rounded-lg border bg-card p-3 active:bg-muted/50 cursor-pointer"
@@ -498,7 +523,7 @@ export function AIShadowDecisions() {
                     <Fragment key={d.id}>
                       <TableRow
                         className="cursor-pointer"
-                        onClick={() => setExpanded(expanded === d.id ? null : d.id)}
+                        onClick={() => toggleExpanded(d.id)}
                       >
                         <TableCell className="text-xs">
                           {formatDistanceToNow(new Date(d.created_at), { addSuffix: true, locale: de })}
@@ -528,13 +553,13 @@ export function AIShadowDecisions() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => setExpanded(expanded === d.id ? null : d.id)}
+                            onClick={(e) => { e.stopPropagation(); toggleExpanded(d.id); }}
                           >
-                            {expanded === d.id ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                            {expanded.has(d.id) ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                           </Button>
                         </TableCell>
                       </TableRow>
-                      {expanded === d.id && (
+                      {expanded.has(d.id) && (
                         <TableRow>
                           <TableCell colSpan={8} className="bg-muted/20">
                             <div className="text-xs space-y-2 py-2">
