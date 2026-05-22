@@ -28,6 +28,14 @@ Deno.serve(async (req) => {
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
   const startedAt = new Date().toISOString();
 
+  // Master kill-switch: ai_auto_mode_enabled
+  const { data: masterRow } = await sb
+    .from('system_settings')
+    .select('value')
+    .eq('key', 'ai_auto_mode_enabled')
+    .maybeSingle();
+  const autopilotEnabled = (masterRow?.value as { enabled?: boolean } | null)?.enabled !== false;
+
   try {
     // 1) Snapshot
     const [
@@ -213,8 +221,31 @@ Antworte STRIKT als JSON:
       }
       if (d.scope === 'room' && !d.room_id) { rejected.push({ d, reason: 'missing_room_id' }); continue; }
 
-      const isAuto = w.autonomy_level === 'auto';
-      const decisionMode = isAuto ? 'auto' : 'shadow';
+      const isAutoWhitelisted = w.autonomy_level === 'auto';
+      const isAuto = isAutoWhitelisted && autopilotEnabled;
+      const decisionMode = isAuto ? 'auto' : (isAutoWhitelisted ? 'shadow' : 'shadow');
+
+      // Dedupe: skip if proposed == current
+      if (d.current_value != null && String(d.current_value) === String(d.proposed_value)) {
+        rejected.push({ d, reason: 'no_change' });
+        continue;
+      }
+
+      // Rate-limit: max 1 auto-apply per parameter per hour
+      if (isAuto) {
+        const { data: recent } = await sb
+          .from('ai_parameter_decisions')
+          .select('id')
+          .eq('parameter_key', d.parameter_key)
+          .eq('auto_applied', true)
+          .gte('created_at', new Date(Date.now() - 60 * 60 * 1000).toISOString())
+          .limit(1);
+        if (recent && recent.length > 0) {
+          rejected.push({ d, reason: 'rate_limited_1h' });
+          continue;
+        }
+      }
+
 
       inserts.push({
         parameter_scope: d.scope,
