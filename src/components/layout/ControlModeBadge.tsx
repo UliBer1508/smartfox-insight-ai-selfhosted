@@ -35,10 +35,10 @@ export function ControlModeBadge({ onClick, className }: ControlModeBadgeProps) 
   if (isLoading) return null;
 
   const isLocal = mode === 'local';
-  const Icon = cloudDisabled ? Ban : isLocal ? Network : Cloud;
-  const label = cloudDisabled ? 'Cloud deaktiviert' : isLocal ? 'Lokal' : 'Cloud';
+  const Icon = cloudDisabled ? Network : isLocal ? Network : Cloud;
+  const label = cloudDisabled ? 'Cloud aus · Lokal' : isLocal ? 'Lokal' : 'Cloud';
   const tooltip = cloudDisabled
-    ? 'Tuya Cloud ist deaktiviert — nur lokaler Service (LAN)'
+    ? 'Tuya Cloud ist deaktiviert — Steuerung läuft über lokalen Service (LAN, Port 6668)'
     : isLocal
       ? 'Steuerungsmodus: Lokaler Service (LAN, Port 6668)'
       : 'Steuerungsmodus: Tuya Cloud API';
