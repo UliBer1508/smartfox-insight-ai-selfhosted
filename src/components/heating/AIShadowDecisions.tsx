@@ -256,12 +256,35 @@ export function AIShadowDecisions() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Brain className="h-5 w-5 text-primary" />
-              KI-Parameter-Vorschläge
+              KI-Autopilot · Parameter-Vorschläge
             </CardTitle>
             <CardDescription>
-              Die KI analysiert das System alle 15 Minuten und schlägt Parameter-Änderungen vor.
-              Modus pro Parameter: <strong>Schatten</strong> (nur Log) · <strong>Vorschlag</strong> (manuell übernehmen) · <strong>Auto</strong> (zukünftig).
+              Der KI-Autopilot analysiert das System alle 15 Minuten, schlägt Parameter-Änderungen vor und
+              wendet sie – je nach Modus – automatisch an oder erst nach deiner Freigabe.
             </CardDescription>
+            <details className="mt-2 text-xs">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+                Legende anzeigen
+              </summary>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2 rounded-md border bg-muted/30 p-3">
+                <div>
+                  <div className="font-medium mb-1.5">Filter (oben rechts)</div>
+                  <ul className="space-y-1 text-muted-foreground">
+                    <li><strong className="text-foreground">Alle</strong> – jeder gespeicherte Vorschlag der letzten Tage</li>
+                    <li><strong className="text-foreground">Offen</strong> – noch nicht bewertet (Outcome-Score fehlt)</li>
+                    <li><strong className="text-foreground">Bewertet</strong> – Outcome nach ~60 min gemessen. Score positiv = hat geholfen, negativ = hat geschadet (→ ggf. Auto-Rollback)</li>
+                  </ul>
+                </div>
+                <div>
+                  <div className="font-medium mb-1.5">Modus pro Parameter</div>
+                  <ul className="space-y-1.5 text-muted-foreground">
+                    <li className="flex gap-2"><Badge variant="secondary" className="shrink-0">Schatten</Badge><span>KI loggt nur, ändert nichts. Lernphase.</span></li>
+                    <li className="flex gap-2"><Badge variant="outline" className="shrink-0">Vorschlag</Badge><span>KI speichert Vorschlag, du klickst „Anwenden".</span></li>
+                    <li className="flex gap-2"><Badge className="bg-blue-600 shrink-0">Auto</Badge><span>KI wendet selbst an (wenn Autopilot-Master aktiv); bei Score &lt; −0.3 automatischer Rollback.</span></li>
+                  </ul>
+                </div>
+              </div>
+            </details>
           </div>
           <div className="flex gap-2 flex-wrap items-center">
             {(['all', 'unevaluated', 'evaluated'] as const).map((f) => (
