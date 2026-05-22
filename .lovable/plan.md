@@ -1,45 +1,47 @@
-## Ziel
+## Problem
 
-Die wöchentlichen Empfehlungen aus `analyze-patterns` (gespeichert in `system_settings.weekly_insight`) und der heutige Pattern-Match (`best_match_today`) sollen vom Autopilot-Advisor (`ai-parameter-advisor`) explizit gewichtet werden — statt wie heute nur als anonymer Teil des generischen `system_settings`-JSON-Dumps mitzufliegen.
+`daily_pattern_scores` ist die zentrale Lern-/Vergleichsbasis (Advisor, `match_today_pattern`, Pattern-Recall, Progress-Cockpit). Aktuell wird die Tabelle **nur** befüllt, wenn jemand `compute-daily-score` manuell mit `{ "backfill": N }` oder `{ "date": "..." }` aufruft. Es gibt **keinen pg_cron-Eintrag** für `compute-daily-score` (verifiziert: `cron.job` enthält ihn nicht). Lücken müssen daher per Hand gefüllt werden.
 
-## Aktueller Zustand
+## Lösung — drei kleine, unabhängige Änderungen
 
-- `analyze-patterns` persistiert beim wöchentlichen Lauf eine strukturierte `weekly_insight` mit `trend`, `avg_self_consumption_ratio`, `top_grid_import_hours`, `summary` und einer Liste freier `recommendations` (`key`, `value`, `reason`).
-- `analyze-patterns` persistiert beim `match_today`-Lauf `best_match_today` mit Signatur, Top-Tagen und `recommended_overrides`.
-- `ai-parameter-advisor` lädt zwar alle `system_settings`, der Prompt klatscht sie aber als JSON-Block in den Snapshot — Gemini sieht die Empfehlungen, ohne dass sie inhaltlich hervorgehoben oder bewertet werden.
-
-## Änderungen (1 Datei)
-
-**`supabase/functions/ai-parameter-advisor/index.ts`**
-
-1. Nach dem Aufbau von `sysMap` zwei dedizierte Variablen extrahieren:
-   - `weeklyInsight = sysMap['weekly_insight']`
-   - `bestMatchToday = sysMap['best_match_today']`
-   - `patternRecommendations = weeklyInsight?.recommendations ?? []`
-2. Beide Keys aus `sysMap` entfernen (für den generischen Snapshot) → keine Dopplung.
-3. Neuen `patternBlock` zusammenstellen mit den relevanten Feldern (Trend, SCR, Top-Grid-Hours, Summary, recommendations + Signatur/Match-Quality/Top-Days/Overrides).
-4. Im Prompt einen neuen Block **vor** „REGELN" einfügen:
-
+### 1. Täglicher Cron für „gestern"
+Neuer pg_cron-Job:
 ```
-MUSTERANALYSE (analyze-patterns) — explizit zu berücksichtigen:
-${JSON.stringify(patternBlock, null, 2)}
-
-REGELN FÜR DEN UMGANG MIT MUSTERANALYSE:
-- `weekly_insight.recommendations` sind unverbindliche Hinweise — übersetze sie nur in eine Entscheidung, wenn der Key in der erlaubten Whitelist steht und der Wert in den Grenzen liegt.
-- Begründe in `reasoning` explizit, falls du einer Empfehlung folgst ODER bewusst abweichst.
-- `best_match_today.recommended_overrides` zeigen, was an einem ähnlichen Vergangenheitstag gut funktioniert hat — als Prior nutzen, nicht blind kopieren.
-- Wenn `match_quality = 'none'` oder kein `weekly_insight`: ignoriere den Block.
+jobname: compute-daily-score-daily
+schedule: 30 2 * * *      -- 02:30 UTC = 03:30/04:30 Europe/Vienna, nach 'aggregate-energy-data-daily' (03:00 UTC)
+body:    {}                -- Standard = gestern, exakt der bestehende Default
 ```
+Begründung Zeitpunkt: `aggregate-energy-data-daily` läuft um 03:00 UTC, `analysis-scheduler` triggert die Tages-/Wochenanalyse erst über den `analysis_daily_time`-Slot (UI-konfigurierbar, Default 03:30). Wir setzen `compute-daily-score` knapp davor, damit die Wochenanalyse bereits einen frischen Score sieht.
 
-5. Keine Schema-Änderung am `decisions`-Output — die Whitelist bleibt der harte Filter.
+→ via **Supabase Insert Tool** (keine Migration, weil URL+anon-Key enthalten).
 
-## Was sich dadurch ändert
+### 2. Self-Backfill für Lücken (max 7 Tage rückwirkend)
+In `supabase/functions/compute-daily-score/index.ts` am Anfang des Default-Pfads ergänzen:
+- Vor dem Score-Lauf prüfen, welche der letzten 7 Tage (`current_date - 7 .. current_date - 1`) in `daily_pattern_scores` fehlen.
+- Fehlende Tage in `dates[]` einreihen (max. 7), zusätzlich zu „gestern".
+- Bestehender Code für mehrere Dates läuft bereits in einer Schleife — kein weiterer Umbau nötig.
 
-- Advisor-Vorschläge werden nachvollziehbar aus den Wochentrends abgeleitet (z. B. „Top-Grid-Hour = 7 Uhr → `night_end_time` nach hinten").
-- Bei einem starken `best_match_today` (z. B. `exact`) erhält der Advisor einen historisch validierten Prior für die Setpoints des Tages.
-- Whitelist + Range-Check + Rate-Limit + Auto-Rollback bleiben unverändert — alle Safety-Mechanismen greifen weiter.
+So holt der tägliche Cron Lücken automatisch nach (z. B. wenn Edge Function 1–2 Tage offline war), ohne dass jemals wieder manuell gebackfillt werden muss.
 
-## Out of Scope
+### 3. „Just-in-time"-Self-Heal im Advisor
+In `ai-parameter-advisor` (läuft 15-minütlich) vor dem Snapshot prüfen:
+- Wenn `daily_pattern_scores` für `current_date - 1` fehlt **und** die aktuelle Zeit > 04:00 Europe/Vienna ist (Daten müssten da sein):
+  - Asynchron (fire-and-forget) `compute-daily-score` mit `{}` triggern.
+  - Aktueller Advisor-Lauf benutzt den vorhandenen Datenstand — beim nächsten 15-min-Tick ist der Score da.
 
-- Kein neues Cron, keine neuen Tabellen, keine UI-Änderung.
-- `apply-recommendations` bleibt weiterhin abgeschaltet (Memory: Setpoint-Autorität nur bei `pv-automation`).
+Damit erholt sich das System auch dann selbst, wenn der 02:30-Cron einmal nicht angestoßen wurde (z. B. Resume nach Pause der Cloud).
+
+## Was sich NICHT ändert
+- `compute-daily-score` Endpoint bleibt rückwärtskompatibel — der manuelle Backfill-Button im Frontend (falls vorhanden) funktioniert weiter, ist nur nicht mehr nötig.
+- Keine neue Tabelle, keine Schema-Migration.
+- Whitelist + Range-Checks + Pattern-Block im Advisor (gerade hinzugefügt) bleiben unverändert.
+
+## Geänderte / neue Dateien
+- `supabase/functions/compute-daily-score/index.ts` — Self-Backfill der letzten 7 Tage im Default-Pfad.
+- `supabase/functions/ai-parameter-advisor/index.ts` — Just-in-time-Trigger bei fehlendem „gestern"-Score.
+- pg_cron-Eintrag `compute-daily-score-daily` (über Insert-Tool).
+
+## Verifikation nach dem Build
+- `SELECT date FROM daily_pattern_scores ORDER BY date DESC LIMIT 10;` zeigt heute lückenlos.
+- Cron-Liste enthält `compute-daily-score-daily`.
+- Advisor-Log enthält ggf. „daily_score missing — triggered backfill".

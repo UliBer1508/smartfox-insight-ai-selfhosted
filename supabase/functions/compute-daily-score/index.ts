@@ -210,9 +210,25 @@ serve(async (req) => {
     } else if (body.date) {
       dates.push(body.date);
     } else {
-      // Default: gestern
-      const d = new Date(today.getTime() - 86400000);
-      dates.push(d.toISOString().slice(0, 10));
+      // Default: gestern + automatischer Self-Backfill für die letzten 7 Tage,
+      // damit Lücken (z. B. Edge Function pausiert) ohne manuellen Eingriff
+      // nachgeholt werden.
+      const candidates: string[] = [];
+      for (let i = 1; i <= 7; i++) {
+        const d = new Date(today.getTime() - i * 86400000);
+        candidates.push(d.toISOString().slice(0, 10));
+      }
+      const { data: existing } = await supabase
+        .from('daily_pattern_scores')
+        .select('date')
+        .in('date', candidates);
+      const have = new Set((existing ?? []).map((r: any) => String(r.date).slice(0, 10)));
+      const missing = candidates.filter((d) => !have.has(d));
+      // „Gestern" garantiert dabei (Idempotent durch Upsert), zusätzlich alle fehlenden Tage
+      const yesterday = candidates[0];
+      const set = new Set<string>([yesterday, ...missing]);
+      dates.push(...Array.from(set).sort().reverse()); // neuester zuerst
+      console.log(`[compute-daily-score] auto-run: ${dates.length} dates (missing: ${missing.length})`);
     }
 
     const results: Array<{ date: string; ok: boolean; reason?: string; score?: number }> = [];
