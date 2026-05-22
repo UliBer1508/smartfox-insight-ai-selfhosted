@@ -312,17 +312,39 @@ export function AIShadowDecisions() {
 
         {byParam.size > 0 && (
           <div className="flex flex-wrap gap-2">
-            {Array.from(byParam.entries()).map(([k, v]) => (
-              <div key={k} className="text-xs px-2 py-1 rounded border bg-muted/30">
-                <span className="font-mono">{k}</span>{' '}
-                <span className="text-muted-foreground">×{v.total}</span>
-                {v.evaluated > 0 && v.avgScore != null && (
-                  <span className="ml-1">· Ø {v.avgScore.toFixed(2)}</span>
-                )}
-              </div>
-            ))}
+            {Array.from(byParam.entries()).map(([k, v]) => {
+              const active = paramFilter === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setParamFilter(active ? null : k)}
+                  className={`text-xs px-2 py-1 rounded border transition-colors ${
+                    active
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted/30 hover:bg-muted'
+                  }`}
+                >
+                  <span className="font-mono">{k}</span>{' '}
+                  <span className={active ? 'opacity-80' : 'text-muted-foreground'}>×{v.total}</span>
+                  {v.evaluated > 0 && v.avgScore != null && (
+                    <span className="ml-1">· Ø {v.avgScore.toFixed(2)}</span>
+                  )}
+                </button>
+              );
+            })}
+            {paramFilter && (
+              <button
+                type="button"
+                onClick={() => setParamFilter(null)}
+                className="text-xs px-2 py-1 rounded border border-dashed hover:bg-muted"
+              >
+                ✕ Filter aufheben
+              </button>
+            )}
           </div>
         )}
+
 
 
 
