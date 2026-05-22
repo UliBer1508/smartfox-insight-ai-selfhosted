@@ -276,6 +276,8 @@ Antworte STRIKT als JSON:
         proposed: decisions.length,
         accepted: inserts.length,
         rejected: rejected.length,
+        auto_applied: autoApplied.length,
+        auto_applied_details: autoApplied,
         rejected_details: rejected,
         summary: parsed?.summary ?? null,
       }),
