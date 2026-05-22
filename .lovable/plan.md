@@ -1,61 +1,89 @@
-## Ziel
+# Vollautomatische KI-Parameter-Steuerung
 
-Über der Vorschlagsliste in **KI-Parameter-Vorschläge** einen kompakten Block **„Heute geplant von KI"** einblenden, der den Tagesplan vom `ai-daily-planner` (06:00, Claude Haiku) zeigt.
+## Ist-Zustand
 
-## Problem in der aktuellen Implementierung
+Die Bausteine existieren bereits, laufen aber nur manuell:
 
-Der `ai-daily-planner` schreibt in `heating_recommendations`, aber die Tabelle passt nicht zum Format:
+- **`ai-parameter-advisor`** (Gemini Flash Lite) erzeugt Vorschläge. Wenn ein Parameter in `ai_parameter_whitelist` auf `autonomy_level = 'auto'` steht, wendet die Function ihn **schon heute** direkt an und schreibt `auto_applied = true` in `ai_parameter_decisions`.
+- **`ai-parameter-evaluator`** misst nach X Minuten den Outcome-Score.
+- **DB-Trigger `validate_ai_auto_apply`** auf `heating_settings` blockiert Auto-Writes hart, wenn der Master-Switch `system_settings.ai_auto_mode_enabled = false` ist, und prüft Min/Max/Allowed gegen die Whitelist.
+- **Master-Switch**: `system_settings.ai_auto_mode_enabled` existiert (aktuell `true`), aber es gibt **keine UI** dafür und **keinen Cron**, der den Advisor regelmäßig anstößt.
 
-- Spalte `date` ist `NOT NULL` und wird **nicht gesetzt** (nur `valid_for_date`) → Insert würde scheitern.
-- UNIQUE auf `(date, period_number)` → mehrere Räume pro Tag kollidieren.
-- CHECK auf `priority` lässt nur `battery|heating|conservation` zu — Planner schreibt `ai_planner` → CHECK violation.
-- Kein `room_id` → Plan ist nicht pro Raum referenzierbar in der UI.
+Heißt: Die Sicherheits- und Apply-Logik ist fertig. Es fehlt nur **Automation (Cron)**, **UI-Schalter** und ein sauberes **Monitoring**.
 
-Statt diese Tabelle umzubauen (die wird von der bestehenden Heat-Logik genutzt), legen wir eine **eigene saubere Tabelle** für den Tagesplan an.
+## Zielbild
 
-## Änderungen
+1. Advisor läuft **alle 15 min** automatisch (06:00–22:00 Vienna), schlägt Parameter vor und wendet alle `autonomy_level = 'auto'`-Parameter ohne Klick an.
+2. Im Frontend gibt es einen prominenten **Master-Schalter** „KI-Autopilot aktiv". Aus = Trigger schreibt nicht mehr, neuer Cron-Lauf produziert nur noch Shadow-Decisions.
+3. Pro Parameter bleibt der Drei-Stufen-Schalter `shadow / suggest / auto` (bestehende UI in KI-Parameter-Whitelist) bestehen — das ist die feine Steuerung.
+4. Auto-Rollback bei schlechtem Outcome.
 
-### 1) Migration — neue Tabelle `ai_daily_plans`
+## Umsetzung
 
-```text
-ai_daily_plans
-  id              uuid pk
-  plan_date       date unique (1 Plan pro Tag)
-  source          text  (claude-haiku | gemini-flash-fallback)
-  overall_strategy text
-  time_blocks     jsonb   (Array {start_time, end_time, strategy})
-  rooms           jsonb   (Array {room_id, room_name, priority_rank, recommended_temp, reasoning})
-  raw_plan        jsonb   (vollständige KI-Antwort, für Debug)
-  created_at      timestamptz
-```
+### 1. Master-Schalter im Frontend
 
-RLS:
-- authenticated: full access
-- anon: SELECT only (UI ohne Login soll lesen können)
-- service_role: full (Edge Function schreibt)
+Neue Komponente `AIAutopilotToggle` ganz oben in der KI-Tab-Seite (über `AIShadowDecisions`):
 
-### 2) Edge Function `ai-daily-planner` anpassen
+- Großer Switch + Status-Badge (`Aktiv` grün / `Pausiert` grau).
+- Liest/schreibt `system_settings.ai_auto_mode_enabled` (`{ enabled: boolean }`).
+- Zeigt eine kurze Klartext-Zusammenfassung:
+  - Anzahl Parameter aktuell auf `auto` (aus `ai_parameter_whitelist`)
+  - Letzter Advisor-Lauf (max `created_at` aus `ai_parameter_decisions`)
+  - Auto-Applies heute + Ø Outcome-Score letzte 7 Tage
+- Beim Ausschalten Bestätigungs-Dialog: „Laufende `auto`-Parameter bleiben unverändert, neue Vorschläge werden nicht mehr angewendet."
 
-- Statt in `heating_recommendations` zu schreiben, **UPSERT** auf `ai_daily_plans` (`plan_date = today`).
-- `rooms` als komplettes Array speichern (inkl. room_id, room_name).
-- `overall_strategy` und `time_blocks` als eigene Spalten.
+### 2. Cron für Advisor
 
-### 3) UI — neue Komponente `AIDailyPlanCard`
+Neuer pg_cron-Job `ai-parameter-advisor-15min`:
+- Alle 15 min zwischen 06:00–22:00 Europe/Vienna
+- `net.http_post` auf `ai-parameter-advisor` mit anon key
+- Idempotent: Advisor entscheidet selbst, ob neue Decisions nötig sind (existiert dedupe? — siehe Schritt 4)
 
-In `src/components/heating/` neu anlegen. Sie wird in `AIShadowDecisions.tsx` direkt **über** der Vorschlagsliste (vor dem Filter „Alle / Offen / Bewertet") gerendert.
+Wird per `supabase--insert` angelegt (User-spezifische URL/Key).
 
-Anzeige:
-- Header: „Tagesplan KI · {plan_date}" + Quelle-Badge (Claude / Gemini-Fallback)
-- `overall_strategy` (Klartext, expand/collapse bei >200 Zeichen)
-- Optional: kleine Zeitleiste der `time_blocks` (Chips: `06:00–10:00 · Eco-Heizung`)
-- Tabelle der Räume sortiert nach `priority_rank`: Raum · Rang · Empf. Temp · 1-Satz-Reasoning
-- Falls heute kein Plan existiert: dezenter Hinweis „Heute noch kein Tagesplan – läuft täglich um 06:00. [Jetzt erzeugen]" (Button triggert `ai-daily-planner` per `supabase.functions.invoke`).
+### 3. Evaluator + Auto-Rollback
 
-### 4) Types
+Cron `ai-parameter-evaluator-hourly` (existiert evtl., sonst neu): stündlich. Erweiterung der Function:
+- Wenn `outcome_score < -0.3` (konfigurierbar) **und** `auto_applied = true` **und** noch nicht zurückgerollt → automatischer Revert auf `current_value`, `rollback_at` setzen.
+- Setzt den betroffenen Whitelist-Eintrag temporär auf `suggest` (Cool-Down 24 h), damit nicht sofort wieder dasselbe passiert.
 
-Werden nach der Migration automatisch in `src/integrations/supabase/types.ts` aktualisiert.
+### 4. Dedupe / Rate-Limit im Advisor
 
-## Nicht enthalten
+Damit der 15-min-Cron nicht spammt:
+- Pro `parameter_key` max 1 Auto-Apply pro Stunde.
+- Wenn `proposed_value` = `current_value` → kein Insert.
 
-- Keine Änderungen an `pv-automation`. Der Plan wird (in dieser Iteration) nur **angezeigt**, noch nicht in die Setpoint-Logik eingespeist. Das ist ein bewusster nächster Schritt, sobald der Plan-Output stabil aussieht.
-- Keine Cleanup-Cron für `ai_daily_plans` (kommt später; vorerst maximal 1 Zeile pro Tag).
+### 5. Sichtbarkeit & Audit
+
+`AIShadowDecisions` ergänzen:
+- Eigener Tab/Filter „Auto-Applied" (`auto_applied = true`).
+- Pro Eintrag: Outcome-Score, Rollback-Button (manuell), Badge wenn Auto-Rollback erfolgte.
+
+### 6. Memory & Doku
+
+- Neuer Memory-Eintrag `mem://features/heating/ai-autopilot` mit Verhalten, Cron-Takt, Kill-Switch-Pfad.
+- `CHANGELOG.md` Eintrag.
+
+## Sicherheits-Garantien (bereits vorhanden, bleiben)
+
+- Trigger `validate_ai_auto_apply` blockt jeden Auto-Write bei `ai_auto_mode_enabled = false` oder wenn Wert außerhalb Whitelist-Range.
+- `pv-automation` bleibt alleinige Setpoint-Autorität — Autopilot ändert nur **Parameter** in `heating_settings`, keine Raum-Setpoints.
+- Pro Parameter steuerbar via `autonomy_level` (`shadow` = nur loggen, `suggest` = Vorschlag in UI, `auto` = anwenden).
+
+## Technische Details
+
+| Komponente | Pfad |
+|---|---|
+| Master-Switch UI | `src/components/heating/AIAutopilotToggle.tsx` (neu) |
+| Einbau | `src/components/heating/AIShadowDecisions.tsx` (oberhalb `AIDailyPlanCard`) |
+| Cron Advisor | `pg_cron` job `ai-parameter-advisor-15min` (via `supabase--insert`) |
+| Cron Evaluator | `pg_cron` job `ai-parameter-evaluator-hourly` |
+| Advisor-Erweiterung | `supabase/functions/ai-parameter-advisor/index.ts` (Dedupe + 1/h-Limit) |
+| Evaluator-Erweiterung | `supabase/functions/ai-parameter-evaluator/index.ts` (Auto-Rollback bei Score < −0.3) |
+| Settings-Key | `system_settings.ai_auto_mode_enabled` (bereits vorhanden) |
+
+## Offene Fragen
+
+1. **Aktiv-Zeitfenster** des Cron: `06:00–22:00` ok, oder 24/7?
+2. **Rollback-Schwelle**: Outcome-Score `< −0.3` als Default ok, oder strenger/lockerer?
+3. **Cool-Down nach Rollback**: 24 h auf `suggest` herabstufen — ok, oder soll der Parameter komplett auf `shadow` zurückfallen?
