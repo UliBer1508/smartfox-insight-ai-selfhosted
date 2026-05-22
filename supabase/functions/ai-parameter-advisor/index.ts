@@ -84,9 +84,14 @@ Deno.serve(async (req) => {
       description: w.description,
     }));
 
+    const autoParams = wl.filter(w => w.autonomy_level === 'auto').map(w => w.parameter_key);
     const prompt = `Du bist ein Steuerungs-Optimierer für ein PV-Heizsystem (15.8 kWp PV, 13.8 kWh Batterie, 12 Räume mit Tuya-Thermostaten).
 Deine Aufgabe: Schlage konkrete Parameter-Änderungen vor, die Eigenverbrauchsquote (SCR) und Komfort verbessern.
-WICHTIG: Du SCHREIBST KEINE Werte. Deine Vorschläge werden nur dokumentiert (Shadow-Mode).
+
+AUTONOMIE-LEVEL DER PARAMETER:
+- shadow/suggest: Vorschläge werden nur dokumentert — der Nutzer muss bestätigen.
+- auto: Die KI schreibt direkt (mit Audit-Log).
+AUTO-Parameter: ${autoParams.join(', ') || 'keine'}
 
 ERLAUBTE PARAMETER (du darfst NUR diese vorschlagen, innerhalb der Grenzen):
 ${JSON.stringify(whitelistDoc, null, 2)}
