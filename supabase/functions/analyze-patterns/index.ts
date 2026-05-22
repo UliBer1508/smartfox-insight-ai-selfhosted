@@ -169,6 +169,91 @@ function getLocalHour(timezone: string = 'Europe/Berlin'): number {
   }));
 }
 
+function buildDeterministicHeatingDecision(body: Record<string, any>, reason: string): MLDecisionResponse {
+  const reading = Array.isArray(body.readings) ? body.readings[0] : body.readings;
+  const settings = body.heatingSettings ?? {};
+  const rooms = Array.isArray(body.rooms) ? body.rooms : [];
+  const surplus = Number(reading?.power_io ?? 0) < 0 ? Math.abs(Number(reading.power_io)) : 0;
+  const pvPower = Number(reading?.pv_power ?? 0);
+  const batterySoc = Number(reading?.battery_soc ?? 50);
+  const thresholdOn = Number(settings?.pv_surplus_threshold_on ?? 500);
+  const thresholdOff = Number(settings?.pv_surplus_threshold_off ?? 200);
+  const heatingMinSoc = Number(settings?.heating_min_battery_soc ?? 80);
+  const { isNight } = isNightTimeFromSettings(settings?.night_start_time || '20:00', settings?.night_end_time || '08:00', 'Europe/Vienna');
+
+  const decisions: MLDecision[] = rooms.map((room: Record<string, any>) => {
+    const ecoTemp = Number(room.eco_temp ?? settings?.eco_temp ?? 19);
+    const comfortTemp = Number(room.comfort_temp ?? settings?.comfort_temp ?? 21);
+    const nightTemp = Number(room.night_temp ?? settings?.night_temp ?? 17);
+    const currentTemp = Number(room.current_temp ?? room.target_temp ?? ecoTemp);
+    const targetTemp = Number(room.target_temp ?? ecoTemp);
+    const roomPower = Number(room.calculated_power_w ?? room.heating_power_w ?? 800);
+
+    if (isNight) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: targetTemp > nightTemp + 0.1 ? 'deactivate' : 'keep',
+        target_temp: nightTemp,
+        reasoning: `${reason}: Nachtmodus, sichere Absenkung auf Nacht-Sollwert`,
+        expected_energy_wh: 0,
+        confidence: 0.72,
+      };
+    }
+
+    if (currentTemp >= comfortTemp - 0.2 || targetTemp > comfortTemp) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: 'deactivate',
+        target_temp: ecoTemp,
+        reasoning: `${reason}: Komfort erreicht, Estrichspeicher nutzen und auf Eco zurücknehmen`,
+        expected_energy_wh: 0,
+        confidence: 0.8,
+      };
+    }
+
+    if (surplus < thresholdOff || pvPower < 500 || batterySoc < heatingMinSoc) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: targetTemp > ecoTemp + 0.1 ? 'deactivate' : 'keep',
+        target_temp: ecoTemp,
+        reasoning: `${reason}: kein sicheres Komfort-Budget, Eco halten`,
+        expected_energy_wh: 0,
+        confidence: 0.75,
+      };
+    }
+
+    if (surplus >= thresholdOn && pvPower >= 1000 && currentTemp < ecoTemp - 0.2) {
+      return {
+        room_id: String(room.id),
+        room_name: String(room.name ?? 'Raum'),
+        action: 'activate',
+        target_temp: ecoTemp,
+        reasoning: `${reason}: PV-Überschuss verfügbar, Raum zuerst auf Eco bringen`,
+        expected_energy_wh: Math.round(roomPower * Math.max(0.25, ecoTemp - currentTemp) * 0.75),
+        confidence: 0.78,
+      };
+    }
+
+    return {
+      room_id: String(room.id),
+      room_name: String(room.name ?? 'Raum'),
+      action: 'keep',
+      target_temp: Math.min(Math.max(targetTemp, ecoTemp), comfortTemp),
+      reasoning: `${reason}: aktuelle Zieltemperatur ist im sicheren Bereich`,
+      expected_energy_wh: 0,
+      confidence: 0.7,
+    };
+  });
+
+  return {
+    decisions,
+    overall_strategy: `${reason}: deterministische PV-/SOC-/Temperatur-Regeln aktiv, KI-Ausfall blockiert den Autopilot nicht.`,
+  };
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
