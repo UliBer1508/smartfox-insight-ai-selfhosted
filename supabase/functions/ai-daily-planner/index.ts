@@ -295,7 +295,7 @@ Nutze TOOL-USE mit dem bereitgestellten Schema.`;
         ok: true,
         source,
         plan_date: today,
-        room_count: inserts.length,
+        room_count: (plan.rooms ?? []).length,
         overall_strategy: plan.overall_strategy,
         fallback_error: errorDetails,
       }),
