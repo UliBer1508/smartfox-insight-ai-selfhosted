@@ -89,21 +89,6 @@ export function AIShadowDecisions() {
   const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
 
-  const toggleExpanded = (id: string) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const allExpanded = expanded.size === filtered.length && filtered.length > 5;
-  const expandAll = () => {
-    if (allExpanded) setExpanded(new Set());
-    else setExpanded(new Set(filtered.map((d) => d.id)));
-  };
-
   const load = async () => {
     setLoading(true);
     const [{ data: dec }, { data: rs }, { data: wl }] = await Promise.all([
