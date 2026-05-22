@@ -71,14 +71,48 @@ Deno.serve(async (req) => {
     const energy = latestEnergy?.[0] ?? null;
     const today = forecast?.[0] ?? null;
 
+    // Musteranalyse-Outputs aus analyze-patterns explizit isolieren,
+    // damit der Advisor sie als eigenständige Empfehlungen sieht und nicht
+    // im generischen system_settings-Dump untergehen lässt.
+    const weeklyInsight = (sysMap['weekly_insight'] as any) ?? null;
+    const bestMatchToday = (sysMap['best_match_today'] as any) ?? null;
+    const patternRecommendations = Array.isArray(weeklyInsight?.recommendations)
+      ? weeklyInsight.recommendations
+      : [];
+
+    const sysMapTrimmed: Record<string, unknown> = { ...sysMap };
+    delete sysMapTrimmed['weekly_insight'];
+    delete sysMapTrimmed['best_match_today'];
+
     const snapshot = {
       timestamp: startedAt,
       energy_now: energy,
       forecast_today: today,
       kpis_last_7d: dailyScores ?? [],
       heating_settings: heatingSettings,
-      system_settings: sysMap,
+      system_settings: sysMapTrimmed,
       rooms: rooms ?? [],
+    };
+
+    const patternBlock = {
+      weekly_insight: weeklyInsight
+        ? {
+            trend: weeklyInsight.trend,
+            avg_self_consumption_ratio: weeklyInsight.avg_self_consumption_ratio,
+            top_grid_import_hours: weeklyInsight.top_grid_import_hours,
+            summary: weeklyInsight.summary,
+            computed_at: weeklyInsight.computed_at,
+            recommendations: patternRecommendations,
+          }
+        : null,
+      best_match_today: bestMatchToday
+        ? {
+            signature: bestMatchToday.signature,
+            match_quality: bestMatchToday.match_quality,
+            top_days: (bestMatchToday.top_days ?? []).slice(0, 3),
+            recommended_overrides: bestMatchToday.recommended_overrides,
+          }
+        : null,
     };
 
     // 2) Build prompt

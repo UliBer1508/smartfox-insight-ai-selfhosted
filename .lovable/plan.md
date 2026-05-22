@@ -1,89 +1,45 @@
-# Vollautomatische KI-Parameter-Steuerung
+## Ziel
 
-## Ist-Zustand
+Die wöchentlichen Empfehlungen aus `analyze-patterns` (gespeichert in `system_settings.weekly_insight`) und der heutige Pattern-Match (`best_match_today`) sollen vom Autopilot-Advisor (`ai-parameter-advisor`) explizit gewichtet werden — statt wie heute nur als anonymer Teil des generischen `system_settings`-JSON-Dumps mitzufliegen.
 
-Die Bausteine existieren bereits, laufen aber nur manuell:
+## Aktueller Zustand
 
-- **`ai-parameter-advisor`** (Gemini Flash Lite) erzeugt Vorschläge. Wenn ein Parameter in `ai_parameter_whitelist` auf `autonomy_level = 'auto'` steht, wendet die Function ihn **schon heute** direkt an und schreibt `auto_applied = true` in `ai_parameter_decisions`.
-- **`ai-parameter-evaluator`** misst nach X Minuten den Outcome-Score.
-- **DB-Trigger `validate_ai_auto_apply`** auf `heating_settings` blockiert Auto-Writes hart, wenn der Master-Switch `system_settings.ai_auto_mode_enabled = false` ist, und prüft Min/Max/Allowed gegen die Whitelist.
-- **Master-Switch**: `system_settings.ai_auto_mode_enabled` existiert (aktuell `true`), aber es gibt **keine UI** dafür und **keinen Cron**, der den Advisor regelmäßig anstößt.
+- `analyze-patterns` persistiert beim wöchentlichen Lauf eine strukturierte `weekly_insight` mit `trend`, `avg_self_consumption_ratio`, `top_grid_import_hours`, `summary` und einer Liste freier `recommendations` (`key`, `value`, `reason`).
+- `analyze-patterns` persistiert beim `match_today`-Lauf `best_match_today` mit Signatur, Top-Tagen und `recommended_overrides`.
+- `ai-parameter-advisor` lädt zwar alle `system_settings`, der Prompt klatscht sie aber als JSON-Block in den Snapshot — Gemini sieht die Empfehlungen, ohne dass sie inhaltlich hervorgehoben oder bewertet werden.
 
-Heißt: Die Sicherheits- und Apply-Logik ist fertig. Es fehlt nur **Automation (Cron)**, **UI-Schalter** und ein sauberes **Monitoring**.
+## Änderungen (1 Datei)
 
-## Zielbild
+**`supabase/functions/ai-parameter-advisor/index.ts`**
 
-1. Advisor läuft **alle 15 min** automatisch (06:00–22:00 Vienna), schlägt Parameter vor und wendet alle `autonomy_level = 'auto'`-Parameter ohne Klick an.
-2. Im Frontend gibt es einen prominenten **Master-Schalter** „KI-Autopilot aktiv". Aus = Trigger schreibt nicht mehr, neuer Cron-Lauf produziert nur noch Shadow-Decisions.
-3. Pro Parameter bleibt der Drei-Stufen-Schalter `shadow / suggest / auto` (bestehende UI in KI-Parameter-Whitelist) bestehen — das ist die feine Steuerung.
-4. Auto-Rollback bei schlechtem Outcome.
+1. Nach dem Aufbau von `sysMap` zwei dedizierte Variablen extrahieren:
+   - `weeklyInsight = sysMap['weekly_insight']`
+   - `bestMatchToday = sysMap['best_match_today']`
+   - `patternRecommendations = weeklyInsight?.recommendations ?? []`
+2. Beide Keys aus `sysMap` entfernen (für den generischen Snapshot) → keine Dopplung.
+3. Neuen `patternBlock` zusammenstellen mit den relevanten Feldern (Trend, SCR, Top-Grid-Hours, Summary, recommendations + Signatur/Match-Quality/Top-Days/Overrides).
+4. Im Prompt einen neuen Block **vor** „REGELN" einfügen:
 
-## Umsetzung
+```
+MUSTERANALYSE (analyze-patterns) — explizit zu berücksichtigen:
+${JSON.stringify(patternBlock, null, 2)}
 
-### 1. Master-Schalter im Frontend
+REGELN FÜR DEN UMGANG MIT MUSTERANALYSE:
+- `weekly_insight.recommendations` sind unverbindliche Hinweise — übersetze sie nur in eine Entscheidung, wenn der Key in der erlaubten Whitelist steht und der Wert in den Grenzen liegt.
+- Begründe in `reasoning` explizit, falls du einer Empfehlung folgst ODER bewusst abweichst.
+- `best_match_today.recommended_overrides` zeigen, was an einem ähnlichen Vergangenheitstag gut funktioniert hat — als Prior nutzen, nicht blind kopieren.
+- Wenn `match_quality = 'none'` oder kein `weekly_insight`: ignoriere den Block.
+```
 
-Neue Komponente `AIAutopilotToggle` ganz oben in der KI-Tab-Seite (über `AIShadowDecisions`):
+5. Keine Schema-Änderung am `decisions`-Output — die Whitelist bleibt der harte Filter.
 
-- Großer Switch + Status-Badge (`Aktiv` grün / `Pausiert` grau).
-- Liest/schreibt `system_settings.ai_auto_mode_enabled` (`{ enabled: boolean }`).
-- Zeigt eine kurze Klartext-Zusammenfassung:
-  - Anzahl Parameter aktuell auf `auto` (aus `ai_parameter_whitelist`)
-  - Letzter Advisor-Lauf (max `created_at` aus `ai_parameter_decisions`)
-  - Auto-Applies heute + Ø Outcome-Score letzte 7 Tage
-- Beim Ausschalten Bestätigungs-Dialog: „Laufende `auto`-Parameter bleiben unverändert, neue Vorschläge werden nicht mehr angewendet."
+## Was sich dadurch ändert
 
-### 2. Cron für Advisor
+- Advisor-Vorschläge werden nachvollziehbar aus den Wochentrends abgeleitet (z. B. „Top-Grid-Hour = 7 Uhr → `night_end_time` nach hinten").
+- Bei einem starken `best_match_today` (z. B. `exact`) erhält der Advisor einen historisch validierten Prior für die Setpoints des Tages.
+- Whitelist + Range-Check + Rate-Limit + Auto-Rollback bleiben unverändert — alle Safety-Mechanismen greifen weiter.
 
-Neuer pg_cron-Job `ai-parameter-advisor-15min`:
-- Alle 15 min zwischen 06:00–22:00 Europe/Vienna
-- `net.http_post` auf `ai-parameter-advisor` mit anon key
-- Idempotent: Advisor entscheidet selbst, ob neue Decisions nötig sind (existiert dedupe? — siehe Schritt 4)
+## Out of Scope
 
-Wird per `supabase--insert` angelegt (User-spezifische URL/Key).
-
-### 3. Evaluator + Auto-Rollback
-
-Cron `ai-parameter-evaluator-hourly` (existiert evtl., sonst neu): stündlich. Erweiterung der Function:
-- Wenn `outcome_score < -0.3` (konfigurierbar) **und** `auto_applied = true` **und** noch nicht zurückgerollt → automatischer Revert auf `current_value`, `rollback_at` setzen.
-- Setzt den betroffenen Whitelist-Eintrag temporär auf `suggest` (Cool-Down 24 h), damit nicht sofort wieder dasselbe passiert.
-
-### 4. Dedupe / Rate-Limit im Advisor
-
-Damit der 15-min-Cron nicht spammt:
-- Pro `parameter_key` max 1 Auto-Apply pro Stunde.
-- Wenn `proposed_value` = `current_value` → kein Insert.
-
-### 5. Sichtbarkeit & Audit
-
-`AIShadowDecisions` ergänzen:
-- Eigener Tab/Filter „Auto-Applied" (`auto_applied = true`).
-- Pro Eintrag: Outcome-Score, Rollback-Button (manuell), Badge wenn Auto-Rollback erfolgte.
-
-### 6. Memory & Doku
-
-- Neuer Memory-Eintrag `mem://features/heating/ai-autopilot` mit Verhalten, Cron-Takt, Kill-Switch-Pfad.
-- `CHANGELOG.md` Eintrag.
-
-## Sicherheits-Garantien (bereits vorhanden, bleiben)
-
-- Trigger `validate_ai_auto_apply` blockt jeden Auto-Write bei `ai_auto_mode_enabled = false` oder wenn Wert außerhalb Whitelist-Range.
-- `pv-automation` bleibt alleinige Setpoint-Autorität — Autopilot ändert nur **Parameter** in `heating_settings`, keine Raum-Setpoints.
-- Pro Parameter steuerbar via `autonomy_level` (`shadow` = nur loggen, `suggest` = Vorschlag in UI, `auto` = anwenden).
-
-## Technische Details
-
-| Komponente | Pfad |
-|---|---|
-| Master-Switch UI | `src/components/heating/AIAutopilotToggle.tsx` (neu) |
-| Einbau | `src/components/heating/AIShadowDecisions.tsx` (oberhalb `AIDailyPlanCard`) |
-| Cron Advisor | `pg_cron` job `ai-parameter-advisor-15min` (via `supabase--insert`) |
-| Cron Evaluator | `pg_cron` job `ai-parameter-evaluator-hourly` |
-| Advisor-Erweiterung | `supabase/functions/ai-parameter-advisor/index.ts` (Dedupe + 1/h-Limit) |
-| Evaluator-Erweiterung | `supabase/functions/ai-parameter-evaluator/index.ts` (Auto-Rollback bei Score < −0.3) |
-| Settings-Key | `system_settings.ai_auto_mode_enabled` (bereits vorhanden) |
-
-## Offene Fragen
-
-1. **Aktiv-Zeitfenster** des Cron: `06:00–22:00` ok, oder 24/7?
-2. **Rollback-Schwelle**: Outcome-Score `< −0.3` als Default ok, oder strenger/lockerer?
-3. **Cool-Down nach Rollback**: 24 h auf `suggest` herabstufen — ok, oder soll der Parameter komplett auf `shadow` zurückfallen?
+- Kein neues Cron, keine neuen Tabellen, keine UI-Änderung.
+- `apply-recommendations` bleibt weiterhin abgeschaltet (Memory: Setpoint-Autorität nur bei `pv-automation`).
