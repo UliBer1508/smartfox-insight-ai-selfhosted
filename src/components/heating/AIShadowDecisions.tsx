@@ -378,12 +378,6 @@ export function AIShadowDecisions() {
               </Button>
               <Badge variant="secondary">{filtered.length}</Badge>
             </div>
-            {!listCollapsed && (
-              <Button variant="ghost" size="sm" onClick={expandAll}>
-                {allExpanded ? <ChevronUp className="h-4 w-4 mr-1" /> : <ChevronDown className="h-4 w-4 mr-1" />}
-                {allExpanded ? 'Alle Details zuklappen' : 'Alle Details aufklappen'}
-              </Button>
-            )}
           </div>
         )}
 
