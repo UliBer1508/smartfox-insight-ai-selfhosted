@@ -410,7 +410,7 @@ export function AIShadowDecisions() {
               ? 'Keine KI-Vorschläge verfügbar — siehe Fehlermeldung oben.'
               : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
           </p>
-        ) : (
+        ) : listCollapsed ? null : (
           <>
             {/* Mobile card list */}
             <div className="md:hidden space-y-2">
