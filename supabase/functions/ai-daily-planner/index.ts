@@ -275,29 +275,20 @@ Nutze TOOL-USE mit dem bereitgestellten Schema.`;
       );
     }
 
-    // ── 5) In DB schreiben ────────────────────────────────────
-    // Lösche alten Plan für heute (falls vorhanden)
-    await sb.from('heating_recommendations')
-      .delete()
-      .eq('ai_source', 'daily_planner')
-      .eq('valid_for_date', today);
+    // ── 5) In DB schreiben (ai_daily_plans, 1 Zeile pro Tag) ──
+    const { error: upsertErr } = await sb
+      .from('ai_daily_plans')
+      .upsert({
+        plan_date: today,
+        source,
+        overall_strategy: plan.overall_strategy ?? null,
+        time_blocks: plan.time_blocks ?? [],
+        rooms: plan.rooms ?? [],
+        raw_plan: plan,
+      }, { onConflict: 'plan_date' });
 
-    const inserts = plan.rooms.map((r: any) => ({
-      ai_source: 'daily_planner',
-      valid_for_date: today,
-      priority_rank: r.priority_rank ?? 99,
-      recommended_temp: r.recommended_temp ?? settings.comfort_temp ?? 21,
-      reasoning: `${r.reasoning} | Strategie: ${plan.overall_strategy ?? ''}`.slice(1, 1000),
-      start_time: '06:00',
-      end_time: '22:00',
-      period_number: 1,
-      priority: 'ai_planner',
-    }));
+    if (upsertErr) throw upsertErr;
 
-    const { error: insertErr } = await sb.from('heating_recommendations')
-      .insert(inserts);
-
-    if (insertErr) throw insertErr;
 
     return new Response(
       JSON.stringify({
