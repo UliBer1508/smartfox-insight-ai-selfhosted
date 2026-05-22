@@ -1169,7 +1169,7 @@ Kurze Einschätzung auf Deutsch.`;
     }
 
     const aiRequestBody: AIRequestBody = {
-      model: 'google/gemini-2.5-flash',
+      model: type === 'optimize_decision' ? 'google/gemini-2.5-flash-lite' : 'google/gemini-2.5-flash',
       messages: [
         { role: 'system', content: 'Du bist ein Experte für Energiemanagement und Heizungsoptimierung. Antworte auf Deutsch.' },
         { role: 'user', content: prompt }
@@ -1187,6 +1187,14 @@ Kurze Einschätzung auf Deutsch.`;
     if (!aiResponse.ok) {
       console.error('AI error:', aiResponse.status, aiResponse.error);
       
+      if (type === 'optimize_decision') {
+        const fallback = buildDeterministicHeatingDecision({ readings, rooms, heatingSettings }, aiResponse.status === 429 ? 'KI-Rate-Limit' : 'KI-Fallback');
+        return new Response(JSON.stringify({ ...fallback, fallback: true, error: aiResponse.error }), {
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+
       if (aiResponse.status === 429) {
         // Soft-fail: return 200 so callers (UI + pv-automation) don't break / blank-screen.
         // The deterministic budget logic is the final filter anyway.
