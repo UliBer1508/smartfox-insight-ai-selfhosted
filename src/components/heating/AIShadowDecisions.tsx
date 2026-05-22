@@ -237,6 +237,9 @@ export function AIShadowDecisions() {
     if (d.applied_at) {
       return <Badge className="bg-green-600 gap-1"><Check className="h-3 w-3" />Übernommen</Badge>;
     }
+    if (d.auto_applied) {
+      return <Badge className="bg-emerald-600 gap-1"><Check className="h-3 w-3" />Auto</Badge>;
+    }
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
     if (!wl) return <Badge variant="outline">unbekannt</Badge>;
     if (wl.autonomy_level === 'shadow') return <Badge variant="secondary">Schatten</Badge>;
