@@ -1,0 +1,2 @@
+ALTER TABLE public.ai_parameter_decisions DROP CONSTRAINT IF EXISTS ai_parameter_decisions_decision_mode_check;
+ALTER TABLE public.ai_parameter_decisions ADD CONSTRAINT ai_parameter_decisions_decision_mode_check CHECK (decision_mode = ANY (ARRAY['shadow'::text, 'suggest'::text, 'auto'::text, 'applied'::text, 'rejected'::text]));
