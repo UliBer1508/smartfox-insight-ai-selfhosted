@@ -1994,6 +1994,8 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name}: braucht ~${estimatedEnergyWh?.toFixed(0)} Wh für +${tempToTarget.toFixed(1)}°C (${energyPerDegreeWh.toFixed(0)} Wh/°C), geschätzte Dauer: ${estimatedDurationMin?.toFixed(0)} Min bei ${heatingPower}W`);
         }
         
+        const aiPlanRank = aiPlanRanks[room.id] ?? null;
+        
         return {
           room,
           priority: room.priority || 2,
@@ -2003,7 +2005,8 @@ Deno.serve(async (req) => {
           estimatedDurationMin,
           waitTimeMinutes,
           isCurrentlyHeating,
-          heatingDurationMinutes
+          heatingDurationMinutes,
+          aiPlanRank
         };
       });
       
