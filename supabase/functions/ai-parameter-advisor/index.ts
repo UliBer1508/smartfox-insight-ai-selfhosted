@@ -291,7 +291,7 @@ Antworte STRIKT als JSON:
       parsed = extractJSON(txt);
     } catch {
       console.error('[ai-parameter-advisor] JSON parse failed', txt.slice(0, 500));
-      return new Response(JSON.stringify({ ok: false, error: 'parse_failed' }), {
+      return new Response(JSON.stringify({ ok: true, skipped: 'parse_failed', proposed: 0, accepted: 0, rejected: 0, auto_applied: 0 }), {
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
