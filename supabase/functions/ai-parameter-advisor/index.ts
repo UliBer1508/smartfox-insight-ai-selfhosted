@@ -263,20 +263,32 @@ Antworte STRIKT als JSON:
       const txt = await geminiResp.text();
       console.error('[ai-parameter-advisor] Gemini error', geminiResp.status, txt);
       return new Response(JSON.stringify({
-        ok: false,
+        ok: true,
+        skipped: 'gemini_error',
         error: `gemini_${geminiResp.status}`,
-        message: `Gemini-Fehler ${geminiResp.status}`,
+        message: `Gemini-Fehler ${geminiResp.status} — Autopilot bleibt mit bestehenden Regeln aktiv.`,
+        proposed: 0,
+        accepted: 0,
+        rejected: 0,
+        auto_applied: 0,
       }), {
-        status: 502,
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
 
     const geminiJson = await geminiResp.json();
+    if (geminiJson?.candidates?.[0]?.finishReason === 'MAX_TOKENS') {
+      console.error('[ai-parameter-advisor] Gemini response truncated');
+      return new Response(JSON.stringify({ ok: true, skipped: 'truncated_response', proposed: 0, accepted: 0, rejected: 0, auto_applied: 0 }), {
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
     const txt: string = geminiJson?.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';
     let parsed: any;
     try {
-      parsed = JSON.parse(txt);
+      parsed = extractJSON(txt);
     } catch {
       console.error('[ai-parameter-advisor] JSON parse failed', txt.slice(0, 500));
       return new Response(JSON.stringify({ ok: false, error: 'parse_failed' }), {
