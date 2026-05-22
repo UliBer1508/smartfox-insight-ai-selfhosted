@@ -274,6 +274,9 @@ export function AIShadowDecisions() {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <AIDailyPlanCard />
+
+
         {byParam.size > 0 && (
           <div className="flex flex-wrap gap-2">
             {Array.from(byParam.entries()).map(([k, v]) => (
