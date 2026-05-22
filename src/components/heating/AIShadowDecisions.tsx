@@ -28,6 +28,8 @@ interface Decision {
   decision_mode: string;
   applied_at: string | null;
   applied_by: string | null;
+  auto_applied: boolean | null;
+  rollback_at: string | null;
 }
 
 interface WhitelistRow {
