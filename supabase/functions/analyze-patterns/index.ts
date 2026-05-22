@@ -21,6 +21,7 @@ interface AIResponse {
   status: number;
   data?: any;
   error?: string;
+  rateLimited?: boolean;
 }
 
 async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
@@ -30,7 +31,11 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
   }
 
   try {
-    console.log('Calling Google Gemini API (gemini-2.5-flash)...');
+    const requestedModel = requestBody.model?.replace(/^google\//, '') || 'gemini-2.5-flash';
+    const modelName = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'].includes(requestedModel)
+      ? requestedModel
+      : 'gemini-2.5-flash';
+    console.log(`Calling Google Gemini API (${modelName})...`);
     
     // Convert OpenAI-style messages to Gemini format
     const systemInstruction = requestBody.messages.find(m => m.role === 'system');
@@ -53,7 +58,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     const geminiBody: any = {
       contents,
       generationConfig: {
-        temperature: 0.7,
+        temperature: modelName === 'gemini-2.5-flash-lite' ? 0.35 : 0.7,
+        maxOutputTokens: 4096,
       },
     };
 
@@ -69,7 +75,7 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     }
 
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GOOGLE_AI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GOOGLE_AI_API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -80,8 +86,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     if (!response.ok) {
       const errorText = await response.text();
       if (response.status === 429) {
-        console.error('❌ Rate limit exceeded');
-        return { ok: false, status: 429, error: 'Rate limit exceeded - bitte später erneut versuchen' };
+        console.warn('⚠️ Gemini rate limit exceeded');
+        return { ok: false, status: 429, error: 'Rate limit exceeded - verwende deterministischen Fallback', rateLimited: true };
       }
       console.error('Gemini API error:', response.status, errorText);
       return { ok: false, status: response.status, error: errorText };
@@ -92,6 +98,10 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
 
     // Convert Gemini response to OpenAI-compatible format for downstream parsing
     const candidate = geminiData.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    if (finishReason === 'MAX_TOKENS') {
+      return { ok: false, status: 422, error: 'Gemini response truncated (MAX_TOKENS)' };
+    }
     const parts = candidate?.content?.parts || [];
     
     const functionCall = parts.find((p: any) => p.functionCall);
