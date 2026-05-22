@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
         ? {
             signature: bestMatchToday.signature,
             match_quality: bestMatchToday.match_quality,
-            top_days: (bestMatchToday.top_days ?? []).slice(0, 3),
+            top_days: (Array.isArray(bestMatchToday.top_days) ? bestMatchToday.top_days : []).slice(0, 3),
             recommended_overrides: bestMatchToday.recommended_overrides,
           }
         : null,
