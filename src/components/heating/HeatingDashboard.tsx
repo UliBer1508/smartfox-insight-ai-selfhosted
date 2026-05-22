@@ -100,9 +100,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
 
   const {
     toggleAutomation,
-    applyRecommendations,
-    isApplying,
   } = useAutomation();
+
 
   const {
     hasRoomError,
