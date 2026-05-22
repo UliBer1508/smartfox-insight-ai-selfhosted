@@ -141,6 +141,15 @@ ${JSON.stringify(whitelistDoc, null, 2)}
 AKTUELLER SYSTEM-SNAPSHOT:
 ${JSON.stringify(snapshot, null, 2)}
 
+MUSTERANALYSE (analyze-patterns) — explizit zu berücksichtigen:
+${JSON.stringify(patternBlock, null, 2)}
+
+REGELN FÜR DEN UMGANG MIT MUSTERANALYSE:
+- weekly_insight.recommendations sind unverbindliche Hinweise — übernimm sie NUR, wenn der Key in der Whitelist steht und der Wert in den Grenzen liegt.
+- Begründe in reasoning explizit, ob du einer Pattern-Empfehlung folgst ODER bewusst abweichst.
+- best_match_today.recommended_overrides sind ein historisch validierter Prior für ähnliche Tage — als Hinweis nutzen, nicht blind kopieren.
+- Wenn match_quality = 'none' oder weekly_insight = null: Block ignorieren.
+
 DEINE LETZTEN ENTSCHEIDUNGEN (Lerneffekt):
 ${JSON.stringify(recentDecisions ?? [], null, 2)}
 
