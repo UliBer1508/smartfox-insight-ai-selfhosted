@@ -80,6 +80,51 @@ Deno.serve(async (req) => {
         })
         .eq('id', d.id);
       evaluated++;
+
+      // Auto-Rollback bei schlechtem Outcome
+      if (score != null && score < -0.3) {
+        const { data: full } = await sb
+          .from('ai_parameter_decisions')
+          .select('id, auto_applied, rollback_at, current_value, parameter_key, parameter_scope, room_id')
+          .eq('id', d.id)
+          .maybeSingle();
+
+        if (full && full.auto_applied && !full.rollback_at && full.current_value != null) {
+          const { data: wl } = await sb
+            .from('ai_parameter_whitelist')
+            .select('storage_table, storage_column, data_type')
+            .eq('parameter_key', full.parameter_key)
+            .eq('scope', full.parameter_scope)
+            .maybeSingle();
+
+          if (wl && wl.storage_table === 'heating_settings') {
+            let revertVal: any = full.current_value;
+            if (wl.data_type === 'integer' || wl.data_type === 'number') revertVal = Number(revertVal);
+            if (wl.data_type === 'boolean') revertVal = revertVal === 'true' || revertVal === '1' || revertVal === true;
+
+            const { error: revErr } = await sb
+              .from('heating_settings')
+              .update({ [wl.storage_column]: revertVal });
+
+            if (!revErr) {
+              await sb
+                .from('ai_parameter_decisions')
+                .update({ rollback_at: new Date().toISOString() })
+                .eq('id', d.id);
+
+              // Cool-Down: 24h auf "suggest" degradieren
+              await sb
+                .from('ai_parameter_whitelist')
+                .update({ autonomy_level: 'suggest' })
+                .eq('parameter_key', full.parameter_key)
+                .eq('scope', full.parameter_scope);
+
+              console.log(`[ai-parameter-evaluator] AUTO-ROLLBACK ${full.parameter_key} → ${revertVal} (score ${score})`);
+            }
+          }
+        }
+      }
+
     }
 
     return new Response(JSON.stringify({ ok: true, evaluated }), {
