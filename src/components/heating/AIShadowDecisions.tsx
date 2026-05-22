@@ -129,9 +129,16 @@ export function AIShadowDecisions() {
     }
     const accepted = data?.accepted ?? 0;
     const rejected = data?.rejected ?? 0;
-    const okMsg = accepted > 0
-      ? `${accepted} Vorschläge gespeichert (${rejected} verworfen)`
-      : 'Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot.';
+    const autoApplied = data?.auto_applied ?? 0;
+    const autoDetails = data?.auto_applied_details ?? [];
+    let okMsg: string;
+    if (autoApplied > 0) {
+      okMsg = `${autoApplied} Parameter automatisch angewendet: ${autoDetails.map((a: any) => a.parameter_key).join(', ')} · ${accepted - autoApplied} weitere gespeichert`;
+    } else if (accepted > 0) {
+      okMsg = `${accepted} Vorschläge gespeichert (${rejected} verworfen)`;
+    } else {
+      okMsg = 'Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot.';
+    }
     setLastRun({ at: nowIso, ok: true, message: okMsg });
     toast.success(`KI-Analyse: ${okMsg}`);
     load();
