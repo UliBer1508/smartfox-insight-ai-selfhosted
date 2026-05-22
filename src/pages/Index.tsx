@@ -360,8 +360,7 @@ const Index = () => {
             </Card>
           </div>
         )}
-          </div>
-        )}
+
 
         {activeTab === 'heating' && (
           <HeatingDashboard 
