@@ -65,6 +65,27 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Self-Heal: Falls daily_pattern_scores für „gestern" fehlt und es nach 04:00
+    // Europe/Vienna ist (Daten sollten da sein), Backfill asynchron triggern.
+    // Aktueller Lauf nutzt vorhandenen Datenstand; nächster 15-min-Tick sieht den Score.
+    try {
+      const viennaDate = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+      const yesterdayStr = new Date(viennaDate.getTime() - 86400000).toISOString().slice(0, 10);
+      const hasYesterday = (dailyScores ?? []).some((r: any) => String(r.date).slice(0, 10) === yesterdayStr);
+      if (!hasYesterday && viennaDate.getHours() >= 4) {
+        console.log(`[ai-parameter-advisor] daily_score missing for ${yesterdayStr} — triggering backfill`);
+        // Fire-and-forget
+        fetch(`${SUPABASE_URL}/functions/v1/compute-daily-score`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}`, apikey: SERVICE_KEY },
+          body: JSON.stringify({}),
+        }).catch((e) => console.warn('[ai-parameter-advisor] backfill trigger failed:', e));
+      }
+    } catch (e) {
+      console.warn('[ai-parameter-advisor] self-heal check failed:', e);
+    }
+
+
     const sysMap: Record<string, unknown> = {};
     for (const r of systemSettingsRows ?? []) sysMap[(r as any).key] = (r as any).value;
 
