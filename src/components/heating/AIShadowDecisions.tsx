@@ -28,6 +28,8 @@ interface Decision {
   decision_mode: string;
   applied_at: string | null;
   applied_by: string | null;
+  auto_applied: boolean | null;
+  rollback_at: string | null;
 }
 
 interface WhitelistRow {
@@ -127,9 +129,16 @@ export function AIShadowDecisions() {
     }
     const accepted = data?.accepted ?? 0;
     const rejected = data?.rejected ?? 0;
-    const okMsg = accepted > 0
-      ? `${accepted} Vorschläge gespeichert (${rejected} verworfen)`
-      : 'Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot.';
+    const autoApplied = data?.auto_applied ?? 0;
+    const autoDetails = data?.auto_applied_details ?? [];
+    let okMsg: string;
+    if (autoApplied > 0) {
+      okMsg = `${autoApplied} Parameter automatisch angewendet: ${autoDetails.map((a: any) => a.parameter_key).join(', ')} · ${accepted - autoApplied} weitere gespeichert`;
+    } else if (accepted > 0) {
+      okMsg = `${accepted} Vorschläge gespeichert (${rejected} verworfen)`;
+    } else {
+      okMsg = 'Keine Verbesserungen vorgeschlagen — System läuft im Sweet-Spot.';
+    }
     setLastRun({ at: nowIso, ok: true, message: okMsg });
     toast.success(`KI-Analyse: ${okMsg}`);
     load();
@@ -227,6 +236,9 @@ export function AIShadowDecisions() {
   const statusCell = (d: Decision) => {
     if (d.applied_at) {
       return <Badge className="bg-green-600 gap-1"><Check className="h-3 w-3" />Übernommen</Badge>;
+    }
+    if (d.auto_applied) {
+      return <Badge className="bg-emerald-600 gap-1"><Check className="h-3 w-3" />Auto</Badge>;
     }
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
     if (!wl) return <Badge variant="outline">unbekannt</Badge>;
@@ -383,13 +395,18 @@ export function AIShadowDecisions() {
                                     <SelectContent>
                                       <SelectItem value="shadow">Schatten</SelectItem>
                                       <SelectItem value="suggest">Vorschlag</SelectItem>
-                                      <SelectItem value="auto" disabled>Auto (bald)</SelectItem>
+                              <SelectItem value="auto">Auto</SelectItem>
                                     </SelectContent>
                                   </Select>
                                   <span className="text-muted-foreground">
                                     Range: {wl.min_value ?? '–'} … {wl.max_value ?? '–'}
                                     {wl.allowed_values ? ` · ${wl.allowed_values.join('/')}` : ''}
                                   </span>
+                                </div>
+                              )}
+                              {d.auto_applied && (
+                                <div className="text-emerald-700 dark:text-emerald-400">
+                                  ✅ Automatisch angewendet durch KI · Kill-Switch: system_settings.ai_auto_mode_enabled
                                 </div>
                               )}
                               {d.applied_at && (

@@ -84,9 +84,14 @@ Deno.serve(async (req) => {
       description: w.description,
     }));
 
+    const autoParams = wl.filter(w => w.autonomy_level === 'auto').map(w => w.parameter_key);
     const prompt = `Du bist ein Steuerungs-Optimierer für ein PV-Heizsystem (15.8 kWp PV, 13.8 kWh Batterie, 12 Räume mit Tuya-Thermostaten).
 Deine Aufgabe: Schlage konkrete Parameter-Änderungen vor, die Eigenverbrauchsquote (SCR) und Komfort verbessern.
-WICHTIG: Du SCHREIBST KEINE Werte. Deine Vorschläge werden nur dokumentiert (Shadow-Mode).
+
+AUTONOMIE-LEVEL DER PARAMETER:
+- shadow/suggest: Vorschläge werden nur dokumentert — der Nutzer muss bestätigen.
+- auto: Die KI schreibt direkt (mit Audit-Log).
+AUTO-Parameter: ${autoParams.join(', ') || 'keine'}
 
 ERLAUBTE PARAMETER (du darfst NUR diese vorschlagen, innerhalb der Grenzen):
 ${JSON.stringify(whitelistDoc, null, 2)}
@@ -186,10 +191,11 @@ Antworte STRIKT als JSON:
 
     const decisions = Array.isArray(parsed?.decisions) ? parsed.decisions : [];
 
-    // 4) Validate against whitelist + persist
+    // 4) Validate against whitelist + persist + auto-apply
     const wlMap = new Map(wl.map((w) => [`${w.parameter_key}|${w.scope}`, w]));
     const inserts: any[] = [];
     const rejected: any[] = [];
+    const autoApplied: any[] = [];
 
     for (const d of decisions) {
       const w = wlMap.get(`${d.parameter_key}|${d.scope}`);
@@ -207,6 +213,9 @@ Antworte STRIKT als JSON:
       }
       if (d.scope === 'room' && !d.room_id) { rejected.push({ d, reason: 'missing_room_id' }); continue; }
 
+      const isAuto = w.autonomy_level === 'auto';
+      const decisionMode = isAuto ? 'auto' : 'shadow';
+
       inserts.push({
         parameter_scope: d.scope,
         room_id: d.scope === 'room' ? d.room_id : null,
@@ -215,10 +224,39 @@ Antworte STRIKT als JSON:
         proposed_value: String(d.proposed_value),
         reasoning: d.reasoning ?? null,
         confidence: typeof d.confidence === 'number' ? d.confidence : null,
-        context_snapshot: { soc: energy?.battery_soc, pv: energy?.pv_power, grid: energy?.power_io, forecast_kwh: today?.expected_kwh },
+        context_snapshot: { soc: energy?.battery_soc, pv: energy?.pv_power, grid: energy?.power_io, forecast_kwh: today?.expected_kwh, autonomy_level: w.autonomy_level },
         expected_outcome: d.expected_outcome ?? {},
-        decision_mode: 'shadow',
+        decision_mode: decisionMode,
+        auto_applied: isAuto,
       });
+
+      // Auto-Apply: direkt in heating_settings schreiben
+      if (isAuto && w.storage_table === 'heating_settings') {
+        try {
+          let updateVal: any = d.proposed_value;
+          if (w.data_type === 'integer' || w.data_type === 'number') {
+            updateVal = Number(updateVal);
+          }
+          if (w.data_type === 'boolean') {
+            updateVal = updateVal === true || updateVal === 'true' || updateVal === '1';
+          }
+
+          const { error: updErr } = await sb.from('heating_settings')
+            .update({ [w.storage_column]: updateVal })
+            .neq(w.storage_column, updateVal); // nur wenn sich Wert ändert
+
+          if (updErr) {
+            console.error('[ai-parameter-advisor] auto-apply failed for', d.parameter_key, updErr);
+            rejected.push({ d, reason: 'auto_apply_failed: ' + updErr.message });
+          } else {
+            autoApplied.push({ parameter_key: d.parameter_key, value: updateVal });
+            console.log(`[ai-parameter-advisor] AUTO-APPLIED ${d.parameter_key} = ${updateVal}`);
+          }
+        } catch (e: any) {
+          console.error('[ai-parameter-advisor] auto-apply exception', e);
+          rejected.push({ d, reason: 'auto_apply_exception: ' + e.message });
+        }
+      }
     }
 
     if (inserts.length > 0) {
@@ -238,6 +276,8 @@ Antworte STRIKT als JSON:
         proposed: decisions.length,
         accepted: inserts.length,
         rejected: rejected.length,
+        auto_applied: autoApplied.length,
+        auto_applied_details: autoApplied,
         rejected_details: rejected,
         summary: parsed?.summary ?? null,
       }),

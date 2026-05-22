@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.ai-parameter-evaluator]
 verify_jwt = false
+
+[functions.ai-daily-planner]
+verify_jwt = false

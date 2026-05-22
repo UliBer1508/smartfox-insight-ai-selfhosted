@@ -19,6 +19,7 @@ export type Database = {
           actual_outcome: Json | null
           applied_at: string | null
           applied_by: string | null
+          auto_applied: boolean | null
           confidence: number | null
           context_snapshot: Json
           created_at: string
@@ -32,12 +33,14 @@ export type Database = {
           parameter_scope: string
           proposed_value: string
           reasoning: string | null
+          rollback_at: string | null
           room_id: string | null
         }
         Insert: {
           actual_outcome?: Json | null
           applied_at?: string | null
           applied_by?: string | null
+          auto_applied?: boolean | null
           confidence?: number | null
           context_snapshot?: Json
           created_at?: string
@@ -51,12 +54,14 @@ export type Database = {
           parameter_scope: string
           proposed_value: string
           reasoning?: string | null
+          rollback_at?: string | null
           room_id?: string | null
         }
         Update: {
           actual_outcome?: Json | null
           applied_at?: string | null
           applied_by?: string | null
+          auto_applied?: boolean | null
           confidence?: number | null
           context_snapshot?: Json
           created_at?: string
@@ -70,6 +75,7 @@ export type Database = {
           parameter_scope?: string
           proposed_value?: string
           reasoning?: string | null
+          rollback_at?: string | null
           room_id?: string | null
         }
         Relationships: []
@@ -535,6 +541,7 @@ export type Database = {
       }
       heating_recommendations: {
         Row: {
+          ai_source: string | null
           created_at: string
           date: string
           end_time: string
@@ -542,11 +549,15 @@ export type Database = {
           id: string
           period_number: number
           priority: string | null
+          priority_rank: number | null
           reason: string | null
+          reasoning: string | null
           recommended_temp: number
           start_time: string
+          valid_for_date: string | null
         }
         Insert: {
+          ai_source?: string | null
           created_at?: string
           date: string
           end_time: string
@@ -554,11 +565,15 @@ export type Database = {
           id?: string
           period_number: number
           priority?: string | null
+          priority_rank?: number | null
           reason?: string | null
+          reasoning?: string | null
           recommended_temp: number
           start_time: string
+          valid_for_date?: string | null
         }
         Update: {
+          ai_source?: string | null
           created_at?: string
           date?: string
           end_time?: string
@@ -566,9 +581,12 @@ export type Database = {
           id?: string
           period_number?: number
           priority?: string | null
+          priority_rank?: number | null
           reason?: string | null
+          reasoning?: string | null
           recommended_temp?: number
           start_time?: string
+          valid_for_date?: string | null
         }
         Relationships: []
       }
@@ -1027,6 +1045,48 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      room_kpi_15min: {
+        Row: {
+          bucket_start: string
+          created_at: string | null
+          grid_import_wh: number | null
+          heating_minutes: number | null
+          id: string
+          pv_used_wh: number | null
+          room_id: string
+          target_reached: boolean | null
+          target_temp: number | null
+          temp_end: number | null
+          temp_start: number | null
+        }
+        Insert: {
+          bucket_start: string
+          created_at?: string | null
+          grid_import_wh?: number | null
+          heating_minutes?: number | null
+          id?: string
+          pv_used_wh?: number | null
+          room_id: string
+          target_reached?: boolean | null
+          target_temp?: number | null
+          temp_end?: number | null
+          temp_start?: number | null
+        }
+        Update: {
+          bucket_start?: string
+          created_at?: string | null
+          grid_import_wh?: number | null
+          heating_minutes?: number | null
+          id?: string
+          pv_used_wh?: number | null
+          room_id?: string
+          target_reached?: boolean | null
+          target_temp?: number | null
+          temp_end?: number | null
+          temp_start?: number | null
+        }
+        Relationships: []
       }
       room_ml_features: {
         Row: {

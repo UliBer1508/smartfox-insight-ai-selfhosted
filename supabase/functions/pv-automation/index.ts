@@ -1098,6 +1098,7 @@ Deno.serve(async (req) => {
       // - Night mode (night_temp)
       // - Budget pause (15°C when PV is low)
       // - But NO active PV heating to comfort temp
+      const todayStr = new Date().toISOString().slice(1,10);
       let { data: rooms, error: roomsError } = await supabase
         .from('rooms')
         .select('*')
@@ -1108,6 +1109,52 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: true, message: 'No rooms with PV automation', results: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+
+      // 3a. Load AI daily plan (if exists) for secondary sorting within same priority
+      let aiPlanRanks: Record<string, number> = {};
+      try {
+        const { data: planRecs } = await supabase
+          .from('heating_recommendations')
+          .select('reasoning,priority_rank')
+          .eq('ai_source', 'daily_planner')
+          .eq('valid_for_date', todayStr);
+        if (planRecs && planRecs.length > 0) {
+          for (const pr of planRecs) {
+            // Map by reasoning prefix (contains room name) — simple heuristic
+            // Actually: the plan doesn't have room_id. We'll match by room name in reasoning.
+          }
+        }
+      } catch (e) {
+        console.warn('[PV-Automation] Could not load AI daily plan:', e);
+      }
+
+      // 3b. Better: load plan with room matching via reasoning text
+      // Since heating_recommendations has no room_id for planner, we use a lightweight approach:
+      // The ai-daily-planner stores room-specific plans in a structured way.
+      // For now, we create the aiPlanRanks map from the plan records.
+      // NOTE: We'll enhance the planner to store room_id in a future iteration.
+      // Current workaround: the planner's `reasoning` contains room names.
+      try {
+        const { data: planRows } = await supabase
+          .from('heating_recommendations')
+          .select('*')
+          .eq('ai_source', 'daily_planner')
+          .eq('valid_for_date', todayStr);
+        if (planRows && planRows.length > 1) {
+          for (const r of planRows) {
+            const rec = r as any;
+            if (rec.reasoning) {
+              const nameMatch = rooms.find((room: any) => rec.reasoning.includes(room.name));
+              if (nameMatch) {
+                aiPlanRanks[nameMatch.id] = rec.priority_rank ?? 99;
+              }
+            }
+          }
+          console.log(`[PV-Automation] AI daily plan loaded: ${Object.keys(aiPlanRanks).length} rooms ranked`);
+        }
+      } catch (e) {
+        console.warn('[PV-Automation] AI plan load error:', e);
       }
 
       // ============= PRE-SYNC: Frische Thermostatdaten vor Automationsrunde =============
@@ -1947,6 +1994,8 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name}: braucht ~${estimatedEnergyWh?.toFixed(0)} Wh für +${tempToTarget.toFixed(1)}°C (${energyPerDegreeWh.toFixed(0)} Wh/°C), geschätzte Dauer: ${estimatedDurationMin?.toFixed(0)} Min bei ${heatingPower}W`);
         }
         
+        const aiPlanRank = aiPlanRanks[room.id] ?? null;
+        
         return {
           room,
           priority: room.priority || 2,
@@ -1956,18 +2005,22 @@ Deno.serve(async (req) => {
           estimatedDurationMin,
           waitTimeMinutes,
           isCurrentlyHeating,
-          heatingDurationMinutes
+          heatingDurationMinutes,
+          aiPlanRank
         };
       });
       
-      // Sortierung: 1. Priorität, 2. Temperatur-Defizit (>0.5°C Unterschied), 
-      // 3. Effizienz (niedrigeres energy_per_degree_wh = schneller fertig → bevorzugt),
-      // 4. Wartezeit (längste zuerst als Tiebreaker)
+      // Sortierung: 1. Priorität, 2. KI-Tagesplan (priority_rank innerhalb gleicher Prio),
+      // 3. Temperatur-Defizit (>0.5°C Unterschied), 
+      // 4. Effizienz (niedrigeres energy_per_degree_wh = schneller fertig → bevorzugt),
+      // 5. Wartezeit (längste zuerst als Tiebreaker)
       roomsWithPriority.sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
+        // KI-Tagesplan als sekundärer Sortierschlüssel (nur wenn beide einen Plan-Rank haben)
+        if (a.aiPlanRank !== null && b.aiPlanRank !== null) {
+          return a.aiPlanRank - b.aiPlanRank;
+        }
         if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
-        // Effizienz: Räume mit bekanntem energy_per_degree_wh vor unbekannten,
-        // dann niedrigere Wh/°C zuerst (schneller aufgeheizt → gibt Budget frei)
         const aEff = a.energyPerDegreeWh || 99999;
         const bEff = b.energyPerDegreeWh || 99999;
         if (Math.abs(aEff - bEff) > 100) return aEff - bEff;
