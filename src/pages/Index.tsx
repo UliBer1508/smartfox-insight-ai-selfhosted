@@ -326,53 +326,27 @@ const Index = () => {
                   </TabsContent>
 
                   <TabsContent value="rooms" className="space-y-4 mt-4">
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <Button 
-                        onClick={handleAnalyzeRooms}
-                        disabled={isAnalyzingRooms || readings.length < 5 || rooms.length === 0}
-                        className="w-full sm:w-auto"
-                      >
-                        {isAnalyzingRooms ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Analysiere Räume...
-                          </>
-                        ) : (
-                          <>
-                            <Home className="w-4 h-4 mr-2" />
-                            Raumempfehlungen erstellen
-                          </>
-                        )}
-                      </Button>
-                      <Button 
-                        onClick={applyRecommendations}
-                        disabled={isApplying || rooms.length === 0}
-                        variant="outline"
-                        className="w-full sm:w-auto"
-                      >
-                        {isApplying ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Wende an...
-                          </>
-                        ) : (
-                          <>
-                            <Bot className="w-4 h-4 mr-2" />
-                            Empfehlungen anwenden
-                          </>
-                        )}
-                      </Button>
-                    </div>
-
                     {rooms.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         <Home className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Lege zuerst Räume an, um raumspezifische Empfehlungen zu erhalten.</p>
+                        <p>Lege zuerst Räume an, um die KI-Automatik nutzen zu können.</p>
                         <p className="text-xs mt-2">Gehe zu Einstellungen → Räume verwalten.</p>
                       </div>
                     ) : (
-                      <div className="text-sm text-muted-foreground">
-                        {rooms.length} Räume konfiguriert. Klicke auf &quot;Raumempfehlungen erstellen&quot; für individuelle Temperaturempfehlungen.
+                      <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
+                        <p className="font-medium flex items-center gap-2">
+                          <Brain className="w-4 h-4 text-primary" />
+                          KI-Autopilot aktiv
+                        </p>
+                        <p className="text-muted-foreground">
+                          {rooms.length} Räume werden vollautomatisch über die PV-Automation und den
+                          KI-Parameter-Advisor gesteuert. Manuelle „Raumempfehlungen erstellen" und
+                          „Empfehlungen anwenden" sind nicht mehr nötig.
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Status &amp; Live-Werte siehst du im Tab <strong>Heizung</strong>.
+                          KI-Parameter-Vorschläge im Tab <strong>ML-Status</strong>.
+                        </p>
                       </div>
                     )}
                   </TabsContent>
@@ -384,15 +358,8 @@ const Index = () => {
                 </Tabs>
               </CardContent>
             </Card>
-
-            {/* Aktuelle Thermostat-Empfehlungen */}
-            {rooms.length > 0 && (
-              <RoomRecommendations 
-                rooms={rooms}
-                getCurrentRecommendation={getCurrentRecommendation}
-                strategy={roomStrategy}
-              />
-            )}
+          </div>
+        )}
           </div>
         )}
 
