@@ -40,34 +40,52 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
     <>
       {/* Top Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50 safe-area-top">
-        <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2 md:gap-3 min-w-0">
-              <div className="p-1.5 md:p-2 rounded-lg bg-primary/10 energy-glow flex-shrink-0">
-                <Zap className="w-5 h-5 md:w-6 md:h-6 text-primary" />
-              </div>
-              <div className="min-w-0">
-                <h1 className="text-base md:text-xl font-bold tracking-tight truncate">Fronius Smart AI</h1>
-                <p className="text-[10px] md:text-xs text-muted-foreground hidden sm:block">
-                  Energie-Management & KI-Analyse
-                  {typeof __BUILD_TIME__ !== 'undefined' && (
-                    <span className="ml-2 opacity-60">
-                      · Build {new Date(__BUILD_TIME__).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}
-                    </span>
-                  )}
-                </p>
-              </div>
-              {!isOnline && (
-                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive text-[10px] flex-shrink-0">
-                  <WifiOff className="w-3 h-3" />
-                  <span>Offline{offlineMinutes ? ` (${offlineMinutes}m)` : ''}</span>
-                </div>
-              )}
+        <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4 space-y-3">
+          {/* Title row */}
+          <div className="flex items-center gap-2 md:gap-3 min-w-0">
+            <div className="p-1.5 md:p-2 rounded-lg bg-primary/10 energy-glow flex-shrink-0">
+              <Zap className="w-5 h-5 md:w-6 md:h-6 text-primary" />
             </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="text-base md:text-xl font-bold tracking-tight truncate">Fronius Smart AI</h1>
+              <p className="text-[10px] md:text-xs text-muted-foreground truncate">
+                Energie-Management & KI-Analyse
+                {typeof __BUILD_TIME__ !== 'undefined' && (
+                  <span className="ml-2 opacity-60">
+                    · Build {new Date(__BUILD_TIME__).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}
+                  </span>
+                )}
+              </p>
+            </div>
+            {!isOnline && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive text-[10px] flex-shrink-0">
+                <WifiOff className="w-3 h-3" />
+                <span>Offline{offlineMinutes ? ` (${offlineMinutes}m)` : ''}</span>
+              </div>
+            )}
+            {/* Mobile-only quick actions on the right */}
+            {isMobile && (
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <ControlModeBadge onClick={() => onTabChange('settings')} />
+                {isInstallable && !isInstalled && (
+                  <Button variant="outline" size="icon" onClick={handleInstall} className="h-8 w-8">
+                    <Download className="w-4 h-4" />
+                  </Button>
+                )}
+                <Button variant="ghost" size="icon" onClick={() => setIsDark(!isDark)} className="h-8 w-8">
+                  {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                </Button>
+                <Button variant="ghost" size="icon" onClick={signOut} title="Abmelden" className="h-8 w-8">
+                  <LogOut className="w-4 h-4" />
+                </Button>
+              </div>
+            )}
+          </div>
 
-            {/* Desktop: full nav | Mobile: only actions */}
-            <nav className="flex items-center gap-1 md:gap-2">
-              {!isMobile && tabs.map(tab => (
+          {/* Nav row (Desktop only — Mobile uses bottom tab bar) */}
+          {!isMobile && (
+            <nav className="flex items-center gap-1 md:gap-2 flex-wrap">
+              {tabs.map(tab => (
                 <Button
                   key={tab.key}
                   variant={activeTab === tab.key ? 'default' : 'ghost'}
@@ -79,9 +97,11 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
                 </Button>
               ))}
 
+              <div className="flex-1" />
+
               <ControlModeBadge onClick={() => onTabChange('settings')} />
 
-              {!isMobile && <div className="w-px h-6 bg-border mx-1" />}
+              <div className="w-px h-6 bg-border mx-1" />
 
               {isInstallable && !isInstalled && (
                 <Button variant="outline" size="sm" onClick={handleInstall} className="gap-1.5">
@@ -89,17 +109,18 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
                   <span className="hidden md:inline">Installieren</span>
                 </Button>
               )}
-              
+
               <Button variant="ghost" size="icon" onClick={() => setIsDark(!isDark)} className="h-8 w-8 md:h-9 md:w-9">
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </Button>
-              
+
               <Button variant="ghost" size="icon" onClick={signOut} title="Abmelden" className="h-8 w-8 md:h-9 md:w-9">
                 <LogOut className="w-4 h-4" />
               </Button>
             </nav>
-          </div>
+          )}
         </div>
+
       </header>
 
       {/* Mobile Bottom Tab Bar */}
