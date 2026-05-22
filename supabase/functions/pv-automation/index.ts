@@ -2010,14 +2010,17 @@ Deno.serve(async (req) => {
         };
       });
       
-      // Sortierung: 1. Priorität, 2. Temperatur-Defizit (>0.5°C Unterschied), 
-      // 3. Effizienz (niedrigeres energy_per_degree_wh = schneller fertig → bevorzugt),
-      // 4. Wartezeit (längste zuerst als Tiebreaker)
+      // Sortierung: 1. Priorität, 2. KI-Tagesplan (priority_rank innerhalb gleicher Prio),
+      // 3. Temperatur-Defizit (>0.5°C Unterschied), 
+      // 4. Effizienz (niedrigeres energy_per_degree_wh = schneller fertig → bevorzugt),
+      // 5. Wartezeit (längste zuerst als Tiebreaker)
       roomsWithPriority.sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
+        // KI-Tagesplan als sekundärer Sortierschlüssel (nur wenn beide einen Plan-Rank haben)
+        if (a.aiPlanRank !== null && b.aiPlanRank !== null) {
+          return a.aiPlanRank - b.aiPlanRank;
+        }
         if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
-        // Effizienz: Räume mit bekanntem energy_per_degree_wh vor unbekannten,
-        // dann niedrigere Wh/°C zuerst (schneller aufgeheizt → gibt Budget frei)
         const aEff = a.energyPerDegreeWh || 99999;
         const bEff = b.energyPerDegreeWh || 99999;
         if (Math.abs(aEff - bEff) > 100) return aEff - bEff;
