@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import { HelmetProvider } from "react-helmet-async";
 import App from "./App.tsx";
 import "./index.css";
+import { setupPWA } from "./pwa/registerSW";
 
 const BUILD_ID = typeof __BUILD_TIME__ !== "undefined"
   ? __BUILD_TIME__
@@ -9,20 +10,8 @@ const BUILD_ID = typeof __BUILD_TIME__ !== "undefined"
 
 (window as any).__BUILD_TIME__ = BUILD_ID;
 
-if (typeof window !== "undefined") {
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker
-      .getRegistrations()
-      .then((regs) => regs.forEach((r) => r.unregister()))
-      .catch(() => {});
-  }
-  if ("caches" in window) {
-    caches
-      .keys()
-      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
-      .catch(() => {});
-  }
-}
+// PWA registrieren (in Editor/Preview wird sie übersprungen + alte SWs abgeräumt)
+setupPWA();
 
 createRoot(document.getElementById("root")!).render(
   <HelmetProvider>
