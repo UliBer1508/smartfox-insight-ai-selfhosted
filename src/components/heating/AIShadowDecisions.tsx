@@ -88,6 +88,7 @@ export function AIShadowDecisions() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
+  const [listCollapsed, setListCollapsed] = useState<boolean>(false);
 
   const load = async () => {
     setLoading(true);
@@ -365,12 +366,24 @@ export function AIShadowDecisions() {
 
 
         {filtered.length > 0 && (
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{filtered.length} Vorschläge</span>
-            <Button variant="ghost" size="sm" onClick={expandAll}>
-              {allExpanded ? <ChevronUp className="h-4 w-4 mr-1" /> : <ChevronDown className="h-4 w-4 mr-1" />}
-              {allExpanded ? 'Alle zuklappen' : 'Alle aufklappen'}
-            </Button>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setListCollapsed((v) => !v)}
+              >
+                {listCollapsed ? <ChevronDown className="h-4 w-4 mr-1" /> : <ChevronUp className="h-4 w-4 mr-1" />}
+                {listCollapsed ? 'Liste ausklappen' : 'Liste einklappen'}
+              </Button>
+              <Badge variant="secondary">{filtered.length}</Badge>
+            </div>
+            {!listCollapsed && (
+              <Button variant="ghost" size="sm" onClick={expandAll}>
+                {allExpanded ? <ChevronUp className="h-4 w-4 mr-1" /> : <ChevronDown className="h-4 w-4 mr-1" />}
+                {allExpanded ? 'Alle Details zuklappen' : 'Alle Details aufklappen'}
+              </Button>
+            )}
           </div>
         )}
 
@@ -397,7 +410,7 @@ export function AIShadowDecisions() {
               ? 'Keine KI-Vorschläge verfügbar — siehe Fehlermeldung oben.'
               : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
           </p>
-        ) : (
+        ) : listCollapsed ? null : (
           <>
             {/* Mobile card list */}
             <div className="md:hidden space-y-2">
