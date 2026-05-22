@@ -1,27 +1,31 @@
-## Ursache
+## Ziel
+Die Karte „KI-Parameter-Vorschläge" verständlicher machen: klarer Bezug zum KI-Autopilot, plus eine kompakte Legende für die Filter (Alle / Offen / Bewertet) und die Modi (Schatten / Vorschlag / Auto).
 
-Der Fehler `record "new" has no field "updated_at"` blockiert sowohl `analyze-patterns` als auch `ai-parameter-advisor` beim Schreiben in `ai_parameter_decisions`. Dadurch bekommt die KI‑Musteranalyse keine neuen Vorschläge → "Keine KI-Vorschläge verfügbar".
+## Änderungen in `src/components/heating/AIShadowDecisions.tsx`
 
-Auf der Tabelle `public.ai_parameter_decisions` liegt ein fehlerhaft konfigurierter Trigger:
+1. **Titel anpassen**
+   - `KI-Parameter-Vorschläge` → `KI-Autopilot · Parameter-Vorschläge`
+   - So wird sichtbar, dass diese Karte das Herz des Autopiloten ist (Whitelist + Decision-Log + Apply).
 
-```
-trg_ai_decisions_validate_outcome
-  BEFORE INSERT OR UPDATE ON ai_parameter_decisions
-  EXECUTE FUNCTION update_updated_at_column()
-```
+2. **Kurzbeschreibung schärfen**
+   - Ein Satz: „Der KI-Autopilot analysiert das System alle 15 Minuten, schlägt Parameter-Änderungen vor und wendet sie – je nach Modus – automatisch oder erst nach deiner Freigabe an."
 
-Die Funktion setzt `NEW.updated_at = now()`, aber die Tabelle hat **keine** Spalte `updated_at` (nur `created_at`, `applied_at`, `outcome_evaluated_at`, `rollback_at`). Jeder INSERT schlägt fehl.
+3. **Kompakte Legende (collapsible `<details>` direkt unter der Beschreibung)**
+   Zwei kleine Blöcke nebeneinander, mit denselben Badge-Styles wie in der Tabelle, damit Farbe = Bedeutung:
 
-Der Name `validate_outcome` deutet darauf hin, dass hier ursprünglich eine andere Funktion gemeint war — der Trigger wurde fälschlich an `update_updated_at_column` gebunden.
+   **Filter (Tabs oben rechts)**
+   - **Alle** – jeder gespeicherte Vorschlag der letzten Tage
+   - **Offen** – Vorschlag wurde noch nicht bewertet (Outcome-Score fehlt)
+   - **Bewertet** – Outcome wurde nach ~60 min gemessen, Score sichtbar (positiv = hat geholfen, negativ = hat geschadet → ggf. Auto-Rollback)
 
-## Fix
+   **Modus pro Parameter (Spalte „Modus" / Dropdown)**
+   - **Schatten** (grau) – KI loggt nur, ändert nichts. Lernphase.
+   - **Vorschlag** (outline) – KI speichert Vorschlag, du klickst „Anwenden".
+   - **Auto** (blau) – KI wendet selbst an, sobald `ai_auto_mode_enabled` aktiv ist; bei Score < −0.3 automatischer Rollback.
 
-Migration:
-1. `DROP TRIGGER trg_ai_decisions_validate_outcome ON public.ai_parameter_decisions` — der Trigger hat keine sinnvolle Funktion und blockiert nur Writes.
-
-Keine Schema-Erweiterung nötig: `updated_at` wird in dieser Tabelle nirgendwo gelesen, alle relevanten Zeitstempel existieren bereits (`created_at`, `applied_at`, `outcome_evaluated_at`).
+4. **Keine Logik-Änderungen** – nur Text, Titel und eine eingeklappte Legende. Tabelle, Datenfluss und Edge Functions bleiben unberührt.
 
 ## Verifikation
-
-- `ai-parameter-advisor` per curl triggern → Response zeigt `accepted > 0` statt 500.
-- UI lädt KI-Vorschläge wieder, Fehlermeldung verschwindet.
+- Karte rendert mit neuem Titel.
+- Legende ist standardmäßig eingeklappt, öffnet auf Klick.
+- Bestehende Filter-Buttons und Modus-Badges verhalten sich unverändert.
