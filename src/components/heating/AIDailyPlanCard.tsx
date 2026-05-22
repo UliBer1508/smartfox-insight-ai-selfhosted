@@ -48,7 +48,7 @@ export function AIDailyPlanCard() {
       .eq('plan_date', todayVienna())
       .maybeSingle();
     if (error) console.error('load plan', error);
-    setPlan(data as DailyPlan | null);
+    setPlan((data as unknown) as DailyPlan | null);
     setLoading(false);
   };
 
