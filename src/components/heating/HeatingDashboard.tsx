@@ -18,7 +18,7 @@ import { HeatingPeriodCard } from './HeatingPeriodCard';
 import { BatteryStatus } from './BatteryStatus';
 import { BatteryReserveStatus } from './BatteryReserveStatus';
 import { PvForecastCard } from './PvForecastCard';
-import { RoomRecommendations } from './RoomRecommendations';
+
 import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
@@ -79,12 +79,11 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     rooms,
     isLoading: roomsLoading,
     saveRoom,
-    saveRecommendations: saveRoomRecommendations,
     getCurrentRecommendation,
-    loadRecommendations: loadRoomRecommendations,
     loadRooms,
     updateRoomLocally
   } = useRooms();
+
 
   const {
     isSyncing,
@@ -110,9 +109,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
 
   const { pushAllTemps, isPushing } = usePushAllTemps();
 
-  const [isAnalyzingRooms, setIsAnalyzingRooms] = useState(false);
-  const [roomStrategy, setRoomStrategy] = useState<string>('');
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+
   // syncIntervalRef entfernt — Auto-Sync deaktiviert (siehe unten)
 
   // Auto-Sync deaktiviert: Tuya-Cloud-Sync verbraucht 2 Calls/Sync und sprengte
@@ -190,80 +188,6 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     analyzeHeating(readings, settings);
   };
 
-  const handleAnalyzeRooms = async () => {
-    if (rooms.length === 0) {
-      toast.error('Bitte lege zuerst Räume an');
-      return;
-    }
-    
-    if (readings.length < 5) {
-      toast.error('Nicht genügend Energiedaten für Analyse');
-      return;
-    }
-
-    setIsAnalyzingRooms(true);
-    try {
-      const { data, error } = await supabase.functions.invoke('analyze-patterns', {
-        body: { 
-          readings: readings.slice(-100),
-          heatingSettings: settings,
-          rooms: rooms,
-          type: 'room_heating_optimization'
-        }
-      });
-
-      if (error) throw error;
-
-      if (data?.rateLimited) {
-        toast.warning('KI-Limit erreicht (Gemini Free Tier). Bitte in ein paar Minuten erneut versuchen.');
-        return;
-      }
-
-      if (data.roomHeatingPlan) {
-        const plan = data.roomHeatingPlan;
-        setRoomStrategy(plan.strategy || '');
-        
-        // Map room names to room IDs and save recommendations
-        // WICHTIG: Lokales Datum für korrekte Zeitzonen-Behandlung
-        const today = getLocalDateString();
-        const newRecommendations = plan.rooms.flatMap((roomPlan: any) => {
-          const room = rooms.find(r => r.name === roomPlan.room_name);
-          if (!room?.id) return [];
-          
-          // Create current period recommendation
-          // Explizit Wiener Zeit verwenden
-          const currentHour = getViennaHour();
-          const currentPeriod = roomPlan.periods?.find((p: any) => {
-            const startHour = parseInt(p.start_time.split(':')[0]);
-            const endHour = parseInt(p.end_time.split(':')[0]);
-            return currentHour >= startHour && currentHour < endHour;
-          }) || roomPlan.periods?.[0];
-          
-          return {
-            room_id: room.id,
-            date: today,
-            period_number: 1,
-            start_time: currentPeriod?.start_time || '06:00',
-            end_time: currentPeriod?.end_time || '22:00',
-            recommended_temp: roomPlan.recommended_temp,
-            reason: roomPlan.reason,
-            priority: roomPlan.priority
-          };
-        });
-
-        await saveRoomRecommendations(newRecommendations);
-        await loadRoomRecommendations();
-        toast.success('Raumspezifische Empfehlungen erstellt');
-      } else if (data.error) {
-        throw new Error(data.error);
-      }
-    } catch (error) {
-      console.error('Room analysis error:', error);
-      toast.error('Fehler bei der Raumanalyse');
-    } finally {
-      setIsAnalyzingRooms(false);
-    }
-  };
 
   const latestSoc = currentReading?.battery_soc ?? null;
   const latestPvPower = currentReading?.pv_power ?? null;
