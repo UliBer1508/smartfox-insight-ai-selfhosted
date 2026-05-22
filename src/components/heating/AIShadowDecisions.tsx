@@ -9,6 +9,7 @@ import { Brain, RefreshCw, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { AIDailyPlanCard } from './AIDailyPlanCard';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
@@ -273,6 +274,9 @@ export function AIShadowDecisions() {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <AIDailyPlanCard />
+
+
         {byParam.size > 0 && (
           <div className="flex flex-wrap gap-2">
             {Array.from(byParam.entries()).map(([k, v]) => (

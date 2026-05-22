@@ -14,6 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_daily_plans: {
+        Row: {
+          created_at: string
+          id: string
+          overall_strategy: string | null
+          plan_date: string
+          raw_plan: Json | null
+          rooms: Json
+          source: string
+          time_blocks: Json
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          overall_strategy?: string | null
+          plan_date: string
+          raw_plan?: Json | null
+          rooms?: Json
+          source?: string
+          time_blocks?: Json
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          overall_strategy?: string | null
+          plan_date?: string
+          raw_plan?: Json | null
+          rooms?: Json
+          source?: string
+          time_blocks?: Json
+          updated_at?: string
+        }
+        Relationships: []
+      }
       ai_parameter_decisions: {
         Row: {
           actual_outcome: Json | null
