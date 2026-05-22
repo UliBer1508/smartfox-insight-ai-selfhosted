@@ -9,6 +9,7 @@ import { Brain, RefreshCw, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
+import { AIDailyPlanCard } from './AIDailyPlanCard';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
