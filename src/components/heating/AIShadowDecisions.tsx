@@ -87,6 +87,7 @@ export function AIShadowDecisions() {
   const [applying, setApplying] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
+  const [paramFilter, setParamFilter] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -209,6 +210,7 @@ export function AIShadowDecisions() {
   };
 
   const filtered = decisions.filter((d) => {
+    if (paramFilter && d.parameter_key !== paramFilter) return false;
     if (filter === 'unevaluated') return !d.outcome_evaluated_at;
     if (filter === 'evaluated') return !!d.outcome_evaluated_at;
     return true;
@@ -310,17 +312,39 @@ export function AIShadowDecisions() {
 
         {byParam.size > 0 && (
           <div className="flex flex-wrap gap-2">
-            {Array.from(byParam.entries()).map(([k, v]) => (
-              <div key={k} className="text-xs px-2 py-1 rounded border bg-muted/30">
-                <span className="font-mono">{k}</span>{' '}
-                <span className="text-muted-foreground">×{v.total}</span>
-                {v.evaluated > 0 && v.avgScore != null && (
-                  <span className="ml-1">· Ø {v.avgScore.toFixed(2)}</span>
-                )}
-              </div>
-            ))}
+            {Array.from(byParam.entries()).map(([k, v]) => {
+              const active = paramFilter === k;
+              return (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setParamFilter(active ? null : k)}
+                  className={`text-xs px-2 py-1 rounded border transition-colors ${
+                    active
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-muted/30 hover:bg-muted'
+                  }`}
+                >
+                  <span className="font-mono">{k}</span>{' '}
+                  <span className={active ? 'opacity-80' : 'text-muted-foreground'}>×{v.total}</span>
+                  {v.evaluated > 0 && v.avgScore != null && (
+                    <span className="ml-1">· Ø {v.avgScore.toFixed(2)}</span>
+                  )}
+                </button>
+              );
+            })}
+            {paramFilter && (
+              <button
+                type="button"
+                onClick={() => setParamFilter(null)}
+                className="text-xs px-2 py-1 rounded border border-dashed hover:bg-muted"
+              >
+                ✕ Filter aufheben
+              </button>
+            )}
           </div>
         )}
+
 
 
 
@@ -349,7 +373,110 @@ export function AIShadowDecisions() {
               : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+            {/* Mobile card list */}
+            <div className="md:hidden space-y-2">
+              {filtered.map((d) => {
+                const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
+                const canApply = wl && wl.autonomy_level === 'suggest' && !d.applied_at;
+                const isOpen = expanded === d.id;
+                return (
+                  <div
+                    key={d.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setExpanded(isOpen ? null : d.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setExpanded(isOpen ? null : d.id);
+                      }
+                    }}
+                    className="rounded-lg border bg-card p-3 active:bg-muted/50 cursor-pointer"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-mono text-xs break-all">{d.parameter_key}</div>
+                      <div className="shrink-0 flex items-center gap-1">
+                        {statusCell(d)}
+                        {isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+                      </div>
+                    </div>
+                    <div className="mt-1.5 text-sm">
+                      <span className="text-muted-foreground">{d.current_value ?? '—'}</span>
+                      {' → '}
+                      <span className="font-semibold">{d.proposed_value}</span>
+                      {d.confidence != null && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          ({Math.round(d.confidence * 100)}%)
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        {roomName(d.room_id)} · {formatDistanceToNow(new Date(d.created_at), { addSuffix: true, locale: de })}
+                      </span>
+                      {scoreBadge(d.outcome_score)}
+                    </div>
+                    {isOpen && (
+                      <div
+                        className="mt-3 pt-3 border-t text-xs space-y-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div><strong>Begründung:</strong> {d.reasoning ?? '—'}</div>
+                        {d.expected_outcome && (
+                          <div className="break-all"><strong>Erwartet:</strong> <code>{JSON.stringify(d.expected_outcome)}</code></div>
+                        )}
+                        {wl && (
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t">
+                            <span className="text-muted-foreground">Autonomie:</span>
+                            <Select
+                              value={wl.autonomy_level}
+                              onValueChange={(v) => setAutonomy(wl, v as AutonomyLevel)}
+                            >
+                              <SelectTrigger className="h-8 w-32 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="shadow">Schatten</SelectItem>
+                                <SelectItem value="suggest">Vorschlag</SelectItem>
+                                <SelectItem value="auto">Auto</SelectItem>
+                              </SelectContent>
+                            </Select>
+                            <span className="text-muted-foreground">
+                              Range: {wl.min_value ?? '–'} … {wl.max_value ?? '–'}
+                              {wl.allowed_values ? ` · ${wl.allowed_values.join('/')}` : ''}
+                            </span>
+                          </div>
+                        )}
+                        {canApply && (
+                          <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => applyDecision(d)}
+                            disabled={applying === d.id}
+                          >
+                            {applying === d.id ? '…' : 'Übernehmen'}
+                          </Button>
+                        )}
+                        {d.auto_applied && (
+                          <div className="text-emerald-700 dark:text-emerald-400">
+                            ✅ Automatisch angewendet durch KI
+                          </div>
+                        )}
+                        {d.applied_at && (
+                          <div className="text-green-700 dark:text-green-400">
+                            Übernommen am {new Date(d.applied_at).toLocaleString('de-DE')} ({d.applied_by ?? 'unbekannt'})
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop table */}
+            <div className="hidden md:block overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -369,7 +496,10 @@ export function AIShadowDecisions() {
                   const canApply = wl && wl.autonomy_level === 'suggest' && !d.applied_at;
                   return (
                     <Fragment key={d.id}>
-                      <TableRow>
+                      <TableRow
+                        className="cursor-pointer"
+                        onClick={() => setExpanded(expanded === d.id ? null : d.id)}
+                      >
                         <TableCell className="text-xs">
                           {formatDistanceToNow(new Date(d.created_at), { addSuffix: true, locale: de })}
                         </TableCell>
@@ -385,7 +515,7 @@ export function AIShadowDecisions() {
                         </TableCell>
                         <TableCell>{statusCell(d)}</TableCell>
                         <TableCell>{scoreBadge(d.outcome_score)}</TableCell>
-                        <TableCell className="flex gap-1">
+                        <TableCell className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                           {canApply && (
                             <Button
                               size="sm"
@@ -453,7 +583,8 @@ export function AIShadowDecisions() {
                 })}
               </TableBody>
             </Table>
-          </div>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>

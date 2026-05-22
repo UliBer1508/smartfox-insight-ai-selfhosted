@@ -1,31 +1,34 @@
 ## Ziel
-Die Karte „KI-Parameter-Vorschläge" verständlicher machen: klarer Bezug zum KI-Autopilot, plus eine kompakte Legende für die Filter (Alle / Offen / Bewertet) und die Modi (Schatten / Vorschlag / Auto).
+Auf dem Handy ist die Tabelle der KI-Vorschläge zu breit und scrollt horizontal. Außerdem sind die Parameter-Chips oben und die Zeilen nicht klickbar — der User möchte Parameter-Infos per Tap öffnen.
 
 ## Änderungen in `src/components/heating/AIShadowDecisions.tsx`
 
-1. **Titel anpassen**
-   - `KI-Parameter-Vorschläge` → `KI-Autopilot · Parameter-Vorschläge`
-   - So wird sichtbar, dass diese Karte das Herz des Autopiloten ist (Whitelist + Decision-Log + Apply).
+### 1. Responsive Darstellung
+- Tabelle nur auf `md+` zeigen (`hidden md:block`).
+- Auf Mobile (`md:hidden`) eine **Karten-Liste** rendern. Jede Karte zeigt kompakt:
+  - Zeile 1: Parameter (mono) + Status-Badge rechts
+  - Zeile 2: `Aktuell → Vorschlag` (fett) + Konfidenz
+  - Zeile 3: Raum · Zeit · Outcome-Badge
+  - Die ganze Karte ist klickbar (`role="button"`, `onClick` toggelt Expand-Panel mit Begründung, Erwartung, Autonomie-Select, „Übernehmen"-Button).
 
-2. **Kurzbeschreibung schärfen**
-   - Ein Satz: „Der KI-Autopilot analysiert das System alle 15 Minuten, schlägt Parameter-Änderungen vor und wendet sie – je nach Modus – automatisch oder erst nach deiner Freigabe an."
+### 2. Klickbare Parameter-Chips (oben, `byParam`)
+- Aus den Info-Chips `Button variant="outline" size="sm"` machen.
+- Klick setzt einen neuen State `paramFilter` → filtert `filtered` zusätzlich nach `parameter_key`.
+- Aktiver Chip wird hervorgehoben; ein „×"-Chip „Filter aufheben" erscheint daneben, wenn gesetzt.
 
-3. **Kompakte Legende (collapsible `<details>` direkt unter der Beschreibung)**
-   Zwei kleine Blöcke nebeneinander, mit denselben Badge-Styles wie in der Tabelle, damit Farbe = Bedeutung:
+### 3. Klickbare Zeile auf Desktop
+- Auch in der bestehenden Tabelle: gesamte `TableRow` per `onClick` togglet Expand (Chevron-Button bleibt als visueller Hint, stoppt aber `propagation`).
+- „Übernehmen"-Button stoppt `propagation`, damit Klick nicht expandiert.
 
-   **Filter (Tabs oben rechts)**
-   - **Alle** – jeder gespeicherte Vorschlag der letzten Tage
-   - **Offen** – Vorschlag wurde noch nicht bewertet (Outcome-Score fehlt)
-   - **Bewertet** – Outcome wurde nach ~60 min gemessen, Score sichtbar (positiv = hat geholfen, negativ = hat geschadet → ggf. Auto-Rollback)
+### 4. Mini-Verbesserungen Header
+- Filter-Buttons (Alle/Offen/Bewertet) auf Mobile in eigene Zeile umbrechen lassen — bereits `flex-wrap`, ggf. `w-full sm:w-auto` am Container.
+- Legende `<details>` bleibt wie gehabt (passt schon).
 
-   **Modus pro Parameter (Spalte „Modus" / Dropdown)**
-   - **Schatten** (grau) – KI loggt nur, ändert nichts. Lernphase.
-   - **Vorschlag** (outline) – KI speichert Vorschlag, du klickst „Anwenden".
-   - **Auto** (blau) – KI wendet selbst an, sobald `ai_auto_mode_enabled` aktiv ist; bei Score < −0.3 automatischer Rollback.
-
-4. **Keine Logik-Änderungen** – nur Text, Titel und eine eingeklappte Legende. Tabelle, Datenfluss und Edge Functions bleiben unberührt.
+## Keine Logik-/Backend-Änderungen
+Nur UI: Filter-State um `paramFilter` erweitert, Card-Layout für Mobile, klickbare Zeilen. Datenmodell, Edge Functions und Apply-Logik unverändert.
 
 ## Verifikation
-- Karte rendert mit neuem Titel.
-- Legende ist standardmäßig eingeklappt, öffnet auf Klick.
-- Bestehende Filter-Buttons und Modus-Badges verhalten sich unverändert.
+- 390 px Viewport: keine horizontale Scroll-Leiste mehr in der Karte; Karten-Liste sichtbar.
+- Tap auf Parameter-Chip filtert die Liste.
+- Tap auf Karte/Zeile öffnet Detail-Panel; „Übernehmen" funktioniert ohne Toggle-Konflikt.
+- Desktop (`md+`): Tabelle unverändert, zusätzlich row-click expand.
