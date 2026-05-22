@@ -364,6 +364,16 @@ export function AIShadowDecisions() {
 
 
 
+        {filtered.length > 0 && (
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-muted-foreground">{filtered.length} Vorschläge</span>
+            <Button variant="ghost" size="sm" onClick={expandAll}>
+              {allExpanded ? <ChevronUp className="h-4 w-4 mr-1" /> : <ChevronDown className="h-4 w-4 mr-1" />}
+              {allExpanded ? 'Alle zuklappen' : 'Alle aufklappen'}
+            </Button>
+          </div>
+        )}
+
         {lastRun && (
           <div className={`text-sm rounded border px-3 py-2 ${lastRun.ok ? 'bg-muted/30 border-border' : 'bg-destructive/10 border-destructive/30 text-destructive'}`}>
             <span className="font-medium">
