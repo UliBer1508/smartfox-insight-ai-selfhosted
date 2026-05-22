@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
 import { AIDailyPlanCard } from './AIDailyPlanCard';
+import { AIAutopilotToggle } from './AIAutopilotToggle';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
@@ -274,7 +275,9 @@ export function AIShadowDecisions() {
       </CardHeader>
 
       <CardContent className="space-y-4">
+        <AIAutopilotToggle />
         <AIDailyPlanCard />
+
 
 
         {byParam.size > 0 && (
