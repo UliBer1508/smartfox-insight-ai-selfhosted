@@ -24,6 +24,22 @@ interface AIResponse {
   rateLimited?: boolean;
 }
 
+interface MLDecision {
+  room_id: string;
+  room_name: string;
+  action: 'activate' | 'deactivate' | 'keep';
+  target_temp: number;
+  reasoning: string;
+  expected_energy_wh?: number;
+  confidence?: number;
+}
+
+interface MLDecisionResponse {
+  decisions?: MLDecision[];
+  overall_strategy?: string;
+  error?: string;
+}
+
 async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
   const GOOGLE_AI_API_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
   if (!GOOGLE_AI_API_KEY) {
