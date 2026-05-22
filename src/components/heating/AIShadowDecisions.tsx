@@ -395,13 +395,18 @@ export function AIShadowDecisions() {
                                     <SelectContent>
                                       <SelectItem value="shadow">Schatten</SelectItem>
                                       <SelectItem value="suggest">Vorschlag</SelectItem>
-                                      <SelectItem value="auto" disabled>Auto (bald)</SelectItem>
+                              <SelectItem value="auto">Auto</SelectItem>
                                     </SelectContent>
                                   </Select>
                                   <span className="text-muted-foreground">
                                     Range: {wl.min_value ?? '–'} … {wl.max_value ?? '–'}
                                     {wl.allowed_values ? ` · ${wl.allowed_values.join('/')}` : ''}
                                   </span>
+                                </div>
+                              )}
+                              {d.auto_applied && (
+                                <div className="text-emerald-700 dark:text-emerald-400">
+                                  ✅ Automatisch angewendet durch KI · Kill-Switch: system_settings.ai_auto_mode_enabled
                                 </div>
                               )}
                               {d.applied_at && (
