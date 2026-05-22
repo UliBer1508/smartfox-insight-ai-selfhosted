@@ -263,7 +263,12 @@ export function AIShadowDecisions() {
               Modus pro Parameter: <strong>Schatten</strong> (nur Log) · <strong>Vorschlag</strong> (manuell übernehmen) · <strong>Auto</strong> (zukünftig).
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap items-center">
+            {(['all', 'unevaluated', 'evaluated'] as const).map((f) => (
+              <Button key={f} size="sm" variant={filter === f ? 'default' : 'outline'} onClick={() => setFilter(f)}>
+                {f === 'all' ? 'Alle' : f === 'unevaluated' ? 'Offen' : 'Bewertet'}
+              </Button>
+            ))}
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
@@ -294,13 +299,8 @@ export function AIShadowDecisions() {
           </div>
         )}
 
-        <div className="flex gap-2">
-          {(['all', 'unevaluated', 'evaluated'] as const).map((f) => (
-            <Button key={f} size="sm" variant={filter === f ? 'default' : 'outline'} onClick={() => setFilter(f)}>
-              {f === 'all' ? 'Alle' : f === 'unevaluated' ? 'Offen' : 'Bewertet'}
-            </Button>
-          ))}
-        </div>
+
+
 
         {lastRun && (
           <div className={`text-sm rounded border px-3 py-2 ${lastRun.ok ? 'bg-muted/30 border-border' : 'bg-destructive/10 border-destructive/30 text-destructive'}`}>
