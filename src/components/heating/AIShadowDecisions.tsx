@@ -312,9 +312,6 @@ export function AIShadowDecisions() {
                 {f === 'all' ? 'Alle' : f === 'unevaluated' ? 'Offen' : 'Bewertet'}
               </Button>
             ))}
-            <Button variant="outline" size="sm" onClick={load} disabled={loading}>
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            </Button>
             <Button size="sm" onClick={triggerRun} disabled={running}>
               {running ? 'KI denkt …' : 'Jetzt analysieren'}
             </Button>
