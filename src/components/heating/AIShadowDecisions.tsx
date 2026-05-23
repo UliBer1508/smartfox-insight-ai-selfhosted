@@ -284,7 +284,7 @@ export function AIShadowDecisions() {
               <span className="block mt-1 text-[11px] opacity-70">Anzeige: letzte 50 · Aufbewahrung: 7 Tage offen, 30 Tage bewertet</span>
             </CardDescription>
             <details className="mt-2 text-xs">
-              <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
+              <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none text-sm font-bold">
                 Legende anzeigen
               </summary>
               <div className="mt-2 grid gap-3 sm:grid-cols-2 rounded-md border bg-muted/30 p-3">
