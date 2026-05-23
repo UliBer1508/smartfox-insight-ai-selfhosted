@@ -86,14 +86,14 @@ export function AIShadowDecisions() {
   const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
+  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('unevaluated');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
   const [listCollapsed, setListCollapsed] = useState<boolean>(true);
 
   const load = async () => {
     setLoading(true);
     const [{ data: dec }, { data: rs }, { data: wl }] = await Promise.all([
-      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(50),
       supabase.from('rooms').select('id, name'),
       supabase.from('ai_parameter_whitelist').select('*').eq('enabled', true),
     ]);
@@ -281,6 +281,7 @@ export function AIShadowDecisions() {
               die KI zeigt dir, was sie tun würde, ohne es sofort auszuführen — du kannst Vorschläge mit einem
               Klick übernehmen. Im Auto-Modus wendet sie sie selbst an und rollt bei schlechtem Ergebnis zurück.
               Analyse läuft alle 15 Minuten.
+              <span className="block mt-1 text-[11px] opacity-70">Anzeige: letzte 50 · Aufbewahrung: 7 Tage offen, 30 Tage bewertet</span>
             </CardDescription>
             <details className="mt-2 text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">

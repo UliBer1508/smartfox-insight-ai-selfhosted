@@ -1830,6 +1830,7 @@ export type Database = {
       }
     }
     Functions: {
+      cleanup_ai_parameter_decisions: { Args: never; Returns: number }
       cleanup_old_data: { Args: never; Returns: undefined }
       expire_stale_thermostat_commands: { Args: never; Returns: number }
       get_heating_history: {
