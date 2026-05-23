@@ -204,7 +204,7 @@ export function ThermostatCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-11 w-11"
               onClick={() => room.id && onRefresh(room.id)}
               disabled={isLoading || !hasDevice}
             >
@@ -295,13 +295,13 @@ export function ThermostatCard({
               <Button
                 variant="outline"
                 size="icon"
-                className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
+                className="h-11 w-11 shrink-0"
                 onClick={() => adjustTemp(-0.5)}
                 disabled={isSetting || localTemp <= 5}
               >
-                <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
+                <Minus className="h-4 w-4" />
               </Button>
-              
+
               <Slider
                 value={[localTemp]}
                 min={5}
@@ -312,15 +312,15 @@ export function ThermostatCard({
                 disabled={isSetting}
                 className="flex-1 min-w-0"
               />
-              
+
               <Button
                 variant="outline"
                 size="icon"
-                className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
+                className="h-11 w-11 shrink-0"
                 onClick={() => adjustTemp(0.5)}
                 disabled={isSetting || localTemp >= 30}
               >
-                <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
 
