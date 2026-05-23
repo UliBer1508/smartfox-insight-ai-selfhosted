@@ -125,6 +125,9 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             </div>
           </AccordionTrigger>
           <AccordionContent className="p-4 space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Diese Werte werden von der KI verwendet um PV-Überschuss zu berechnen und Heizentscheidungen zu optimieren. Gib deine tatsächlichen Anlagenwerte ein — je genauer, desto besser lernt die KI.
+            </p>
             <HeatingSettingsForm
               settings={settings}
               onSave={saveSettings}

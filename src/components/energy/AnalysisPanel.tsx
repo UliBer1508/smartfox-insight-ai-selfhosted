@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { EnergyReading } from '@/types/energy';
-import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart } from 'lucide-react';
+import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,6 +37,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
     const [backfillDays, setBackfillDays] = useState<number>(30);
     const [isBackfilling, setIsBackfilling] = useState(false);
     const [isMonthlyRunning, setIsMonthlyRunning] = useState(false);
+    const [devOpen, setDevOpen] = useState(false);
 
     const get = <K extends keyof HeatingSettings>(k: K): HeatingSettings[K] =>
       (draft[k] !== undefined ? draft[k] : settings[k]) as HeatingSettings[K];
@@ -79,16 +82,20 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
     };
 
     const AutomationBox = ({
-      enabledKey, timeKey, extra,
+      enabledKey, timeKey, extra, description,
     }: {
       enabledKey: keyof HeatingSettings;
       timeKey: keyof HeatingSettings;
       extra?: React.ReactNode;
+      description?: string;
     }) => {
       const enabled = Boolean(get(enabledKey));
       const time = String(get(timeKey) ?? '');
       return (
         <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+          {description && (
+            <p className="text-xs text-muted-foreground">{description}</p>
+          )}
           <div className="flex items-center justify-between">
             <Label className="text-sm font-medium">Automatisch ausführen</Label>
             <Switch
@@ -127,29 +134,60 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Backfill */}
-          <div className="rounded-lg border bg-muted/20 p-3 flex flex-col sm:flex-row gap-3 sm:items-end">
-            <div className="space-y-1 flex-1">
-              <Label className="text-xs text-muted-foreground flex items-center gap-1">
-                <Database className="w-3 h-3" /> Tagesscores rückwirkend berechnen
-              </Label>
-              <Select
-                value={String(backfillDays)}
-                onValueChange={(v) => setBackfillDays(parseInt(v, 10))}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="7">Letzte 7 Tage</SelectItem>
-                  <SelectItem value="30">Letzte 30 Tage</SelectItem>
-                  <SelectItem value="90">Letzte 90 Tage</SelectItem>
-                </SelectContent>
-              </Select>
+          {/* Datenpflege (Entwickler) — eingeklappt */}
+          <Collapsible open={devOpen} onOpenChange={setDevOpen}>
+            <div className="rounded-lg border bg-muted/20">
+              <CollapsibleTrigger asChild>
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium hover:bg-muted/40 transition-colors rounded-t-lg"
+                >
+                  <Wrench className="w-4 h-4 text-muted-foreground" />
+                  <span>🔧 Datenpflege (Entwickler)</span>
+                  <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${devOpen ? 'rotate-180' : ''}`} />
+                </button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <div className="px-3 pb-3 pt-1 space-y-3">
+                  <p className="text-xs text-muted-foreground">
+                    Tagesscores werden normalerweise automatisch berechnet. Starte einen Backfill nur, wenn historische Daten fehlen oder neu importiert wurden.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
+                    <div className="space-y-1 flex-1">
+                      <TooltipProvider delayDuration={150}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Label className="text-xs text-muted-foreground inline-flex items-center gap-1 cursor-help">
+                              <Database className="w-3 h-3" /> Zeitraum
+                              <Info className="w-3 h-3" />
+                            </Label>
+                          </TooltipTrigger>
+                          <TooltipContent side="top" className="max-w-xs text-xs">
+                            Für wie viele Tage in der Vergangenheit sollen die KI-Bewertungsscores neu berechnet werden?
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                      <Select
+                        value={String(backfillDays)}
+                        onValueChange={(v) => setBackfillDays(parseInt(v, 10))}
+                      >
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="7">Letzte 7 Tage</SelectItem>
+                          <SelectItem value="30">Letzte 30 Tage</SelectItem>
+                          <SelectItem value="90">Letzte 90 Tage</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button onClick={runBackfill} disabled={isBackfilling} variant="secondary">
+                      {isBackfilling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Database className="w-4 h-4 mr-2" />}
+                      Scores jetzt neu berechnen
+                    </Button>
+                  </div>
+                </div>
+              </CollapsibleContent>
             </div>
-            <Button onClick={runBackfill} disabled={isBackfilling} variant="secondary">
-              {isBackfilling ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Database className="w-4 h-4 mr-2" />}
-              Backfill starten
-            </Button>
-          </div>
+          </Collapsible>
 
           <Tabs defaultValue="daily" className="w-full">
             <TabsList className="grid w-full grid-cols-4">
@@ -180,9 +218,13 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 className="w-full sm:w-auto"
               >
                 {isAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TrendingUp className="w-4 h-4 mr-2" />}
-                Tagesmuster jetzt analysieren
+                Tagesanalyse jetzt starten
               </Button>
-              <AutomationBox enabledKey="analysis_daily_enabled" timeKey="analysis_daily_time" />
+              <AutomationBox
+                enabledKey="analysis_daily_enabled"
+                timeKey="analysis_daily_time"
+                description="Die KI analysiert täglich dein Verbrauchsmuster und erkennt Abweichungen."
+              />
             </TabsContent>
 
             <TabsContent value="weekly" className="space-y-3 mt-4">
@@ -194,11 +236,12 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 className="w-full sm:w-auto"
               >
                 {isAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Calendar className="w-4 h-4 mr-2" />}
-                Wochenvergleich jetzt
+                Wochenvergleich jetzt starten
               </Button>
               <AutomationBox
                 enabledKey="analysis_weekly_enabled"
                 timeKey="analysis_weekly_time"
+                description="Wöchentlicher Vergleich: Hat diese Woche mehr oder weniger PV-Ertrag gebracht als die Vorwoche?"
                 extra={
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Wochentag</Label>
@@ -227,11 +270,12 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 className="w-full sm:w-auto"
               >
                 {isMonthlyRunning ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CalendarDays className="w-4 h-4 mr-2" />}
-                Monatsmuster jetzt
+                Monatsanalyse jetzt starten
               </Button>
               <AutomationBox
                 enabledKey="analysis_monthly_enabled"
                 timeKey="analysis_monthly_time"
+                description="Die KI berechnet monatlich Langzeit-Trends und passt die Heizstrategie für die kommende Jahreszeit an."
                 extra={
                   <div className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Tag im Monat (1–28)</Label>

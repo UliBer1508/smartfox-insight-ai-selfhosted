@@ -277,8 +277,10 @@ export function AIShadowDecisions() {
               KI-Autopilot · Parameter-Vorschläge
             </CardTitle>
             <CardDescription>
-              Der KI-Autopilot analysiert das System alle 15 Minuten, schlägt Parameter-Änderungen vor und
-              wendet sie – je nach Modus – automatisch an oder erst nach deiner Freigabe.
+              Die KI beobachtet im Hintergrund und schlägt Parameteranpassungen vor. „Schatten-Modus" bedeutet:
+              die KI zeigt dir, was sie tun würde, ohne es sofort auszuführen — du kannst Vorschläge mit einem
+              Klick übernehmen. Im Auto-Modus wendet sie sie selbst an und rollt bei schlechtem Ergebnis zurück.
+              Analyse läuft alle 15 Minuten.
             </CardDescription>
             <details className="mt-2 text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">
