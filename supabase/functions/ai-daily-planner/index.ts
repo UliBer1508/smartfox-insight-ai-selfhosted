@@ -42,7 +42,7 @@ async function callClaudeHaiku(prompt: string, toolName: string, toolSchema: obj
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5',
       max_tokens: 4096,
       temperature: 1,
       messages: [{ role: 'user', content: prompt }],
@@ -99,7 +99,7 @@ async function callGeminiFallback(prompt: string): Promise<any> {
 function getTodayVienna(): string {
   const d = new Date();
   const v = new Date(d.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
-  return v.toISOString().slice(1,10);
+  return v.toISOString().slice(0, 10);
 }
 
 function buildToolSchema() {
