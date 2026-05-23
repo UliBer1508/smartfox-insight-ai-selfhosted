@@ -28,8 +28,9 @@ import { AIStatusWidget } from './AIStatusWidget';
 import { MLFollowRateWidget } from './MLFollowRateWidget';
 import { ApiErrorBanner } from './ApiErrorBanner';
 import { usePushAllTemps } from '@/hooks/usePushAllTemps';
-import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot, Send } from 'lucide-react';
+import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain, Bot, Send, ChevronDown } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 
