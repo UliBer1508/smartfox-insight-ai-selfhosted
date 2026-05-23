@@ -33,6 +33,7 @@ import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningProgress } from './LearningProgress';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
+import { StatusLegend } from './StatusLegend';
 
 import { AIShadowDecisions } from './AIShadowDecisions';
 import { supabase } from '@/integrations/supabase/client';
