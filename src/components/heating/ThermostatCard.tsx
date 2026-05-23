@@ -10,6 +10,8 @@ import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { getViennaMinutesSinceMidnight } from '@/lib/dateUtils';
+import { AIBadge } from '@/components/ui/AIBadge';
+
 
 interface HeatingStats {
   todayCycles: number;
@@ -183,9 +185,10 @@ export function ThermostatCard({
     )}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Thermometer className="h-5 w-5 text-muted-foreground" />
-            {room.name}
+          <CardTitle className="text-lg flex items-center gap-2 min-w-0">
+            <Thermometer className="h-5 w-5 text-muted-foreground shrink-0" />
+            <span className="truncate">{room.name}</span>
+            <AIBadge active={!!room.automation_enabled} className="shrink-0" />
           </CardTitle>
           <div className="flex items-center gap-2 min-w-[60px] justify-end">
             {hasApiError ? (
