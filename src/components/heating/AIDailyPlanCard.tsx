@@ -39,6 +39,7 @@ export function AIDailyPlanCard() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [cardExpanded, setCardExpanded] = useState(false);
 
   const load = async () => {
     setLoading(true);
