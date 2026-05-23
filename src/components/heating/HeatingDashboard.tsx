@@ -333,7 +333,8 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </div>
           </CardHeader>
           <CardContent>
-            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-0">
+            <StatusLegend />
+            <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-1">
               {rooms.filter(r => r.tuya_device_id).map(room => (
                 <ThermostatCard
                   key={room.id}
