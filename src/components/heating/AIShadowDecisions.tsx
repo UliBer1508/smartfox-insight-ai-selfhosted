@@ -88,7 +88,7 @@ export function AIShadowDecisions() {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
-  const [listCollapsed, setListCollapsed] = useState<boolean>(false);
+  const [listCollapsed, setListCollapsed] = useState<boolean>(true);
 
   const load = async () => {
     setLoading(true);
