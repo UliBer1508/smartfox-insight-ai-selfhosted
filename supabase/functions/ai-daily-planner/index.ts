@@ -99,7 +99,7 @@ async function callGeminiFallback(prompt: string): Promise<any> {
 function getTodayVienna(): string {
   const d = new Date();
   const v = new Date(d.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
-  return v.toISOString().slice(1,10);
+  return v.toISOString().slice(0, 10);
 }
 
 function buildToolSchema() {
