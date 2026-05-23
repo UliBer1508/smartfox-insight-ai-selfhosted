@@ -196,15 +196,15 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
     <div className="space-y-6">
       {/* API Error Banner */}
       <ApiErrorBanner onRetry={() => { syncAllStatus(); refetchErrors(); }} />
-      
-      {/* Current Status Cards */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 w-full min-w-0">
-        <BatteryStatus 
-          soc={latestSoc} 
+
+      {/* Top 3 Status Cards */}
+      <div className="grid md:grid-cols-3 gap-4 w-full min-w-0">
+        <BatteryStatus
+          soc={latestSoc}
           capacity={settings.battery_capacity_kwh}
           batteryPower={currentReading?.battery_power ?? null}
         />
-        
+
         <Card className="overflow-hidden">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -213,67 +213,44 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {/* Label "Heute" */}
             <p className="text-xs text-muted-foreground">Heute</p>
-            
-            {/* Tagesproduktion als große Zahl */}
             <div className="text-xl sm:text-2xl font-bold font-mono text-energy-export">
               {isLoadingPv ? '...' : `${pvEnergy.toFixed(1)} kWh`}
             </div>
-            
-            {/* Progress-Bar und Prognose-Vergleich */}
             {todayForecast && todayForecast.expected_kwh > 0 && (
               <div className="space-y-1.5">
-                <Progress 
-                  value={Math.min((pvEnergy / todayForecast.expected_kwh) * 100, 100)} 
+                <Progress
+                  value={Math.min((pvEnergy / todayForecast.expected_kwh) * 100, 100)}
                   className="h-2"
                 />
                 <p className={`text-xs text-right font-medium ${
-                  (pvEnergy / todayForecast.expected_kwh) >= 0.8 
-                    ? 'text-green-500' 
-                    : (pvEnergy / todayForecast.expected_kwh) >= 0.5 
-                      ? 'text-yellow-500' 
+                  (pvEnergy / todayForecast.expected_kwh) >= 0.8
+                    ? 'text-green-500'
+                    : (pvEnergy / todayForecast.expected_kwh) >= 0.5
+                      ? 'text-yellow-500'
                       : 'text-muted-foreground'
                 }`}>
                   {Math.round((pvEnergy / todayForecast.expected_kwh) * 100)}% der Prognose ({todayForecast.expected_kwh.toFixed(1)} kWh)
                 </p>
               </div>
             )}
-            
-            {/* Aktuelle Leistung als kleine Info */}
             <div className="flex justify-between text-xs text-muted-foreground pt-1 border-t border-border/50">
               <span>Aktuell</span>
               <span className="font-mono">
                 {latestPvPower !== null ? `${(latestPvPower / 1000).toFixed(1)} kW` : '—'}
               </span>
             </div>
-            
             <p className="text-xs text-muted-foreground">
               Anlage: {settings.pv_capacity_kwp} kWp
             </p>
           </CardContent>
         </Card>
 
-        <AIStatusWidget 
-          rooms={rooms} 
-          pvPower={latestPvPower} 
-          soc={latestSoc} 
+        <AIStatusWidget
+          rooms={rooms}
+          pvPower={latestPvPower}
+          soc={latestSoc}
         />
-
-        <MLFollowRateWidget />
-
-        {/* PV Forecast Card */}
-        <PvForecastCard
-          todayForecast={todayForecast}
-          tomorrowForecast={tomorrowForecast}
-          weekForecasts={forecasts}
-          onRefresh={fetchForecast}
-          isRefreshing={isFetching}
-          pvCapacity={settings.pv_capacity_kwp}
-        />
-
-        <BatteryReserveStatus currentSoc={latestSoc ?? undefined} />
-
       </div>
 
       {/* Heating & Cost Overview - 2 columns */}
@@ -289,19 +266,23 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         />
       </div>
 
-      {/* KI-Parameter-Vorschläge (Schatten/Suggest/Auto via ai_parameter_whitelist) */}
+      {/* KI-Parameter-Vorschläge */}
       <AIShadowDecisions />
 
-      {/* Heating History Chart */}
-      <HeatingHistoryChart rooms={rooms} />
+      {/* Daily Heating Schedule - Primary view */}
+      {rooms.length > 0 && (
+        <DailyHeatingSchedule
+          rooms={rooms}
+          settings={settings}
+          currentSurplus={currentReading?.pv_power ? currentReading.pv_power - (currentReading.consumption || 0) : null}
+          batterySoc={currentReading?.battery_soc ?? null}
+        />
+      )}
 
-      {/* Solar Gain Chart - Temperature vs PV */}
-      <SolarGainChart rooms={rooms} />
-
-      {/* Thermostat Control - show if any rooms have tuya devices */}
+      {/* Thermostat Control */}
       {rooms.some(r => r.tuya_device_id) && (
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle className="flex items-center gap-2">
                 <Thermometer className="w-5 h-5 text-primary" />
@@ -321,6 +302,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               <Button
                 variant="outline"
                 size="sm"
+                className="h-11"
                 onClick={async () => {
                   await pushAllTemps();
                   await loadRooms();
@@ -338,6 +320,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               <Button
                 variant="outline"
                 size="sm"
+                className="h-11"
                 onClick={handleSyncThermostats}
                 disabled={isSyncing || isPushing}
                 title={syncTooltip}
@@ -370,16 +353,65 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         </Card>
       )}
 
-      {/* Daily Heating Schedule - Primary view */}
-      {rooms.length > 0 && (
-        <DailyHeatingSchedule
-          rooms={rooms}
-          settings={settings}
-          currentSurplus={currentReading?.pv_power ? currentReading.pv_power - (currentReading.consumption || 0) : null}
-          batterySoc={currentReading?.battery_soc ?? null}
-        />
-      )}
+      {/* Detailansicht KI & Prognose — aufklappbar */}
+      <Collapsible defaultOpen={false}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer select-none">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Brain className="w-5 h-5 text-primary" />
+                📊 Detailansicht KI &amp; Prognose
+                <ChevronDown className="w-4 h-4 ml-auto transition-transform data-[state=open]:rotate-180" />
+              </CardTitle>
+              <CardDescription>
+                PV-Prognose basiert auf Wetterdaten. Die Batterie-Reserve zeigt wieviel Kapazität die KI
+                für Nacht/Morgen freihält. Die ML-Follow-Rate misst wie zuverlässig die KI-Empfehlungen
+                ausgeführt werden.
+              </CardDescription>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent>
+              <div className="grid md:grid-cols-3 gap-4">
+                <PvForecastCard
+                  todayForecast={todayForecast}
+                  tomorrowForecast={tomorrowForecast}
+                  weekForecasts={forecasts}
+                  onRefresh={fetchForecast}
+                  isRefreshing={isFetching}
+                  pvCapacity={settings.pv_capacity_kwp}
+                />
+                <BatteryReserveStatus currentSoc={latestSoc ?? undefined} />
+                <MLFollowRateWidget />
+              </div>
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
+      {/* Verlaufscharts — aufklappbar */}
+      <Collapsible defaultOpen={false}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer select-none">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Zap className="w-5 h-5 text-primary" />
+                📈 Verlaufscharts
+                <ChevronDown className="w-4 h-4 ml-auto transition-transform data-[state=open]:rotate-180" />
+              </CardTitle>
+              <CardDescription>
+                Heizverlauf der letzten Tage sowie Korrelation Temperatur ↔ PV-Ertrag.
+              </CardDescription>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-6">
+              <HeatingHistoryChart rooms={rooms} />
+              <SolarGainChart rooms={rooms} />
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
     </div>
   );
 }
