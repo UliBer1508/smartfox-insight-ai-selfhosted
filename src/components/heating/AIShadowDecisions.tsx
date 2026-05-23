@@ -93,7 +93,7 @@ export function AIShadowDecisions() {
   const load = async () => {
     setLoading(true);
     const [{ data: dec }, { data: rs }, { data: wl }] = await Promise.all([
-      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(100),
+      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(50),
       supabase.from('rooms').select('id, name'),
       supabase.from('ai_parameter_whitelist').select('*').eq('enabled', true),
     ]);
