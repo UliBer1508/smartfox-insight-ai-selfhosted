@@ -33,6 +33,7 @@ import { useRooms } from '@/hooks/useRooms';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Activity, Database, Clock, Zap, Thermometer, Home, Loader2, Sun, Battery, Brain } from 'lucide-react';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
@@ -235,129 +236,132 @@ const Index = () => {
               onAnalyzeWeekly={analyzeWeeklyComparison}
             />
 
-            {/* Heizungs-Optimierung */}
+            {/* KI-Heizplan */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Zap className="w-5 h-5 text-primary" />
-                  Heizungs-Optimierung
+                  <Thermometer className="w-5 h-5 text-primary" />
+                  📅 KI-Heizplan
                 </CardTitle>
                 <CardDescription>
-                  KI-basierte Thermostat-Empfehlungen
+                  KI-basierte Thermostat-Empfehlungen für deinen Tag
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Tabs defaultValue={rooms.length > 0 ? "rooms" : "global"} className="w-full">
-                  <TabsList className="grid w-full grid-cols-3">
-                    <TabsTrigger value="global" className="text-xs sm:text-sm px-1 sm:px-3">
-                      <Thermometer className="w-4 h-4 sm:mr-2 flex-shrink-0" />
-                      <span className="hidden sm:inline">TGP508 Global</span>
-                      <span className="sm:hidden">Global</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="rooms" className="text-xs sm:text-sm px-1 sm:px-3">
-                      <Home className="w-4 h-4 sm:mr-2 flex-shrink-0" />
-                      <span className="hidden sm:inline">Raumweise</span>
-                      <span className="sm:hidden">Räume</span>
-                    </TabsTrigger>
-                    <TabsTrigger value="learning" className="text-xs sm:text-sm px-1 sm:px-3">
-                      <Brain className="w-4 h-4 sm:mr-2 flex-shrink-0" />
-                      <span className="hidden sm:inline">ML-Status</span>
-                      <span className="sm:hidden">ML</span>
-                    </TabsTrigger>
-                  </TabsList>
+                <Button
+                  onClick={handleAnalyze}
+                  disabled={isHeatingAnalyzing || readings.length < 5}
+                  className="w-full md:w-auto h-11"
+                >
+                  {isHeatingAnalyzing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Analysiere...
+                    </>
+                  ) : (
+                    <>
+                      <Thermometer className="w-4 h-4 mr-2" />
+                      Heizplan generieren
+                    </>
+                  )}
+                </Button>
 
-                  <TabsContent value="global" className="space-y-4 mt-4">
-                    <Button 
-                      onClick={handleAnalyze}
-                      disabled={isHeatingAnalyzing || readings.length < 5}
-                      className="w-full md:w-auto"
-                    >
-                      {isHeatingAnalyzing ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Analysiere...
-                        </>
-                      ) : (
-                        <>
-                          <Thermometer className="w-4 h-4 mr-2" />
-                          Heizplan generieren
-                        </>
-                      )}
-                    </Button>
+                {analysisResult?.periods && analysisResult.periods.length > 0 && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-lg">Empfohlener Heizplan für deinen TGP508:</h3>
+                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {analysisResult.periods.map((period) => (
+                        <HeatingPeriodCard key={period.period} period={period} />
+                      ))}
+                    </div>
 
-                    {analysisResult?.periods && analysisResult.periods.length > 0 && (
-                      <div className="space-y-4">
-                        <h3 className="font-semibold text-lg">📅 Empfohlener Heizplan für deinen TGP508:</h3>
-                        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                          {analysisResult.periods.map((period) => (
-                            <HeatingPeriodCard key={period.period} period={period} />
-                          ))}
-                        </div>
-                        
-                        <div className="p-4 rounded-lg border bg-muted/50 space-y-2">
-                          <p className="flex items-center gap-2 text-sm">
-                            <Sun className="w-4 h-4 text-energy-export" />
-                            <strong>Erwarteter PV-Überschuss:</strong> ~{analysisResult.expectedPvSurplus.toFixed(1)} kWh
-                          </p>
-                          <p className="flex items-center gap-2 text-sm">
-                            <Battery className="w-4 h-4 text-primary" />
-                            <strong>Batterie-Strategie:</strong> {analysisResult.batteryStrategy}
-                          </p>
-                          {analysisResult.recommendations.map((rec, i) => (
-                            <p key={i} className="text-sm text-muted-foreground">💡 {rec}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                    <div className="p-4 rounded-lg border bg-muted/50 space-y-2">
+                      <p className="flex items-center gap-2 text-sm">
+                        <Sun className="w-4 h-4 text-energy-export" />
+                        <strong>Erwarteter PV-Überschuss:</strong> ~{analysisResult.expectedPvSurplus.toFixed(1)} kWh
+                      </p>
+                      <p className="flex items-center gap-2 text-sm">
+                        <Battery className="w-4 h-4 text-primary" />
+                        <strong>Batterie-Strategie:</strong> {analysisResult.batteryStrategy}
+                      </p>
+                      {analysisResult.recommendations.map((rec, i) => (
+                        <p key={i} className="text-sm text-muted-foreground">💡 {rec}</p>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                    {analysisResult?.summary && (!analysisResult.periods || analysisResult.periods.length === 0) && (
-                      <div className="p-4 rounded-lg border bg-card whitespace-pre-wrap text-sm">
-                        {analysisResult.summary}
-                      </div>
-                    )}
+                {analysisResult?.summary && (!analysisResult.periods || analysisResult.periods.length === 0) && (
+                  <div className="p-4 rounded-lg border bg-card whitespace-pre-wrap text-sm">
+                    {analysisResult.summary}
+                  </div>
+                )}
 
-                    {!analysisResult && !isHeatingAnalyzing && (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Thermometer className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Klicke auf &quot;Heizplan generieren&quot; für optimierte Thermostat-Zeiten.</p>
-                        <p className="text-xs mt-2">Basierend auf deinen PV- und Batterie-Daten.</p>
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="rooms" className="space-y-4 mt-4">
-                    {rooms.length === 0 ? (
-                      <div className="text-center py-8 text-muted-foreground">
-                        <Home className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                        <p>Lege zuerst Räume an, um die KI-Automatik nutzen zu können.</p>
-                        <p className="text-xs mt-2">Gehe zu Einstellungen → Räume verwalten.</p>
-                      </div>
-                    ) : (
-                      <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
-                        <p className="font-medium flex items-center gap-2">
-                          <Brain className="w-4 h-4 text-primary" />
-                          KI-Autopilot aktiv
-                        </p>
-                        <p className="text-muted-foreground">
-                          {rooms.length} Räume werden vollautomatisch über die PV-Automation und den
-                          KI-Parameter-Advisor gesteuert. Manuelle „Raumempfehlungen erstellen" und
-                          „Empfehlungen anwenden" sind nicht mehr nötig.
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          Status &amp; Live-Werte siehst du im Tab <strong>Heizung</strong>.
-                          KI-Parameter-Vorschläge im Tab <strong>ML-Status</strong>.
-                        </p>
-                      </div>
-                    )}
-                  </TabsContent>
-
-                  <TabsContent value="learning" className="mt-4 space-y-4">
-                    <PatternRecallBlock />
-                    <LearningProgress />
-                  </TabsContent>
-                </Tabs>
+                {!analysisResult && !isHeatingAnalyzing && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <Thermometer className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>Klicke auf &quot;Heizplan generieren&quot; für optimierte Thermostat-Zeiten.</p>
+                    <p className="text-xs mt-2">Basierend auf deinen PV- und Batterie-Daten.</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
+
+            {/* Räume-Info */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Home className="w-5 h-5 text-primary" />
+                  Räume &amp; Automatik
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {rooms.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground">
+                    <Home className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                    <p>Lege zuerst Räume an, um die KI-Automatik nutzen zu können.</p>
+                    <p className="text-xs mt-2">Gehe zu Einstellungen → Räume verwalten.</p>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border bg-muted/40 p-4 space-y-2 text-sm">
+                    <p className="font-medium flex items-center gap-2">
+                      <Brain className="w-4 h-4 text-primary" />
+                      KI-Autopilot aktiv
+                    </p>
+                    <p className="text-muted-foreground">
+                      {rooms.length} Räume werden vollautomatisch über die PV-Automation und den
+                      KI-Parameter-Advisor gesteuert. Manuelle „Raumempfehlungen erstellen" und
+                      „Empfehlungen anwenden" sind nicht mehr nötig.
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Status &amp; Live-Werte siehst du im Tab <strong>Heizung</strong>.
+                      KI-Parameter-Vorschläge dort in der Karte „KI-Autopilot · Parameter-Vorschläge".
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* KI-Lernstatus & Mustergedächtnis */}
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="ml-status" className="border rounded-lg overflow-hidden">
+                <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+                  <div className="flex items-center gap-2">
+                    <Brain className="h-5 w-5 text-primary" />
+                    <span className="font-semibold">🧠 KI-Lernstatus &amp; Mustergedächtnis</span>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="p-4 space-y-4">
+                  <p className="text-xs text-muted-foreground">
+                    Hier siehst du wie gut die KI aus deinen Energiedaten gelernt hat. Die ML-Follow-Rate
+                    zeigt, wie oft die KI-Empfehlungen vom System tatsächlich umgesetzt wurden. PatternRecall
+                    zeigt welche Wochenmuster erkannt wurden.
+                  </p>
+                  <PatternRecallBlock />
+                  <LearningProgress />
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </div>
         )}
 
