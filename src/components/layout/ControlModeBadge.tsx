@@ -53,7 +53,7 @@ export function ControlModeBadge({ onClick, className }: ControlModeBadgeProps) 
             className={cn(
               'inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] md:text-xs font-medium border transition-colors flex-shrink-0',
               cloudDisabled
-                ? 'bg-red-100 text-red-700 border-red-300 hover:bg-red-200'
+                ? 'bg-green-100 text-green-700 border-green-300 hover:bg-green-200'
                 : isLocal
                   ? 'bg-primary/10 text-primary border-primary/30 hover:bg-primary/20'
                   : 'bg-muted text-muted-foreground border-border hover:bg-muted/70',
