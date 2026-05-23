@@ -86,7 +86,7 @@ export function AIShadowDecisions() {
   const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('all');
+  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('unevaluated');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
   const [listCollapsed, setListCollapsed] = useState<boolean>(true);
 
