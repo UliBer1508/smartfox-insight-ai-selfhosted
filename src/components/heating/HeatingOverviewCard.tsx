@@ -4,6 +4,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Flame, Home } from 'lucide-react';
 import { Room } from '@/types/room';
 import { useHeatingConsumption, Period } from '@/hooks/useHeatingConsumption';
+import { useHeatingSettings } from '@/hooks/useHeatingSettings';
+import { AIBadge } from '@/components/ui/AIBadge';
+
 
 interface HeatingOverviewCardProps {
   rooms: Room[];
@@ -18,6 +21,9 @@ const PERIOD_LABELS: Record<Period, string> = {
 export function HeatingOverviewCard({ rooms }: HeatingOverviewCardProps) {
   const [period, setPeriod] = useState<Period>('day');
   const { consumption, isLoading } = useHeatingConsumption(rooms);
+  const { settings } = useHeatingSettings();
+  const aiAuto = Boolean((settings as { ai_auto_mode_enabled?: boolean })?.ai_auto_mode_enabled);
+
 
   const data = consumption[period];
 
@@ -42,6 +48,7 @@ export function HeatingOverviewCard({ rooms }: HeatingOverviewCardProps) {
           <div className="flex items-center gap-1.5 sm:gap-2">
             <Flame className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-500" />
             <span>Heizverbrauch</span>
+            <AIBadge active={aiAuto} className="ml-1" />
           </div>
           <Select value={period} onValueChange={(v) => setPeriod(v as Period)}>
             <SelectTrigger className="w-[75px] h-6 text-xs">

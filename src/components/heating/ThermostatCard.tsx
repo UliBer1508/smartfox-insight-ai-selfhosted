@@ -10,6 +10,8 @@ import { Room } from '@/types/room';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { getViennaMinutesSinceMidnight } from '@/lib/dateUtils';
+import { AIBadge } from '@/components/ui/AIBadge';
+
 
 interface HeatingStats {
   todayCycles: number;
@@ -183,9 +185,10 @@ export function ThermostatCard({
     )}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Thermometer className="h-5 w-5 text-muted-foreground" />
-            {room.name}
+          <CardTitle className="text-lg flex items-center gap-2 min-w-0">
+            <Thermometer className="h-5 w-5 text-muted-foreground shrink-0" />
+            <span className="truncate">{room.name}</span>
+            <AIBadge active={!!room.automation_enabled} className="shrink-0" />
           </CardTitle>
           <div className="flex items-center gap-2 min-w-[60px] justify-end">
             {hasApiError ? (
@@ -204,7 +207,7 @@ export function ThermostatCard({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8"
+              className="h-11 w-11"
               onClick={() => room.id && onRefresh(room.id)}
               disabled={isLoading || !hasDevice}
             >
@@ -295,13 +298,13 @@ export function ThermostatCard({
               <Button
                 variant="outline"
                 size="icon"
-                className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
+                className="h-11 w-11 shrink-0"
                 onClick={() => adjustTemp(-0.5)}
                 disabled={isSetting || localTemp <= 5}
               >
-                <Minus className="h-3 w-3 sm:h-4 sm:w-4" />
+                <Minus className="h-4 w-4" />
               </Button>
-              
+
               <Slider
                 value={[localTemp]}
                 min={5}
@@ -312,15 +315,15 @@ export function ThermostatCard({
                 disabled={isSetting}
                 className="flex-1 min-w-0"
               />
-              
+
               <Button
                 variant="outline"
                 size="icon"
-                className="h-8 w-8 sm:h-10 sm:w-10 shrink-0"
+                className="h-11 w-11 shrink-0"
                 onClick={() => adjustTemp(0.5)}
                 disabled={isSetting || localTemp >= 30}
               >
-                <Plus className="h-3 w-3 sm:h-4 sm:w-4" />
+                <Plus className="h-4 w-4" />
               </Button>
             </div>
 

@@ -5,6 +5,7 @@ import { Room } from '@/types/room';
 import { useAIStats } from '@/hooks/useAIStats';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 import { useState } from 'react';
+import { AIBadge } from '@/components/ui/AIBadge';
 
 interface AIStatusWidgetProps {
   rooms: Room[];
@@ -92,6 +93,7 @@ export function AIStatusWidget({ rooms, pvPower, soc }: AIStatusWidgetProps) {
         <CardTitle className="text-sm flex items-center gap-2">
           <Bot className="w-4 h-4 text-primary" />
           KI-Steuerung
+          <AIBadge active={rooms.some(r => r.automation_enabled)} className="ml-auto" />
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
