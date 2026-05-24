@@ -1729,6 +1729,12 @@ Deno.serve(async (req) => {
           } else if (lookaheadBonus > 0) {
             console.log(`[LOOKAHEAD] ☀️ Stabile Sonne (Stunde+1=${Math.round(nextHourForecastCorrected)}W ≥ 90% × ${Math.round(currentHourForecastCorrected)}W) → Komfort-Bonus +${lookaheadBonus}W`);
           }
+          // Robustheit 1: Stale-Forecast (>1 Tag alt) → Komfort konservativ ×0.7
+          if (forecastIsStale && comfortBudget > 0) {
+            const beforeStale = comfortBudget;
+            comfortBudget = Math.round(comfortBudget * 0.7);
+            console.log(`[PV-FORECAST] Stale-Fallback: Komfort ${beforeStale}W × 0.7 = ${comfortBudget}W (konservativ wegen veralteter Prognose)`);
+          }
           console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}W Trend` : ''}) | Komfort-Budget: ${comfortBudget}W (effExport ${effectiveExport} [grid ${gridExport}+heiz ${currentlyHeatingPower}] − Baseload ${dynamicBaseloadBuffer}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}` : ''}${lookaheadBonus > 0 ? ` +Lookahead ${lookaheadBonus}` : ''}${batteryFullBonus > 0 ? ` +BattFull ${batteryFullBonus}` : ''})`);
 
           // Persist für UI (parallel-heating-capacity wird nach Phase-Setup ergänzt)
