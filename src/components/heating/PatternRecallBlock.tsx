@@ -15,7 +15,9 @@ import type { HeatingSettings } from '@/types/heating';
 interface BestMatch {
   computed_at?: string;
   match_quality?: 'exact' | 'partial' | 'weak' | 'none';
-  top_days?: Array<{ date?: string; score?: number; kpi_pv_heating_coverage?: number }>;
+  top_days?:
+    | Array<{ date?: string; score?: number; kpi_pv_heating_coverage?: number }>
+    | { code?: string; message?: string; details?: string; hint?: string };
 }
 
 const QUALITY_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
