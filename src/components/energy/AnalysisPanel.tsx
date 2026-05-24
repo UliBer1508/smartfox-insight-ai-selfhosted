@@ -375,12 +375,8 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
             </div>
           )}
 
-          {!analysis && !isAnalyzing && (
-            <div className="text-center py-6 text-muted-foreground">
-              <Brain className="w-10 h-10 mx-auto mb-2 opacity-50" />
-              <p className="text-sm">Wähle einen Zeitraum-Tab und starte die Analyse oder aktiviere Automatik.</p>
-            </div>
-          )}
+
+
 
           {isAnalyzing && (
             <div className="text-center py-6 text-muted-foreground">
