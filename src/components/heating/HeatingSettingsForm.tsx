@@ -259,33 +259,34 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </div>
           </div>
 
-          {/* Batterie-Reserve für Nachverbrauch */}
+          {/* Batterie-Reserve / Heizungs-Schutz (konsolidiert) */}
           <div className="border-t pt-4">
             <h3 className="text-sm font-medium flex items-center gap-2 mb-4">
               <Zap className="w-4 h-4" />
               Batterie-Reserve für Nachverbrauch
             </h3>
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="battery_reserve">
-                  Mindest-SOC nach Heiz-Tag: {formData.battery_reserve_for_night_soc ?? 60}%
+            <div className="space-y-5">
+              <div className="space-y-3">
+                <Label htmlFor="heating_min_soc">
+                  Mindest-SOC für Nacht-Reserve: {formData.heating_min_battery_soc ?? 80}%
                 </Label>
-                <Input
-                  id="battery_reserve"
-                  type="range"
-                  min="40"
-                  max="80"
-                  step="5"
-                  value={formData.battery_reserve_for_night_soc ?? 60}
-                  onChange={(e) => handleChange('battery_reserve_for_night_soc', parseInt(e.target.value))}
+                <Slider
+                  id="heating_min_soc"
+                  min={40}
+                  max={95}
+                  step={5}
+                  value={[formData.heating_min_battery_soc ?? 80]}
+                  onValueChange={(v) => handleChange('heating_min_battery_soc', v[0])}
                   className="w-full"
                 />
                 <p className="text-xs text-muted-foreground">
-                  Diese Reserve wird für Abend-/Nachtverbrauch geschützt — Heizung darf darunter nicht entladen.
+                  Dieser Wert schützt die Batterie für Abend-/Nachtverbrauch und gilt zugleich als hartes
+                  SOC-Gate: Die Heizung darf die Batterie nur entladen, wenn der Ladestand darüber liegt.
+                  Die Puffer-Logik unten referenziert diesen Wert (Reserve+20 / Reserve+35).
                 </p>
               </div>
 
-              <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-2 pt-2">
                 <Switch
                   id="battery_buffer"
                   checked={formData.battery_buffer_enabled !== false}
@@ -300,18 +301,17 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               </p>
 
               {formData.battery_buffer_enabled !== false && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <Label htmlFor="battery_buffer_bonus">
                     Max. Puffer-Bonus: {formData.battery_buffer_bonus_w ?? 500}W
                   </Label>
-                  <Input
+                  <Slider
                     id="battery_buffer_bonus"
-                    type="range"
-                    min="200"
-                    max="1500"
-                    step="100"
-                    value={formData.battery_buffer_bonus_w ?? 500}
-                    onChange={(e) => handleChange('battery_buffer_bonus_w', parseInt(e.target.value))}
+                    min={200}
+                    max={1500}
+                    step={100}
+                    value={[formData.battery_buffer_bonus_w ?? 500]}
+                    onValueChange={(v) => handleChange('battery_buffer_bonus_w', v[0])}
                     className="w-full"
                   />
                   <p className="text-xs text-muted-foreground">
@@ -334,29 +334,8 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                 Räume bleiben bei kurzen PV-Einbrüchen aktiv (Wolkenschatten), wenn Trend stabil ist.
               </p>
 
-              {/* Hartes SOC-Gate */}
-              <div className="space-y-2 pt-4 border-t">
-                <Label htmlFor="heating_min_soc">
-                  Heizung-Schutz: Mindest-SOC für Batterienutzung: {formData.heating_min_battery_soc ?? 80}%
-                </Label>
-                <Input
-                  id="heating_min_soc"
-                  type="range"
-                  min="40"
-                  max="95"
-                  step="5"
-                  value={formData.heating_min_battery_soc ?? 80}
-                  onChange={(e) => handleChange('heating_min_battery_soc', parseInt(e.target.value))}
-                  className="w-full"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Heizung darf die Batterie nur entladen, wenn der Ladestand über diesem Wert liegt.
-                  Schützt die Batterie für Abend-/Nachtverbrauch.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="soc_gate_mode">Sperr-Modus</Label>
+              <div className="space-y-2 pt-2">
+                <Label htmlFor="soc_gate_mode">Sperr-Modus (bei SOC unter Reserve)</Label>
                 <Select
                   value={formData.heating_soc_gate_mode ?? 'strict'}
                   onValueChange={(value) => handleChange('heating_soc_gate_mode', value)}
@@ -372,6 +351,7 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               </div>
             </div>
           </div>
+
 
 
           <div className="border-t pt-4">
