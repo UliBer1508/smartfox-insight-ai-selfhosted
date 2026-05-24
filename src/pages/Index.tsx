@@ -62,12 +62,6 @@ const Index = () => {
 
   const { energyIn, energyOut, pvEnergy, hasDataGaps, largestGapMinutes, isLoading: isLoadingPv } = useEnergyCalculation(readings);
 
-  // Hooks für die Heizungs-Optimierung im Analyse-Tab
-  const { 
-    isAnalyzing: isHeatingAnalyzing, 
-    analysisResult, 
-    analyzeHeating 
-  } = useHeatingAnalysis();
   const {
     rooms,
     saveRoom,
@@ -78,10 +72,7 @@ const Index = () => {
     loadDailyPatterns();
   }, [loadDailyPatterns]);
 
-  // Handler für globale Heizungsanalyse
-  const handleAnalyze = useCallback(() => {
-    analyzeHeating(readings, heatingSettings);
-  }, [analyzeHeating, readings, heatingSettings]);
+
 
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
