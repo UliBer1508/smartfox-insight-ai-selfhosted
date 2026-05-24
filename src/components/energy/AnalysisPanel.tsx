@@ -87,9 +87,22 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
         setLastRuns(next);
       };
       load();
-      const id = setInterval(load, 5 * 60 * 1000);
-      return () => { cancelled = true; clearInterval(id); };
+      // Polling alle 60s (war 5 Min – zu träge nach manuellen Läufen)
+      const id = setInterval(load, 60 * 1000);
+      // Sofort neu laden, wenn Tab in den Vordergrund kommt
+      const onVisible = () => {
+        if (document.visibilityState === 'visible') load();
+      };
+      document.addEventListener('visibilitychange', onVisible);
+      window.addEventListener('focus', load);
+      return () => {
+        cancelled = true;
+        clearInterval(id);
+        document.removeEventListener('visibilitychange', onVisible);
+        window.removeEventListener('focus', load);
+      };
     }, []);
+
 
     const get = <K extends keyof HeatingSettings>(k: K): HeatingSettings[K] =>
       (draft[k] !== undefined ? draft[k] : settings[k]) as HeatingSettings[K];
