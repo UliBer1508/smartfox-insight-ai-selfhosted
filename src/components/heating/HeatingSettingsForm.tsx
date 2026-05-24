@@ -7,7 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch';
 import { Slider } from '@/components/ui/slider';
 import { HeatingSettings } from '@/types/heating';
-import { Settings, Save, MapPin, Zap, Thermometer, Car, Droplets, Euro, Moon, Gauge } from 'lucide-react';
+import { Settings, Save, MapPin, Zap, Thermometer, Euro, Moon, Gauge } from 'lucide-react';
 
 interface HeatingSettingsFormProps {
   settings: HeatingSettings;
