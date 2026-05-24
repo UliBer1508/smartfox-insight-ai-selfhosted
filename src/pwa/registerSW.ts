@@ -73,18 +73,28 @@ export async function setupPWA() {
       },
       onRegisteredSW(swUrl, registration) {
         if (!registration) return;
-        // Alle 30 Min nach Updates suchen (Tab kann lange offen sein)
-        setInterval(() => {
+
+        // Throttle: max. 1 update-Check pro 60s, kein periodisches Polling.
+        let lastCheck = 0;
+        const safeUpdate = () => {
+          const now = Date.now();
+          if (now - lastCheck < 60_000) return;
+          lastCheck = now;
           registration.update().catch(() => {});
-        }, 30 * 60 * 1000);
-        // Beim Wiederöffnen / Sichtbar werden ebenfalls prüfen
+        };
+
+        // Initialer Check kurz nach Boot (frische sw.js holen)
+        setTimeout(safeUpdate, 2_000);
+
+        // Event-getriebene Checks – keine setInterval-Schleife
         document.addEventListener("visibilitychange", () => {
-          if (document.visibilityState === "visible") {
-            registration.update().catch(() => {});
-          }
+          if (document.visibilityState === "visible") safeUpdate();
         });
+        window.addEventListener("focus", safeUpdate);
+        window.addEventListener("online", safeUpdate);
       },
     });
+
 
     // Wenn ein neuer SW die Kontrolle übernimmt → Reload
     navigator.serviceWorker.addEventListener("controllerchange", triggerReload);
