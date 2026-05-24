@@ -163,6 +163,7 @@ serve(async (req) => {
       }
     }
 
+    return new Response(JSON.stringify({ ok: true, viennaTime: `${t.date} ${t.hour}:${String(t.minute).padStart(2,'0')}`, triggered }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e) {
