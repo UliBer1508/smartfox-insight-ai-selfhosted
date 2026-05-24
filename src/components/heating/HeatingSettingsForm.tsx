@@ -325,7 +325,24 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                     aktivieren.
                   </p>
                 </div>
+
+                {/* KI-Vorschlags-Toggle: KI darf nur vorschlagen, niemals schreiben */}
+                <div className="flex items-center space-x-2 pt-3">
+                  <Switch
+                    id="battery_soc_suggestion_enabled"
+                    checked={(formData as any).battery_soc_suggestion_enabled !== false}
+                    onCheckedChange={(checked) => handleChange('battery_soc_suggestion_enabled' as any, checked)}
+                  />
+                  <Label htmlFor="battery_soc_suggestion_enabled" className="text-sm">
+                    KI-Vorschläge für Batterie-Gate aktivieren
+                  </Label>
+                </div>
+                <p className="text-xs text-muted-foreground -mt-2 ml-6">
+                  Die KI analysiert täglich um 21:00 die PV-Prognose und das Batterie-Verhalten
+                  und erstellt bei Bedarf einen Vorschlag — du übernimmst oder verwirfst ihn im Dashboard.
+                </p>
               </div>
+
 
               <div className="flex items-center space-x-2 pt-2">
                 <Switch
