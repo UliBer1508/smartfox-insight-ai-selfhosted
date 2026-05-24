@@ -16,7 +16,7 @@ import { PowerStats } from '@/components/energy/PowerStats';
 import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 
 
-import { HeatingPeriodCard } from '@/components/heating/HeatingPeriodCard';
+
 import { LearningProgress } from '@/components/heating/LearningProgress';
 import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
