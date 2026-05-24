@@ -20,6 +20,7 @@ import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 import { LearningProgress } from '@/components/heating/LearningProgress';
 import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
+import { AutomationStatusCard, BatterySocSuggestionCard, BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
 
 
 
