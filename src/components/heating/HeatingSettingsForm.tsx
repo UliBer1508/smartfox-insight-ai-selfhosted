@@ -71,6 +71,19 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {showMigrationBanner && (
+          <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm space-y-2">
+            <p>
+              Zwei veraltete SOC-Einstellungen gefunden. Es wird jetzt nur noch
+              <strong> heating_min_battery_soc: {formData.heating_min_battery_soc}%</strong> verwendet.
+              Den alten Wert <strong>battery_reserve_for_night_soc: {formData.battery_reserve_for_night_soc}%</strong>
+              {' '}haben wir als Startwert übernommen, falls er höher war.
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={dismissMigrationBanner}>
+              Verstanden
+            </Button>
+          </div>
+        )}
         <form
           onSubmit={handleSubmit}
           onKeyDown={(e) => {
