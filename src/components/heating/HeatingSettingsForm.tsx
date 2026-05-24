@@ -280,6 +280,22 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                   Die Puffer-Logik unten referenziert diesen Wert (Reserve+20 / Reserve+35).
                   Mikro-Budget nutzt automatisch <strong>diesen Wert + 5 %</strong> als zusätzlichen Floor.
                 </p>
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground/90 space-y-1">
+                  <p className="font-medium">Batterie-Mindest-SOC für Heizung (z.B. 75%)</p>
+                  <p>
+                    Diese Einstellung wird <strong>manuell</strong> gesetzt und kann von der KI
+                    <strong> NICHT</strong> überschrieben werden.
+                  </p>
+                  <p>
+                    Sie gilt als hartes Gate: Fällt die Batterie unter diesen Wert, stoppt die
+                    Heizautomatik sofort (<code>strict</code>) oder blockiert zumindest neue
+                    Aktivierungen (<code>soft</code>).
+                  </p>
+                  <p>
+                    Der Mikro-Budget-Modus respektiert ebenfalls diesen Wert — er darf nie darunter
+                    aktivieren.
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center space-x-2 pt-2">
