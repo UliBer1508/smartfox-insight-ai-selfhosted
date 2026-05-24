@@ -145,7 +145,24 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ ok: true, viennaTime: `${t.date} ${t.hour}:${String(t.minute).padStart(2,'0')}`, triggered }), {
+    // 5) Battery-SOC-Vorschlag täglich 21:00 (force='suggest_battery_soc' für Test)
+    const socSuggestTimeMin = 21 * 60; // 21:00 Europe/Vienna, fester Slot 30 min
+    const withinSocSuggestSlot = nowMin >= socSuggestTimeMin && nowMin < socSuggestTimeMin + 30;
+    if (force === 'suggest_battery_soc' || withinSocSuggestSlot) {
+      const last = await getLastRun('scheduler_suggest_battery_soc');
+      if (force === 'suggest_battery_soc' || last !== t.date) {
+        // Sub-Route am ai-parameter-advisor
+        const url = `${SUPABASE_URL}/functions/v1/ai-parameter-advisor/suggest-battery-soc`;
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${SERVICE_ROLE}`, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        triggered.push({ job: 'suggest_battery_soc', status: res.status });
+        await setLastRun('scheduler_suggest_battery_soc', t.date);
+      }
+    }
+
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e) {
