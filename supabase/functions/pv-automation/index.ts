@@ -1821,9 +1821,16 @@ Deno.serve(async (req) => {
             console.error(`[SOC-GATE-STOP] ❌ Exception:`, e?.message ?? e);
           }
         } else {
-          // soft: nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar (über tolerante Deaktivierung)
-          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
+          // soft: Komfort hart auf 0.
+          // Eco: Neue Aktivierungen blockieren, wenn Batterie gerade NICHT aktiv lädt
+          // (verhindert Batterie-Entladung durch Eco-Heizung ohne PV-Deckung).
           comfortBudget = 0;
+          if (batteryPower <= 50) {
+            availableBudget = 0;
+            console.log(`[SOC-GATE] ⚠️ SOFT+kein Laden: SOC ${batterySoc}% < ${heatingMinSoc}%, Batterie idle (${Math.round(batteryPower)}W) → Eco-Budget ebenfalls 0W`);
+          } else {
+            console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, Batterie lädt (${Math.round(batteryPower)}W) → Komfort=0W, Eco erlaubt`);
+          }
         }
       } else if (batterySoc < heatingMinSoc) {
         console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
