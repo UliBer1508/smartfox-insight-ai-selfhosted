@@ -2309,7 +2309,12 @@ Deno.serve(async (req) => {
               ? (Date.now() - new Date(cooldownAnchor).getTime()) / 60000
               : 99999;
 
-            if (stillRunning) {
+            // Hysterese-Guard: Mikro-Budget darf keine neuen Räume starten wenn gridExport < pvThresholdOn
+            // (identische Logik wie Phase-1-Hysterese — kein Bypass durch Mikro-Budget-Pfad).
+            const pvThresholdOnLocal = settings?.pv_surplus_threshold_on ?? DEFAULT_PV_SURPLUS_THRESHOLD_ON;
+            if (gridExport < pvThresholdOnLocal) {
+              console.log(`[MICRO-BUDGET] Hysterese blockiert: gridExport ${gridExport}W < On-Schwelle ${pvThresholdOnLocal}W → kein Mikro-Budget-Start`);
+            } else if (stillRunning) {
               console.log(`[MICRO-BUDGET] Vorheriger Mikro-Raum heizt noch — kein neuer Raum`);
             } else if (minutesSinceLastMicro >= roomRotationMinutes) {
               // Wähle Raum: höchste Prio (kleinste Zahl) + größtes Defizit + längste Pause
