@@ -1402,7 +1402,7 @@ Deno.serve(async (req) => {
       const currentHourForecastCorrected = currentHourForecastW * forecastAccuracy;
 
       const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
-      console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
+      console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)}; WW+Auto=Smartfox-autonom, kein Abzug), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
       const rawBatteryPower = reading.battery_power || 0;
       // Smartfox-Konvention: negativ=laden, positiv=entladen
