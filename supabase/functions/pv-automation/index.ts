@@ -2392,7 +2392,20 @@ Deno.serve(async (req) => {
       // entweder bereits ≥ eco_temp − 0.3 ist, in Phase 1 aktiviert wurde, oder durch
       // Pause/Rotation/Override blockiert ist. Räume die Eco anstreben aber kein Budget
       // bekommen haben → Phase 2 wartet bis zum nächsten Heartbeat.
+      // Robustheit 2: Stale Räume (Thermostat offline > 2h) blockieren Phase 2 NICHT
+      const STALE_ROOM_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+      const isRoomStale = (r: any) => {
+        const sync = r?.last_thermostat_sync;
+        if (!sync) return true;
+        return (Date.now() - new Date(sync).getTime()) > STALE_ROOM_THRESHOLD_MS;
+      };
       const phase1Complete = roomsWithPriority.every(rp => {
+        if (isRoomStale(rp.room)) {
+          const sync = rp.room.last_thermostat_sync;
+          const ageMin = sync ? Math.round((Date.now() - new Date(sync).getTime()) / 60000) : -1;
+          console.log(`[PHASE-1] Skipped stale room ${rp.room.name} (last sync ${ageMin}min ago)`);
+          return true;
+        }
         const ecoTempCheck = rp.room.eco_temp || settings?.eco_temp || 19;
         const curCheck = rp.room.current_temp || 0;
         if (curCheck >= ecoTempCheck - 0.3) return true; // bereits warm
