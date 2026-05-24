@@ -28,11 +28,27 @@ const AZIMUTH_OPTIONS = [
 
 export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSettingsFormProps) {
   const [formData, setFormData] = useState(settings);
+  const [showMigrationBanner, setShowMigrationBanner] = useState(false);
 
   // Update formData when settings change (e.g., after loading from database)
   useEffect(() => {
     setFormData(settings);
+    // Migrations-Banner: einmalig anzeigen, wenn beide deprecated SOC-Felder existieren und abweichen
+    const dismissed = typeof window !== 'undefined' && localStorage.getItem('soc-migration-banner-dismissed') === '1';
+    if (
+      !dismissed &&
+      settings.battery_reserve_for_night_soc != null &&
+      settings.heating_min_battery_soc != null &&
+      settings.battery_reserve_for_night_soc !== settings.heating_min_battery_soc
+    ) {
+      setShowMigrationBanner(true);
+    }
   }, [settings]);
+
+  const dismissMigrationBanner = () => {
+    if (typeof window !== 'undefined') localStorage.setItem('soc-migration-banner-dismissed', '1');
+    setShowMigrationBanner(false);
+  };
 
   const handleChange = (field: keyof HeatingSettings, value: number | boolean | string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
