@@ -65,6 +65,31 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
     const [isBackfilling, setIsBackfilling] = useState(false);
     const [isMonthlyRunning, setIsMonthlyRunning] = useState(false);
     const [devOpen, setDevOpen] = useState(false);
+    const [lastRuns, setLastRuns] = useState<Record<SchedulerKey, string | null>>({
+      scheduler_daily: null, scheduler_weekly: null, scheduler_monthly: null, scheduler_match_today: null,
+    });
+
+    useEffect(() => {
+      let cancelled = false;
+      const load = async () => {
+        const { data } = await supabase
+          .from('system_settings')
+          .select('key,value')
+          .in('key', ['scheduler_daily', 'scheduler_weekly', 'scheduler_monthly', 'scheduler_match_today']);
+        if (cancelled || !data) return;
+        const next: Record<SchedulerKey, string | null> = {
+          scheduler_daily: null, scheduler_weekly: null, scheduler_monthly: null, scheduler_match_today: null,
+        };
+        for (const row of data) {
+          const v = row.value as { last_run_at?: string } | null;
+          next[row.key as SchedulerKey] = v?.last_run_at ?? null;
+        }
+        setLastRuns(next);
+      };
+      load();
+      const id = setInterval(load, 5 * 60 * 1000);
+      return () => { cancelled = true; clearInterval(id); };
+    }, []);
 
     const get = <K extends keyof HeatingSettings>(k: K): HeatingSettings[K] =>
       (draft[k] !== undefined ? draft[k] : settings[k]) as HeatingSettings[K];
