@@ -155,9 +155,9 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
-                <AutomationStatusCard />
-                <BatterySocSuggestionCard />
+                {/* Verlaufs-Karte bleibt in rechter Spalte (nur sichtbar wenn history > 0) */}
                 <BatterySocHistoryCard />
+
                 <RoomStatusTable rooms={rooms} onSavePriority={async (roomId, priority) => {
                   const room = rooms.find(r => r.id === roomId);
                   const oldPriority = room?.priority ?? 5;
