@@ -112,6 +112,14 @@ const Index = () => {
               onRefresh={refresh}
             />
 
+            {/* KI-Vorschlag prominent ganz oben anzeigen (nur wenn pending) */}
+            <BatterySocSuggestionCard />
+
+            {/* Automations-Status: immer sichtbar direkt unter Verbindung */}
+            <AutomationStatusCard />
+
+
+
             <div className="grid lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1 space-y-4">
                 <EnergyFlowDiagram
