@@ -1389,9 +1389,10 @@ Deno.serve(async (req) => {
       const ecoRoomsRemaining = ecoRoomDetails.length;
       
       // ============= HARTES SOC-GATE (Heizung darf Batterie nur über Gate entladen) =============
-      const heatingMinSoc = settings?.heating_min_battery_soc
-        ?? settings?.battery_reserve_for_night_soc
-        ?? 80;
+      // Einzige Source of Truth: heating_min_battery_soc (manuell eingestellt, z.B. 75%).
+      // battery_reserve_for_night_soc ist @deprecated und darf NICHT mehr als Gate-Fallback dienen.
+      // Wenn heating_min_battery_soc null ist, gilt Default 80 — nicht der alte deprecated Wert.
+      const heatingMinSoc = settings?.heating_min_battery_soc ?? 80;
       const socGateMode = (settings?.heating_soc_gate_mode ?? 'strict') as 'strict' | 'soft';
 
       // Nach Sonnenuntergang: Batterie-Reserve für Eco nur wenn SOC > Gate (nicht mehr hartcodiert 50)
