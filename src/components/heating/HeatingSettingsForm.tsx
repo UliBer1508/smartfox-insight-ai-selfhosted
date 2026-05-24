@@ -236,32 +236,20 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
               </p>
 
               {formData.micro_budget_enabled !== false && (
-                <div className="grid md:grid-cols-2 gap-4 mt-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="micro_min_soc">Min. Batterie-SOC (%)</Label>
-                    <Input
-                      id="micro_min_soc"
-                      type="number"
-                      min="50"
-                      max="100"
-                      step="5"
-                      value={formData.micro_budget_min_battery_soc ?? 80}
-                      onChange={(e) => handleChange('micro_budget_min_battery_soc', parseInt(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">Ab diesem SOC darf Batterie puffern</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="micro_duration">Heizdauer pro Zyklus (Min)</Label>
-                    <Input
-                      id="micro_duration"
-                      type="number"
-                      min="3"
-                      max="15"
-                      value={formData.micro_heat_duration_min ?? 5}
-                      onChange={(e) => handleChange('micro_heat_duration_min', parseInt(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">Wie lange ein Raum pro Rotation heizt</p>
-                  </div>
+                <div className="space-y-2 mt-4 md:max-w-xs">
+                  <Label htmlFor="micro_duration">Heizdauer pro Zyklus (Min)</Label>
+                  <Input
+                    id="micro_duration"
+                    type="number"
+                    min="3"
+                    max="15"
+                    value={formData.micro_heat_duration_min ?? 5}
+                    onChange={(e) => handleChange('micro_heat_duration_min', parseInt(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Wie lange ein Raum pro Rotation heizt. SOC-Floor =
+                    {' '}<strong>Mindest-SOC für Nacht-Reserve + 5 %</strong> (automatisch, kein separater Regler).
+                  </p>
                 </div>
               )}
             </div>
