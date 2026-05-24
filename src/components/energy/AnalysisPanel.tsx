@@ -203,9 +203,12 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
               </CollapsibleTrigger>
               <CollapsibleContent>
                 <div className="px-3 pb-3 pt-1 space-y-3">
-                  <p className="text-xs text-muted-foreground">
-                    Tagesscores werden normalerweise automatisch berechnet. Starte einen Backfill nur, wenn historische Daten fehlen oder neu importiert wurden.
-                  </p>
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-xs text-muted-foreground flex-1 min-w-[200px]">
+                      Tagesscores werden normalerweise automatisch berechnet. Starte einen Backfill nur, wenn historische Daten fehlen.
+                    </p>
+                    <LastRunBadge iso={lastRuns.scheduler_daily} />
+                  </div>
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                     <div className="space-y-1 flex-1">
                       <TooltipProvider delayDuration={150}>
