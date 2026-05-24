@@ -236,74 +236,21 @@ const Index = () => {
               onAnalyzeWeekly={analyzeWeeklyComparison}
             />
 
-            {/* KI-Heizplan */}
+            {/* KI-Heizplan-Hinweis (Anzeige im Tab Heizung) */}
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Thermometer className="w-5 h-5 text-primary" />
-                  📅 KI-Heizplan
+              <CardHeader className="pb-3">
+                <CardTitle className="flex items-center gap-2 text-base">
+                  <Thermometer className="w-4 h-4 text-primary" />
+                  KI-Heizplan
                 </CardTitle>
-                <CardDescription>
-                  KI-basierte Thermostat-Empfehlungen für deinen Tag
-                </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <Button
-                  onClick={handleAnalyze}
-                  disabled={isHeatingAnalyzing || readings.length < 5}
-                  className="w-full md:w-auto h-11"
-                >
-                  {isHeatingAnalyzing ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Analysiere...
-                    </>
-                  ) : (
-                    <>
-                      <Thermometer className="w-4 h-4 mr-2" />
-                      Heizplan generieren
-                    </>
-                  )}
+              <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <p className="text-sm text-muted-foreground">
+                  Der automatische KI-Tagesplan wird im Tab <strong>Heizung</strong> angezeigt und täglich um 06:00 aktualisiert.
+                </p>
+                <Button variant="outline" size="sm" onClick={() => setActiveTab('heating')}>
+                  Zum Heizungs-Tab
                 </Button>
-
-                {analysisResult?.periods && analysisResult.periods.length > 0 && (
-                  <div className="space-y-4">
-                    <h3 className="font-semibold text-lg">Empfohlener Heizplan für deinen TGP508:</h3>
-                    <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {analysisResult.periods.map((period) => (
-                        <HeatingPeriodCard key={period.period} period={period} />
-                      ))}
-                    </div>
-
-                    <div className="p-4 rounded-lg border bg-muted/50 space-y-2">
-                      <p className="flex items-center gap-2 text-sm">
-                        <Sun className="w-4 h-4 text-energy-export" />
-                        <strong>Erwarteter PV-Überschuss:</strong> ~{analysisResult.expectedPvSurplus.toFixed(1)} kWh
-                      </p>
-                      <p className="flex items-center gap-2 text-sm">
-                        <Battery className="w-4 h-4 text-primary" />
-                        <strong>Batterie-Strategie:</strong> {analysisResult.batteryStrategy}
-                      </p>
-                      {analysisResult.recommendations.map((rec, i) => (
-                        <p key={i} className="text-sm text-muted-foreground">💡 {rec}</p>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {analysisResult?.summary && (!analysisResult.periods || analysisResult.periods.length === 0) && (
-                  <div className="p-4 rounded-lg border bg-card whitespace-pre-wrap text-sm">
-                    {analysisResult.summary}
-                  </div>
-                )}
-
-                {!analysisResult && !isHeatingAnalyzing && (
-                  <div className="text-center py-8 text-muted-foreground">
-                    <Thermometer className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                    <p>Klicke auf &quot;Heizplan generieren&quot; für optimierte Thermostat-Zeiten.</p>
-                    <p className="text-xs mt-2">Basierend auf deinen PV- und Batterie-Daten.</p>
-                  </div>
-                )}
               </CardContent>
             </Card>
 
