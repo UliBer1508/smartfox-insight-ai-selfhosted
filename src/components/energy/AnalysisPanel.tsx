@@ -1,5 +1,5 @@
-import React, { forwardRef, useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import React, { forwardRef, useEffect, useState } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
@@ -11,7 +11,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { EnergyReading } from '@/types/energy';
-import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info } from 'lucide-react';
+import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,6 +19,33 @@ import { toast } from 'sonner';
 import type { HeatingSettings } from '@/types/heating';
 import { ProgressCockpit } from './stats/ProgressCockpit';
 import { YearTrendChart } from './stats/YearTrendChart';
+
+type SchedulerKey = 'scheduler_daily' | 'scheduler_weekly' | 'scheduler_monthly' | 'scheduler_match_today';
+
+const formatLastRun = (iso: string | null | undefined): string => {
+  if (!iso) return 'noch nicht gelaufen';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return 'unbekannt';
+  const fmtTime = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit' }).format(d);
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date());
+  const that = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(d);
+  if (today === that) return `heute ${fmtTime}`;
+  const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(Date.now() - 86400000));
+  if (yesterday === that) return `gestern ${fmtTime}`;
+  const fmtDate = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit' }).format(d);
+  return `${fmtDate} ${fmtTime}`;
+};
+
+const LastRunBadge: React.FC<{ iso: string | null | undefined }> = ({ iso }) => (
+  <span className={cn(
+    'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border',
+    iso ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+        : 'border-muted bg-muted/40 text-muted-foreground'
+  )}>
+    <CheckCircle2 className="w-3 h-3" />
+    Zuletzt: {formatLastRun(iso)}
+  </span>
+);
 
 interface AnalysisPanelProps {
   readings: EnergyReading[];
