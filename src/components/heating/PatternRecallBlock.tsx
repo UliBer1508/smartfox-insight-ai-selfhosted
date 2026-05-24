@@ -107,13 +107,16 @@ export function PatternRecallBlock() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={QUALITY_VARIANT[quality]}>{QUALITY_LABEL[quality]}</Badge>
             {winner?.date && (
               <span className="text-xs text-muted-foreground">
                 Winner: {winner.date} (Score {Math.round(Number(winner.score ?? 0))})
               </span>
+            )}
+            {computedTime && (
+              <span className="text-[11px] text-muted-foreground">zuletzt: {computedTime}</span>
             )}
           </div>
           <Button size="sm" variant="outline" onClick={matchNow} disabled={isMatching}>
@@ -121,6 +124,12 @@ export function PatternRecallBlock() {
             Jetzt matchen
           </Button>
         </div>
+
+        {matchError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            Fehler beim letzten Match: {matchError}
+          </div>
+        )}
 
         <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
           <div className="flex items-center justify-between">
