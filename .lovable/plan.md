@@ -1,46 +1,54 @@
-## „Warmwasser-Bereitung" + „Verbraucher-Priorität" aus UI entfernen
+## Slider-Fix + Konsolidierung "Mikro-Budget SOC" vs. "Nacht-Reserve SOC"
 
-### Befund
+### Befund 1 — Slider funktionieren nicht
 
-Beide Blöcke in `HeatingSettingsForm.tsx` steuern faktisch **nichts**, was Smartfox nicht ohnehin autonom regelt:
+Beide Radix-Slider (`Mindest-SOC für Nacht-Reserve`, `Max. Puffer-Bonus`) sitzen in `HeatingSettingsForm.tsx` innerhalb eines `<form onSubmit={handleSubmit}>`. Der identisch aufgebaute Slider in `PatternRecallBlock.tsx` funktioniert. Der einzige relevante Unterschied: hier ist ein `id`-Attribut auf der `<Slider>`-Wurzel und das `<Label htmlFor="...">` zielt darauf. Radix rendert die Slider-Wurzel als `<span>` — `htmlFor` greift nicht, aber das Label leitet Pointer-Klicks an die Wurzel statt an den Thumb, was bei manchen Browsern den Drag-Start kapern kann. Zusätzlich kann `<form>` bei Tap auf den Slider unbeabsichtigt ein Submit triggern, weil Radix `event.preventDefault()` nicht für alle Event-Pfade aufruft.
 
-**Warmwasser-Block (Zeilen 479–549):** `hotwater_enabled`, `hotwater_power_w`, `hotwater_schedule_start/_end`, `hotwater_min_surplus_w`. UI sagt selbst „dient nur der Tagesenergie-Prognose, beeinflusst Momentan-Heizbudget nicht".
+### Befund 2 — Doppelte SOC-Schwellen
 
-**Verbraucher-Priorität (Zeilen 551–589):** `consumer_priority`, `car_min_charge_power_w`. Smartfox priorisiert physisch.
+Zwei Settings adressieren faktisch dasselbe Ziel „Batterie für Abend schonen":
 
-**Aktuelle Code-Verwendung in `pv-automation`:**
-- Z. 1279–1283: `hotwaterKwh` (~11 kWh hartcodiert über 4 h) und `carKwh` (10 kWh wenn aktiv) werden vom **Tagesbudget** abgezogen → **verfälscht** das Heizbudget systematisch, obwohl der WW-/Auto-Verbrauch physikalisch bereits im `power_io` enthalten ist (Doppelzählung).
-- Z. 1479–1502: `consumer_priority`/`hotwater_schedule`/`car_min_charge_power_w` ziehen zusätzlich „Reserve" vor der Heizung ab.
-- Z. 2582: `hotwaterPower`-Lookup für Logging.
+| Setting | Default | Wirkung |
+|---|---|---|
+| `heating_min_battery_soc` (neuer Slider) | 80 % | **Hartes Gate**: Heizung darf Batterie nur entladen, wenn SOC darüber liegt. Auch Referenz für Puffer-Logik (`Reserve+20/+35`). |
+| `micro_budget_min_battery_soc` (Input im Mikro-Budget-Block) | 80 % | Floor speziell für Mikro-Budget-Modus. Im Code: `microMinSoc = max(microMinSocBase, batteryReserveSoc+20, heatingMinSoc)` → der eingestellte Wert wird **fast immer überstimmt** vom Heating-Gate +20. |
 
-`analyze-patterns` (KI-Analyse) liest die Werte ebenfalls — bleibt unverändert für jetzt (separater Tagesplaner-Kontext).
+→ Der Mikro-SOC-Slider tut in der Praxis selten etwas Sichtbares und verwirrt: zwei Regler, die beide „Min SOC für Nachtreserve" zu sein scheinen, in unterschiedlichen UI-Sektionen.
 
 ### Lösung
 
-**1. UI-Blöcke entfernen** in `src/components/heating/HeatingSettingsForm.tsx`:
-- Block „Warmwasser-Bereitung (Smartfox-gesteuert)" (Zeilen 479–549)
-- Block „Verbraucher-Priorität" (Zeilen 551–589)
-- Ungenutzte Imports prüfen (`Droplets`, `Car`).
+**A. Slider-Bug beheben** in `src/components/heating/HeatingSettingsForm.tsx`:
+- `id`-Attribut von beiden `<Slider>` entfernen; `<Label>` ohne `htmlFor` belassen (rein dekorativ, Wert steht im Label-Text).
+- `onKeyDown` am `<form>` ergänzen: Enter-Taste verschluckt, wenn das Target kein Submit-Button ist, um ungewollte Saves beim Tab/Slider zu vermeiden.
+- Optional: `className="touch-none"` am Slider-Root (in `src/components/ui/slider.tsx` schon vorhanden via `touch-none`) → keine Änderung nötig.
 
-**2. Budget-Berechnung in `pv-automation/index.ts` säubern** (Doppelzählung beseitigen):
-- Z. 1279–1283: `hotwaterKwh` und `carKwh` auf `0` setzen bzw. komplett aus Formel entfernen → `availableHeatingKwh = max(0, expectedPvKwh - batteryNeedKwh)`.
-- Log-Zeile 1406 entsprechend kürzen.
-- Z. 1479–1502 (Consumer-Priority-Reserve): entfernen — Smartfox-Verbrauch ist physisch in `gridExport`/`power_io` enthalten, keine zusätzliche Reserve nötig.
+**B. Mikro-Budget-SOC entfernen, single source of truth** in `HeatingSettingsForm.tsx` + `pv-automation/index.ts`:
+- UI: Input „Min. Batterie-SOC (%)" im Mikro-Budget-Block streichen. Stattdessen Hinweistext: „Mikro-Budget nutzt automatisch **Mindest-SOC für Nacht-Reserve + 5 %** als Puffer-Floor."
+- Edge: `microMinSocBase` wird aus `heating_min_battery_soc + 5` abgeleitet (Fallback 85). Formel bleibt: `microMinSoc = max(heatingMinSoc + 5, batteryReserveSoc + 20)`. → `micro_budget_min_battery_soc` wird ignoriert (DB-Feld bleibt für Backwards-Compat).
+- Heizdauer pro Zyklus (`micro_heat_duration_min`) bleibt unverändert.
 
-**3. DB-Felder & Types bleiben** (Backwards-Compat, kein Migrations-Risiko). `analyze-patterns` nutzt sie weiter mit Defaults, falls in DB gesetzt.
+### Verhältnis der beiden Werte (zur Klarstellung im UI-Hinweis)
+
+```text
+Live-Surplus   →  Vollraum?
+  ja           →  normale PV-Logik, Gate: heating_min_battery_soc
+  nein, klein  →  Mikro-Budget rotiert Räume, Floor: heating_min_battery_soc + 5
+                  (zusätzlich Reserve+20 falls battery_reserve_for_night_soc abweicht)
+```
+
+Beide laufen nie gleichzeitig gegen einander — Mikro-Budget greift nur, wenn das normale Budget unter Mindest-Raum-Leistung liegt, und nutzt einen **etwas höheren** SOC-Floor, weil es aktiv entlädt.
 
 ### Geänderte Dateien
 
-- `src/components/heating/HeatingSettingsForm.tsx` — zwei Blöcke + ungenutzte Icons entfernen.
-- `supabase/functions/pv-automation/index.ts` — Budget-Doppelzählung beseitigen (~30 Zeilen).
+- `src/components/heating/HeatingSettingsForm.tsx` — `id` auf Sliders entfernen, Enter-Submit unterdrücken, Mikro-SOC-Input durch Hinweistext ersetzen.
+- `supabase/functions/pv-automation/index.ts` — `microMinSocBase = heatingMinSoc + 5` statt Settings-Lookup.
 
 ### Nicht geändert
 
-- DB-Schema, Types, `analyze-patterns`, `LearningProgress`.
-- `system_settings`, sonstige Heating-Konfiguration.
+- DB-Schema, Types, Puffer-Logik (Reserve+20/+35), Heizdauer.
 
 ### Verifikation
 
-- Settings-Seite: keine Warmwasser/Verbraucher-Priorität-Sektionen mehr.
-- `pv-automation`-Logs: `availableHeatingKwh = expectedPvKwh − batteryNeedKwh` (kein WW-/Auto-Abzug).
-- Heizbudget steigt entsprechend; tatsächlicher Smartfox-Verbrauch reduziert weiterhin `gridExport` physisch.
+- Beide Slider lassen sich per Maus & Touch ziehen, Werte werden im Label live aktualisiert und beim Speichern persistiert.
+- Mikro-Budget-Block zeigt nur noch „Aktivieren" + „Heizdauer pro Zyklus" + Hinweistext.
+- Edge-Log: `microMinSoc` folgt `heating_min_battery_soc + 5`.

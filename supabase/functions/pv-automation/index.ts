@@ -2208,8 +2208,9 @@ Deno.serve(async (req) => {
       // Dann läuft Cooldown (room_rotation_minutes), dann nächster Raum.
       // Batterie SOC >= settings.micro_budget_min_battery_soc dient als Puffer.
       const microBudgetEnabled = settings?.micro_budget_enabled !== false; // default true
-      // Dynamische Untergrenze: max(eingestellter SOC, Reserve+20)
-      const microMinSocBase = settings?.micro_budget_min_battery_soc ?? 80;
+      // Mikro-Budget entlädt aktiv → SOC-Floor = heating_min_battery_soc + 5 (single source of truth)
+      // micro_budget_min_battery_soc wird ignoriert (DB-Feld bleibt für Backwards-Compat).
+      const microMinSocBase = heatingMinSoc + 5;
       const microMinSoc = Math.max(microMinSocBase, batteryReserveSoc + 20, heatingMinSoc);
       const microHeatDuration = settings?.micro_heat_duration_min ?? 5;
 
