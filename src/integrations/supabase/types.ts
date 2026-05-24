@@ -269,6 +269,48 @@ export type Database = {
         }
         Relationships: []
       }
+      battery_soc_suggestions: {
+        Row: {
+          avg_pv_7d_kwh: number | null
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          id: string
+          new_value: number
+          old_value: number
+          pv_forecast_kwh: number | null
+          reason_text: string | null
+          soc_end_of_day: number | null
+          status: string
+        }
+        Insert: {
+          avg_pv_7d_kwh?: number | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          id?: string
+          new_value: number
+          old_value: number
+          pv_forecast_kwh?: number | null
+          reason_text?: string | null
+          soc_end_of_day?: number | null
+          status?: string
+        }
+        Update: {
+          avg_pv_7d_kwh?: number | null
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          id?: string
+          new_value?: number
+          old_value?: number
+          pv_forecast_kwh?: number | null
+          reason_text?: string | null
+          soc_end_of_day?: number | null
+          status?: string
+        }
+        Relationships: []
+      }
       consumer_logs: {
         Row: {
           avg_power_w: number | null
@@ -643,6 +685,7 @@ export type Database = {
           battery_buffer_enabled: boolean | null
           battery_capacity_kwh: number
           battery_reserve_for_night_soc: number | null
+          battery_soc_suggestion_enabled: boolean
           car_charging_enabled: boolean | null
           car_min_charge_power_w: number | null
           comfort_temp: number
@@ -709,6 +752,7 @@ export type Database = {
           battery_buffer_enabled?: boolean | null
           battery_capacity_kwh?: number
           battery_reserve_for_night_soc?: number | null
+          battery_soc_suggestion_enabled?: boolean
           car_charging_enabled?: boolean | null
           car_min_charge_power_w?: number | null
           comfort_temp?: number
@@ -775,6 +819,7 @@ export type Database = {
           battery_buffer_enabled?: boolean | null
           battery_capacity_kwh?: number
           battery_reserve_for_night_soc?: number | null
+          battery_soc_suggestion_enabled?: boolean
           car_charging_enabled?: boolean | null
           car_min_charge_power_w?: number | null
           comfort_temp?: number
