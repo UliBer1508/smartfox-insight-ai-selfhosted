@@ -28,11 +28,27 @@ const AZIMUTH_OPTIONS = [
 
 export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSettingsFormProps) {
   const [formData, setFormData] = useState(settings);
+  const [showMigrationBanner, setShowMigrationBanner] = useState(false);
 
   // Update formData when settings change (e.g., after loading from database)
   useEffect(() => {
     setFormData(settings);
+    // Migrations-Banner: einmalig anzeigen, wenn beide deprecated SOC-Felder existieren und abweichen
+    const dismissed = typeof window !== 'undefined' && localStorage.getItem('soc-migration-banner-dismissed') === '1';
+    if (
+      !dismissed &&
+      settings.battery_reserve_for_night_soc != null &&
+      settings.heating_min_battery_soc != null &&
+      settings.battery_reserve_for_night_soc !== settings.heating_min_battery_soc
+    ) {
+      setShowMigrationBanner(true);
+    }
   }, [settings]);
+
+  const dismissMigrationBanner = () => {
+    if (typeof window !== 'undefined') localStorage.setItem('soc-migration-banner-dismissed', '1');
+    setShowMigrationBanner(false);
+  };
 
   const handleChange = (field: keyof HeatingSettings, value: number | boolean | string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -55,6 +71,19 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
         </CardDescription>
       </CardHeader>
       <CardContent>
+        {showMigrationBanner && (
+          <div className="mb-4 rounded-md border border-amber-500/40 bg-amber-50 dark:bg-amber-950/30 p-3 text-sm space-y-2">
+            <p>
+              Zwei veraltete SOC-Einstellungen gefunden. Es wird jetzt nur noch
+              <strong> heating_min_battery_soc: {formData.heating_min_battery_soc}%</strong> verwendet.
+              Den alten Wert <strong>battery_reserve_for_night_soc: {formData.battery_reserve_for_night_soc}%</strong>
+              {' '}haben wir als Startwert übernommen, falls er höher war.
+            </p>
+            <Button type="button" size="sm" variant="outline" onClick={dismissMigrationBanner}>
+              Verstanden
+            </Button>
+          </div>
+        )}
         <form
           onSubmit={handleSubmit}
           onKeyDown={(e) => {
@@ -280,6 +309,22 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                   Die Puffer-Logik unten referenziert diesen Wert (Reserve+20 / Reserve+35).
                   Mikro-Budget nutzt automatisch <strong>diesen Wert + 5 %</strong> als zusätzlichen Floor.
                 </p>
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-foreground/90 space-y-1">
+                  <p className="font-medium">Batterie-Mindest-SOC für Heizung (z.B. 75%)</p>
+                  <p>
+                    Diese Einstellung wird <strong>manuell</strong> gesetzt und kann von der KI
+                    <strong> NICHT</strong> überschrieben werden.
+                  </p>
+                  <p>
+                    Sie gilt als hartes Gate: Fällt die Batterie unter diesen Wert, stoppt die
+                    Heizautomatik sofort (<code>strict</code>) oder blockiert zumindest neue
+                    Aktivierungen (<code>soft</code>).
+                  </p>
+                  <p>
+                    Der Mikro-Budget-Modus respektiert ebenfalls diesen Wert — er darf nie darunter
+                    aktivieren.
+                  </p>
+                </div>
               </div>
 
               <div className="flex items-center space-x-2 pt-2">

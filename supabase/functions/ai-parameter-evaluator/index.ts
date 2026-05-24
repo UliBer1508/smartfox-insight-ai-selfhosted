@@ -8,6 +8,17 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
+// LOCKED_PARAMS: Kern-Sicherheitsparameter — kein Auto-Rollback / kein Update auf
+// heating_settings für diese Keys, selbst wenn ein alter Eintrag noch auto_applied=true hätte.
+const LOCKED_PARAMS = new Set<string>([
+  'heating_min_battery_soc',
+  'pv_surplus_threshold_on',
+  'pv_surplus_threshold_off',
+  'micro_budget_min_battery_soc',
+  'night_start_time',
+  'night_end_time',
+]);
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
@@ -89,7 +100,7 @@ Deno.serve(async (req) => {
           .eq('id', d.id)
           .maybeSingle();
 
-        if (full && full.auto_applied && !full.rollback_at && full.current_value != null) {
+        if (full && full.auto_applied && !full.rollback_at && full.current_value != null && !LOCKED_PARAMS.has(full.parameter_key)) {
           const { data: wl } = await sb
             .from('ai_parameter_whitelist')
             .select('storage_table, storage_column, data_type')

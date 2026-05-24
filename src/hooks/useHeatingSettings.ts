@@ -91,7 +91,26 @@ export function useHeatingSettings() {
       if (error) throw error;
       
       if (data) {
-        setSettings(data as HeatingSettings);
+        // Einmalige Migration: wenn heating_min_battery_soc null und
+        // battery_reserve_for_night_soc gesetzt → übernehmen (höheren Wert bevorzugen).
+        const row = data as HeatingSettings;
+        const needsMigration =
+          (row.heating_min_battery_soc == null) &&
+          row.battery_reserve_for_night_soc != null;
+        if (needsMigration && row.id) {
+          const startValue = row.battery_reserve_for_night_soc!;
+          try {
+            await supabase
+              .from('heating_settings')
+              .update({ heating_min_battery_soc: startValue })
+              .eq('id', row.id);
+            row.heating_min_battery_soc = startValue;
+            console.log(`[useHeatingSettings] Migration: heating_min_battery_soc ← battery_reserve_for_night_soc (${startValue}%)`);
+          } catch (e) {
+            console.warn('[useHeatingSettings] Migration fehlgeschlagen:', e);
+          }
+        }
+        setSettings(row);
       }
     } catch (error) {
       console.error('Error loading heating settings:', error);

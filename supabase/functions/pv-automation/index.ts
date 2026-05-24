@@ -1389,9 +1389,10 @@ Deno.serve(async (req) => {
       const ecoRoomsRemaining = ecoRoomDetails.length;
       
       // ============= HARTES SOC-GATE (Heizung darf Batterie nur über Gate entladen) =============
-      const heatingMinSoc = settings?.heating_min_battery_soc
-        ?? settings?.battery_reserve_for_night_soc
-        ?? 80;
+      // Einzige Source of Truth: heating_min_battery_soc (manuell eingestellt, z.B. 75%).
+      // battery_reserve_for_night_soc ist @deprecated und darf NICHT mehr als Gate-Fallback dienen.
+      // Wenn heating_min_battery_soc null ist, gilt Default 80 — nicht der alte deprecated Wert.
+      const heatingMinSoc = settings?.heating_min_battery_soc ?? 80;
       const socGateMode = (settings?.heating_soc_gate_mode ?? 'strict') as 'strict' | 'soft';
 
       // Nach Sonnenuntergang: Batterie-Reserve für Eco nur wenn SOC > Gate (nicht mehr hartcodiert 50)
@@ -1820,9 +1821,16 @@ Deno.serve(async (req) => {
             console.error(`[SOC-GATE-STOP] ❌ Exception:`, e?.message ?? e);
           }
         } else {
-          // soft: nur Komfort hart auf 0, Eco bleibt für laufende Räume nutzbar (über tolerante Deaktivierung)
-          console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W → Komfort=0W, neue Eco-Aktivierungen blockiert`);
+          // soft: Komfort hart auf 0.
+          // Eco: Neue Aktivierungen blockieren, wenn Batterie gerade NICHT aktiv lädt
+          // (verhindert Batterie-Entladung durch Eco-Heizung ohne PV-Deckung).
           comfortBudget = 0;
+          if (batteryPower <= 50) {
+            availableBudget = 0;
+            console.log(`[SOC-GATE] ⚠️ SOFT+kein Laden: SOC ${batterySoc}% < ${heatingMinSoc}%, Batterie idle (${Math.round(batteryPower)}W) → Eco-Budget ebenfalls 0W`);
+          } else {
+            console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, Batterie lädt (${Math.round(batteryPower)}W) → Komfort=0W, Eco erlaubt`);
+          }
         }
       } else if (batterySoc < heatingMinSoc) {
         console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
@@ -2301,7 +2309,12 @@ Deno.serve(async (req) => {
               ? (Date.now() - new Date(cooldownAnchor).getTime()) / 60000
               : 99999;
 
-            if (stillRunning) {
+            // Hysterese-Guard: Mikro-Budget darf keine neuen Räume starten wenn gridExport < pvThresholdOn
+            // (identische Logik wie Phase-1-Hysterese — kein Bypass durch Mikro-Budget-Pfad).
+            const pvThresholdOnLocal = settings?.pv_surplus_threshold_on ?? DEFAULT_PV_SURPLUS_THRESHOLD_ON;
+            if (gridExport < pvThresholdOnLocal) {
+              console.log(`[MICRO-BUDGET] Hysterese blockiert: gridExport ${gridExport}W < On-Schwelle ${pvThresholdOnLocal}W → kein Mikro-Budget-Start`);
+            } else if (stillRunning) {
               console.log(`[MICRO-BUDGET] Vorheriger Mikro-Raum heizt noch — kein neuer Raum`);
             } else if (minutesSinceLastMicro >= roomRotationMinutes) {
               // Wähle Raum: höchste Prio (kleinste Zahl) + größtes Defizit + längste Pause
@@ -2555,15 +2568,10 @@ Deno.serve(async (req) => {
         console.warn('[PV-Automation] Warmwasser-Status nicht abrufbar:', hwError);
       }
 
-      // ============= WW-RESERVE: Komfort-Budget reduzieren wenn WW aktiv =============
-      // Smartfox managed WW autonom, aber das Komfort-Budget darf nicht den realen
-      // Solarertrag übersteigen — sonst entsteht Netzbezug bei gleichzeitigem WW+Heizen.
-      // Eco-Budget bleibt unberührt (Eco hat Priorität über Komfort).
-      if (hotwaterActive && comfortBudget > 0) {
-        const before = comfortBudget;
-        comfortBudget = Math.max(0, comfortBudget - hotwaterPower);
-        console.log(`[PV-Automation] 🚿 WW aktiv → Komfort-Budget reduziert ${before}W − ${hotwaterPower}W (WW) = ${comfortBudget}W`);
-      }
+      // WW-Reserve ENTFERNT: Warmwasser wird vollständig autonom über Smartfox gesteuert.
+      // Der WW-Verbrauch reduziert gridExport bereits physikalisch → ein zusätzlicher
+      // Software-Abzug vom Komfort-Budget würde Doppelbuchung verursachen.
+      // hotwaterActive bleibt als Status für superComfortAllowed-Gate und Monitoring erhalten.
 
       // Prüfe ob alle Räume >= comfort_temp sind (für Super-Comfort)
       const allRoomsAtComfort = rooms.every(r => {
