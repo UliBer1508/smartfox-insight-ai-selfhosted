@@ -1273,14 +1273,13 @@ Deno.serve(async (req) => {
       const afterSunset = currentWienHour >= sunsetHour;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
+      // WW + E-Auto werden autonom von Smartfox gesteuert und reduzieren
+      // den verfügbaren Netzexport bereits physikalisch — KEIN zusätzlicher Abzug
+      // im Tagesbudget (sonst Doppelzählung, Heizbudget zu klein).
       const boostDelta = settings?.pv_boost_temp_delta || 2;
       const batteryCapacity = settings?.battery_capacity_kwh || 13.8;
       const batteryNeedKwh = batteryCapacity * Math.max(0, 1 - (batterySoc / 100));
-      const hotwaterKwh = (settings?.hotwater_enabled !== false) 
-        ? ((settings?.hotwater_power_w || 2800) * 4 / 1000) // ~4h Laufzeit
-        : 0;
-      const carKwh = (settings?.car_charging_enabled === true) ? 10 : 0;
-      const availableHeatingKwh = Math.max(0, expectedPvKwh - batteryNeedKwh - hotwaterKwh - carKwh);
+      const availableHeatingKwh = Math.max(0, expectedPvKwh - batteryNeedKwh);
 
       // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
       let forecastAccuracy = 1.0; // 1.0 = perfekt
