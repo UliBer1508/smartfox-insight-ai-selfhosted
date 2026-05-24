@@ -1257,11 +1257,35 @@ Deno.serve(async (req) => {
       // 7. Load PV forecast for today (with hourly_watts for tracking)
       // Wien-Datum verwenden (nicht UTC!) — zwischen 00:00-01:00 UTC wäre sonst das gestrige Datum
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
-      const { data: pvForecast } = await supabase
+      const { data: todayForecast } = await supabase
         .from('pv_forecasts')
-        .select('expected_kwh, hourly_watts, sunset')
+        .select('expected_kwh, hourly_watts, sunset, sunrise, date')
         .eq('date', today)
-        .single();
+        .maybeSingle();
+
+      // === PV-FORECAST-FALLBACK (Robustheit 1) ===
+      // Wenn heutiger Forecast fehlt oder 0, lade letzten verfügbaren Eintrag der letzten 3 Tage
+      let pvForecast: any = todayForecast;
+      let forecastIsStale = false;
+      if (!todayForecast || !todayForecast.expected_kwh) {
+        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+          .toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+        const { data: fallback } = await supabase
+          .from('pv_forecasts')
+          .select('expected_kwh, hourly_watts, sunset, sunrise, date')
+          .gte('date', threeDaysAgo)
+          .lt('date', today)
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fallback?.expected_kwh) {
+          pvForecast = fallback;
+          forecastIsStale = true;
+          console.log(`[PV-FORECAST] Stale fallback from ${fallback.date}: ${fallback.expected_kwh} kWh (×0.7 comfort budget)`);
+        } else {
+          console.log(`[PV-FORECAST] Kein Forecast verfügbar (auch kein 3-Tage-Fallback) → Hard-Gate aktiv`);
+        }
+      }
 
       const expectedPvKwh = pvForecast?.expected_kwh || 0;
       const hourlyWatts = (pvForecast?.hourly_watts || {}) as Record<string, number>;
