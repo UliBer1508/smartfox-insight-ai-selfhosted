@@ -8,6 +8,18 @@ const corsHeaders = {
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const GEMINI_KEY = Deno.env.get('GOOGLE_AI_API_KEY')!;
+// LOCKED_PARAMS: Kern-Sicherheitsparameter, die NIEMALS von KI geschrieben werden dürfen
+// (auch wenn versehentlich in der Whitelist als 'auto' markiert). Lesen + Empfehlen ist OK,
+// Insert in ai_parameter_decisions und Auto-Apply auf heating_settings sind hart geblockt.
+const LOCKED_PARAMS = new Set<string>([
+  'heating_min_battery_soc',
+  'pv_surplus_threshold_on',
+  'pv_surplus_threshold_off',
+  'micro_budget_min_battery_soc',
+  'night_start_time',
+  'night_end_time',
+]);
+
 
 interface WhitelistRow {
   parameter_key: string;
