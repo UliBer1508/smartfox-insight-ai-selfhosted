@@ -86,8 +86,14 @@ export function PatternRecallBlock() {
   const enabled = Boolean(get('analysis_match_today_enabled'));
   const time = String(get('analysis_match_today_time') ?? '').slice(0, 5);
   const strength = Number(get('pattern_recall_strength') ?? 50);
-  const quality = match?.match_quality ?? 'none';
-  const winner = match?.top_days?.[0];
+  const topDays = Array.isArray(match?.top_days) ? match!.top_days : undefined;
+  const matchError =
+    match?.top_days && !Array.isArray(match.top_days) ? (match.top_days as { message?: string }).message : null;
+  const quality = matchError ? 'none' : match?.match_quality ?? 'none';
+  const winner = topDays?.[0];
+  const computedTime = match?.computed_at
+    ? new Date(match.computed_at).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
+    : null;
 
   return (
     <Card>
