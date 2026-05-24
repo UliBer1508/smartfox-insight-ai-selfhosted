@@ -1273,14 +1273,13 @@ Deno.serve(async (req) => {
       const afterSunset = currentWienHour >= sunsetHour;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
+      // WW + E-Auto werden autonom von Smartfox gesteuert und reduzieren
+      // den verfügbaren Netzexport bereits physikalisch — KEIN zusätzlicher Abzug
+      // im Tagesbudget (sonst Doppelzählung, Heizbudget zu klein).
       const boostDelta = settings?.pv_boost_temp_delta || 2;
       const batteryCapacity = settings?.battery_capacity_kwh || 13.8;
       const batteryNeedKwh = batteryCapacity * Math.max(0, 1 - (batterySoc / 100));
-      const hotwaterKwh = (settings?.hotwater_enabled !== false) 
-        ? ((settings?.hotwater_power_w || 2800) * 4 / 1000) // ~4h Laufzeit
-        : 0;
-      const carKwh = (settings?.car_charging_enabled === true) ? 10 : 0;
-      const availableHeatingKwh = Math.max(0, expectedPvKwh - batteryNeedKwh - hotwaterKwh - carKwh);
+      const availableHeatingKwh = Math.max(0, expectedPvKwh - batteryNeedKwh);
 
       // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
       let forecastAccuracy = 1.0; // 1.0 = perfekt
@@ -1403,7 +1402,7 @@ Deno.serve(async (req) => {
       const currentHourForecastCorrected = currentHourForecastW * forecastAccuracy;
 
       const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
-      console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)} - WW=${hotwaterKwh} - Auto=${carKwh}), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
+      console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)}; WW+Auto=Smartfox-autonom, kein Abzug), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
       const pvPower = reading.pv_power || 0;
       const rawBatteryPower = reading.battery_power || 0;
       // Smartfox-Konvention: negativ=laden, positiv=entladen
@@ -1473,36 +1472,12 @@ Deno.serve(async (req) => {
       // Calculate grid export (negative power_io means export)
       const gridExport = reading.power_io < 0 ? -reading.power_io : 0;
 
-      // ============= CONSUMER PRIORITY (UI-konfigurierbar) =============
-      // Reihenfolge bestimmt: (a) ob Batterie-Reserve vor Heizung steht und (b)
-      // welche Verbraucher Budget vor der Heizung beanspruchen.
-      const priorityListRaw = (settings?.consumer_priority || 'battery,hotwater,heating,car')
-        .split(',').map((s: string) => s.trim().toLowerCase()).filter(Boolean);
-      const idxHeating = priorityListRaw.indexOf('heating');
-      const idxBattery = priorityListRaw.indexOf('battery');
-      const idxHotwater = priorityListRaw.indexOf('hotwater');
-      const idxCar = priorityListRaw.indexOf('car');
-      const batteryBeforeHeating = idxBattery !== -1 && (idxHeating === -1 || idxBattery < idxHeating);
-      const hotwaterBeforeHeating = idxHotwater !== -1 && (idxHeating === -1 || idxHotwater < idxHeating);
-      const carBeforeHeating = idxCar !== -1 && (idxHeating === -1 || idxCar < idxHeating);
-
-      // Hotwater-Vorrang: aktuelles Zeitfenster prüfen
-      const hwStart = settings?.hotwater_schedule_start || '10:00';
-      const hwEnd = settings?.hotwater_schedule_end || '16:00';
-      const hwHourNow = currentWienHour + 0;
-      const hwStartH = parseInt(hwStart.split(':')[0], 10) || 10;
-      const hwEndH = parseInt(hwEnd.split(':')[0], 10) || 16;
-      const hotwaterActiveWindow = (settings?.hotwater_enabled !== false) && hwHourNow >= hwStartH && hwHourNow < hwEndH;
-      // WW autonom von Smartfox gemanaged — keine Software-Reserve abziehen
-      // (siehe mem://hardware/energy-system-specifications & mem://features/heating/hotwater-smartfox-autonomous).
-      // WW-Verbrauch reduziert gridExport bereits physikalisch; doppelte Reserve würde Komfort blockieren.
-      void hotwaterBeforeHeating; void hotwaterActiveWindow;
-      const hotwaterReserveW = 0;
-      const carReserveW = (carBeforeHeating && settings?.car_charging_enabled === true)
-        ? Math.max(0, settings?.car_min_charge_power_w || 0) : 0;
-      if (carReserveW > 0) {
-        console.log(`[CONSUMER-PRIORITY] vorrangig: Auto=${carReserveW}W (WW=Smartfox-autonom, Reihenfolge: ${priorityListRaw.join('>')})`);
-      }
+      // ============= CONSUMER PRIORITY entfernt =============
+      // WW + E-Auto werden autonom von Smartfox priorisiert; deren Verbrauch reduziert
+      // gridExport bereits physikalisch. Frühere Software-Reserven (hotwaterReserveW,
+      // carReserveW, consumer_priority) wurden entfernt, weil sie zu doppelter Reservierung
+      // und blockiertem Heizkomfort führten. Batterie-Vorrang bleibt über heating_min_battery_soc.
+      const batteryBeforeHeating = true;
 
       // ============= LEISTUNGSBUDGET-MANAGEMENT =============
       // Berechne verfügbares Budget basierend auf PV-Leistung oder Netz-Maximum
@@ -1585,23 +1560,9 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Konsumenten-Vorrang (UI: consumer_priority): WW/Auto vor Heizung → Reserve abziehen
-          if (hotwaterReserveW > 0 || carReserveW > 0) {
-            const before = baseBudget;
-            baseBudget = Math.max(0, baseBudget - hotwaterReserveW - carReserveW);
-            console.log(`[CONSUMER-PRIORITY] Eco-Budget reduziert ${before}W → ${baseBudget}W (WW ${hotwaterReserveW}W, Auto ${carReserveW}W)`);
-          }
-
-          // Wenn Heizung NICHT vor Batterie steht (Standard: battery>heating), bleibt bisherige Reserve aktiv.
-          // Wenn Heizung VOR Batterie konfiguriert ist, hebe die Batterie-Ladereserve auf:
-          if (!batteryBeforeHeating && batteryPower > 0 && batterySoc < heatingMinSoc) {
-            console.log(`[CONSUMER-PRIORITY] Heizung vor Batterie → Batterie-Ladereserve aufgehoben`);
-            // (Reserve wurde oben bereits abgezogen → wieder zurückaddieren)
-            const range = Math.max(10, heatingMinSoc - 30);
-            const batteryPriority = batterySoc < 30 ? 1.0 : (heatingMinSoc - batterySoc) / range;
-            const batteryReserve = Math.round(batteryPower * batteryPriority);
-            baseBudget = baseBudget + batteryReserve;
-          }
+          // Konsumenten-Vorrang-Block entfernt: WW + Auto sind Smartfox-autonom und
+          // werden nicht mehr software-seitig reserviert. Batterie-Vorrang via heating_min_battery_soc.
+          void batteryBeforeHeating;
 
           availableBudget = Math.max(0, baseBudget);
           
