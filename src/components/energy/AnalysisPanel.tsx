@@ -300,14 +300,15 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 enabledKey="analysis_weekly_enabled"
                 timeKey="analysis_weekly_time"
                 description="Wöchentlicher Vergleich: Hat diese Woche mehr oder weniger PV-Ertrag gebracht als die Vorwoche?"
+                lastRunAt={lastRuns.scheduler_weekly}
                 extra={
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Wochentag</Label>
+                    <Label className="text-[11px] text-muted-foreground">Wochentag</Label>
                     <Select
                       value={String(get('analysis_weekly_weekday') ?? 0)}
                       onValueChange={(v) => set({ analysis_weekly_weekday: parseInt(v, 10) })}
                     >
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {WEEKDAYS.map((d, i) => (
                           <SelectItem key={i} value={String(i)}>{d}</SelectItem>
@@ -319,7 +320,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
               />
             </TabsContent>
 
-            <TabsContent value="monthly" className="space-y-3 mt-4">
+            <TabsContent value="monthly" className="space-y-2 mt-3">
               <ProgressCockpit range="month" />
               <Button
                 variant="outline"
