@@ -53,11 +53,119 @@ function extractJSON(raw: string): any {
   return JSON.parse(cleaned);
 }
 
+// ---------------------------------------------------------------------------
+// Sub-Route: POST /suggest-battery-soc
+// Erstellt einen KI-Vorschlag zur Anpassung von heating_min_battery_soc.
+// Schreibt NUR in battery_soc_suggestions (nie in heating_settings).
+// LOCKED_PARAMS guard — see mem://security/ki-locked-core-params
+// ---------------------------------------------------------------------------
+async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>) {
+  const { data: hs } = await sb.from('heating_settings')
+    .select('heating_min_battery_soc, battery_soc_suggestion_enabled')
+    .limit(1).maybeSingle();
+  if (!hs) return { ok: false, skipped: 'no_heating_settings' };
+
+  const oldValue = Number(hs.heating_min_battery_soc ?? 80);
+  const enabled = hs.battery_soc_suggestion_enabled !== false;
+  if (!enabled) return { ok: true, skipped: 'suggestion_disabled' };
+
+  const { data: existing } = await sb.from('battery_soc_suggestions')
+    .select('id').eq('status', 'pending').limit(1);
+  if (existing && existing.length > 0) {
+    return { ok: true, skipped: 'pending_suggestion_exists', existing_id: existing[0].id };
+  }
+
+  const todayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
+    .toISOString().slice(0, 10);
+  const tomorrow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+
+  const { data: pvTomorrow } = await sb.from('pv_forecasts')
+    .select('expected_kwh').eq('date', tomorrowStr).maybeSingle();
+  const pvForecastKwh = pvTomorrow?.expected_kwh != null ? Number(pvTomorrow.expected_kwh) : null;
+
+  const { data: pv7d } = await sb.from('pv_forecasts')
+    .select('expected_kwh').lte('date', todayStr)
+    .gte('date', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
+    .order('date', { ascending: false }).limit(7);
+  const avg7d = (pv7d && pv7d.length > 0)
+    ? pv7d.reduce((s: number, r: any) => s + Number(r.expected_kwh || 0), 0) / pv7d.length
+    : null;
+
+  const { data: tracking } = await sb.from('battery_daily_tracking')
+    .select('soc_at_heating_end, date').order('date', { ascending: false }).limit(1);
+  const socEnd = tracking?.[0]?.soc_at_heating_end != null
+    ? Number(tracking[0].soc_at_heating_end) : null;
+
+  if (pvForecastKwh == null || socEnd == null) {
+    return { ok: true, skipped: 'insufficient_data', pvForecastKwh, socEnd };
+  }
+
+  let newValue = oldValue;
+  let reasonCore = '';
+  if (pvForecastKwh > 20 && socEnd > 80) {
+    newValue = Math.max(oldValue - 10, 50);
+    reasonCore = 'Sehr starke PV-Prognose und die Batterie war gestern Abend gut gefüllt — Gate kann deutlich gesenkt werden, um morgen mehr PV-Überschuss zum Heizen zu nutzen.';
+  } else if (pvForecastKwh > 20 && socEnd >= 70) {
+    newValue = Math.max(oldValue - 5, 50);
+    reasonCore = 'Starke PV-Prognose und Batterie gestern Abend solide gefüllt — Gate leicht senken, um mehr PV-Wärme freizugeben.';
+  } else if (pvForecastKwh < 10 && socEnd < 60) {
+    newValue = Math.min(oldValue + 10, 90);
+    reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend bereits niedrig — Gate deutlich anheben, um die Nacht-Reserve zu schützen.';
+  } else if (pvForecastKwh < 10 && socEnd < 70) {
+    newValue = Math.min(oldValue + 5, 90);
+    reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend knapp — Gate leicht anheben, um den Nacht-Puffer zu sichern.';
+  } else {
+    return { ok: true, skipped: 'no_change_needed', oldValue, pvForecastKwh, socEnd };
+  }
+
+  if (newValue === oldValue) {
+    return { ok: true, skipped: 'value_unchanged', oldValue };
+  }
+
+  const reasonText = `PV-Prognose morgen: ${pvForecastKwh.toFixed(1)} kWh (Ø 7 Tage: ${avg7d?.toFixed(1) ?? '–'} kWh), Batterie-SOC gestern Abend: ${socEnd}%. ${reasonCore}`;
+
+  const { data: inserted, error: insErr } = await sb.from('battery_soc_suggestions').insert({
+    old_value: oldValue,
+    new_value: newValue,
+    pv_forecast_kwh: pvForecastKwh,
+    avg_pv_7d_kwh: avg7d,
+    soc_end_of_day: socEnd,
+    reason_text: reasonText,
+    status: 'pending',
+  }).select().single();
+
+  if (insErr) {
+    console.error('[suggest-battery-soc] insert failed', insErr);
+    return { ok: false, error: insErr.message };
+  }
+
+  console.log(`[suggest-battery-soc] proposed ${oldValue}% → ${newValue}% (PV ${pvForecastKwh} kWh, SOC ${socEnd}%)`);
+  return { ok: true, created: true, suggestion: inserted };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
   const startedAt = new Date().toISOString();
+
+  // Route-Dispatch: Sub-Route für Battery-SOC-Vorschläge
+  const reqUrl = new URL(req.url);
+  if (reqUrl.pathname.endsWith('/suggest-battery-soc')) {
+    try {
+      const result = await handleSuggestBatterySoc(sb);
+      return new Response(JSON.stringify(result), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    } catch (e) {
+      console.error('[suggest-battery-soc] fatal', e);
+      return new Response(JSON.stringify({ ok: false, error: String(e) }), {
+        status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+  }
 
   // Master kill-switch: ai_auto_mode_enabled
   const { data: masterRow } = await sb
