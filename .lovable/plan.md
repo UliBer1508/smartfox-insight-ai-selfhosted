@@ -1,44 +1,49 @@
-## Problem
+## Ziel
 
-Die KI-Musteranalyse läuft automatisch:
-- Cron-Dispatcher `analysis-scheduler` (alle 15 min)
-- `scheduler_daily`, `scheduler_weekly`, `scheduler_match_today` haben heute alle `last_run_date = 2026-05-24`
+1. Sichtbar machen, dass die automatischen Analysen tatsächlich gelaufen sind (Tag/Woche/Monat/Match-Today).
+2. Ungenutzten Platz in `AnalysisPanel` reduzieren.
 
-ABER `match_today` speichert in `system_settings.best_match_today` keinen Match, sondern einen Postgres-Fehler:
+## Datenquelle
 
-```
-column reference "sig_pv_bucket" is ambiguous
-hint: It could refer to either a PL/pgSQL variable or a table column.
-```
+Der `analysis-scheduler` schreibt nach jedem Lauf in `system_settings` (siehe edge function):
+- `scheduler_daily` → `{ last_run_at, last_run_date }`
+- `scheduler_weekly` → `{ last_run_at, last_run_date }`
+- `scheduler_monthly` → `{ last_run_at, last_run_date }`
+- `scheduler_match_today` → `{ last_run_at, last_run_date }`
 
-Dadurch zeigt der Pattern-Recall-Block dauerhaft „Kein Match" und der Komfort-Bonus aus dem Pattern-Recall wird nie wirksam.
+Diese Zeitstempel sind aktuell vorhanden, werden aber im UI nicht angezeigt.
 
-## Ursache
+## Änderungen in `src/components/energy/AnalysisPanel.tsx`
 
-In der DB-Funktion `public.match_today_pattern(jsonb, int)` enthält die `RETURNS TABLE`-Signatur eine Spalte `sig_pv_bucket`. In der `ranked`-CTE wird `sig_pv_bucket` unqualifiziert verwendet (in `CASE WHEN sig_pv_bucket = pv` und `WHERE ... OR sig_pv_bucket = pv`), was mit dem Output-Parameter gleichen Namens kollidiert.
+### A) „Zuletzt gelaufen"-Anzeige
 
-## Fix
+- Neuen kleinen Hook/State im Panel: einmaliges `useEffect`, das beim Mount per `supabase.from('system_settings').select('key,value').in('key', ['scheduler_daily','scheduler_weekly','scheduler_monthly','scheduler_match_today'])` lädt und alle 5 min refresht.
+- Map auf `Record<schedulerKey, string | null>`.
+- `AutomationBox` bekommt eine neue optionale Prop `lastRunAt?: string | null` und rendert wenn aktiviert eine zweite Mini-Zeile rechts neben dem Switch:
+  - grünes Punkt-Badge + `Zuletzt: HEUTE 03:30` (heute → „heute HH:MM", gestern → „gestern HH:MM", sonst lokales Datum `DD.MM. HH:MM`, Europe/Vienna).
+  - Wenn `null` (noch nie gelaufen) → graues Badge „noch nicht gelaufen".
+- Jeweils zugeordnet:
+  - Tag-Tab → `scheduler_daily`
+  - Woche-Tab → `scheduler_weekly`
+  - Monat-Tab → `scheduler_monthly`
+  - (Match-Today bleibt in `PatternRecallBlock`, dort schon umgesetzt.)
 
-### 1. Migration: Funktion neu definieren, Spalte qualifizieren
+### B) Platz-Optimierung (Whitespace eliminieren)
 
-`CREATE OR REPLACE FUNCTION public.match_today_pattern(...)` mit:
-- `scored.sig_pv_bucket = pv` in der `CASE`-Klausel
-- `scored.sig_pv_bucket = pv` in der `WHERE`-Klausel der `ranked`-CTE
-- Rest unverändert (SECURITY DEFINER, search_path=public, Signatur identisch).
+- Leerer Placeholder-Block (`!analysis && !isAnalyzing` mit großem Brain-Icon und „Wähle einen Zeitraum-Tab…") **entfernen** — die Tabs sind selbsterklärend, der Block füllt nur Höhe.
+- `CardHeader` enger: `pb-3` und `CardDescription` kürzen auf eine Zeile oder entfernen (Titel reicht).
+- `CardContent space-y-4` → `space-y-3`.
+- `AutomationBox`: `p-3 space-y-3` → `p-2.5 space-y-2`, Beschreibung als `text-[11px]` (kleiner), Switch-Zeile kompakter (`text-xs` Label statt `text-sm`).
+- TabsContent `mt-4` → `mt-3`, `space-y-3` → `space-y-2`.
+- Datenpflege-Collapsible-Trigger: padding `py-2` → `py-1.5`.
+- Analyse-Ergebnis-Block bleibt voll sichtbar (kein Trim).
 
-### 2. Match-Today einmal manuell anstoßen
+### C) Self-contained: in `Datenpflege`-Box zusätzlich kleinen Status
 
-Nach der Migration `analyze-patterns` mit `{ type: 'match_today' }` aufrufen, damit `best_match_today` sofort einen sauberen Wert bekommt und der Pattern-Recall-Block sichtbar arbeitet.
-
-### 3. Sichtbares Status-Feedback im UI (kleine UX-Verbesserung)
-
-In `src/components/heating/PatternRecallBlock.tsx`:
-- Wenn `match?.top_days` ein Objekt mit `code`/`message` ist (statt Array), als Fehler-Badge anzeigen („Fehler bei letztem Match: …") statt stumm „Kein Match".
-- Optional `computed_at` als „zuletzt: HH:MM" anzeigen, damit der User sieht, dass die Automatik gelaufen ist.
-
-Keine Änderungen am Scheduler, an Cron oder an `heating_settings` nötig — die Automatik ist korrekt konfiguriert und feuert.
+Über dem Backfill-Button eine Zeile: `Letzter Daily-Score-Lauf: …` aus `scheduler_daily` (gleiche Quelle), damit Entwickler sehen ob Backfill nötig ist.
 
 ## Out of scope
 
-- Anpassungen an `analysis_daily`/`weekly`/`monthly`-Logik (laufen sauber).
-- Änderungen an `pattern_recall_strength` o.ä. Tuning-Parametern.
+- Keine Änderungen am `analysis-scheduler` oder an `PatternRecallBlock` (dort ist „zuletzt: HH:MM" bereits gezeigt).
+- Keine neue Tabelle, kein neuer Cron.
+- Keine Funktions-Logik-Änderungen.
