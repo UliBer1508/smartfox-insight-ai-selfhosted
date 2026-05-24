@@ -112,6 +112,14 @@ const Index = () => {
               onRefresh={refresh}
             />
 
+            {/* KI-Vorschlag prominent ganz oben anzeigen (nur wenn pending) */}
+            <BatterySocSuggestionCard />
+
+            {/* Automations-Status: immer sichtbar direkt unter Verbindung */}
+            <AutomationStatusCard />
+
+
+
             <div className="grid lg:grid-cols-3 gap-6">
               <div className="lg:col-span-1 space-y-4">
                 <EnergyFlowDiagram
@@ -147,9 +155,9 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
-                <AutomationStatusCard />
-                <BatterySocSuggestionCard />
+                {/* Verlaufs-Karte bleibt in rechter Spalte (nur sichtbar wenn history > 0) */}
                 <BatterySocHistoryCard />
+
                 <RoomStatusTable rooms={rooms} onSavePriority={async (roomId, priority) => {
                   const room = rooms.find(r => r.id === roomId);
                   const oldPriority = room?.priority ?? 5;
