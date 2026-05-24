@@ -134,35 +134,40 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
     };
 
     const AutomationBox = ({
-      enabledKey, timeKey, extra, description,
+      enabledKey, timeKey, extra, description, lastRunAt,
     }: {
       enabledKey: keyof HeatingSettings;
       timeKey: keyof HeatingSettings;
       extra?: React.ReactNode;
       description?: string;
+      lastRunAt?: string | null;
     }) => {
       const enabled = Boolean(get(enabledKey));
       const time = String(get(timeKey) ?? '');
       return (
-        <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
+        <div className="rounded-lg border bg-muted/30 p-2.5 space-y-2">
           {description && (
-            <p className="text-xs text-muted-foreground">{description}</p>
+            <p className="text-[11px] text-muted-foreground leading-snug">{description}</p>
           )}
-          <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Automatisch ausführen</Label>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Label className="text-xs font-medium">Automatisch</Label>
+              <LastRunBadge iso={lastRunAt} />
+            </div>
             <Switch
               checked={enabled}
               onCheckedChange={(v) => set({ [enabledKey]: v } as Partial<HeatingSettings>)}
             />
           </div>
           {enabled && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">Uhrzeit</Label>
+                <Label className="text-[11px] text-muted-foreground">Uhrzeit</Label>
                 <Input
                   type="time"
                   value={time?.slice(0, 5) || ''}
                   onChange={(e) => set({ [timeKey]: e.target.value } as Partial<HeatingSettings>)}
+                  className="h-8"
                 />
               </div>
               {extra}
@@ -176,16 +181,13 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
 
     return (
       <Card ref={ref}>
-        <CardHeader>
+        <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2">
             <Brain className="w-5 h-5 text-primary" />
             KI-Musteranalyse
           </CardTitle>
-          <CardDescription>
-            Automatische Erkennung von Verbrauchsmustern und Optimierungsvorschläge
-          </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
           {/* Datenpflege (Entwickler) — eingeklappt */}
           <Collapsible open={devOpen} onOpenChange={setDevOpen}>
             <div className="rounded-lg border bg-muted/20">
