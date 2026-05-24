@@ -267,11 +267,10 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
             </h3>
             <div className="space-y-5">
               <div className="space-y-3">
-                <Label htmlFor="heating_min_soc">
+                <Label>
                   Mindest-SOC für Nacht-Reserve: {formData.heating_min_battery_soc ?? 80}%
                 </Label>
                 <Slider
-                  id="heating_min_soc"
                   min={40}
                   max={95}
                   step={5}
@@ -283,6 +282,7 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
                   Dieser Wert schützt die Batterie für Abend-/Nachtverbrauch und gilt zugleich als hartes
                   SOC-Gate: Die Heizung darf die Batterie nur entladen, wenn der Ladestand darüber liegt.
                   Die Puffer-Logik unten referenziert diesen Wert (Reserve+20 / Reserve+35).
+                  Mikro-Budget nutzt automatisch <strong>diesen Wert + 5 %</strong> als zusätzlichen Floor.
                 </p>
               </div>
 
@@ -302,11 +302,10 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
 
               {formData.battery_buffer_enabled !== false && (
                 <div className="space-y-3">
-                  <Label htmlFor="battery_buffer_bonus">
+                  <Label>
                     Max. Puffer-Bonus: {formData.battery_buffer_bonus_w ?? 500}W
                   </Label>
                   <Slider
-                    id="battery_buffer_bonus"
                     min={200}
                     max={1500}
                     step={100}
