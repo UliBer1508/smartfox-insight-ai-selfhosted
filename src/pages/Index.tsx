@@ -28,7 +28,7 @@ import { useSmartfoxData } from '@/hooks/useSmartfoxData';
 import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useEnergyCalculation } from '@/hooks/useEnergyCalculation';
-import { useHeatingAnalysis } from '@/hooks/useHeatingAnalysis';
+
 import { useRooms } from '@/hooks/useRooms';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
