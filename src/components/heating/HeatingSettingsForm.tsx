@@ -55,7 +55,15 @@ export function HeatingSettingsForm({ settings, onSave, isLoading }: HeatingSett
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+              e.preventDefault();
+            }
+          }}
+          className="space-y-6"
+        >
           {/* PV & Battery */}
           <div className="grid md:grid-cols-2 gap-4">
             <div className="space-y-2">
