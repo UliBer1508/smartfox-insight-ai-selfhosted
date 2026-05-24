@@ -15,7 +15,9 @@ import type { HeatingSettings } from '@/types/heating';
 interface BestMatch {
   computed_at?: string;
   match_quality?: 'exact' | 'partial' | 'weak' | 'none';
-  top_days?: Array<{ date?: string; score?: number; kpi_pv_heating_coverage?: number }>;
+  top_days?:
+    | Array<{ date?: string; score?: number; kpi_pv_heating_coverage?: number }>
+    | { code?: string; message?: string; details?: string; hint?: string };
 }
 
 const QUALITY_VARIANT: Record<string, 'default' | 'secondary' | 'outline' | 'destructive'> = {
@@ -84,8 +86,14 @@ export function PatternRecallBlock() {
   const enabled = Boolean(get('analysis_match_today_enabled'));
   const time = String(get('analysis_match_today_time') ?? '').slice(0, 5);
   const strength = Number(get('pattern_recall_strength') ?? 50);
-  const quality = match?.match_quality ?? 'none';
-  const winner = match?.top_days?.[0];
+  const topDays = Array.isArray(match?.top_days) ? match!.top_days : undefined;
+  const matchError =
+    match?.top_days && !Array.isArray(match.top_days) ? (match.top_days as { message?: string }).message : null;
+  const quality = matchError ? 'none' : match?.match_quality ?? 'none';
+  const winner = topDays?.[0];
+  const computedTime = match?.computed_at
+    ? new Date(match.computed_at).toLocaleTimeString('de-AT', { hour: '2-digit', minute: '2-digit' })
+    : null;
 
   return (
     <Card>
@@ -99,13 +107,16 @@ export function PatternRecallBlock() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={QUALITY_VARIANT[quality]}>{QUALITY_LABEL[quality]}</Badge>
             {winner?.date && (
               <span className="text-xs text-muted-foreground">
                 Winner: {winner.date} (Score {Math.round(Number(winner.score ?? 0))})
               </span>
+            )}
+            {computedTime && (
+              <span className="text-[11px] text-muted-foreground">zuletzt: {computedTime}</span>
             )}
           </div>
           <Button size="sm" variant="outline" onClick={matchNow} disabled={isMatching}>
@@ -113,6 +124,12 @@ export function PatternRecallBlock() {
             Jetzt matchen
           </Button>
         </div>
+
+        {matchError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+            Fehler beim letzten Match: {matchError}
+          </div>
+        )}
 
         <div className="rounded-lg border bg-muted/30 p-3 space-y-3">
           <div className="flex items-center justify-between">
