@@ -266,7 +266,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="daily" className="space-y-3 mt-4">
+            <TabsContent value="daily" className="space-y-2 mt-3">
               <ProgressCockpit range="day" />
               <Button
                 variant="outline"
@@ -281,10 +281,11 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 enabledKey="analysis_daily_enabled"
                 timeKey="analysis_daily_time"
                 description="Die KI analysiert täglich dein Verbrauchsmuster und erkennt Abweichungen."
+                lastRunAt={lastRuns.scheduler_daily}
               />
             </TabsContent>
 
-            <TabsContent value="weekly" className="space-y-3 mt-4">
+            <TabsContent value="weekly" className="space-y-2 mt-3">
               <ProgressCockpit range="week" />
               <Button
                 variant="outline"
