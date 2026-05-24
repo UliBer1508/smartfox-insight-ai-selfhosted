@@ -1257,11 +1257,35 @@ Deno.serve(async (req) => {
       // 7. Load PV forecast for today (with hourly_watts for tracking)
       // Wien-Datum verwenden (nicht UTC!) — zwischen 00:00-01:00 UTC wäre sonst das gestrige Datum
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
-      const { data: pvForecast } = await supabase
+      const { data: todayForecast } = await supabase
         .from('pv_forecasts')
-        .select('expected_kwh, hourly_watts, sunset')
+        .select('expected_kwh, hourly_watts, sunset, sunrise, date')
         .eq('date', today)
-        .single();
+        .maybeSingle();
+
+      // === PV-FORECAST-FALLBACK (Robustheit 1) ===
+      // Wenn heutiger Forecast fehlt oder 0, lade letzten verfügbaren Eintrag der letzten 3 Tage
+      let pvForecast: any = todayForecast;
+      let forecastIsStale = false;
+      if (!todayForecast || !todayForecast.expected_kwh) {
+        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+          .toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+        const { data: fallback } = await supabase
+          .from('pv_forecasts')
+          .select('expected_kwh, hourly_watts, sunset, sunrise, date')
+          .gte('date', threeDaysAgo)
+          .lt('date', today)
+          .order('date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (fallback?.expected_kwh) {
+          pvForecast = fallback;
+          forecastIsStale = true;
+          console.log(`[PV-FORECAST] Stale fallback from ${fallback.date}: ${fallback.expected_kwh} kWh (×0.7 comfort budget)`);
+        } else {
+          console.log(`[PV-FORECAST] Kein Forecast verfügbar (auch kein 3-Tage-Fallback) → Hard-Gate aktiv`);
+        }
+      }
 
       const expectedPvKwh = pvForecast?.expected_kwh || 0;
       const hourlyWatts = (pvForecast?.hourly_watts || {}) as Record<string, number>;
@@ -1704,6 +1728,12 @@ Deno.serve(async (req) => {
             console.log(`[LOOKAHEAD] ⛅ Wolkenfront erkannt (Stunde+1=${Math.round(nextHourForecastCorrected)}W < 50% × ${Math.round(currentHourForecastCorrected)}W) → Komfort ${before}W × 0.7 = ${comfortBudget}W`);
           } else if (lookaheadBonus > 0) {
             console.log(`[LOOKAHEAD] ☀️ Stabile Sonne (Stunde+1=${Math.round(nextHourForecastCorrected)}W ≥ 90% × ${Math.round(currentHourForecastCorrected)}W) → Komfort-Bonus +${lookaheadBonus}W`);
+          }
+          // Robustheit 1: Stale-Forecast (>1 Tag alt) → Komfort konservativ ×0.7
+          if (forecastIsStale && comfortBudget > 0) {
+            const beforeStale = comfortBudget;
+            comfortBudget = Math.round(comfortBudget * 0.7);
+            console.log(`[PV-FORECAST] Stale-Fallback: Komfort ${beforeStale}W × 0.7 = ${comfortBudget}W (konservativ wegen veralteter Prognose)`);
           }
           console.log(`[PV-Automation] PV-Budget: gridExport ${gridExport}W + heizend ${currentlyHeatingPower}W + Toleranz ${dynamicTolerance}W = ${availableBudget}W (Eco${batteryEcoReserveAllowed ? ' +Batterie-Reserve' : ''}${pvSufficientForEco ? ' +Prognose-OK' : ''}${prognoseBonus > 0 ? ` +Prognose-Bonus ${prognoseBonus}W` : ''}${batteryBuffer > 0 ? ` +Batt-Puffer ${batteryBuffer}W` : ''}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}W Trend` : ''}) | Komfort-Budget: ${comfortBudget}W (effExport ${effectiveExport} [grid ${gridExport}+heiz ${currentlyHeatingPower}] − Baseload ${dynamicBaseloadBuffer}${trendBonus !== 0 ? ` ${trendBonus >= 0 ? '+' : ''}${trendBonus}` : ''}${lookaheadBonus > 0 ? ` +Lookahead ${lookaheadBonus}` : ''}${batteryFullBonus > 0 ? ` +BattFull ${batteryFullBonus}` : ''})`);
 
@@ -2362,7 +2392,20 @@ Deno.serve(async (req) => {
       // entweder bereits ≥ eco_temp − 0.3 ist, in Phase 1 aktiviert wurde, oder durch
       // Pause/Rotation/Override blockiert ist. Räume die Eco anstreben aber kein Budget
       // bekommen haben → Phase 2 wartet bis zum nächsten Heartbeat.
+      // Robustheit 2: Stale Räume (Thermostat offline > 2h) blockieren Phase 2 NICHT
+      const STALE_ROOM_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+      const isRoomStale = (r: any) => {
+        const sync = r?.last_thermostat_sync;
+        if (!sync) return true;
+        return (Date.now() - new Date(sync).getTime()) > STALE_ROOM_THRESHOLD_MS;
+      };
       const phase1Complete = roomsWithPriority.every(rp => {
+        if (isRoomStale(rp.room)) {
+          const sync = rp.room.last_thermostat_sync;
+          const ageMin = sync ? Math.round((Date.now() - new Date(sync).getTime()) / 60000) : -1;
+          console.log(`[PHASE-1] Skipped stale room ${rp.room.name} (last sync ${ageMin}min ago)`);
+          return true;
+        }
         const ecoTempCheck = rp.room.eco_temp || settings?.eco_temp || 19;
         const curCheck = rp.room.current_temp || 0;
         if (curCheck >= ecoTempCheck - 0.3) return true; // bereits warm
@@ -2453,6 +2496,18 @@ Deno.serve(async (req) => {
       if (phase1Complete) {
         console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
         for (const rp of roomsWithPriority) {
+          // Robustheit 2: Stale Räume (Thermostat offline) bekommen keinen Komfort-Push (Quota schonen)
+          if (isRoomStale(rp.room)) {
+            if (!roomBudgetStatus.has(rp.room.id)) {
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: false,
+                reason: `Thermostat offline (kein Sync seit > 2h)`,
+                shouldRotate: false,
+                targetLevel: 'eco',
+              });
+            }
+            continue;
+          }
           // Komfort-gesättigte Räume sind tagsüber NICHT mehr Komfort-Kandidat
           if (isComfortSaturated(rp)) {
             if (!roomBudgetStatus.has(rp.room.id)) {

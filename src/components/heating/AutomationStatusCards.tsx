@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Bot, ArrowRight, CheckCircle2, Shield, Activity, Battery, Sun } from 'lucide-react';
+import { Bot, ArrowRight, CheckCircle2, Shield, Activity, Battery, Sun, Brain } from 'lucide-react';
 import { useBatterySocSuggestions } from '@/hooks/useBatterySocSuggestions';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
+import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 
@@ -72,9 +74,54 @@ export function AutomationStatusCard() {
           <Chip color="muted">
             Nächste Analyse: {settings.analysis_daily_time ?? '03:30'}
           </Chip>
+          <MlCacheChip />
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ML-Cache-Alter (Robustheit 4): zeigt wann die letzte KI-Entscheidung berechnet wurde
+function MlCacheChip() {
+  const [ageMin, setAgeMin] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchCache = async () => {
+      const { data } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', 'last_ml_cache')
+        .maybeSingle();
+      if (cancelled) return;
+      const ts = (data?.value as any)?.timestamp;
+      if (typeof ts === 'number') {
+        setAgeMin(Math.floor((Date.now() - ts) / 60000));
+      } else {
+        setAgeMin(null);
+      }
+    };
+    fetchCache();
+    const id = setInterval(fetchCache, 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  if (ageMin == null) return null;
+  const stale = ageMin >= 45;
+  const label = stale
+    ? `KI-Analyse wird beim nächsten Heartbeat erneuert (vor ${ageMin} min)`
+    : `KI-Entscheidungen: vor ${ageMin} min berechnet`;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-full border text-xs ${
+        stale
+          ? 'bg-warning/15 text-foreground border-warning/40'
+          : 'bg-muted text-muted-foreground border-border'
+      }`}
+    >
+      <Brain className="w-3 h-3" />
+      {label}
+    </span>
   );
 }
 
