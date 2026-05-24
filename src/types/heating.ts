@@ -72,6 +72,7 @@ export interface HeatingSettings {
   micro_budget_min_battery_soc?: number;
   micro_heat_duration_min?: number;
   // Batterie-Reserve & adaptive Budget-Erweiterung
+  /** @deprecated UI konsolidiert auf heating_min_battery_soc — wird automatisch gespiegelt für Edge-Function-Kompatibilität */
   battery_reserve_for_night_soc?: number;
   battery_buffer_enabled?: boolean;
   battery_buffer_bonus_w?: number;

@@ -102,7 +102,12 @@ export function useHeatingSettings() {
 
   const saveSettings = useCallback(async (newSettings: Partial<HeatingSettings>) => {
     try {
-      const updatedSettings = { ...settings, ...newSettings, updated_at: new Date().toISOString() };
+      const merged = { ...settings, ...newSettings };
+      // Konsolidierung: battery_reserve_for_night_soc spiegelt heating_min_battery_soc (Backwards-Compat für Edge Functions)
+      if (merged.heating_min_battery_soc !== undefined) {
+        merged.battery_reserve_for_night_soc = merged.heating_min_battery_soc;
+      }
+      const updatedSettings = { ...merged, updated_at: new Date().toISOString() };
       
       if (settings.id) {
         const { error } = await supabase
