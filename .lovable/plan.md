@@ -1,52 +1,46 @@
-## Batterie-Einstellungen entdoppeln + Slider-Bug fixen
+## „Warmwasser-Bereitung" + „Verbraucher-Priorität" aus UI entfernen
 
-### Befund: Zwei überlappende Werte
+### Befund
 
-In `HeatingSettingsForm.tsx` (Block „Batterie-Reserve für Nachverbrauch") existieren **zwei** SOC-Schwellen, die de facto denselben Zweck erfüllen (Batterie für Abend/Nacht schonen), sich aber widersprechen können:
+Beide Blöcke in `HeatingSettingsForm.tsx` steuern faktisch **nichts**, was Smartfox nicht ohnehin autonom regelt:
 
-| Feld | UI-Label | Default | Verwendung |
-|---|---|---|---|
-| `battery_reserve_for_night_soc` | „Mindest-SOC nach Heiz-Tag" | 60 % | Referenz für Puffer-Logik (`Reserve+20`, `Reserve+35`), Validate-Reserve-Edge-Function |
-| `heating_min_battery_soc` | „Heizung-Schutz: Mindest-SOC für Batterienutzung" | 80 % | Hartes SOC-Gate (`strict`/`soft`), blockiert Entladung der Heizung |
+**Warmwasser-Block (Zeilen 479–549):** `hotwater_enabled`, `hotwater_power_w`, `hotwater_schedule_start/_end`, `hotwater_min_surplus_w`. UI sagt selbst „dient nur der Tagesenergie-Prognose, beeinflusst Momentan-Heizbudget nicht".
 
-Im aktuellen Screenshot: Reserve = 70 %, Gate = 80 % → Puffer-Logik rechnet mit `Reserve+20 = 90 %`, das Gate blockt aber schon bei 80 %. Inkonsistent + verwirrend.
+**Verbraucher-Priorität (Zeilen 551–589):** `consumer_priority`, `car_min_charge_power_w`. Smartfox priorisiert physisch.
 
-### Befund: Slider lassen sich nicht bedienen
+**Aktuelle Code-Verwendung in `pv-automation`:**
+- Z. 1279–1283: `hotwaterKwh` (~11 kWh hartcodiert über 4 h) und `carKwh` (10 kWh wenn aktiv) werden vom **Tagesbudget** abgezogen → **verfälscht** das Heizbudget systematisch, obwohl der WW-/Auto-Verbrauch physikalisch bereits im `power_io` enthalten ist (Doppelzählung).
+- Z. 1479–1502: `consumer_priority`/`hotwater_schedule`/`car_min_charge_power_w` ziehen zusätzlich „Reserve" vor der Heizung ab.
+- Z. 2582: `hotwaterPower`-Lookup für Logging.
 
-Die drei betroffenen Regler („Mindest-SOC nach Heiz-Tag", „Max. Puffer-Bonus", „Heizung-Schutz") sind als **native `<Input type="range">`** umgesetzt (Zeilen 274, 308, 343). Die `Input`-Komponente von shadcn legt Padding/Border-Styles über das native Range-Element, wodurch der Drag-Handle nicht zuverlässig anklickbar ist. Alle anderen Slider im Projekt nutzen die Radix-`<Slider>`-Komponente (`@/components/ui/slider`).
+`analyze-patterns` (KI-Analyse) liest die Werte ebenfalls — bleibt unverändert für jetzt (separater Tagesplaner-Kontext).
 
-### Lösungskonzept
+### Lösung
 
-**1. Konsolidierung auf EINEN Wert**
+**1. UI-Blöcke entfernen** in `src/components/heating/HeatingSettingsForm.tsx`:
+- Block „Warmwasser-Bereitung (Smartfox-gesteuert)" (Zeilen 479–549)
+- Block „Verbraucher-Priorität" (Zeilen 551–589)
+- Ungenutzte Imports prüfen (`Droplets`, `Car`).
 
-- `heating_min_battery_soc` wird der **einzige** Nacht-Reserve-/Heizungs-Gate-Wert.  
-  UI-Label: „**Mindest-SOC für Nacht-Reserve**" (40–95 %, Default 80 %).
-- `battery_reserve_for_night_soc` aus der UI entfernen. Im `saveSettings`-Hook wird der Wert beim Speichern automatisch gespiegelt (`battery_reserve_for_night_soc = heating_min_battery_soc`), damit bestehende Edge Functions (`validate-battery-reserve`, `compute-daily-score`, `analyze-patterns`, `ai-daily-planner`, `pv-automation`) ohne Anfassen weiter funktionieren.
-- In `pv-automation` ist der Fallback `heating_min_battery_soc ?? battery_reserve_for_night_soc ?? 80` schon vorhanden → keine Edge-Function-Migration nötig.
-- Hinweistext anpassen: „Diese Reserve schützt die Batterie für Abend-/Nachtverbrauch und gilt zugleich als hartes SOC-Gate für die Heizung."
-- Puffer-Logik-Erklärung beibehalten (`Reserve+20` / `Reserve+35` referenzieren jetzt diesen einen Wert).
+**2. Budget-Berechnung in `pv-automation/index.ts` säubern** (Doppelzählung beseitigen):
+- Z. 1279–1283: `hotwaterKwh` und `carKwh` auf `0` setzen bzw. komplett aus Formel entfernen → `availableHeatingKwh = max(0, expectedPvKwh - batteryNeedKwh)`.
+- Log-Zeile 1406 entsprechend kürzen.
+- Z. 1479–1502 (Consumer-Priority-Reserve): entfernen — Smartfox-Verbrauch ist physisch in `gridExport`/`power_io` enthalten, keine zusätzliche Reserve nötig.
 
-**2. Slider-Bug beheben**
-
-Die drei `<Input type="range">` durch die Radix-`<Slider>`-Komponente ersetzen (analog zu anderen Slidern im Projekt). Range/Step bleiben gleich:
-
-- Mindest-SOC: 40–95, Step 5  
-- Puffer-Bonus: 200–1500 W, Step 100
+**3. DB-Felder & Types bleiben** (Backwards-Compat, kein Migrations-Risiko). `analyze-patterns` nutzt sie weiter mit Defaults, falls in DB gesetzt.
 
 ### Geänderte Dateien
 
-- `src/components/heating/HeatingSettingsForm.tsx` — Block ab Zeile 261 neu strukturieren: 1 Slider statt 2, alle 3 Regler auf `<Slider>` umstellen, Texte anpassen.
-- `src/hooks/useHeatingSettings.ts` — in `saveSettings` Spiegelung `battery_reserve_for_night_soc = heating_min_battery_soc`.
-- `src/types/heating.ts` — `battery_reserve_for_night_soc` als `@deprecated` markieren (Feld bleibt für Backwards-Compat).
+- `src/components/heating/HeatingSettingsForm.tsx` — zwei Blöcke + ungenutzte Icons entfernen.
+- `supabase/functions/pv-automation/index.ts` — Budget-Doppelzählung beseitigen (~30 Zeilen).
 
 ### Nicht geändert
 
-- Datenbankschema (Spalte `battery_reserve_for_night_soc` bleibt erhalten).
-- Edge Functions.
-- Puffer-Logik, Tolerante Deaktivierung, Sperr-Modus.
+- DB-Schema, Types, `analyze-patterns`, `LearningProgress`.
+- `system_settings`, sonstige Heating-Konfiguration.
 
 ### Verifikation
 
-- Slider in Settings draggbar (Maus + Touch).
-- Speichern setzt beide Spalten auf denselben Wert; nach Reload identischer Wert sichtbar.
-- `pv-automation`-Logs: `heatingMinSoc` und `batteryReserveSoc` haben denselben Wert.
+- Settings-Seite: keine Warmwasser/Verbraucher-Priorität-Sektionen mehr.
+- `pv-automation`-Logs: `availableHeatingKwh = expectedPvKwh − batteryNeedKwh` (kein WW-/Auto-Abzug).
+- Heizbudget steigt entsprechend; tatsächlicher Smartfox-Verbrauch reduziert weiterhin `gridExport` physisch.
