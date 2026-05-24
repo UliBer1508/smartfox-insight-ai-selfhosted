@@ -1,9 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Bot, ArrowRight, CheckCircle2, Shield, Activity, Battery, Sun } from 'lucide-react';
+import { Bot, ArrowRight, CheckCircle2, Shield, Activity, Battery, Sun, Brain } from 'lucide-react';
 import { useBatterySocSuggestions } from '@/hooks/useBatterySocSuggestions';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
+import { supabase } from '@/integrations/supabase/client';
 import { format } from 'date-fns';
 import { de } from 'date-fns/locale';
 
