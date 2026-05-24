@@ -108,8 +108,51 @@ function Chip({ children, color = 'muted' }: { children: React.ReactNode; color?
 // KI-Vorschlags-Karte (nur bei pending)
 // ---------------------------------------------------------------------------
 export function BatterySocSuggestionCard() {
-  const { pending, decide } = useBatterySocSuggestions();
-  if (!pending) return null;
+  const { pending, history, loading, decide } = useBatterySocSuggestions();
+
+  if (loading) {
+    return (
+      <Card className="border-2 border-primary/30 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Bot className="w-5 h-5 text-primary" />
+            KI Batterie-Empfehlung
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="text-sm text-muted-foreground">
+          Prüfe offene Batterie-Gate-Vorschläge …
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (!pending) {
+    const latest = history[0];
+
+    return (
+      <Card className="border-2 border-primary/30 bg-primary/5">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center justify-between gap-2 flex-wrap">
+            <span className="flex items-center gap-2">
+              <Bot className="w-5 h-5 text-primary" />
+              KI Batterie-Empfehlung
+            </span>
+            <Badge variant="outline" className="border-primary/30 bg-primary/10 text-foreground">
+              Kein offener Vorschlag
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
+          <p>Aktuell liegt keine neue Batterie-Gate-Empfehlung zur Bestätigung vor.</p>
+          {latest && (
+            <p>
+              Letzter Eintrag: {format(new Date(latest.created_at), 'dd.MM.yyyy HH:mm', { locale: de })} · {latest.old_value}% → {latest.new_value}% · {latest.status === 'accepted' ? 'übernommen' : latest.status === 'dismissed' ? 'abgelehnt' : 'offen'}
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-2 border-warning/60 bg-warning/5">
