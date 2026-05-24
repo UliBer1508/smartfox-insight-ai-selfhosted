@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { getLocalDateString, getViennaHour } from '@/lib/dateUtils';
 import { SEO } from '@/components/SEO';
 import { Header } from '@/components/energy/Header';
