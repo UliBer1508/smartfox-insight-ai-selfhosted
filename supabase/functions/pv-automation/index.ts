@@ -2496,6 +2496,18 @@ Deno.serve(async (req) => {
       if (phase1Complete) {
         console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
         for (const rp of roomsWithPriority) {
+          // Robustheit 2: Stale Räume (Thermostat offline) bekommen keinen Komfort-Push (Quota schonen)
+          if (isRoomStale(rp.room)) {
+            if (!roomBudgetStatus.has(rp.room.id)) {
+              roomBudgetStatus.set(rp.room.id, {
+                allowedToHeat: false,
+                reason: `Thermostat offline (kein Sync seit > 2h)`,
+                shouldRotate: false,
+                targetLevel: 'eco',
+              });
+            }
+            continue;
+          }
           // Komfort-gesättigte Räume sind tagsüber NICHT mehr Komfort-Kandidat
           if (isComfortSaturated(rp)) {
             if (!roomBudgetStatus.has(rp.room.id)) {
