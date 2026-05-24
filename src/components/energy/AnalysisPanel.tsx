@@ -335,22 +335,24 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 enabledKey="analysis_monthly_enabled"
                 timeKey="analysis_monthly_time"
                 description="Die KI berechnet monatlich Langzeit-Trends und passt die Heizstrategie für die kommende Jahreszeit an."
+                lastRunAt={lastRuns.scheduler_monthly}
                 extra={
                   <div className="space-y-1">
-                    <Label className="text-xs text-muted-foreground">Tag im Monat (1–28)</Label>
+                    <Label className="text-[11px] text-muted-foreground">Tag im Monat (1–28)</Label>
                     <Input
                       type="number"
                       min={1}
                       max={28}
                       value={Number(get('analysis_monthly_dom') ?? 1)}
                       onChange={(e) => set({ analysis_monthly_dom: Math.max(1, Math.min(28, parseInt(e.target.value, 10) || 1)) })}
+                      className="h-8"
                     />
                   </div>
                 }
               />
             </TabsContent>
 
-            <TabsContent value="yearly" className="space-y-3 mt-4">
+            <TabsContent value="yearly" className="space-y-2 mt-3">
               <YearTrendChart />
             </TabsContent>
           </Tabs>
