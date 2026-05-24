@@ -525,12 +525,28 @@ export function ThermostatCard({
               )}
             </div>
 
-            {/* Last Sync - immer anzeigen für stabile Höhe */}
-            <p className="text-xs text-muted-foreground text-center h-4">
-              {room.last_thermostat_sync 
-                ? `Zuletzt: ${new Date(room.last_thermostat_sync).toLocaleTimeString('de-DE')}`
-                : '\u00A0'}
-            </p>
+            {/* Last Sync - immer anzeigen für stabile Höhe; Offline-Badge wenn > 2h */}
+            {(() => {
+              const sync = room.last_thermostat_sync;
+              const ageMs = sync ? Date.now() - new Date(sync).getTime() : Infinity;
+              const isStale = ageMs > 2 * 60 * 60 * 1000;
+              if (isStale && sync) {
+                const ageH = Math.floor(ageMs / 3600000);
+                return (
+                  <div className="flex items-center justify-center gap-1 h-4">
+                    <WifiOff className="w-3 h-3 text-warning" />
+                    <span className="text-[11px] text-warning font-medium">
+                      Thermostat offline – letzter Sync vor {ageH}h
+                    </span>
+                  </div>
+                );
+              }
+              return (
+                <p className="text-xs text-muted-foreground text-center h-4">
+                  {sync ? `Zuletzt: ${new Date(sync).toLocaleTimeString('de-DE')}` : '\u00A0'}
+                </p>
+              );
+            })()}
           </>
         )}
       </CardContent>
