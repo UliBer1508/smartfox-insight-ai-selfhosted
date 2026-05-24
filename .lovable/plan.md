@@ -1,54 +1,51 @@
-# Robustheit: 3 Absicherungen
+## Ziel
 
-Absicherung 3 (Quota) entfällt — Control-Mode ist `local`, Tuya Cloud inaktiv.
+Updates sollen **zuverlässig und schnell** auf den Clients ankommen, sobald die App geöffnet oder der Tab in den Vordergrund kommt – aber **kein dauerhaftes 30-min-Polling** im Hintergrund.
 
----
+## Diagnose
 
-## 1. PV-Forecast-Fallback (Backend)
+Aktuell in `src/pwa/registerSW.ts`:
+- `setInterval(registration.update, 30min)` – verursacht das von dir kritisierte „ständige Prüfen".
+- `visibilitychange → registration.update()` – existiert bereits, ist aber der einzige zuverlässige Trigger und wird teilweise vom Browser unterdrückt (kein `focus`, kein `online`, kein Aufruf direkt nach `controllerchange`-Reload).
+- Folge: Update wird oft erst **deutlich verzögert** erkannt, weil der einzige Trigger ein echter Visibility-Wechsel ist (und der Browser bei häufigen Wechseln throttelt).
 
-**Datei:** `supabase/functions/pv-automation/index.ts`
+Workbox-Setup in `vite.config.ts` ist korrekt (`NetworkFirst` für HTML, `skipWaiting:false`, manuelles `updateSW(true)`). Daran ändern wir nichts.
 
-Direkt nach dem Laden von `pvForecast` (heute):
-- Wenn `null` oder `expected_kwh === 0` → letzten Eintrag aus `pv_forecasts` der letzten **3 Tage** laden (`order date desc limit 1`).
-- `forecastIsStale = !todayForecast && !!fallback`.
-- `expectedPvKwh = todayForecast?.expected_kwh ?? fallback?.expected_kwh ?? 0`.
-- Bei Stale: Komfort-Budget konservativ mit Faktor **0.7** (vermeidet Überheizen bei veralteter Sonnenprognose).
-- Hard PV-Gate (<500 W + <5 kWh) greift erst, wenn auch Fallback `0` liefert.
-- Log: `[PV-FORECAST] Stale fallback from {date}: {kwh} kWh (×0.7 budget)`.
-- Reasoning-Feld der Recommendation bekommt `forecast_stale: true`.
+## Änderungen (nur `src/pwa/registerSW.ts`)
 
-## 2. Phase-1-Deadlock-Schutz (Backend)
+1. **30-min-Interval entfernen** – kein periodisches Polling mehr.
+2. **Update-Check explizit bei diesen Events** (jeder Check ist ein einmaliger Aufruf, kein Loop):
+   - Direkt nach Registrierung (`immediate: true` macht das implizit, zusätzlich ein expliziter `registration.update()` ~2 s nach Start, damit beim ersten Öffnen frisch geprüft wird).
+   - `visibilitychange` → wenn `visible`.
+   - `window.focus` (fängt Fälle, in denen Visibility nicht feuert, z. B. PWA aus Hintergrund auf iOS).
+   - `online`-Event (Wiederkehr aus Offline).
+   - Manueller Tab-Wechsel innerhalb der App: bleibt unverändert ohne Extra-Trigger – die obigen Events reichen.
+3. **Throttle** auf 60 s zwischen zwei `registration.update()`-Calls, damit ein hektischer User nicht spammt – aber **kein** zeitbasiertes Polling.
+4. **`onNeedRefresh`** ruft weiterhin sofort `updateSW(true)` auf → neuer SW aktiviert sich, `controllerchange` triggert genau einen Reload (Guard `reloading` bleibt).
 
-**Datei:** `supabase/functions/pv-automation/index.ts`
+## Was sich NICHT ändert
 
-Neue Helper-Funktion:
-```
-isRoomStale(room) = !last_thermostat_sync || (now - sync) > 2h
-```
+- Manifest, Workbox-Caching-Strategien, Iframe-/Preview-Guard.
+- Verhalten im Lovable-Editor (SW bleibt dort deaktiviert).
+- Cloud, Edge-Functions, DB.
 
-- In `phase1Complete`-Check: stale Räume zählen als „fertig" → blockieren Phase 2 nicht.
-- In Phase-2-Allokation: stale Räume werden **übersprungen** (kein Komfort-Push an Offline-Thermostat).
-- Log: `[PHASE-1] Skipped stale room {name} ({minutes}min since last sync)`.
+## Erwartetes Verhalten nach dem Fix
 
-**Frontend:** In `src/components/heating/RoomStatusTable.tsx` (bzw. Raumkarte) ein orange Badge **„Thermostat offline – letzter Sync vor Xh"** wenn `isRoomStale`. Bestehende Stale-Banner-Komponente wiederverwenden, Schwelle 2 h.
-
-## 3. ML-Cache-Alter (Frontend)
-
-**Datei:** `src/components/heating/AutomationStatusCards.tsx`
-
-Neue Zeile in der Automations-Status-Karte:
-- Quelle: `system_settings.last_ml_cache.timestamp`.
-- `< 45 min`: neutral grau – „KI-Entscheidungen: vor X min berechnet"
-- `≥ 45 min`: gelb – „KI-Analyse wird beim nächsten Heartbeat erneuert (vor X min)"
-- Polling 60 s über bestehenden `useQuery`-Mechanismus, kein Refresh-Button.
-
----
+- Du publishst → beim nächsten Öffnen der App **oder** sobald der Tab in den Vordergrund kommt (≤ wenige Sekunden) wird der neue Build erkannt, der SW aktiviert sich und die Seite reloadet **einmal** automatisch.
+- Im Hintergrund läuft **keine** periodische Prüfung mehr.
 
 ## Technische Details
 
-- **Keine DB-Migration nötig** – alle Daten existieren (`pv_forecasts`, `rooms.last_thermostat_sync`, `system_settings`).
-- **Deploy:** `pv-automation` Edge Function nach Änderung neu deployen.
-- **Stale-Schwellen:** Phase-Gate = 2 h (hart, da Heizentscheidung); Dashboard-Banner bleibt bei bestehenden 10/15 min (Memory `heating-status-fallback-cascade`).
-- **Memory-Update nach Implementierung:**
-  - `mem://features/heating/safety-gate-low-pv-logic` → 3-Tage-Stale-Fallback + 0.7-Faktor ergänzen
-  - `mem://arch/pv-automation-strategy-v2` → Stale-Räume blockieren Phase 2 nicht
+```text
+registerSW({ immediate: true, onNeedRefresh: () => updateSW(true) })
+  → onRegisteredSW(reg):
+       setTimeout(() => safeUpdate(reg), 2000)         // initial nach Boot
+       on visibilitychange (visible) → safeUpdate(reg)
+       on window 'focus'             → safeUpdate(reg)
+       on window 'online'            → safeUpdate(reg)
+
+safeUpdate(reg): throttle 60s, reg.update().catch(noop)
+controllerchange → einmaliger Reload (bestehender Guard)
+```
+
+Kein neues Package, keine Migration, keine Backend-Änderung. Nach Approval reicht ein Publish, damit Clients beim nächsten Fokus den Fix selbst ziehen (letzter „alter" Update-Zyklus).
