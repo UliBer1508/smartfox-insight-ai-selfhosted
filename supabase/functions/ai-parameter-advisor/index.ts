@@ -318,6 +318,12 @@ Antworte STRIKT als JSON:
     const autoApplied: any[] = [];
 
     for (const d of decisions) {
+      // Schreibschutz: Kern-Parameter dürfen niemals von KI gesetzt werden.
+      if (LOCKED_PARAMS.has(d.parameter_key)) {
+        rejected.push({ d, reason: 'locked_param' });
+        console.log(`[ai-parameter-advisor] LOCKED: ${d.parameter_key} — KI darf diesen Parameter nicht ändern`);
+        continue;
+      }
       const w = wlMap.get(`${d.parameter_key}|${d.scope}`);
       if (!w) { rejected.push({ d, reason: 'not_in_whitelist' }); continue; }
 
