@@ -100,7 +100,7 @@ Deno.serve(async (req) => {
           .eq('id', d.id)
           .maybeSingle();
 
-        if (full && full.auto_applied && !full.rollback_at && full.current_value != null) {
+        if (full && full.auto_applied && !full.rollback_at && full.current_value != null && !LOCKED_PARAMS.has(full.parameter_key)) {
           const { data: wl } = await sb
             .from('ai_parameter_whitelist')
             .select('storage_table, storage_column, data_type')
