@@ -1560,23 +1560,9 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Konsumenten-Vorrang (UI: consumer_priority): WW/Auto vor Heizung → Reserve abziehen
-          if (hotwaterReserveW > 0 || carReserveW > 0) {
-            const before = baseBudget;
-            baseBudget = Math.max(0, baseBudget - hotwaterReserveW - carReserveW);
-            console.log(`[CONSUMER-PRIORITY] Eco-Budget reduziert ${before}W → ${baseBudget}W (WW ${hotwaterReserveW}W, Auto ${carReserveW}W)`);
-          }
-
-          // Wenn Heizung NICHT vor Batterie steht (Standard: battery>heating), bleibt bisherige Reserve aktiv.
-          // Wenn Heizung VOR Batterie konfiguriert ist, hebe die Batterie-Ladereserve auf:
-          if (!batteryBeforeHeating && batteryPower > 0 && batterySoc < heatingMinSoc) {
-            console.log(`[CONSUMER-PRIORITY] Heizung vor Batterie → Batterie-Ladereserve aufgehoben`);
-            // (Reserve wurde oben bereits abgezogen → wieder zurückaddieren)
-            const range = Math.max(10, heatingMinSoc - 30);
-            const batteryPriority = batterySoc < 30 ? 1.0 : (heatingMinSoc - batterySoc) / range;
-            const batteryReserve = Math.round(batteryPower * batteryPriority);
-            baseBudget = baseBudget + batteryReserve;
-          }
+          // Konsumenten-Vorrang-Block entfernt: WW + Auto sind Smartfox-autonom und
+          // werden nicht mehr software-seitig reserviert. Batterie-Vorrang via heating_min_battery_soc.
+          void batteryBeforeHeating;
 
           availableBudget = Math.max(0, baseBudget);
           
