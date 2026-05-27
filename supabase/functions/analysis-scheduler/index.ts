@@ -105,12 +105,14 @@ serve(async (req) => {
       return nowMin >= m && nowMin < m + 30;
     };
 
-    // 1) Daily score (gestern)
+    // 1) Daily score (gestern) + KI-Klartext-Zusammenfassung
     if (force === 'daily' || (hs.analysis_daily_enabled && within(hs.analysis_daily_time))) {
       const last = await getLastRun('scheduler_daily');
       if (force === 'daily' || last !== t.date) {
         const r = await invokeFn('compute-daily-score', {});
         triggered.push({ job: 'daily', status: r.status });
+        const s = await invokeFn('analysis-summary', { type: 'day' });
+        triggered.push({ job: 'summary_day', status: s.status });
         await setLastRun('scheduler_daily', t.date);
       }
     }
@@ -125,22 +127,26 @@ serve(async (req) => {
       }
     }
 
-    // 3) Weekly (am konfigurierten Wochentag)
+    // 3) Weekly (am konfigurierten Wochentag) + Wochen-Summary
     if (force === 'weekly' || (hs.analysis_weekly_enabled && t.dow === (hs.analysis_weekly_weekday ?? 0) && within(hs.analysis_weekly_time))) {
       const last = await getLastRun('scheduler_weekly');
       if (force === 'weekly' || last !== t.date) {
         const r = await invokeFn('analyze-patterns', { type: 'weekly_comparison_auto' });
         triggered.push({ job: 'weekly', status: r.status });
+        const s = await invokeFn('analysis-summary', { type: 'week' });
+        triggered.push({ job: 'summary_week', status: s.status });
         await setLastRun('scheduler_weekly', t.date);
       }
     }
 
-    // 4) Monthly (am konfigurierten Tag des Monats)
+    // 4) Monthly (am konfigurierten Tag des Monats) + Monats-Summary
     if (force === 'monthly' || (hs.analysis_monthly_enabled && t.dom === (hs.analysis_monthly_dom ?? 1) && within(hs.analysis_monthly_time))) {
       const last = await getLastRun('scheduler_monthly');
       if (force === 'monthly' || last !== t.date) {
         const r = await invokeFn('analyze-patterns', { type: 'monthly_pattern' });
         triggered.push({ job: 'monthly', status: r.status });
+        const s = await invokeFn('analysis-summary', { type: 'month' });
+        triggered.push({ job: 'summary_month', status: s.status });
         await setLastRun('scheduler_monthly', t.date);
       }
     }
