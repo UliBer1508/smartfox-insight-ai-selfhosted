@@ -291,6 +291,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 timeKey="analysis_daily_time"
                 description="Die KI analysiert täglich dein Verbrauchsmuster und erkennt Abweichungen."
                 lastRunAt={lastRuns.scheduler_daily}
+                staleAfterMs={STALE_DAILY_MS}
               />
             </TabsContent>
 
