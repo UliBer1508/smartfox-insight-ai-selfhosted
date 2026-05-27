@@ -281,15 +281,25 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
 
             <TabsContent value="daily" className="space-y-2 mt-3">
               <ProgressCockpit range="day" />
-              <Button
-                variant="outline"
-                onClick={() => onAnalyzeDaily(readings)}
-                disabled={isAnalyzing || readings.length < 10}
-                className="w-full sm:w-auto"
-              >
-                {isAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TrendingUp className="w-4 h-4 mr-2" />}
-                Tagesanalyse jetzt starten
-              </Button>
+              <TooltipProvider delayDuration={150}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="outline"
+                      onClick={() => onAnalyzeDaily(readings)}
+                      disabled={isAnalyzing || readings.length < 10}
+                      className="w-full sm:w-auto"
+                    >
+                      {isAnalyzing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <TrendingUp className="w-4 h-4 mr-2" />}
+                      Tagesmuster neu auswerten
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    Erzeugt aus den Rohmesswerten ein neues Tagesmuster (Datenbasis für die KI-Zusammenfassung).
+                    Läuft normalerweise automatisch um {settings?.analysis_daily_time ?? '03:30'} Uhr.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
               <AutomationBox
                 enabledKey="analysis_daily_enabled"
                 timeKey="analysis_daily_time"

@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, Sparkles, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useAnalysisSummary, type StatsRange } from '@/hooks/useAnalysisSummary';
 
@@ -129,22 +130,34 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-sm font-semibold">KI-Zusammenfassung</span>
           </div>
-          <Button size="sm" variant="ghost" onClick={generate} disabled={generating}>
-            {generating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-            {data ? 'Neu' : 'Erzeugen'}
-          </Button>
+          <TooltipProvider delayDuration={150}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="ghost" onClick={generate} disabled={generating}>
+                  {generating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+                  {data ? 'Text neu erzeugen' : 'Text erzeugen'}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="max-w-xs text-xs">
+                Erzeugt den KI-Klartext aus den bereits berechneten Tagesscores neu.
+                Läuft normalerweise automatisch direkt nach der Tages-, Wochen- bzw. Monatsauswertung
+                und beim Öffnen, falls der Cache veraltet ist.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
         {error && <div className="text-xs text-rose-600 mb-2">{error}</div>}
         {data?.summary ? (
           <p className="text-sm leading-relaxed whitespace-pre-wrap">{data.summary}</p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            Noch keine Zusammenfassung. Klick auf „Erzeugen" um Klartext-Bewertung zu generieren.
+            {generating ? 'Wird erzeugt …' : 'Noch keine Zusammenfassung verfügbar.'}
           </p>
         )}
         {data?.generated_at && (
           <div className="mt-2 text-[10px] text-muted-foreground">
             Stand: {new Date(data.generated_at).toLocaleString('de-AT', { timeZone: 'Europe/Vienna' })}
+            <span className="ml-1">· aktualisiert sich automatisch</span>
           </div>
         )}
       </div>
