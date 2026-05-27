@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, Sparkles, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useAnalysisSummary, type StatsRange } from '@/hooks/useAnalysisSummary';
+import { useAnalysisSummary, STALE_MS, type StatsRange } from '@/hooks/useAnalysisSummary';
+import { LastUpdatedBadge } from '@/components/ui/LastUpdatedBadge';
 
 interface Props {
   range: StatsRange;
