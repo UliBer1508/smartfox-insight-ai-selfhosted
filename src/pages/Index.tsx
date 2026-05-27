@@ -10,10 +10,7 @@ import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
 import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
-import { BatteryStatus } from '@/components/heating/BatteryStatus';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
-import { PowerStats } from '@/components/energy/PowerStats';
-import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 
 
 
