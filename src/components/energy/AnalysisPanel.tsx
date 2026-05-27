@@ -28,29 +28,8 @@ const STALE_MONTHLY_MS = 32 * DAY_MS;             // 32d
 
 type SchedulerKey = 'scheduler_daily' | 'scheduler_weekly' | 'scheduler_monthly' | 'scheduler_match_today';
 
-const formatLastRun = (iso: string | null | undefined): string => {
-  if (!iso) return 'noch nicht gelaufen';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return 'unbekannt';
-  const fmtTime = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit' }).format(d);
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date());
-  const that = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(d);
-  if (today === that) return `heute ${fmtTime}`;
-  const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(Date.now() - 86400000));
-  if (yesterday === that) return `gestern ${fmtTime}`;
-  const fmtDate = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit' }).format(d);
-  return `${fmtDate} ${fmtTime}`;
-};
-
-const LastRunBadge: React.FC<{ iso: string | null | undefined }> = ({ iso }) => (
-  <span className={cn(
-    'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border',
-    iso ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-        : 'border-muted bg-muted/40 text-muted-foreground'
-  )}>
-    <CheckCircle2 className="w-3 h-3" />
-    Zuletzt: {formatLastRun(iso)}
-  </span>
+const LastRunBadge: React.FC<{ iso: string | null | undefined; staleAfterMs?: number }> = ({ iso, staleAfterMs }) => (
+  <LastUpdatedBadge iso={iso} staleAfterMs={staleAfterMs} />
 );
 
 interface AnalysisPanelProps {
