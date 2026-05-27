@@ -24,6 +24,7 @@ import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
+import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { AIStatusWidget } from './AIStatusWidget';
 import { MLFollowRateWidget } from './MLFollowRateWidget';
 import { ApiErrorBanner } from './ApiErrorBanner';
