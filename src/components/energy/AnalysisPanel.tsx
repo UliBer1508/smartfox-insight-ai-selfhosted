@@ -206,7 +206,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                     <p className="text-xs text-muted-foreground flex-1 min-w-[200px]">
                       Tagesscores werden normalerweise automatisch berechnet. Starte einen Backfill nur, wenn historische Daten fehlen.
                     </p>
-                    <LastRunBadge iso={lastRuns.scheduler_daily} />
+                    <LastRunBadge iso={lastRuns.scheduler_daily} staleAfterMs={STALE_DAILY_MS} />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                     <div className="space-y-1 flex-1">
