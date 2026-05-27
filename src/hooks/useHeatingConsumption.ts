@@ -227,6 +227,19 @@ export function useHeatingConsumption(rooms: Room[]) {
 
   useEffect(() => {
     loadConsumption();
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') loadConsumption();
+    }, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') loadConsumption();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
   }, [loadConsumption]);
 
   return { consumption, isLoading, refresh: loadConsumption };
