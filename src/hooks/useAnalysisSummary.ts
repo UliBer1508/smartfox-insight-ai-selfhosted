@@ -28,29 +28,17 @@ export interface AnalysisSummaryCache {
   generated_at: string;
 }
 
+const STALE_MS: Record<StatsRange, number> = {
+  day: 24 * 60 * 60 * 1000,        // 24h
+  week: 7 * 24 * 60 * 60 * 1000,   // 7d
+  month: 30 * 24 * 60 * 60 * 1000, // 30d
+};
+
 export function useAnalysisSummary(range: StatsRange) {
   const [data, setData] = useState<AnalysisSummaryCache | null>(null);
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const loadCached = useCallback(async () => {
-    setLoading(true);
-    try {
-      const { data: row, error: err } = await supabase
-        .from('system_settings')
-        .select('value')
-        .eq('key', `analysis_summary_${range}`)
-        .maybeSingle();
-      if (err) throw err;
-      if (row?.value) setData(row.value as unknown as AnalysisSummaryCache);
-      else setData(null);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  }, [range]);
 
   const generate = useCallback(async () => {
     setGenerating(true);
@@ -75,6 +63,34 @@ export function useAnalysisSummary(range: StatsRange) {
       setGenerating(false);
     }
   }, [range]);
+
+  const loadCached = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data: row, error: err } = await supabase
+        .from('system_settings')
+        .select('value')
+        .eq('key', `analysis_summary_${range}`)
+        .maybeSingle();
+      if (err) throw err;
+      const cached = (row?.value as unknown as AnalysisSummaryCache) || null;
+      if (cached) setData(cached);
+      else setData(null);
+
+      // Selbstheilung: bei fehlendem oder zu altem Cache automatisch neu generieren
+      const ageMs = cached?.generated_at
+        ? Date.now() - new Date(cached.generated_at).getTime()
+        : Infinity;
+      if (!cached || ageMs > STALE_MS[range]) {
+        // Async, nicht await — loading bleibt sauber
+        generate();
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, [range, generate]);
 
   useEffect(() => {
     loadCached();
