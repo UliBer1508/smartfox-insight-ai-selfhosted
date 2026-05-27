@@ -1,82 +1,61 @@
-## Was die Karte zeigt
+# Auto-Preisupdate + zeitlich korrekte Aufsummierung
 
-Die Karte "Heizverbrauch" (`HeatingOverviewCard`) summiert pro Zeitraum (Tag / Monat / Jahr) die abgeschlossenen Heiz-Zyklen aller Räume:
+## Kernprinzip
+**Tageskosten werden mit dem an diesem Tag gültigen Preis berechnet und in `energy_daily_costs` gespeichert.** Monats-/Jahressummen werden NUR durch Aufsummieren der historischen Tages-€-Werte gebildet — niemals durch Multiplikation der Gesamt-kWh × aktueller Preis. Das ist heute bereits so, wird aber jetzt durch eine Preis-Historie und Auto-Update abgesichert.
 
-- **Zyklen** — wie oft ein Raum geheizt hat
-- **Dauer** — überlappungsfreie Gesamtheizzeit (Minuten/Stunden)
-- **Energie** — geschätzte Energie in Wh/kWh (aus `room_heating_logs.energy_estimate_wh`)
-- **Top‑Verbraucher** — die drei Räume mit höchster Energie im Zeitraum
-- "Heizen jetzt: …" — Räume, die laut `rooms.is_heating` aktuell laufen
+## Status quo (verifiziert in `useEnergyCosts.ts` + `energy_daily_costs`)
+- `energy_daily_costs` speichert pro Tag: `grid_cost_eur`, `feed_in_earnings_eur`, `pv_savings_eur`, `net_balance_eur` + den damals gültigen `electricity_price_cent` / `feed_in_price_cent` als Snapshot.
+- Monat/Jahr werden bereits aus diesen gespeicherten €-Werten aufsummiert.
+- ⚠️ Lücke: nur „heute" wird live mit dem aktuellen Settings-Preis berechnet — korrekt. Aber wenn der Preis **mitten am Tag** geändert wird, würde der gesamte Tag rückwirkend mit dem neuen Preis berechnet werden, bis der nächste Tag startet. Außerdem fehlt jeglicher Audit/Historie der Preisänderungen.
 
-Datenquelle: `useHeatingConsumption(rooms)` → Tabelle `room_heating_logs` ab Jahresanfang (lokal Europe/Vienna).
+## 1. Neue Tabelle `energy_price_history`
+Spalten:
+- `id`, `valid_from` (date), `valid_to` (date, nullable = "aktuell gültig")
+- `electricity_price_cent`, `feed_in_price_cent`, `electricity_base_fee_year_eur`
+- `source` (`manual` | `salzburg_ag_auto` | `oemag_auto`)
+- `note`, `created_at`
 
-## Warum „Tag = 0" und „Monat/Jahr ändern sich nicht"
+Regeln:
+- Lückenlos & überlappungsfrei pro Tag (DB-Trigger schließt vorherigen offenen Eintrag bei Insert, setzt `valid_to = new.valid_from - 1`).
+- Initial-Migration füllt mit aktuellen Werten aus `heating_settings` ab Jahresbeginn 2026.
 
-Zwei Bugs:
+## 2. Tageskosten an Preis-Historie binden
+- Edge Function / Hook holt für jeden Tag den an diesem Tag gültigen Preis aus `energy_price_history` und schreibt ihn als Snapshot in die Tageszeile (wie heute, aber aus History statt aus Live-Settings).
+- Für den **laufenden Tag** wird der heute gültige Preis verwendet; sobald ein neuer Preis mit `valid_from > today` aktiv wird, bleibt die heutige Zeile mit dem alten Preis erhalten und morgige Zeile übernimmt den neuen.
+- **Vergangene Tage werden niemals neu berechnet**, auch nicht bei manueller Preiskorrektur — sie behalten ihren gespeicherten €-Wert. (Korrekturen vergangener Tage gibt es nur über expliziten "Rückwirkend neu berechnen"-Button in Settings, ausdrücklich opt-in mit Warnhinweis.)
 
-**Bug 1 — falscher Event‑Filter (Hauptursache für „Tag = 0")**
+## 3. Edge Function `fetch-energy-prices`
+- **ÖMAG**: Scrape `https://www.oem-ag.at/de/marktpreis/` → aktueller Quartals-Marktpreis (ct/kWh).
+- **Salzburg AG**: Scrape Tarif-Seite → Arbeitspreis + Grundgebühr Klassik-Tarif.
+- Vergleicht mit letztem `energy_price_history`-Eintrag.
+- Bei Abweichung → Eintrag in neue Tabelle `price_suggestions` (`source`, `field`, `old_value`, `new_value`, `effective_date`, `status` `pending`/`applied`/`dismissed`, `raw_excerpt`).
+- Kein Auto-Apply — bei Geld immer manuelle Bestätigung.
 
-In `src/hooks/useHeatingConsumption.ts` werden Zyklen, Dauer und Energie ausschließlich aus `event_type = 'heating_stop'` aggregiert. In der DB existieren aktuell aber zwei Stop‑Typen:
+## 4. Cron
+- ÖMAG: wöchentlich (Mo 07:00 Vienna).
+- Salzburg AG: monatlich (1. des Monats 07:00 Vienna).
+- Via `pg_cron` + `net.http_post`.
 
-- `heating_stop` (klassisches Erreichen der Solltemperatur) — in den letzten 30 Tagen nur **21** Einträge, in den letzten 7 Tagen **null**.
-- `solar_limit_stop` (PV‑Heizung wird durch `solar_limit_temp` beendet) — in den letzten 30 Tagen **749** Einträge mit gefüllten `duration_minutes` und `energy_estimate_wh`.
+## 5. UI
+**a) Kostenübersicht-Card (`CostOverviewCard`)**
+- Badge wenn `pending` Vorschlag existiert: „Neuer ÖMAG-Preis 7,12 ct/kWh ab 01.01.2026 — übernehmen?" mit Buttons **Übernehmen** / **Verwerfen**.
+- Tooltip am Preis: „ab 01.01.2026 gültig (Quelle: ÖMAG, automatisch)".
 
-Heute (27.05.) gibt es noch keine Events, gestern (26.05.) hatte 7 × `solar_limit_stop` — die werden vom Hook ignoriert und deshalb steht „Tag = 0". Die DB‑Funktion `get_heating_history` zählt korrekt beide Typen (`event_type IN ('heating_stop','solar_limit_stop')`); der Frontend‑Hook muss synchron gezogen werden.
+**b) Settings → neuer Abschnitt „Tarife & Preisverlauf"**
+- Tabelle mit Preis-Historie (Zeitraum, Strompreis, Einspeisetarif, Grundgebühr, Quelle).
+- „Neuen Preis ab Datum eintragen"-Dialog (manuell).
+- „Jetzt Preise prüfen"-Button (löst Edge Function manuell aus).
+- Liste der letzten Vorschläge inkl. Verwerfen/Übernehmen.
 
-**Bug 2 — kein Refresh**
+## 6. Migration / Cleanup
+- `heating_settings.electricity_price_kwh_cent` / `feed_in_price_kwh_cent` / `electricity_base_fee_year_eur` bleiben als **"aktueller" Schnellzugriff** (Spiegel des jüngsten History-Eintrags), damit bestehender Code nicht bricht. Werden via Trigger synchron gehalten, wenn neuer History-Eintrag mit `valid_from <= today` und `valid_to IS NULL` entsteht.
+- Initial-Backfill: für Tage in `energy_daily_costs` ohne Preis-Snapshot wird der bisher gespeicherte `electricity_price_cent` / `feed_in_price_cent` belassen (kein Rückrechnen).
 
-`useHeatingConsumption` lädt nur einmal beim Mount (`useEffect(loadConsumption, [loadConsumption])`). Es gibt:
-- kein Intervall‑Polling,
-- keinen `visibilitychange`/`focus`‑Trigger,
-- keinen Aufruf nach Zyklus‑Updates.
+## 7. Bewusst NICHT enthalten
+- Keine automatische Übernahme von Preisänderungen (Geld → immer Review).
+- Kein Spot/EPEX-Preis (Salzburg AG ist Festtarif).
+- Keine rückwirkende Neuberechnung außer als ausdrücklicher Settings-Button mit Warnhinweis.
 
-Wenn das Dashboard länger offen ist, ändern sich Monat/Jahr also nie (und Tag erst nach Tab‑Reload). Die meisten anderen Energie‑Widgets pollen alle 30–60 s.
-
-## Fix
-
-Datei: `src/hooks/useHeatingConsumption.ts`
-
-1. In beiden Stellen, die heute nur `heating_stop` prüfen, zusätzlich `solar_limit_stop` akzeptieren:
-
-   ```ts
-   const isStopEvent = log.event_type === 'heating_stop'
-                    || log.event_type === 'solar_limit_stop';
-   if (isStopEvent) stats.cycles += 1;
-   if (isStopEvent && log.duration_minutes && log.timestamp) { … }
-   ```
-
-   Damit verhält sich der Hook konsistent zur DB‑Funktion `get_heating_history` und zur Logik in `SolarGainChart`.
-
-2. Den „currently heating"-Block (`event_type = 'heating_start'`) unverändert lassen — der zählt nur laufende Zyklen für die Live‑Schätzung.
-
-3. Refresh hinzufügen — analog zum Pattern in `HeatingDashboard`:
-
-   ```ts
-   useEffect(() => {
-     loadConsumption();
-     const id = setInterval(() => {
-       if (document.visibilityState === 'visible') loadConsumption();
-     }, 60_000);
-     const onVisible = () => {
-       if (document.visibilityState === 'visible') loadConsumption();
-     };
-     document.addEventListener('visibilitychange', onVisible);
-     window.addEventListener('focus', onVisible);
-     return () => {
-       clearInterval(id);
-       document.removeEventListener('visibilitychange', onVisible);
-       window.removeEventListener('focus', onVisible);
-     };
-   }, [loadConsumption]);
-   ```
-
-## Nicht‑Ziel
-
-- Keine DB‑Migrationen, keine Edge‑Function‑Änderungen, kein Eingriff in `room_heating_logs`‑Schema oder die Erzeugung der Events.
-- Keine UI‑Änderungen an der Karte selbst — nur die zugrundeliegenden Zahlen werden korrekt und aktuell.
-
-## Erwartetes Ergebnis
-
-- „Tag" zeigt heute die `solar_limit_stop`-Zyklen sobald welche entstehen (gestern wären es 7 Zyklen / ~149 Wh gewesen).
-- „Monat" und „Jahr" steigen über den Tag hinweg sichtbar (jede Minute Polling, sofort bei Tab‑Fokus).
-- Top‑Verbraucher bleiben konsistent mit dem Solar‑Gain‑Chart.
+## Risiken / Hinweise
+- HTML-Scraping bricht ggf. bei Layout-Änderungen der Anbieter — Fehler landen in `api_errors` (Source `price-fetcher`), Banner zeigt Hinweis, manuelle Eingabe bleibt jederzeit möglich.
+- Tagesgrenze ist `Europe/Vienna` — Preiswechsel um Mitternacht Vienna-Zeit.
