@@ -311,6 +311,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 timeKey="analysis_weekly_time"
                 description="Wöchentlicher Vergleich: Hat diese Woche mehr oder weniger PV-Ertrag gebracht als die Vorwoche?"
                 lastRunAt={lastRuns.scheduler_weekly}
+                staleAfterMs={STALE_WEEKLY_MS}
                 extra={
                   <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Wochentag</Label>
