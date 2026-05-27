@@ -11,7 +11,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { EnergyReading } from '@/types/energy';
-import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info, CheckCircle2 } from 'lucide-react';
+import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,6 +19,12 @@ import { toast } from 'sonner';
 import type { HeatingSettings } from '@/types/heating';
 import { ProgressCockpit } from './stats/ProgressCockpit';
 import { YearTrendChart } from './stats/YearTrendChart';
+import { LastUpdatedBadge } from '@/components/ui/LastUpdatedBadge';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STALE_DAILY_MS = 26 * 60 * 60 * 1000;       // 26h
+const STALE_WEEKLY_MS = 8 * DAY_MS;               // 8d
+const STALE_MONTHLY_MS = 32 * DAY_MS;             // 32d
 
 type SchedulerKey = 'scheduler_daily' | 'scheduler_weekly' | 'scheduler_monthly' | 'scheduler_match_today';
 
