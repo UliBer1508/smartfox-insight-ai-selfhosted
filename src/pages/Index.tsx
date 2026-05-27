@@ -10,10 +10,7 @@ import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
 import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
-import { BatteryStatus } from '@/components/heating/BatteryStatus';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
-import { PowerStats } from '@/components/energy/PowerStats';
-import { ConsumptionStats } from '@/components/energy/ConsumptionStats';
 
 
 
@@ -130,17 +127,6 @@ const Index = () => {
                   batterySoc={currentReading?.battery_soc ?? null}
                 />
 
-                <BatteryStatus 
-                  soc={currentReading?.battery_soc ?? null}
-                  capacity={heatingSettings.battery_capacity_kwh}
-                  batteryPower={currentReading?.battery_power ?? null}
-                />
-
-                {/* PV-Leistung und Verbrauch */}
-                <div className="grid grid-cols-2 gap-3">
-                  <PowerStats pvPower={currentReading?.pv_power ?? null} />
-                  <ConsumptionStats consumption={currentReading?.consumption ?? null} />
-                </div>
               </div>
 
               {/* Rechte Spalte: Statistiken, Chart und aktive Verbraucher */}
