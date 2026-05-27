@@ -347,6 +347,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 timeKey="analysis_monthly_time"
                 description="Die KI berechnet monatlich Langzeit-Trends und passt die Heizstrategie für die kommende Jahreszeit an."
                 lastRunAt={lastRuns.scheduler_monthly}
+                staleAfterMs={STALE_MONTHLY_MS}
                 extra={
                   <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Tag im Monat (1–28)</Label>
