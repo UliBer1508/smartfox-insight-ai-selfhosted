@@ -3,6 +3,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug, Cloud, MonitorSmartphone } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
+import { TariffHistoryPanel } from './TariffHistoryPanel';
 import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
 import { RoomManager } from "@/components/heating/RoomManager";
 import { useHeatingSettings } from "@/hooks/useHeatingSettings";
