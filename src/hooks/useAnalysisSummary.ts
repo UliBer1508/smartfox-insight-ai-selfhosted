@@ -28,7 +28,7 @@ export interface AnalysisSummaryCache {
   generated_at: string;
 }
 
-const STALE_MS: Record<StatsRange, number> = {
+export const STALE_MS: Record<StatsRange, number> = {
   day: 24 * 60 * 60 * 1000,        // 24h
   week: 7 * 24 * 60 * 60 * 1000,   // 7d
   month: 30 * 24 * 60 * 60 * 1000, // 30d
