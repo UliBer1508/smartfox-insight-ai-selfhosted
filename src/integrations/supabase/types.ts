@@ -578,6 +578,42 @@ export type Database = {
         }
         Relationships: []
       }
+      energy_price_history: {
+        Row: {
+          created_at: string
+          electricity_base_fee_year_eur: number
+          electricity_price_cent: number
+          feed_in_price_cent: number
+          id: string
+          note: string | null
+          source: string
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          created_at?: string
+          electricity_base_fee_year_eur?: number
+          electricity_price_cent: number
+          feed_in_price_cent: number
+          id?: string
+          note?: string | null
+          source?: string
+          valid_from: string
+          valid_to?: string | null
+        }
+        Update: {
+          created_at?: string
+          electricity_base_fee_year_eur?: number
+          electricity_price_cent?: number
+          feed_in_price_cent?: number
+          id?: string
+          note?: string | null
+          source?: string
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Relationships: []
+      }
       energy_readings: {
         Row: {
           battery_power: number | null
@@ -1033,6 +1069,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      price_suggestions: {
+        Row: {
+          created_at: string
+          decided_at: string | null
+          decided_by: string | null
+          effective_date: string
+          fetched_at: string
+          field: string
+          id: string
+          new_value: number
+          old_value: number | null
+          raw_excerpt: string | null
+          source: string
+          status: string
+        }
+        Insert: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          effective_date?: string
+          fetched_at?: string
+          field: string
+          id?: string
+          new_value: number
+          old_value?: number | null
+          raw_excerpt?: string | null
+          source: string
+          status?: string
+        }
+        Update: {
+          created_at?: string
+          decided_at?: string | null
+          decided_by?: string | null
+          effective_date?: string
+          fetched_at?: string
+          field?: string
+          id?: string
+          new_value?: number
+          old_value?: number | null
+          raw_excerpt?: string | null
+          source?: string
+          status?: string
+        }
+        Relationships: []
       }
       pv_forecasts: {
         Row: {

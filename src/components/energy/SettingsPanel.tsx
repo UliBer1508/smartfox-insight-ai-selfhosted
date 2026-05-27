@@ -3,6 +3,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug, Cloud, MonitorSmartphone } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
+import { TariffHistoryPanel } from './TariffHistoryPanel';
 import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
 import { RoomManager } from "@/components/heating/RoomManager";
 import { useHeatingSettings } from "@/hooks/useHeatingSettings";
@@ -164,6 +165,19 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
           </AccordionTrigger>
           <AccordionContent className="p-4">
             <DataRetentionSettings />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Tarife & Preisverlauf */}
+        <AccordionItem value="tarife" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+            <div className="flex items-center gap-2">
+              <Database className="h-5 w-5 text-primary" />
+              <span className="font-semibold">Tarife & Preisverlauf</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="p-4">
+            <TariffHistoryPanel />
           </AccordionContent>
         </AccordionItem>
       </Accordion>

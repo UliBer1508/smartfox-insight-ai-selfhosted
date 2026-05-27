@@ -24,6 +24,7 @@ import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
+import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { AIStatusWidget } from './AIStatusWidget';
 import { MLFollowRateWidget } from './MLFollowRateWidget';
 import { ApiErrorBanner } from './ApiErrorBanner';
@@ -258,14 +259,17 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
       {/* Heating & Cost Overview - 2 columns */}
       <div className="grid md:grid-cols-2 gap-4">
         <HeatingOverviewCard rooms={rooms} />
-        <EnergyCostWidget
-          energyIn={energyIn}
-          energyOut={energyOut}
-          pvEnergy={pvEnergy}
-          electricityPriceCent={settings.electricity_price_kwh_cent ?? 20.28}
-          feedInPriceCent={settings.feed_in_price_kwh_cent ?? 8.0}
-          baseFeePerYearEur={settings.electricity_base_fee_year_eur ?? 36.0}
-        />
+        <div className="space-y-2">
+          <PriceSuggestionBanner />
+          <EnergyCostWidget
+            energyIn={energyIn}
+            energyOut={energyOut}
+            pvEnergy={pvEnergy}
+            electricityPriceCent={settings.electricity_price_kwh_cent ?? 20.28}
+            feedInPriceCent={settings.feed_in_price_kwh_cent ?? 8.0}
+            baseFeePerYearEur={settings.electricity_base_fee_year_eur ?? 36.0}
+          />
+        </div>
       </div>
 
       {/* KI-Parameter-Vorschläge */}
