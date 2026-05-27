@@ -132,13 +132,14 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
     };
 
     const AutomationBox = ({
-      enabledKey, timeKey, extra, description, lastRunAt,
+      enabledKey, timeKey, extra, description, lastRunAt, staleAfterMs,
     }: {
       enabledKey: keyof HeatingSettings;
       timeKey: keyof HeatingSettings;
       extra?: React.ReactNode;
       description?: string;
       lastRunAt?: string | null;
+      staleAfterMs?: number;
     }) => {
       const enabled = Boolean(get(enabledKey));
       const time = String(get(timeKey) ?? '');
@@ -150,7 +151,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               <Label className="text-xs font-medium">Automatisch</Label>
-              <LastRunBadge iso={lastRunAt} />
+              <LastRunBadge iso={lastRunAt} staleAfterMs={staleAfterMs} />
             </div>
             <Switch
               checked={enabled}
