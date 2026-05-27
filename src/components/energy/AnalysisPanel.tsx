@@ -11,7 +11,7 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { EnergyReading } from '@/types/energy';
-import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info, CheckCircle2 } from 'lucide-react';
+import { Brain, TrendingUp, Calendar, CalendarDays, Loader2, Database, Save, LineChart, ChevronDown, Wrench, Info } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { supabase } from '@/integrations/supabase/client';
@@ -19,32 +19,17 @@ import { toast } from 'sonner';
 import type { HeatingSettings } from '@/types/heating';
 import { ProgressCockpit } from './stats/ProgressCockpit';
 import { YearTrendChart } from './stats/YearTrendChart';
+import { LastUpdatedBadge } from '@/components/ui/LastUpdatedBadge';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const STALE_DAILY_MS = 26 * 60 * 60 * 1000;       // 26h
+const STALE_WEEKLY_MS = 8 * DAY_MS;               // 8d
+const STALE_MONTHLY_MS = 32 * DAY_MS;             // 32d
 
 type SchedulerKey = 'scheduler_daily' | 'scheduler_weekly' | 'scheduler_monthly' | 'scheduler_match_today';
 
-const formatLastRun = (iso: string | null | undefined): string => {
-  if (!iso) return 'noch nicht gelaufen';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return 'unbekannt';
-  const fmtTime = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit' }).format(d);
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date());
-  const that = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(d);
-  if (today === that) return `heute ${fmtTime}`;
-  const yesterday = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Vienna' }).format(new Date(Date.now() - 86400000));
-  if (yesterday === that) return `gestern ${fmtTime}`;
-  const fmtDate = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', day: '2-digit', month: '2-digit' }).format(d);
-  return `${fmtDate} ${fmtTime}`;
-};
-
-const LastRunBadge: React.FC<{ iso: string | null | undefined }> = ({ iso }) => (
-  <span className={cn(
-    'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border',
-    iso ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
-        : 'border-muted bg-muted/40 text-muted-foreground'
-  )}>
-    <CheckCircle2 className="w-3 h-3" />
-    Zuletzt: {formatLastRun(iso)}
-  </span>
+const LastRunBadge: React.FC<{ iso: string | null | undefined; staleAfterMs?: number }> = ({ iso, staleAfterMs }) => (
+  <LastUpdatedBadge iso={iso} staleAfterMs={staleAfterMs} />
 );
 
 interface AnalysisPanelProps {
@@ -147,13 +132,14 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
     };
 
     const AutomationBox = ({
-      enabledKey, timeKey, extra, description, lastRunAt,
+      enabledKey, timeKey, extra, description, lastRunAt, staleAfterMs,
     }: {
       enabledKey: keyof HeatingSettings;
       timeKey: keyof HeatingSettings;
       extra?: React.ReactNode;
       description?: string;
       lastRunAt?: string | null;
+      staleAfterMs?: number;
     }) => {
       const enabled = Boolean(get(enabledKey));
       const time = String(get(timeKey) ?? '');
@@ -165,7 +151,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2 flex-wrap">
               <Label className="text-xs font-medium">Automatisch</Label>
-              <LastRunBadge iso={lastRunAt} />
+              <LastRunBadge iso={lastRunAt} staleAfterMs={staleAfterMs} />
             </div>
             <Switch
               checked={enabled}
@@ -220,7 +206,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                     <p className="text-xs text-muted-foreground flex-1 min-w-[200px]">
                       Tagesscores werden normalerweise automatisch berechnet. Starte einen Backfill nur, wenn historische Daten fehlen.
                     </p>
-                    <LastRunBadge iso={lastRuns.scheduler_daily} />
+                    <LastRunBadge iso={lastRuns.scheduler_daily} staleAfterMs={STALE_DAILY_MS} />
                   </div>
                   <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
                     <div className="space-y-1 flex-1">
@@ -305,6 +291,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 timeKey="analysis_daily_time"
                 description="Die KI analysiert täglich dein Verbrauchsmuster und erkennt Abweichungen."
                 lastRunAt={lastRuns.scheduler_daily}
+                staleAfterMs={STALE_DAILY_MS}
               />
             </TabsContent>
 
@@ -324,6 +311,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 timeKey="analysis_weekly_time"
                 description="Wöchentlicher Vergleich: Hat diese Woche mehr oder weniger PV-Ertrag gebracht als die Vorwoche?"
                 lastRunAt={lastRuns.scheduler_weekly}
+                staleAfterMs={STALE_WEEKLY_MS}
                 extra={
                   <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Wochentag</Label>
@@ -359,6 +347,7 @@ export const AnalysisPanel = forwardRef<HTMLDivElement, AnalysisPanelProps>(
                 timeKey="analysis_monthly_time"
                 description="Die KI berechnet monatlich Langzeit-Trends und passt die Heizstrategie für die kommende Jahreszeit an."
                 lastRunAt={lastRuns.scheduler_monthly}
+                staleAfterMs={STALE_MONTHLY_MS}
                 extra={
                   <div className="space-y-1">
                     <Label className="text-[11px] text-muted-foreground">Tag im Monat (1–28)</Label>

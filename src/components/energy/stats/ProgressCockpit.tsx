@@ -3,7 +3,8 @@ import { Button } from '@/components/ui/button';
 import { Loader2, RefreshCw, Sparkles, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
-import { useAnalysisSummary, type StatsRange } from '@/hooks/useAnalysisSummary';
+import { useAnalysisSummary, STALE_MS, type StatsRange } from '@/hooks/useAnalysisSummary';
+import { LastUpdatedBadge } from '@/components/ui/LastUpdatedBadge';
 
 interface Props {
   range: StatsRange;
@@ -126,9 +127,10 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
       {/* AI Summary */}
       <div className="rounded-lg border bg-card p-4">
         <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Sparkles className="w-4 h-4 text-primary" />
             <span className="text-sm font-semibold">KI-Zusammenfassung</span>
+            <LastUpdatedBadge iso={data?.generated_at} staleAfterMs={STALE_MS[range]} />
           </div>
           <TooltipProvider delayDuration={150}>
             <Tooltip>
@@ -153,12 +155,6 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
           <p className="text-sm text-muted-foreground">
             {generating ? 'Wird erzeugt …' : 'Noch keine Zusammenfassung verfügbar.'}
           </p>
-        )}
-        {data?.generated_at && (
-          <div className="mt-2 text-[10px] text-muted-foreground">
-            Stand: {new Date(data.generated_at).toLocaleString('de-AT', { timeZone: 'Europe/Vienna' })}
-            <span className="ml-1">· aktualisiert sich automatisch</span>
-          </div>
         )}
       </div>
     </div>

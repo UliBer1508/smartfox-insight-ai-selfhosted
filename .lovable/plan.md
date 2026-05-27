@@ -1,52 +1,43 @@
+## Ziel
 
-## Befund
+Zwei sichtbare „Zuletzt aktualisiert"-Badges mit relativer Zeit (z. B. „vor 3 h") und Frische-Ampel (frisch=grün, veraltet=amber, fehlt=grau):
 
-Die beiden Buttons machen **unterschiedliche Dinge**, das ist aktuell nur schlecht beschriftet:
+1. **KI-Zusammenfassung** (in `ProgressCockpit.tsx`) — zeigt Alter von `data.generated_at`
+2. **Tagesmuster-Block** (in `AnalysisPanel.tsx`) — bestehender Badge wird auf gleiche Logik umgestellt
 
-**1. „Neu" (oben im KI-Zusammenfassung-Kasten)**
-- Ruft Edge Function `analysis-summary` → Gemini erzeugt einen kurzen Klartext aus den bereits berechneten `daily_pattern_scores`.
-- Cache liegt in `system_settings.analysis_summary_day|week|month`.
-- **Läuft aktuell NICHT automatisch** — wird nur bei Klick erzeugt. Deshalb steht da auch noch ein alter Stand (24.5.2026).
+## Umsetzung
 
-**2. „Tagesanalyse jetzt starten" (unten)**
-- Ruft `analyzeDailyPattern(readings)` → analysiert die Rohmesswerte des Tages und schreibt ein neues Pattern in `daily_patterns` / `daily_pattern_scores`.
-- **Läuft bereits automatisch** über `analysis-scheduler` (pg_cron alle 15 min) zur in den Settings konfigurierten Uhrzeit (`analysis_daily_time`, `analysis_daily_enabled`). Der „AutomationBox"-Block direkt darunter zeigt das auch an.
+### 1. Neue gemeinsame Komponente `src/components/ui/LastUpdatedBadge.tsx`
 
-→ Sie machen also nicht dasselbe: „Tagesanalyse" erzeugt die **Datenbasis**, „KI-Zusammenfassung" erzeugt den **Klartext** darüber. Die Klartext-Stufe fehlt im Auto-Scheduler.
+- Props: `iso: string | null | undefined`, `staleAfterMs: number`, optional `label` (default `"Zuletzt"`)
+- Format **relativ** in Deutsch: „gerade eben" (<60 s), „vor X min" (<60 min), „vor X h" (<24 h), „gestern HH:MM", „vor X Tagen", danach absolutes Datum
+- Auto-Refresh per `setInterval` (60 s), damit „vor 3 h" live tickt
+- Tooltip mit exaktem Wiener Zeitstempel (`Intl.DateTimeFormat` mit `Europe/Vienna`)
+- Farb-Logik:
+  - **grau** (`bg-muted/40 text-muted-foreground`) — kein Zeitstempel
+  - **grün** (`bg-emerald-50 text-emerald-700 …`) — Alter ≤ `staleAfterMs`
+  - **amber** (`bg-amber-50 text-amber-700 border-amber-300 …`) — älter als Schwelle
+- Icon: `Clock` (frisch/leer) bzw. `AlertCircle` (stale) aus lucide-react
 
-Außerdem ist der Text auf der Karte abgeschnitten („…und zeigt") — entweder durch CSS-Clamp oder weil Gemini selbst nur einen halben Satz geliefert hat.
+### 2. `src/components/energy/stats/ProgressCockpit.tsx`
 
-## Plan
+- Import `LastUpdatedBadge` + `STALE_MS` aus `useAnalysisSummary` (export hinzufügen)
+- Badge in der Header-Zeile der KI-Zusammenfassungs-Karte links neben dem „Text neu erzeugen"-Button platzieren
+- `staleAfterMs = STALE_MS[range]` (24 h / 7 d / 30 d)
+- Untere „Stand: … · aktualisiert sich automatisch"-Zeile entfernen (redundant zum Badge)
 
-### 1. KI-Zusammenfassung in den Auto-Scheduler einhängen
-In `supabase/functions/analysis-scheduler/index.ts` direkt nach jedem erfolgreich getriggerten Job zusätzlich `analysis-summary` mit passendem `type` aufrufen:
-- nach `compute-daily-score` → `analysis-summary { type: 'day' }`
-- nach `weekly_comparison_auto` → `analysis-summary { type: 'week' }`
-- nach `monthly_pattern` → `analysis-summary { type: 'month' }`
+### 3. `src/components/energy/AnalysisPanel.tsx`
 
-Dadurch ist die Klartext-Zusammenfassung nach jedem automatischen Lauf frisch, der „Neu"-Button bleibt nur noch als manueller Override.
+- Lokale `LastRunBadge` durch neue `LastUpdatedBadge` ersetzen (beide Vorkommen: Header + Tagesmuster-Block)
+- `staleAfterMs`: 26 h für Tages-Scheduler (kleiner Puffer über 24 h), entsprechende Werte für weekly/monthly an deren Stellen
+- `formatLastRun` lokal löschen (ersetzt durch Badge-interne Formatierung); bestehende Imports (`CheckCircle2`) aufräumen, falls ungenutzt
 
-### 2. Selbstheilung: Stale-Detection beim Laden
-In `useAnalysisSummary.ts`: wenn `generated_at` älter als die letzte `last_run`-Markierung des passenden Scheduler-Jobs ist (oder älter als 24 h für `day`, 7 d für `week`, 30 d für `month`) → automatisch einmal `generate()` aufrufen. So füllt sich die Karte beim Öffnen selbst, falls der Scheduler noch nichts gemacht hat.
+## Nicht-Ziele
 
-### 3. UI entwirren in `AnalysisPanel.tsx` / `ProgressCockpit.tsx`
-- „Neu"-Button umbenennen in **„Text neu erzeugen"** mit Tooltip „KI-Klartext basierend auf den letzten Auswertungen neu schreiben".
-- Den großen Button **„Tagesanalyse jetzt starten"** umbenennen in **„Tagesmuster neu auswerten"** mit Tooltip „Erzeugt aus den Rohmesswerten ein neues Tagesmuster — läuft normalerweise automatisch um {analysis\_daily\_time}".
-- Im KI-Zusammenfassungs-Kasten unter dem Stand zusätzlich anzeigen, wann der nächste Auto-Lauf ist (aus AutomationBox-Logik wiederverwenden), damit klar ist, dass die Karte sich selbst aktualisiert.
+- Keine Änderungen an Edge Functions, Scheduler, DB oder Hook-Logik
+- Keine neuen Tabellen, Migrationen, Settings
+- Reine UI-/Präsentations-Arbeit
 
-### 4. Abgeschnittenen Text fixen
-In `ProgressCockpit.tsx` prüfen, ob ein `line-clamp` oder eine zu kurze `max_tokens`-Vorgabe in `analysis-summary/index.ts` für den halben Satz verantwortlich ist, und entsprechend lockern (volle 2–3 Sätze rendern, kein `line-clamp-1`).
+## Risiken
 
-## Was sich für den Nutzer ändert
-
-- Die KI-Zusammenfassung aktualisiert sich automatisch nach jedem Tages-/Wochen-/Monatslauf.
-- Beim Öffnen der Seite holt sie sich bei Bedarf selbst einen frischen Text.
-- Beschriftungen + Tooltips machen klar, dass die zwei Buttons unterschiedliche Stufen derselben Pipeline sind und beide normalerweise automatisch laufen.
-- Der Klartext wird vollständig angezeigt, nicht mehr abgeschnitten.
-
-## Technische Notizen
-
-- Keine neuen Tabellen, keine Migration.
-- Eine kleine Änderung an Edge Function `analysis-scheduler` (zusätzliche `invokeFn`-Aufrufe), automatisch deployed.
-- Frontend-Änderungen in `useAnalysisSummary.ts`, `ProgressCockpit.tsx`, `AnalysisPanel.tsx`.
-- Risikoarm: bei Fehler von `analysis-summary` bleibt einfach der alte Cache stehen.
+- Minimal. Auto-Refresh-Interval wird in `useEffect` mit Cleanup gestartet, kein Leak.
