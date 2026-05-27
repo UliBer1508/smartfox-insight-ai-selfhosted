@@ -121,12 +121,15 @@ export function useHeatingConsumption(rooms: Room[]) {
         }
         const stats = roomStats.get(roomId)!;
 
-        // Zähle Zyklen bei heating_stop statt heating_start, da heating_start
-        // oft durch Data Retention gelöscht wird bevor es verarbeitet werden kann
-        if (log.event_type === 'heating_stop') {
+        // Sowohl klassische heating_stop als auch solar_limit_stop zählen als Heiz-Zyklus
+        // (konsistent mit get_heating_history-RPC und SolarGainChart)
+        const isStopEvent = log.event_type === 'heating_stop'
+                         || log.event_type === 'solar_limit_stop';
+
+        if (isStopEvent) {
           stats.cycles += 1;
         }
-        if (log.event_type === 'heating_stop' && log.duration_minutes && log.timestamp) {
+        if (isStopEvent && log.duration_minutes && log.timestamp) {
           const stopTime = new Date(log.timestamp);
           const startTime = new Date(stopTime.getTime() - (log.duration_minutes * 60000));
           
