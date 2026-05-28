@@ -40,7 +40,27 @@ interface MLDecisionResponse {
   error?: string;
 }
 
-async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
+const TYPE_TEMPERATURE_MAP: Record<string, number> = {
+  optimize_decision: 0.35,
+  heating_optimization: 0.45,
+  room_heating_optimization: 0.45,
+  weekly_comparison: 0.45,
+  weekly_comparison_auto: 0.45,
+  weekly_insight: 0.45,
+  daily_pattern: 0.65,
+};
+
+const TYPE_TOKEN_MAP: Record<string, number> = {
+  optimize_decision: 2048,
+  heating_optimization: 1024,
+  room_heating_optimization: 1024,
+  weekly_comparison: 1024,
+  weekly_insight: 512,
+  daily_pattern: 512,
+  default: 1024,
+};
+
+async function callAI(requestBody: AIRequestBody, analysisType?: string): Promise<AIResponse> {
   const GOOGLE_AI_API_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
   if (!GOOGLE_AI_API_KEY) {
     return { ok: false, status: 0, error: 'GOOGLE_AI_API_KEY not configured' };
@@ -51,7 +71,9 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     const modelName = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'].includes(requestedModel)
       ? requestedModel
       : 'gemini-2.5-flash';
-    console.log(`Calling Google Gemini API (${modelName})...`);
+    const temperature = TYPE_TEMPERATURE_MAP[analysisType ?? ''] ?? 0.5;
+    const maxOutputTokens = TYPE_TOKEN_MAP[analysisType ?? ''] ?? TYPE_TOKEN_MAP.default;
+    console.log(`Calling Google Gemini API (${modelName}, type=${analysisType ?? 'n/a'}, temp=${temperature}, maxTokens=${maxOutputTokens})...`);
     
     // Convert OpenAI-style messages to Gemini format
     const systemInstruction = requestBody.messages.find(m => m.role === 'system');
@@ -74,8 +96,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     const geminiBody: any = {
       contents,
       generationConfig: {
-        temperature: modelName === 'gemini-2.5-flash-lite' ? 0.35 : 0.7,
-        maxOutputTokens: 4096,
+        temperature,
+        maxOutputTokens,
       },
     };
 
@@ -195,7 +217,7 @@ function buildDeterministicHeatingDecision(body: Record<string, any>, reason: st
   const thresholdOn = Number(settings?.pv_surplus_threshold_on ?? 500);
   const thresholdOff = Number(settings?.pv_surplus_threshold_off ?? 200);
   const heatingMinSoc = Number(settings?.heating_min_battery_soc ?? 80);
-  const { isNight } = isNightTimeFromSettings(settings?.night_start_time || '20:00', settings?.night_end_time || '08:00', 'Europe/Vienna');
+  const isNight = isNightTimeFromSettings(settings?.night_start_time || '20:00', settings?.night_end_time || '08:00', 'Europe/Vienna');
 
   const decisions: MLDecision[] = rooms.map((room: Record<string, any>) => {
     const ecoTemp = Number(room.eco_temp ?? settings?.eco_temp ?? 19);
@@ -333,6 +355,7 @@ serve(async (req) => {
     let useToolCalling = false;
     let toolName = '';
     let toolDefinition: Record<string, unknown> | null = null;
+    let aiCacheKey: string | null = null;
     
     // NEW: ML-based optimize_decision type
     if (type === 'optimize_decision') {
@@ -344,6 +367,34 @@ serve(async (req) => {
       const batterySoc = currentReading?.battery_soc || 50;
       const pvPower = currentReading?.pv_power || 0;
       const consumption = currentReading?.consumption || 0;
+
+      // === Response-Cache (15min TTL, Bucket-Key aus PV/SOC/Stunde) ===
+      const pvBucket = Math.round((pvPower || 0) / 200) * 200;
+      const socBucket = Math.round((batterySoc || 50) / 5) * 5;
+      const hourBucket = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', hour12: false, timeZone: 'Europe/Vienna' });
+      const cacheKey = `ai_cache_optimize_${pvBucket}_${socBucket}_${hourBucket}`;
+      try {
+        const cacheRes = await fetch(`${supabaseUrl}/rest/v1/system_settings?key=eq.${cacheKey}&select=value,updated_at`, {
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+        });
+        if (cacheRes.ok) {
+          const cacheData = await cacheRes.json();
+          const cached = cacheData?.[0];
+          if (cached?.value && cached?.updated_at) {
+            const ageMinutes = (Date.now() - new Date(cached.updated_at).getTime()) / 60000;
+            if (ageMinutes < 15) {
+              console.log(`[optimize_decision] Cache hit (${Math.round(ageMinutes)}min alt, key=${cacheKey})`);
+              return new Response(JSON.stringify({ ...(cached.value as object), cached: true, cache_age_min: Math.round(ageMinutes) }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[optimize_decision] Cache read failed:', e);
+      }
+      // Cache-Key für späteres Schreiben merken
+      aiCacheKey = cacheKey;
       
       // Nachtzeiten aus Benutzereinstellungen verwenden!
       const nightStart = heatingSettings?.night_start_time || '22:00';
@@ -607,7 +658,8 @@ ${(() => {
   automationHistory.forEach((e: Record<string, unknown>) => {
     const roomId = e.room_id as string || 'global';
     if (!roomDecisions[roomId]) roomDecisions[roomId] = [];
-    roomDecisions[roomId].push(e);
+    // Trim: max. 3 jüngste Events pro Raum behalten (automationHistory ist bereits desc sortiert)
+    if (roomDecisions[roomId].length < 3) roomDecisions[roomId].push(e);
   });
   
   return Object.entries(roomDecisions).map(([roomId, decisions]) => {
@@ -1198,7 +1250,7 @@ Kurze Einschätzung auf Deutsch.`;
     }
 
     // Use unified AI call with Google AI (free) + Lovable AI (fallback)
-    const aiResponse = await callAI(aiRequestBody);
+    const aiResponse = await callAI(aiRequestBody, type);
 
     if (!aiResponse.ok) {
       console.error('AI error:', aiResponse.status, aiResponse.error);
@@ -1249,6 +1301,23 @@ Kurze Einschätzung auf Deutsch.`;
           console.log(`${toolName} parsed successfully, decisions: ${result.decisions?.length || 0}`);
           
           if (toolName === 'make_heating_decision') {
+            // Cache schreiben (best-effort)
+            if (aiCacheKey) {
+              try {
+                await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+                  method: 'POST',
+                  headers: {
+                    apikey: serviceRoleKey,
+                    Authorization: `Bearer ${serviceRoleKey}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'resolution=merge-duplicates,return=minimal',
+                  },
+                  body: JSON.stringify({ key: aiCacheKey, value: result, updated_at: new Date().toISOString() }),
+                });
+              } catch (e) {
+                console.warn('[optimize_decision] Cache write failed:', e);
+              }
+            }
             return new Response(JSON.stringify(result), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });

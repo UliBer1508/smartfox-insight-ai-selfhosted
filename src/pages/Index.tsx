@@ -14,9 +14,6 @@ import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 
 
 
-import { LearningProgress } from '@/components/heating/LearningProgress';
-import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
-import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 import { AutomationStatusCard, BatterySocSuggestionCard, BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
 
 
@@ -62,8 +59,6 @@ const Index = () => {
 
   const {
     rooms,
-    saveRoom,
-    updateRoomLocally,
   } = useRooms();
 
   useEffect(() => {
@@ -75,16 +70,16 @@ const Index = () => {
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
     dashboard: {
-      title: 'Dashboard — Fronius Smart AI',
+      title: 'Übersicht — Fronius Smart AI',
       description: 'Live-Übersicht von PV-Erzeugung, Batterie-Speicher, Verbrauch und aktiver Heizungsleistung in Echtzeit.',
     },
     heating: {
-      title: 'Heizung — Fronius Smart AI',
-      description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten und Nachtmodus für 12 Tuya-Thermostate.',
+      title: 'Heizung & KI — Fronius Smart AI',
+      description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten, KI-Lernstatus und Nachtmodus für 12 Tuya-Thermostate.',
     },
     analysis: {
-      title: 'KI-Analyse — Fronius Smart AI',
-      description: 'KI-gestützte Musteranalyse von Heiz- und Energieverhalten mit Tages-, Wochen- und Monats-Trends.',
+      title: 'Verlauf & Muster — Fronius Smart AI',
+      description: 'Tages-, Wochen- und Monatsanalyse von Heiz- und Energieverhalten mit KI-gestützter Mustererkennung.',
     },
     settings: {
       title: 'Einstellungen — Fronius Smart AI',
@@ -144,67 +139,70 @@ const Index = () => {
                 {/* Verlaufs-Karte bleibt in rechter Spalte (nur sichtbar wenn history > 0) */}
                 <BatterySocHistoryCard />
 
-                <RoomStatusTable rooms={rooms} onSavePriority={async (roomId, priority) => {
-                  const room = rooms.find(r => r.id === roomId);
-                  const oldPriority = room?.priority ?? 5;
-                  updateRoomLocally(roomId, { priority });
-                  const success = await saveRoom({ id: roomId, priority }, true);
-                  if (!success) {
-                    updateRoomLocally(roomId, { priority: oldPriority });
-                  }
-                }} />
                 <EnergyChart readings={readings} />
               </div>
             </div>
 
             <BatteryHistoryChart />
 
-            {/* 3-Spalten Widget-Grid über volle Breite */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              <Card className="h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Database className="w-4 h-4 text-primary" />
-                    Messungen
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold font-mono">{totalCount.toLocaleString('de-DE')}</div>
-                  <p className="text-xs text-muted-foreground">gespeichert</p>
-                </CardContent>
-              </Card>
-
-              <Card className="h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-primary" />
-                    Intervall
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold font-mono">{settings.polling_interval}s</div>
-                  <p className="text-xs text-muted-foreground">Polling</p>
-                </CardContent>
-              </Card>
-
-              <Card className="h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    Start
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-lg font-bold font-mono">
-                    {readings.length > 0 
-                      ? new Date(readings[readings.length - 1].timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
-                      : '-'
-                    }
+            {/* Systeminfo aufklappbar */}
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="sysinfo" className="border rounded-lg overflow-hidden">
+                <AccordionTrigger className="px-4 py-2 bg-muted/30 text-sm hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-muted-foreground" />
+                    Systeminfo
                   </div>
-                  <p className="text-xs text-muted-foreground">ältester Punkt</p>
-                </CardContent>
-              </Card>
-            </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
+                    <Card className="h-fit">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Database className="w-4 h-4 text-primary" />
+                          Messungen
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold font-mono">{totalCount.toLocaleString('de-DE')}</div>
+                        <p className="text-xs text-muted-foreground">gespeichert</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="h-fit">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-primary" />
+                          Intervall
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold font-mono">{settings.polling_interval}s</div>
+                        <p className="text-xs text-muted-foreground">Polling</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="h-fit">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-primary" />
+                          Start
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-lg font-bold font-mono">
+                          {readings.length > 0 
+                            ? new Date(readings[readings.length - 1].timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+                            : '-'
+                          }
+                        </div>
+                        <p className="text-xs text-muted-foreground">ältester Punkt</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </>
         )}
 
@@ -224,24 +222,6 @@ const Index = () => {
               onAnalyzeDaily={analyzeDailyPattern}
               onAnalyzeWeekly={analyzeWeeklyComparison}
             />
-
-            {/* KI-Heizplan-Hinweis (Anzeige im Tab Heizung) */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Thermometer className="w-4 h-4 text-primary" />
-                  KI-Heizplan
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  Der automatische KI-Tagesplan wird im Tab <strong>Heizung</strong> angezeigt und täglich um 06:00 aktualisiert.
-                </p>
-                <Button variant="outline" size="sm" onClick={() => setActiveTab('heating')}>
-                  Zum Heizungs-Tab
-                </Button>
-              </CardContent>
-            </Card>
 
             {/* Räume-Info */}
             <Card>
@@ -266,38 +246,13 @@ const Index = () => {
                     </p>
                     <p className="text-muted-foreground">
                       {rooms.length} Räume werden vollautomatisch über die PV-Automation und den
-                      KI-Parameter-Advisor gesteuert. Manuelle „Raumempfehlungen erstellen" und
-                      „Empfehlungen anwenden" sind nicht mehr nötig.
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Status &amp; Live-Werte siehst du im Tab <strong>Heizung</strong>.
-                      KI-Parameter-Vorschläge dort in der Karte „KI-Autopilot · Parameter-Vorschläge".
+                      KI-Parameter-Advisor gesteuert. Status, Live-Werte und KI-Lernfortschritt
+                      findest du im Tab <strong>Heizung &amp; KI</strong>.
                     </p>
                   </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* KI-Lernstatus & Mustergedächtnis */}
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="ml-status" className="border rounded-lg overflow-hidden">
-                <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-                  <div className="flex items-center gap-2">
-                    <Brain className="h-5 w-5 text-primary" />
-                    <span className="font-semibold">🧠 KI-Lernstatus &amp; Mustergedächtnis</span>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="p-4 space-y-4">
-                  <p className="text-xs text-muted-foreground">
-                    Hier siehst du wie gut die KI aus deinen Energiedaten gelernt hat. Die ML-Follow-Rate
-                    zeigt, wie oft die KI-Empfehlungen vom System tatsächlich umgesetzt wurden. PatternRecall
-                    zeigt welche Wochenmuster erkannt wurden.
-                  </p>
-                  <PatternRecallBlock />
-                  <LearningProgress />
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
           </div>
         )}
 

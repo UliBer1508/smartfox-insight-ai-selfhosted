@@ -33,6 +33,8 @@ import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain,
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningProgress } from './LearningProgress';
+import { PatternRecallBlock } from './PatternRecallBlock';
+import { RoomStatusTable } from './RoomStatusTable';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { StatusLegend } from './StatusLegend';
 
@@ -275,6 +277,21 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
       {/* KI-Parameter-Vorschläge */}
       <AIShadowDecisions />
 
+      {/* Raumpriorität & Status */}
+      {rooms.length > 0 && (
+        <RoomStatusTable
+          rooms={rooms}
+          onSavePriority={async (roomId, priority) => {
+            const room = rooms.find(r => r.id === roomId);
+            const oldPriority = room?.priority ?? 5;
+            updateRoomLocally(roomId, { priority });
+            const success = await saveRoom({ id: roomId, priority }, true);
+            if (!success) updateRoomLocally(roomId, { priority: oldPriority });
+          }}
+        />
+      )}
+
+
       {/* Daily Heating Schedule - Primary view */}
       {rooms.length > 0 && (
         <DailyHeatingSchedule
@@ -359,6 +376,30 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
           </CardContent>
         </Card>
       )}
+
+      {/* KI-Lernstatus & Mustergedächtnis — aufklappbar */}
+      <Collapsible defaultOpen={false}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer select-none">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Brain className="w-5 h-5 text-primary" />
+                🧠 KI-Lernstatus &amp; Mustergedächtnis
+                <ChevronDown className="w-4 h-4 ml-auto transition-transform data-[state=open]:rotate-180" />
+              </CardTitle>
+              <CardDescription>
+                ML-Konfidenz, Reward-History und erkannte Wochenmuster.
+              </CardDescription>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
+              <PatternRecallBlock />
+              <LearningProgress />
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
 
       {/* Detailansicht KI & Prognose — aufklappbar */}
       <Collapsible defaultOpen={false}>
