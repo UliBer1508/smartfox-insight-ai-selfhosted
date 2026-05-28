@@ -70,16 +70,16 @@ const Index = () => {
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
     dashboard: {
-      title: 'Dashboard — Fronius Smart AI',
+      title: 'Übersicht — Fronius Smart AI',
       description: 'Live-Übersicht von PV-Erzeugung, Batterie-Speicher, Verbrauch und aktiver Heizungsleistung in Echtzeit.',
     },
     heating: {
-      title: 'Heizung — Fronius Smart AI',
-      description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten und Nachtmodus für 12 Tuya-Thermostate.',
+      title: 'Heizung & KI — Fronius Smart AI',
+      description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten, KI-Lernstatus und Nachtmodus für 12 Tuya-Thermostate.',
     },
     analysis: {
-      title: 'KI-Analyse — Fronius Smart AI',
-      description: 'KI-gestützte Musteranalyse von Heiz- und Energieverhalten mit Tages-, Wochen- und Monats-Trends.',
+      title: 'Verlauf & Muster — Fronius Smart AI',
+      description: 'Tages-, Wochen- und Monatsanalyse von Heiz- und Energieverhalten mit KI-gestützter Mustererkennung.',
     },
     settings: {
       title: 'Einstellungen — Fronius Smart AI',
