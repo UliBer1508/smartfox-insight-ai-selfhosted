@@ -158,6 +158,10 @@ export function AIShadowDecisions() {
   };
 
   const applyDecision = async (d: Decision) => {
+    if (SOC_LOCKED_KEYS.has(d.parameter_key)) {
+      toast.error('SOC-Parameter werden ausschließlich über „KI Batterie-Empfehlung" (Übersicht) übernommen.');
+      return;
+    }
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
     if (!wl) {
       toast.error(`Kein Whitelist-Eintrag für ${d.parameter_key}`);
