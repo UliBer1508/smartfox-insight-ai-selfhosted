@@ -135,9 +135,9 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" variant="ghost" onClick={generate} disabled={generating}>
-                  {generating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-                  {data ? 'Text neu erzeugen' : 'Text erzeugen'}
+                <Button size="sm" variant="ghost" onClick={generate} disabled={generating} className="shrink-0 px-2">
+                  {generating ? <Loader2 className="w-3 h-3 sm:mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 sm:mr-1" />}
+                  <span className="hidden sm:inline">{data ? 'Text neu erzeugen' : 'Text erzeugen'}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left" className="max-w-xs text-xs">
