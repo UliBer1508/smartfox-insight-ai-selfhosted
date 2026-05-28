@@ -1250,7 +1250,7 @@ Kurze Einschätzung auf Deutsch.`;
     }
 
     // Use unified AI call with Google AI (free) + Lovable AI (fallback)
-    const aiResponse = await callAI(aiRequestBody);
+    const aiResponse = await callAI(aiRequestBody, type);
 
     if (!aiResponse.ok) {
       console.error('AI error:', aiResponse.status, aiResponse.error);
