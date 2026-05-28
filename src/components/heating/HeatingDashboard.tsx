@@ -377,6 +377,30 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         </Card>
       )}
 
+      {/* KI-Lernstatus & Mustergedächtnis — aufklappbar */}
+      <Collapsible defaultOpen={false}>
+        <Card>
+          <CollapsibleTrigger asChild>
+            <CardHeader className="cursor-pointer select-none">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Brain className="w-5 h-5 text-primary" />
+                🧠 KI-Lernstatus &amp; Mustergedächtnis
+                <ChevronDown className="w-4 h-4 ml-auto transition-transform data-[state=open]:rotate-180" />
+              </CardTitle>
+              <CardDescription>
+                ML-Konfidenz, Reward-History und erkannte Wochenmuster.
+              </CardDescription>
+            </CardHeader>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="space-y-4">
+              <PatternRecallBlock />
+              <LearningProgress />
+            </CardContent>
+          </CollapsibleContent>
+        </Card>
+      </Collapsible>
+
       {/* Detailansicht KI & Prognose — aufklappbar */}
       <Collapsible defaultOpen={false}>
         <Card>
