@@ -118,6 +118,33 @@ Deno.serve(async (req) => {
       value: validation,
     }, { onConflict: "key" });
 
+    // Reserve-Signal an die KI-Batterie-Empfehlung weiterreichen (einzige UI-Quelle für SOC-Vorschläge).
+    // Fire-and-forget — Fehler hier dürfen die Validierung nicht blockieren.
+    try {
+      const advisorUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/ai-parameter-advisor/suggest-battery-soc`;
+      const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+      fetch(advisorUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${serviceKey}`,
+          apikey: serviceKey,
+        },
+        body: JSON.stringify({
+          validation: {
+            morningSoc,
+            reserveHeld,
+            reserveTarget,
+            nightConsumptionKwh,
+            heatingBatteryUsedKwh,
+            suggestionText: suggestion,
+          },
+        }),
+      }).catch((e) => console.warn("[validate-battery-reserve] advisor trigger failed:", e));
+    } catch (e) {
+      console.warn("[validate-battery-reserve] advisor dispatch error:", e);
+    }
+
     console.log("[validate-battery-reserve]", JSON.stringify(validation));
     return new Response(JSON.stringify({ success: true, validation }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
