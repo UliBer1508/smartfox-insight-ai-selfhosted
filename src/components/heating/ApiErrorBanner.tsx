@@ -155,20 +155,20 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
       )}
     >
       <AlertTriangle className="h-4 w-4" />
-      <AlertTitle className="flex items-center justify-between">
-        <span>
-          {isTokenError 
-            ? 'Tuya-Zugangsdaten prüfen' 
+      <AlertTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <span className="break-words">
+          {isTokenError
+            ? 'Tuya-Zugangsdaten prüfen'
             : `Thermostat-Verbindungsfehler (${totalErrors})`
           }
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
           <Button
             variant="ghost"
             size="sm"
             onClick={handleRetry}
             disabled={isRetrying}
-            className="h-7 px-2 text-xs"
+            className="h-7 px-2 text-xs whitespace-nowrap"
           >
             <RefreshCw className={cn("h-3 w-3 mr-1", isRetrying && "animate-spin")} />
             {isRetrying ? 'Wird versucht...' : 'Erneut versuchen'}
