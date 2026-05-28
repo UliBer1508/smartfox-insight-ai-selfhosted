@@ -144,15 +144,6 @@ const Index = () => {
                 {/* Verlaufs-Karte bleibt in rechter Spalte (nur sichtbar wenn history > 0) */}
                 <BatterySocHistoryCard />
 
-                <RoomStatusTable rooms={rooms} onSavePriority={async (roomId, priority) => {
-                  const room = rooms.find(r => r.id === roomId);
-                  const oldPriority = room?.priority ?? 5;
-                  updateRoomLocally(roomId, { priority });
-                  const success = await saveRoom({ id: roomId, priority }, true);
-                  if (!success) {
-                    updateRoomLocally(roomId, { priority: oldPriority });
-                  }
-                }} />
                 <EnergyChart readings={readings} />
               </div>
             </div>
