@@ -277,6 +277,21 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
       {/* KI-Parameter-Vorschläge */}
       <AIShadowDecisions />
 
+      {/* Raumpriorität & Status */}
+      {rooms.length > 0 && (
+        <RoomStatusTable
+          rooms={rooms}
+          onSavePriority={async (roomId, priority) => {
+            const room = rooms.find(r => r.id === roomId);
+            const oldPriority = room?.priority ?? 5;
+            updateRoomLocally(roomId, { priority });
+            const success = await saveRoom({ id: roomId, priority }, true);
+            if (!success) updateRoomLocally(roomId, { priority: oldPriority });
+          }}
+        />
+      )}
+
+
       {/* Daily Heating Schedule - Primary view */}
       {rooms.length > 0 && (
         <DailyHeatingSchedule
