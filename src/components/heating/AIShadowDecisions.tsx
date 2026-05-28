@@ -14,6 +14,15 @@ import { AIAutopilotToggle } from './AIAutopilotToggle';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
+// SOC-Parameter sind in die „KI Batterie-Empfehlung"-Karte (Übersicht) konsolidiert.
+// Diese Liste blockt sowohl Anzeige als auch Apply defensiv im Client — die
+// Edge-Function (ai-parameter-advisor) blockt sie zusätzlich serverseitig (LOCKED_PARAMS).
+const SOC_LOCKED_KEYS = new Set<string>([
+  'heating_min_battery_soc',
+  'battery_reserve_for_night_soc',
+  'micro_budget_min_battery_soc',
+]);
+
 interface Decision {
   id: string;
   created_at: string;
