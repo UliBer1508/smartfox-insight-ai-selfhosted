@@ -33,6 +33,8 @@ import { Thermometer, Loader2, Zap, Sun, Battery, Home, RefreshCw, Clock, Brain,
 import { Progress } from '@/components/ui/progress';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { LearningProgress } from './LearningProgress';
+import { PatternRecallBlock } from './PatternRecallBlock';
+import { RoomStatusTable } from './RoomStatusTable';
 import { DailyHeatingSchedule } from './DailyHeatingSchedule';
 import { StatusLegend } from './StatusLegend';
 
