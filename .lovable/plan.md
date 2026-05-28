@@ -1,54 +1,86 @@
-# Konsolidierung der Batterie-SOC-Anzeigen
+## Umsetzungsplan — Smartfox Insight AI Verbesserungen (final)
 
-## Befund: Warum es heute 3 Anzeigen gibt
+Validiert gegen Codebase + Memory. Entscheidungen des Users eingearbeitet:
+- **Modell bleibt `gemini-2.5-flash-lite`** für `optimize_decision` (1000 RPD passt zur Heartbeat-Frequenz). Schritt 2a aus der Prompt wird **nicht** umgesetzt.
+- **`AIAutopilotToggle` nicht zusätzlich** im Heizungs-Dashboard platzieren (Toggle existiert bereits prominent in `HeatingSettingsForm` mit Master-Switch `ai_auto_mode_enabled`). Schritt 3e aus der Prompt wird **nicht** umgesetzt.
 
-Aktuell sieht der User SOC-Werte an drei Stellen, die aus **zwei verschiedenen DB-Spalten** und **zwei verschiedenen Empfehlungs-Pipelines** gespeist werden:
+---
 
-| # | Ort | Zeigt | Quelle |
-|---|-----|-------|--------|
-| 1 | Overview-Card `BatteryReserveStatus` (Bild 1) | „Reserve 70%", „Puffer-Grenze 90%", „Heizung-Sperre ab 80%", „Empfehlung: decrease reserve to 65" | `heating_settings.battery_reserve_for_night_soc` (deprecated, 70%) + `heating_min_battery_soc` (80%) + `system_settings.battery_reserve_validation` (Edge-Function `validate-battery-reserve`) |
-| 2 | Settings-Slider (Bild 2) | „Mindest-SOC für Nacht-Reserve: 80%" + Info-Box „Mindest-SOC für Heizung (z.B. 75%)" | `heating_settings.heating_min_battery_soc` |
-| 3 | KI-Card `BatterySocSuggestionCard` (Bild 3) | „KI Batterie-Empfehlung" / „Kein offener Vorschlag" | Tabelle `battery_soc_suggestions` (KI-Pipeline mit Accept/Dismiss) |
+### 1. Bug-Fix `supabase/functions/analyze-patterns/index.ts`
 
-### Probleme
-- **Doppel-Feld:** `battery_reserve_for_night_soc` ist laut Memory deprecated (`soc-thresholds-consolidated`) und wird beim Speichern auf `heating_min_battery_soc` gespiegelt. Im Overview-Card wird es trotzdem als separater Wert (70%) angezeigt — daher die widersprüchlichen Zahlen 70 vs 80.
-- **Doppel-Empfehlung:** „Empfehlung: decrease reserve to 65" stammt aus `validate-battery-reserve` (älterer Heuristik-Pfad, in `system_settings`), während „KI Batterie-Empfehlung" aus der neueren `battery_soc_suggestions`-Pipeline kommt. Beide schlagen denselben Wert vor — ohne Bezug zueinander.
-- **Info-Box in Settings** suggeriert einen eigenen Wert „z.B. 75%" — verwirrend, weil es derselbe Slider ist.
+- **Zeile 198**: `const { isNight } = isNightTimeFromSettings(...)` → `const isNight = isNightTimeFromSettings(...)`. `isNightTimeFromSettings` liefert einen Boolean (siehe Zeile 351 — dort korrekt verwendet).
 
-## Ziel
-Ein einziger SOC-Wert (`heating_min_battery_soc`), ein einziger Empfehlungs-Kanal (`battery_soc_suggestions`), Overview-Card als kanonische Anzeige inkl. inline KI-Vorschlag.
+### 2. KI-Konfiguration `analyze-patterns/index.ts`
 
-## Änderungen
+- **2b Temperature pro Typ**: `callAI` Signatur erweitern auf `callAI(requestBody, analysisType?)`. `typeTemperatureMap` einführen, statische Logik in Zeile 77 ersetzen durch `typeTemperatureMap[analysisType ?? ''] ?? 0.5`. Aufrufstelle Zeile 1201 mit `type` als zweitem Argument versorgen.
+- **2c maxOutputTokens pro Typ**: `typeTokenMap` in `callAI` einführen, in `generationConfig` (Zeile ~74) setzen: `maxOutputTokens: typeTokenMap[analysisType ?? ''] ?? typeTokenMap.default`.
+- **2d Automation-History trimmen**: Vor Prompt-Aufbau im `optimize_decision`-Zweig die `automationHistory` per `room_id` auf max. 3 Events gruppieren (`trimmedHistory`), im Prompt-Block ab ~Zeile 601 statt `automationHistory` verwenden.
+- **2e Response-Cache** für `optimize_decision`:
+  - Cache-Key aus Buckets: PV/200W, SOC/5%, Wien-Stunde.
+  - Vor dem KI-Call `system_settings` per REST lesen; wenn Eintrag <15 min alt → cached Response zurückgeben (`cached: true` ergänzt).
+  - Nach erfolgreichem KI-Call Ergebnis per `Prefer: resolution=merge-duplicates` upserten.
 
-### 1. `BatteryReserveStatus.tsx` — Overview-Card wird Single Source
-- Entferne separates Lesen von `battery_reserve_for_night_soc`. Skala basiert ausschließlich auf `heating_min_battery_soc`.
-- Beschriftung neu:
-  - linker roter Bereich = „Heizung-Sperre {soc}%" (statt „Reserve 70%")
-  - Puffer-Grenze entfernt (oder als „+20% Puffer" Kontext, da reine Logik-Konstante)
-- Entferne den Block „Empfehlung: decrease reserve to 65" (alte `validate-battery-reserve`-Suggestion).
-- Integriere stattdessen direkt den **pending KI-Vorschlag** aus `useBatterySocSuggestions`: kompakter Inline-Hinweis „KI schlägt 65% vor [Übernehmen] [Verwerfen]". Wenn kein Pending → nichts zeigen (oder dezenter „Validierung läuft täglich nach 09:00").
-- Letzter Morgen-SOC + Nachtverbrauch bleiben als Validierungs-Info (informativ, keine Empfehlung).
+**Bewusst weggelassen**: Modell-Wechsel (2a) — bleibt bei `gemini-2.5-flash-lite`.
 
-### 2. `AutomationStatusCards.tsx` — separates `BatterySocSuggestionCard` entfernen
-- Die KI-Empfehlung lebt jetzt im Overview-Card. Entferne die eigenständige Card aus dem Dashboard-Render-Tree (in `HeatingDashboard.tsx`).
-- `BatterySocSuggestionCard`-Komponente selbst kann bleiben (z.B. für History-Ansicht in Settings), aber nicht mehr im Dashboard rendern.
+### 3. UI-Umstrukturierung
 
-### 3. `HeatingSettingsForm.tsx` — Aufräumen
-- Die Info-Box „Batterie-Mindest-SOC für Heizung (z.B. 75%) — Diese Einstellung wird manuell gesetzt…" reduzieren auf einen Satz unter dem Slider („Dieser Wert ist das harte SOC-Gate für die Heizung. KI-Vorschläge erscheinen in der Übersicht.").
-- Beibehalten: Slider + KI-Vorschläge-Toggle + Migrations-Hinweis.
+**3a `src/pages/Index.tsx` — Analysis-Tab bereinigen**
+- Card „KI-Heizplan" (Verweis-Card) entfernen.
+- Accordion „🧠 KI-Lernstatus & Mustergedächtnis" inkl. `PatternRecallBlock` + `LearningProgress` entfernen.
+- Ungenutzte Imports aufräumen (`Brain`, `Accordion*`, `PatternRecallBlock`, `LearningProgress` — nur entfernen wenn sonst nicht mehr genutzt).
 
-### 4. Keine DB-/Backend-Änderungen
-- `battery_reserve_for_night_soc` bleibt in DB (Backwards-Compat mit Edge-Functions, wird weiter auf Save gespiegelt).
-- `validate-battery-reserve` schreibt weiter in `system_settings.battery_reserve_validation` — wir konsumieren nur noch die Validierungs-Daten (Morgen-SOC, Nachtverbrauch), nicht mehr das `suggestion`-Feld. KI-Pipeline (`battery_soc_suggestions`) bleibt der einzige Empfehlungs-Output.
+**3b `src/pages/Index.tsx` — Dashboard-Tab bereinigen**
+- `<RoomStatusTable …>` aus Dashboard entfernen (inkl. Import + `saveRoom`/`updateRoomLocally` aus `useRooms`, falls sonst ungenutzt).
+- 3 Bottom-Cards (Messungen, Intervall, Start) in `Accordion` mit Titel „Systeminfo" wrappen (vgl. Schritt 4c).
 
-## Verifikation
-- Overview-Card zeigt nur noch eine Zahl (80%) und ggf. einen KI-Vorschlag mit Accept-Button.
-- Settings-Slider zeigt denselben Wert; Änderung dort reflektiert in Overview.
-- Dashboard hat keine separate „KI Batterie-Empfehlung"-Card mehr.
-- Build + Type-Check.
+**3c `src/components/heating/HeatingDashboard.tsx` — Sektionen integrieren**
+- Imports ergänzen: `RoomStatusTable`, `PatternRecallBlock`. (`LearningProgress`, `Brain`, `Collapsible*`, `Card*` sind vorhanden.)
+- **Nach `<AIShadowDecisions />` (Zeile 276), vor `<DailyHeatingSchedule>` (Zeile 279):**
+  1. `<RoomStatusTable rooms onSavePriority={…}>` mit identischer Handler-Logik wie aktuell in `Index.tsx` (optimistic update, Rollback bei Fehler).
+  2. *(später, nach Thermostat-Steuerung — siehe 3d)* Collapsible „🧠 KI-Lernstatus & Mustergedächtnis" mit `PatternRecallBlock` + `LearningProgress`.
 
-## Geänderte Dateien
-- `src/components/heating/BatteryReserveStatus.tsx`
-- `src/components/heating/AutomationStatusCards.tsx` (Card-Export bleibt, Dashboard nutzt sie nicht mehr)
-- `src/components/heating/HeatingDashboard.tsx` (Render entfernen)
-- `src/components/heating/HeatingSettingsForm.tsx` (Info-Box kürzen)
+**3d Reihenfolge im `HeatingDashboard`** (final):
+```
+1. ApiErrorBanner
+2. Live-Status (3 Cards: Battery | PV | AIStatus)
+3. Heating & Cost (HeatingOverviewCard | PriceSuggestionBanner+EnergyCostWidget)
+4. AIShadowDecisions
+5. RoomStatusTable                          ← NEU
+6. DailyHeatingSchedule
+7. Thermostat-Steuerung
+8. Collapsible: KI-Lernstatus & Mustergedächtnis  ← NEU
+9. Collapsible: Detailansicht KI & Prognose
+10. Collapsible: Verlaufscharts
+```
+*(Kein zusätzlicher `AIAutopilotToggle` — Master-Switch bleibt in `HeatingSettingsForm`.)*
+
+### 4. Kleinere UI-Verbesserungen
+
+**4a `src/components/heating/LearningProgress.tsx`** — Button „Analyse starten" aus `CollapsibleContent` in den `CardHeader` neben den Refresh-Button verschieben, damit er auch im zugeklappten Zustand sichtbar bleibt. `e.stopPropagation()` am Button-Click, damit der Header-Trigger nicht mitschaltet.
+
+**4b Tab-Labels — `src/components/energy/Header.tsx` + `tabMeta` in `Index.tsx`**
+- `dashboard` → „Übersicht"
+- `analysis` → „Verlauf & Muster"
+- `heating` → „Heizung & KI"
+- `settings` → „Einstellungen"
+- SEO `title`/`description` in `tabMeta` analog anpassen.
+
+**4c Systeminfo-Accordion** — siehe 3b.
+
+---
+
+### Verifikation
+
+- Build/Type-Check läuft automatisch nach Edits.
+- Edge Function nach Deployment 2× mit `type: 'optimize_decision'` triggern → Logs: 1. Call ohne Cache, 2. Call `Cache hit (xmin alt)`.
+- Tabs durchklicken: Heizung (RoomStatusTable + KI-Lernstatus-Accordion vorhanden), Verlauf & Muster (nur AnalysisPanel + Räume-Info), Dashboard (keine RoomStatusTable, Systeminfo-Accordion zugeklappt).
+
+### Betroffene Dateien
+
+| Datei | Änderung |
+|---|---|
+| `supabase/functions/analyze-patterns/index.ts` | Bug-Fix `isNight`, Temperature/Tokens pro Typ, History-Trim, Response-Cache |
+| `src/pages/Index.tsx` | Analysis-Tab bereinigt, RoomStatusTable raus, Systeminfo-Accordion, Tab-SEO |
+| `src/components/heating/HeatingDashboard.tsx` | RoomStatusTable + KI-Lernstatus integriert, Reihenfolge |
+| `src/components/heating/LearningProgress.tsx` | „Analyse starten"-Button in Header |
+| `src/components/energy/Header.tsx` | Tab-Labels |
