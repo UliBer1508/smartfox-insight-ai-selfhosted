@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Battery, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Battery, CheckCircle2, AlertTriangle, Bot } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
+import { useBatterySocSuggestions } from '@/hooks/useBatterySocSuggestions';
 
 interface ValidationStatus {
   last_check?: string;
@@ -22,16 +24,15 @@ interface Props {
 
 export function BatteryReserveStatus({ currentSoc }: Props) {
   const [validation, setValidation] = useState<ValidationStatus | null>(null);
-  const [reserve, setReserve] = useState(60);
   const [heatingMinSoc, setHeatingMinSoc] = useState(80);
+  const { pending, decide } = useBatterySocSuggestions();
 
   useEffect(() => {
     const load = async () => {
       const [{ data: settings }, { data: sys }] = await Promise.all([
-        supabase.from('heating_settings').select('battery_reserve_for_night_soc, heating_min_battery_soc').limit(1).maybeSingle(),
+        supabase.from('heating_settings').select('heating_min_battery_soc').limit(1).maybeSingle(),
         supabase.from('system_settings').select('value').eq('key', 'battery_reserve_validation').maybeSingle(),
       ]);
-      if (settings?.battery_reserve_for_night_soc) setReserve(settings.battery_reserve_for_night_soc);
       if (settings?.heating_min_battery_soc) setHeatingMinSoc(settings.heating_min_battery_soc);
       if (sys?.value) setValidation(sys.value as ValidationStatus);
     };
@@ -39,10 +40,8 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
   }, []);
 
   const heatingLocked = currentSoc !== undefined && currentSoc < heatingMinSoc;
-
   const morningSoc = validation?.actual_morning_soc;
   const held = validation?.reserve_held;
-  const bufferZone = reserve + 20;
 
   return (
     <Card>
@@ -53,7 +52,7 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {/* SOC-Skala */}
+        {/* SOC-Skala — eine einzige Schwelle: heating_min_battery_soc */}
         <div className="space-y-1">
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>0%</span>
@@ -63,14 +62,10 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
             <span>100%</span>
           </div>
           <div className="relative h-3 rounded-full bg-secondary overflow-hidden">
-            {/* Reserve-Zone (rot, schützt) */}
+            {/* Sperr-Zone (rot) bis heating_min_battery_soc */}
             <div
               className="absolute inset-y-0 left-0 bg-destructive/30"
-              style={{ width: `${reserve}%` }}
-            />
-            <div
-              className="absolute inset-y-0 bg-muted"
-              style={{ left: `${reserve}%`, width: `${bufferZone - reserve}%` }}
+              style={{ width: `${heatingMinSoc}%` }}
             />
             {currentSoc !== undefined && (
               <div
@@ -80,16 +75,14 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
             )}
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span className="text-destructive">Reserve {reserve}%</span>
-            <span>Puffer-Grenze {bufferZone}%</span>
+            <span className="text-destructive">Heizung-Sperre {heatingMinSoc}%</span>
+            <span>frei ab {heatingMinSoc}%</span>
           </div>
         </div>
 
-        {/* Heizung SOC-Gate Status */}
+        {/* Status */}
         <div className="flex items-center justify-between text-xs pt-2 border-t">
-          <span className="text-muted-foreground">
-            Heizung-Sperre ab {heatingMinSoc}% SOC
-          </span>
+          <span className="text-muted-foreground">Hartes SOC-Gate für Heizung</span>
           {currentSoc !== undefined && (
             <Badge variant={heatingLocked ? 'destructive' : 'secondary'} className="text-[10px]">
               {heatingLocked ? `🔒 Gesperrt (${currentSoc}%)` : `✓ Frei (${currentSoc}%)`}
@@ -97,7 +90,37 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
           )}
         </div>
 
-        {/* Validierung */}
+        {/* KI-Vorschlag inline (einziger Empfehlungs-Kanal) */}
+        {pending && (
+          <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-2">
+            <div className="flex items-start gap-2 text-xs">
+              <Bot className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div className="space-y-0.5 flex-1">
+                <div className="font-medium text-foreground">
+                  KI schlägt {pending.new_value}% vor (aktuell {pending.old_value}%)
+                </div>
+                {pending.reason_text && (
+                  <div className="text-muted-foreground">{pending.reason_text}</div>
+                )}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" className="h-7 text-xs" onClick={() => decide(pending.id, 'accept')}>
+                Übernehmen
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => decide(pending.id, 'dismiss')}
+              >
+                Verwerfen
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Validierungs-Info (informativ, ohne separate Empfehlung) */}
         {validation && morningSoc !== null && morningSoc !== undefined ? (
           <div className="flex items-start gap-2 text-xs pt-2 border-t">
             {held ? (
@@ -120,11 +143,6 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
               {validation.heating_battery_used_kwh != null && validation.heating_battery_used_kwh > 0 && (
                 <div className="text-muted-foreground">
                   Heizung aus Batterie (gestern): {Number(validation.heating_battery_used_kwh).toFixed(1)} kWh
-                </div>
-              )}
-              {validation.suggestion && validation.suggestion !== 'ok' && (
-                <div className="text-destructive">
-                  Empfehlung: {validation.suggestion.replace(/_/g, ' ')}
                 </div>
               )}
             </div>
