@@ -184,13 +184,13 @@ export function ThermostatCard({
       isHeating && 'border-orange-500/50 bg-orange-50/30 dark:bg-orange-950/20'
     )}>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2 min-w-0">
+        <div className="flex items-start justify-between gap-2 flex-wrap">
+          <CardTitle className="text-lg flex items-center gap-2 min-w-0 flex-1 flex-wrap">
             <Thermometer className="h-5 w-5 text-muted-foreground shrink-0" />
-            <span className="truncate">{room.name}</span>
+            <span className="min-w-0 break-words">{room.name}</span>
             <AIBadge active={!!room.automation_enabled} className="shrink-0" />
           </CardTitle>
-          <div className="flex items-center gap-2 min-w-[60px] justify-end">
+          <div className="flex items-center gap-2 justify-end shrink-0">
             {hasApiError ? (
               <Badge variant="outline" className="gap-1 border-destructive text-destructive bg-destructive/10">
                 <WifiOff className="h-3 w-3" />
@@ -201,9 +201,7 @@ export function ThermostatCard({
                 <Flame className="h-3 w-3" />
                 Heizt
               </Badge>
-            ) : (
-              <div className="h-5 w-[52px]" />
-            )}
+            ) : null}
             <Button
               variant="ghost"
               size="icon"
