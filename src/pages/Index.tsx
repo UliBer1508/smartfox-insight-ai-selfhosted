@@ -14,7 +14,7 @@ import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 
 
 
-import { AutomationStatusCard, BatterySocSuggestionCard, BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
+import { AutomationStatusCard, BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
 
 
 
