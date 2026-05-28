@@ -40,7 +40,27 @@ interface MLDecisionResponse {
   error?: string;
 }
 
-async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
+const TYPE_TEMPERATURE_MAP: Record<string, number> = {
+  optimize_decision: 0.35,
+  heating_optimization: 0.45,
+  room_heating_optimization: 0.45,
+  weekly_comparison: 0.45,
+  weekly_comparison_auto: 0.45,
+  weekly_insight: 0.45,
+  daily_pattern: 0.65,
+};
+
+const TYPE_TOKEN_MAP: Record<string, number> = {
+  optimize_decision: 2048,
+  heating_optimization: 1024,
+  room_heating_optimization: 1024,
+  weekly_comparison: 1024,
+  weekly_insight: 512,
+  daily_pattern: 512,
+  default: 1024,
+};
+
+async function callAI(requestBody: AIRequestBody, analysisType?: string): Promise<AIResponse> {
   const GOOGLE_AI_API_KEY = Deno.env.get('GOOGLE_AI_API_KEY');
   if (!GOOGLE_AI_API_KEY) {
     return { ok: false, status: 0, error: 'GOOGLE_AI_API_KEY not configured' };
@@ -51,7 +71,9 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     const modelName = ['gemini-2.5-flash-lite', 'gemini-2.5-flash'].includes(requestedModel)
       ? requestedModel
       : 'gemini-2.5-flash';
-    console.log(`Calling Google Gemini API (${modelName})...`);
+    const temperature = TYPE_TEMPERATURE_MAP[analysisType ?? ''] ?? 0.5;
+    const maxOutputTokens = TYPE_TOKEN_MAP[analysisType ?? ''] ?? TYPE_TOKEN_MAP.default;
+    console.log(`Calling Google Gemini API (${modelName}, type=${analysisType ?? 'n/a'}, temp=${temperature}, maxTokens=${maxOutputTokens})...`);
     
     // Convert OpenAI-style messages to Gemini format
     const systemInstruction = requestBody.messages.find(m => m.role === 'system');
@@ -74,8 +96,8 @@ async function callAI(requestBody: AIRequestBody): Promise<AIResponse> {
     const geminiBody: any = {
       contents,
       generationConfig: {
-        temperature: modelName === 'gemini-2.5-flash-lite' ? 0.35 : 0.7,
-        maxOutputTokens: 4096,
+        temperature,
+        maxOutputTokens,
       },
     };
 
