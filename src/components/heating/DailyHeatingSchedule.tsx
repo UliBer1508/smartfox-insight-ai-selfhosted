@@ -164,11 +164,11 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                 
                 return (
                   <tr key={room.id} className="border-b border-muted/50 last:border-0">
-                    <td className="py-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium truncate max-w-[100px] text-xs">{room.name}</span>
+                    <td className="py-2 pr-1">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="font-medium text-xs break-words leading-tight">{room.name}</span>
                         {room.is_heating && (
-                          <span className="text-orange-500 animate-pulse">🔥</span>
+                          <span className="text-orange-500 animate-pulse shrink-0">🔥</span>
                         )}
                       </div>
                     </td>

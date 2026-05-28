@@ -76,7 +76,7 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
 
         {/* Trend */}
         <div className="rounded-lg border bg-card p-4 sm:col-span-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-xs text-muted-foreground uppercase tracking-wide">
               Trend ({stats?.days_in_range ?? 0} Tage)
             </span>
@@ -126,18 +126,25 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
 
       {/* AI Summary */}
       <div className="rounded-lg border bg-card p-4">
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Sparkles className="w-4 h-4 text-primary" />
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-3 mb-2">
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <Sparkles className="w-4 h-4 text-primary shrink-0" />
             <span className="text-sm font-semibold">KI-Zusammenfassung</span>
             <LastUpdatedBadge iso={data?.generated_at} staleAfterMs={STALE_MS[range]} />
           </div>
           <TooltipProvider delayDuration={150}>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="sm" variant="ghost" onClick={generate} disabled={generating}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={generate}
+                  disabled={generating}
+                  className="shrink-0 self-start sm:self-auto whitespace-nowrap"
+                >
                   {generating ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-                  {data ? 'Text neu erzeugen' : 'Text erzeugen'}
+                  <span className="sm:hidden">{data ? 'Neu' : 'Erzeugen'}</span>
+                  <span className="hidden sm:inline">{data ? 'Text neu erzeugen' : 'Text erzeugen'}</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="left" className="max-w-xs text-xs">
