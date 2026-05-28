@@ -366,6 +366,34 @@ serve(async (req) => {
       const batterySoc = currentReading?.battery_soc || 50;
       const pvPower = currentReading?.pv_power || 0;
       const consumption = currentReading?.consumption || 0;
+
+      // === Response-Cache (15min TTL, Bucket-Key aus PV/SOC/Stunde) ===
+      const pvBucket = Math.round((pvPower || 0) / 200) * 200;
+      const socBucket = Math.round((batterySoc || 50) / 5) * 5;
+      const hourBucket = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', hour12: false, timeZone: 'Europe/Vienna' });
+      const cacheKey = `ai_cache_optimize_${pvBucket}_${socBucket}_${hourBucket}`;
+      try {
+        const cacheRes = await fetch(`${supabaseUrl}/rest/v1/system_settings?key=eq.${cacheKey}&select=value,updated_at`, {
+          headers: { apikey: serviceRoleKey, Authorization: `Bearer ${serviceRoleKey}` },
+        });
+        if (cacheRes.ok) {
+          const cacheData = await cacheRes.json();
+          const cached = cacheData?.[0];
+          if (cached?.value && cached?.updated_at) {
+            const ageMinutes = (Date.now() - new Date(cached.updated_at).getTime()) / 60000;
+            if (ageMinutes < 15) {
+              console.log(`[optimize_decision] Cache hit (${Math.round(ageMinutes)}min alt, key=${cacheKey})`);
+              return new Response(JSON.stringify({ ...(cached.value as object), cached: true, cache_age_min: Math.round(ageMinutes) }), {
+                headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[optimize_decision] Cache read failed:', e);
+      }
+      // Cache-Key für späteres Schreiben merken
+      (globalThis as any).__aiCacheKey = cacheKey;
       
       // Nachtzeiten aus Benutzereinstellungen verwenden!
       const nightStart = heatingSettings?.night_start_time || '22:00';
