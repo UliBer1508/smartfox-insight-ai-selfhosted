@@ -150,52 +150,64 @@ const Index = () => {
 
             <BatteryHistoryChart />
 
-            {/* 3-Spalten Widget-Grid über volle Breite */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
-              <Card className="h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Database className="w-4 h-4 text-primary" />
-                    Messungen
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold font-mono">{totalCount.toLocaleString('de-DE')}</div>
-                  <p className="text-xs text-muted-foreground">gespeichert</p>
-                </CardContent>
-              </Card>
-
-              <Card className="h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-primary" />
-                    Intervall
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold font-mono">{settings.polling_interval}s</div>
-                  <p className="text-xs text-muted-foreground">Polling</p>
-                </CardContent>
-              </Card>
-
-              <Card className="h-fit">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    Start
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-lg font-bold font-mono">
-                    {readings.length > 0 
-                      ? new Date(readings[readings.length - 1].timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
-                      : '-'
-                    }
+            {/* Systeminfo aufklappbar */}
+            <Accordion type="single" collapsible className="w-full">
+              <AccordionItem value="sysinfo" className="border rounded-lg overflow-hidden">
+                <AccordionTrigger className="px-4 py-2 bg-muted/30 text-sm hover:no-underline">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-muted-foreground" />
+                    Systeminfo
                   </div>
-                  <p className="text-xs text-muted-foreground">ältester Punkt</p>
-                </CardContent>
-              </Card>
-            </div>
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-4">
+                    <Card className="h-fit">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Database className="w-4 h-4 text-primary" />
+                          Messungen
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold font-mono">{totalCount.toLocaleString('de-DE')}</div>
+                        <p className="text-xs text-muted-foreground">gespeichert</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="h-fit">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Activity className="w-4 h-4 text-primary" />
+                          Intervall
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-bold font-mono">{settings.polling_interval}s</div>
+                        <p className="text-xs text-muted-foreground">Polling</p>
+                      </CardContent>
+                    </Card>
+
+                    <Card className="h-fit">
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-primary" />
+                          Start
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-lg font-bold font-mono">
+                          {readings.length > 0 
+                            ? new Date(readings[readings.length - 1].timestamp).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Berlin' })
+                            : '-'
+                          }
+                        </div>
+                        <p className="text-xs text-muted-foreground">ältester Punkt</p>
+                      </CardContent>
+                    </Card>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
           </>
         )}
 
