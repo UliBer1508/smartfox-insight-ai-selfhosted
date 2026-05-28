@@ -14,6 +14,15 @@ import { AIAutopilotToggle } from './AIAutopilotToggle';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
+// SOC-Parameter sind in die „KI Batterie-Empfehlung"-Karte (Übersicht) konsolidiert.
+// Diese Liste blockt sowohl Anzeige als auch Apply defensiv im Client — die
+// Edge-Function (ai-parameter-advisor) blockt sie zusätzlich serverseitig (LOCKED_PARAMS).
+const SOC_LOCKED_KEYS = new Set<string>([
+  'heating_min_battery_soc',
+  'battery_reserve_for_night_soc',
+  'micro_budget_min_battery_soc',
+]);
+
 interface Decision {
   id: string;
   created_at: string;
@@ -149,6 +158,10 @@ export function AIShadowDecisions() {
   };
 
   const applyDecision = async (d: Decision) => {
+    if (SOC_LOCKED_KEYS.has(d.parameter_key)) {
+      toast.error('SOC-Parameter werden ausschließlich über „KI Batterie-Empfehlung" (Übersicht) übernommen.');
+      return;
+    }
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
     if (!wl) {
       toast.error(`Kein Whitelist-Eintrag für ${d.parameter_key}`);
@@ -211,6 +224,7 @@ export function AIShadowDecisions() {
   };
 
   const filtered = decisions.filter((d) => {
+    if (SOC_LOCKED_KEYS.has(d.parameter_key)) return false; // konsolidiert in KI Batterie-Empfehlung
     if (paramFilter && d.parameter_key !== paramFilter) return false;
     if (filter === 'unevaluated') return !d.outcome_evaluated_at;
     if (filter === 'evaluated') return !!d.outcome_evaluated_at;

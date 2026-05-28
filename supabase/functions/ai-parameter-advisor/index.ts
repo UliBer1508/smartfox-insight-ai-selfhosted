@@ -12,10 +12,14 @@ const GEMINI_KEY = Deno.env.get('GOOGLE_AI_API_KEY')!;
 // (auch wenn versehentlich in der Whitelist als 'auto' markiert). Lesen + Empfehlen ist OK,
 // Insert in ai_parameter_decisions und Auto-Apply auf heating_settings sind hart geblockt.
 const LOCKED_PARAMS = new Set<string>([
+  // SOC-Parameter: konsolidiert in „KI Batterie-Empfehlung" (battery_soc_suggestions).
+  // Werden NIEMALS über die generische Parameter-Pipeline vorgeschlagen oder geschrieben.
   'heating_min_battery_soc',
+  'battery_reserve_for_night_soc',
+  'micro_budget_min_battery_soc',
+  // Weitere Kern-Safety-Parameter
   'pv_surplus_threshold_on',
   'pv_surplus_threshold_off',
-  'micro_budget_min_battery_soc',
   'night_start_time',
   'night_end_time',
 ]);
@@ -59,7 +63,16 @@ function extractJSON(raw: string): any {
 // Schreibt NUR in battery_soc_suggestions (nie in heating_settings).
 // LOCKED_PARAMS guard — see mem://security/ki-locked-core-params
 // ---------------------------------------------------------------------------
-async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>) {
+interface ValidationInput {
+  morningSoc?: number | null;
+  reserveHeld?: boolean | null;
+  reserveTarget?: number | null;
+  nightConsumptionKwh?: number | null;
+  heatingBatteryUsedKwh?: number | null;
+  suggestionText?: string | null;
+}
+
+async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>, validation?: ValidationInput) {
   const { data: hs } = await sb.from('heating_settings')
     .select('heating_min_battery_soc, battery_soc_suggestion_enabled')
     .limit(1).maybeSingle();
@@ -69,11 +82,10 @@ async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>) {
   const enabled = hs.battery_soc_suggestion_enabled !== false;
   if (!enabled) return { ok: true, skipped: 'suggestion_disabled' };
 
-  const { data: existing } = await sb.from('battery_soc_suggestions')
-    .select('id').eq('status', 'pending').limit(1);
-  if (existing && existing.length > 0) {
-    return { ok: true, skipped: 'pending_suggestion_exists', existing_id: existing[0].id };
-  }
+  const { data: existingRows } = await sb.from('battery_soc_suggestions')
+    .select('id, new_value, reason_text').eq('status', 'pending')
+    .order('created_at', { ascending: false }).limit(1);
+  const existing = existingRows?.[0] ?? null;
 
   const todayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
     .toISOString().slice(0, 10);
@@ -98,33 +110,80 @@ async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>) {
   const socEnd = tracking?.[0]?.soc_at_heating_end != null
     ? Number(tracking[0].soc_at_heating_end) : null;
 
-  if (pvForecastKwh == null || socEnd == null) {
-    return { ok: true, skipped: 'insufficient_data', pvForecastKwh, socEnd };
-  }
-
   let newValue = oldValue;
   let reasonCore = '';
-  if (pvForecastKwh > 20 && socEnd > 80) {
-    newValue = Math.max(oldValue - 10, 50);
-    reasonCore = 'Sehr starke PV-Prognose und die Batterie war gestern Abend gut gefüllt — Gate kann deutlich gesenkt werden, um morgen mehr PV-Überschuss zum Heizen zu nutzen.';
-  } else if (pvForecastKwh > 20 && socEnd >= 70) {
-    newValue = Math.max(oldValue - 5, 50);
-    reasonCore = 'Starke PV-Prognose und Batterie gestern Abend solide gefüllt — Gate leicht senken, um mehr PV-Wärme freizugeben.';
-  } else if (pvForecastKwh < 10 && socEnd < 60) {
-    newValue = Math.min(oldValue + 10, 90);
-    reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend bereits niedrig — Gate deutlich anheben, um die Nacht-Reserve zu schützen.';
-  } else if (pvForecastKwh < 10 && socEnd < 70) {
-    newValue = Math.min(oldValue + 5, 90);
-    reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend knapp — Gate leicht anheben, um den Nacht-Puffer zu sichern.';
-  } else {
-    return { ok: true, skipped: 'no_change_needed', oldValue, pvForecastKwh, socEnd };
+
+  // 1) PV-Forecast-Regel (Hauptauslöser)
+  if (pvForecastKwh != null && socEnd != null) {
+    if (pvForecastKwh > 20 && socEnd > 80) {
+      newValue = Math.max(oldValue - 10, 50);
+      reasonCore = 'Sehr starke PV-Prognose und die Batterie war gestern Abend gut gefüllt — Gate kann deutlich gesenkt werden, um morgen mehr PV-Überschuss zum Heizen zu nutzen.';
+    } else if (pvForecastKwh > 20 && socEnd >= 70) {
+      newValue = Math.max(oldValue - 5, 50);
+      reasonCore = 'Starke PV-Prognose und Batterie gestern Abend solide gefüllt — Gate leicht senken, um mehr PV-Wärme freizugeben.';
+    } else if (pvForecastKwh < 10 && socEnd < 60) {
+      newValue = Math.min(oldValue + 10, 90);
+      reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend bereits niedrig — Gate deutlich anheben, um die Nacht-Reserve zu schützen.';
+    } else if (pvForecastKwh < 10 && socEnd < 70) {
+      newValue = Math.min(oldValue + 5, 90);
+      reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend knapp — Gate leicht anheben, um den Nacht-Puffer zu sichern.';
+    }
+  }
+
+  // 2) Reserve-Validierungs-Signal (Verstärker oder eigenständiger Auslöser)
+  let reserveLine = '';
+  if (validation) {
+    const morn = validation.morningSoc;
+    const target = validation.reserveTarget;
+    const held = validation.reserveHeld;
+    if (morn != null && target != null) {
+      if (held === false && morn < target - 5) {
+        // Reserve gerissen → Gate anheben
+        const bump = morn < target - 15 ? 10 : 5;
+        const proposed = Math.min(oldValue + bump, 90);
+        if (proposed > newValue) newValue = proposed;
+        reserveLine = `Reserve gestern unterschritten (Morgen-SOC ${morn}% bei Ziel ${target}%, Heizung Batterie ${validation.heatingBatteryUsedKwh ?? '–'} kWh) — Gate anheben empfohlen.`;
+      } else if (held === true && morn > target + 20) {
+        // Reserve klar überschritten → Gate könnte gesenkt werden
+        const proposed = Math.max(oldValue - 5, 50);
+        if (proposed < newValue || newValue === oldValue) newValue = proposed;
+        reserveLine = `Reserve gestern deutlich übererfüllt (Morgen-SOC ${morn}% bei Ziel ${target}%) — Gate kann gesenkt werden.`;
+      } else {
+        reserveLine = `Reserve gestern ${held ? 'gehalten' : 'leicht unterschritten'} (Morgen-SOC ${morn}%, Ziel ${target}%).`;
+      }
+    }
   }
 
   if (newValue === oldValue) {
-    return { ok: true, skipped: 'value_unchanged', oldValue };
+    return { ok: true, skipped: 'no_change_needed', oldValue, pvForecastKwh, socEnd, reserveLine };
   }
 
-  const reasonText = `PV-Prognose morgen: ${pvForecastKwh.toFixed(1)} kWh (Ø 7 Tage: ${avg7d?.toFixed(1) ?? '–'} kWh), Batterie-SOC gestern Abend: ${socEnd}%. ${reasonCore}`;
+  const pvLine = pvForecastKwh != null
+    ? `PV-Prognose morgen: ${pvForecastKwh.toFixed(1)} kWh (Ø 7 Tage: ${avg7d?.toFixed(1) ?? '–'} kWh), Batterie-SOC gestern Abend: ${socEnd ?? '–'}%.`
+    : 'Keine PV-Prognose verfügbar — Vorschlag basiert auf Reserve-Validierung.';
+  const reasonText = [pvLine, reasonCore, reserveLine].filter(Boolean).join(' ');
+
+  // Upsert: existierenden pending-Eintrag updaten, wenn sich Wert ändert
+  if (existing) {
+    if (Number(existing.new_value) === newValue && existing.reason_text === reasonText) {
+      return { ok: true, skipped: 'pending_unchanged', existing_id: existing.id };
+    }
+    const { error: updErr } = await sb.from('battery_soc_suggestions')
+      .update({
+        new_value: newValue,
+        pv_forecast_kwh: pvForecastKwh,
+        avg_pv_7d_kwh: avg7d,
+        soc_end_of_day: socEnd,
+        reason_text: reasonText,
+      })
+      .eq('id', existing.id);
+    if (updErr) {
+      console.error('[suggest-battery-soc] update failed', updErr);
+      return { ok: false, error: updErr.message };
+    }
+    console.log(`[suggest-battery-soc] updated pending ${existing.id}: ${oldValue}% → ${newValue}%`);
+    return { ok: true, updated: true, existing_id: existing.id };
+  }
 
   const { data: inserted, error: insErr } = await sb.from('battery_soc_suggestions').insert({
     old_value: oldValue,
@@ -141,7 +200,7 @@ async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>) {
     return { ok: false, error: insErr.message };
   }
 
-  console.log(`[suggest-battery-soc] proposed ${oldValue}% → ${newValue}% (PV ${pvForecastKwh} kWh, SOC ${socEnd}%)`);
+  console.log(`[suggest-battery-soc] proposed ${oldValue}% → ${newValue}% (PV ${pvForecastKwh} kWh, SOC ${socEnd}%, validation=${!!validation})`);
   return { ok: true, created: true, suggestion: inserted };
 }
 
@@ -155,7 +214,16 @@ Deno.serve(async (req) => {
   const reqUrl = new URL(req.url);
   if (reqUrl.pathname.endsWith('/suggest-battery-soc')) {
     try {
-      const result = await handleSuggestBatterySoc(sb);
+      let validation: ValidationInput | undefined;
+      if (req.method === 'POST') {
+        try {
+          const body = await req.json();
+          if (body && typeof body === 'object' && body.validation && typeof body.validation === 'object') {
+            validation = body.validation as ValidationInput;
+          }
+        } catch { /* no body or invalid JSON — ignore */ }
+      }
+      const result = await handleSuggestBatterySoc(sb, validation);
       return new Response(JSON.stringify(result), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
