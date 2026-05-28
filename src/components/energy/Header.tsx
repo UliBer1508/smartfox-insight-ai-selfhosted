@@ -13,9 +13,9 @@ interface HeaderProps {
 }
 
 const tabs = [
-  { key: 'dashboard' as const, icon: BarChart3, label: 'Dashboard' },
-  { key: 'heating' as const, icon: Thermometer, label: 'Heizung' },
-  { key: 'analysis' as const, icon: Zap, label: 'Analyse' },
+  { key: 'dashboard' as const, icon: BarChart3, label: 'Übersicht' },
+  { key: 'heating' as const, icon: Thermometer, label: 'Heizung & KI' },
+  { key: 'analysis' as const, icon: Zap, label: 'Verlauf & Muster' },
   { key: 'settings' as const, icon: Settings, label: 'Einstellungen' },
 ];
 
