@@ -59,8 +59,6 @@ const Index = () => {
 
   const {
     rooms,
-    saveRoom,
-    updateRoomLocally,
   } = useRooms();
 
   useEffect(() => {
