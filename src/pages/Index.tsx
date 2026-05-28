@@ -14,7 +14,7 @@ import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 
 
 
-import { AutomationStatusCard, BatterySocSuggestionCard, BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
+import { AutomationStatusCard, BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
 
 
 
@@ -104,8 +104,7 @@ const Index = () => {
               onRefresh={refresh}
             />
 
-            {/* KI-Vorschlag prominent ganz oben anzeigen (nur wenn pending) */}
-            <BatterySocSuggestionCard />
+            {/* KI-Vorschlag jetzt inline in BatteryReserveStatus (Single Source of Truth) */}
 
             {/* Automations-Status: immer sichtbar direkt unter Verbindung */}
             <AutomationStatusCard />
