@@ -110,9 +110,9 @@ export function AIDailyPlanCard() {
             {plan.source === 'claude-haiku' ? 'Claude' : plan.source === 'gemini-flash-fallback' ? 'Gemini (Fallback)' : plan.source}
           </Badge>
         </button>
-        <Button size="sm" variant="ghost" onClick={generateNow} disabled={generating}>
-          <Sparkles className="h-3.5 w-3.5 mr-1" />
-          {generating ? 'Neu …' : 'Neu erzeugen'}
+        <Button size="sm" variant="ghost" onClick={generateNow} disabled={generating} className="shrink-0 px-2">
+          <Sparkles className="h-3.5 w-3.5 sm:mr-1" />
+          <span className="hidden sm:inline">{generating ? 'Neu …' : 'Neu erzeugen'}</span>
         </Button>
       </div>
 
