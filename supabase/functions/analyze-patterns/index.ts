@@ -394,7 +394,7 @@ serve(async (req) => {
         console.warn('[optimize_decision] Cache read failed:', e);
       }
       // Cache-Key für späteres Schreiben merken
-      (globalThis as any).__aiCacheKey = cacheKey;
+      aiCacheKey = cacheKey;
       
       // Nachtzeiten aus Benutzereinstellungen verwenden!
       const nightStart = heatingSettings?.night_start_time || '22:00';
