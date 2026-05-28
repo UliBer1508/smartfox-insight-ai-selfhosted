@@ -76,7 +76,7 @@ export const ProgressCockpit: React.FC<Props> = ({ range }) => {
 
         {/* Trend */}
         <div className="rounded-lg border bg-card p-4 sm:col-span-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
             <span className="text-xs text-muted-foreground uppercase tracking-wide">
               Trend ({stats?.days_in_range ?? 0} Tage)
             </span>
