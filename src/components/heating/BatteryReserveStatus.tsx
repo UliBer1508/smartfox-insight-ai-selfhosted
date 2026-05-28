@@ -123,8 +123,8 @@ export function BatteryReserveStatus({ currentSoc }: Props) {
                 </div>
               )}
               {validation.suggestion && validation.suggestion !== 'ok' && (
-                <div className="text-destructive">
-                  Empfehlung: {validation.suggestion.replace(/_/g, ' ')}
+                <div className="text-muted-foreground text-[10px] italic">
+                  Signal fließt in die nächste „KI Batterie-Empfehlung" ein.
                 </div>
               )}
             </div>
