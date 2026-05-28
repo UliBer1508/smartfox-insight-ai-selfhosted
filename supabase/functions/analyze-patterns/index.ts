@@ -355,6 +355,7 @@ serve(async (req) => {
     let useToolCalling = false;
     let toolName = '';
     let toolDefinition: Record<string, unknown> | null = null;
+    let aiCacheKey: string | null = null;
     
     // NEW: ML-based optimize_decision type
     if (type === 'optimize_decision') {
