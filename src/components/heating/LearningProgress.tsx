@@ -334,12 +334,33 @@ export function LearningProgress() {
                   </span> Ø
                 </span>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={(e) => { e.stopPropagation(); runAnalysis(); }}
+                disabled={isAnalyzing || tuyaRooms.length === 0}
+                title="KI-Analyse starten"
+              >
+                {isAnalyzing ? (
+                  <>
+                    <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                    Analysiere…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    Analyse starten
+                  </>
+                )}
+              </Button>
               <Button 
                 variant="ghost" 
                 size="sm" 
                 className="h-7 w-7 p-0"
-                onClick={extractFeatures}
+                onClick={(e) => { e.stopPropagation(); extractFeatures(); }}
                 disabled={isExtracting}
+                title="Features neu berechnen"
               >
                 {isExtracting ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
