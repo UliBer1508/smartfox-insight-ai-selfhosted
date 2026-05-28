@@ -658,7 +658,8 @@ ${(() => {
   automationHistory.forEach((e: Record<string, unknown>) => {
     const roomId = e.room_id as string || 'global';
     if (!roomDecisions[roomId]) roomDecisions[roomId] = [];
-    roomDecisions[roomId].push(e);
+    // Trim: max. 3 jüngste Events pro Raum behalten (automationHistory ist bereits desc sortiert)
+    if (roomDecisions[roomId].length < 3) roomDecisions[roomId].push(e);
   });
   
   return Object.entries(roomDecisions).map(([roomId, decisions]) => {
