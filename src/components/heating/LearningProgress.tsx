@@ -381,31 +381,10 @@ export function LearningProgress() {
           <CardContent className="pt-0 space-y-4">
             {/* KI Analysis Section */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-                  <Sparkles className="h-3 w-3" />
-                  KI-Empfehlungen
-                </h4>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  className="h-7 text-xs"
-                  onClick={runAnalysis}
-                  disabled={isAnalyzing || tuyaRooms.length === 0}
-                >
-                  {isAnalyzing ? (
-                    <>
-                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                      Analysiere...
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-3 w-3 mr-1" />
-                      Analyse starten
-                    </>
-                  )}
-                </Button>
-              </div>
+              <h4 className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                <Sparkles className="h-3 w-3" />
+                KI-Empfehlungen
+              </h4>
 
               {analysisResult ? (
                 <div className="space-y-3">
