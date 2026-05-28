@@ -1301,6 +1301,23 @@ Kurze Einschätzung auf Deutsch.`;
           console.log(`${toolName} parsed successfully, decisions: ${result.decisions?.length || 0}`);
           
           if (toolName === 'make_heating_decision') {
+            // Cache schreiben (best-effort)
+            if (aiCacheKey) {
+              try {
+                await fetch(`${supabaseUrl}/rest/v1/system_settings?on_conflict=key`, {
+                  method: 'POST',
+                  headers: {
+                    apikey: serviceRoleKey,
+                    Authorization: `Bearer ${serviceRoleKey}`,
+                    'Content-Type': 'application/json',
+                    Prefer: 'resolution=merge-duplicates,return=minimal',
+                  },
+                  body: JSON.stringify({ key: aiCacheKey, value: result, updated_at: new Date().toISOString() }),
+                });
+              } catch (e) {
+                console.warn('[optimize_decision] Cache write failed:', e);
+              }
+            }
             return new Response(JSON.stringify(result), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' },
             });
