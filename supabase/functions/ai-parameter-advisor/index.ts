@@ -12,10 +12,14 @@ const GEMINI_KEY = Deno.env.get('GOOGLE_AI_API_KEY')!;
 // (auch wenn versehentlich in der Whitelist als 'auto' markiert). Lesen + Empfehlen ist OK,
 // Insert in ai_parameter_decisions und Auto-Apply auf heating_settings sind hart geblockt.
 const LOCKED_PARAMS = new Set<string>([
+  // SOC-Parameter: konsolidiert in „KI Batterie-Empfehlung" (battery_soc_suggestions).
+  // Werden NIEMALS über die generische Parameter-Pipeline vorgeschlagen oder geschrieben.
   'heating_min_battery_soc',
+  'battery_reserve_for_night_soc',
+  'micro_budget_min_battery_soc',
+  // Weitere Kern-Safety-Parameter
   'pv_surplus_threshold_on',
   'pv_surplus_threshold_off',
-  'micro_budget_min_battery_soc',
   'night_start_time',
   'night_end_time',
 ]);
