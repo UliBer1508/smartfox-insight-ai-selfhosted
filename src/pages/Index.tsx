@@ -228,24 +228,6 @@ const Index = () => {
               onAnalyzeWeekly={analyzeWeeklyComparison}
             />
 
-            {/* KI-Heizplan-Hinweis (Anzeige im Tab Heizung) */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2 text-base">
-                  <Thermometer className="w-4 h-4 text-primary" />
-                  KI-Heizplan
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  Der automatische KI-Tagesplan wird im Tab <strong>Heizung</strong> angezeigt und täglich um 06:00 aktualisiert.
-                </p>
-                <Button variant="outline" size="sm" onClick={() => setActiveTab('heating')}>
-                  Zum Heizungs-Tab
-                </Button>
-              </CardContent>
-            </Card>
-
             {/* Räume-Info */}
             <Card>
               <CardHeader>
@@ -269,38 +251,13 @@ const Index = () => {
                     </p>
                     <p className="text-muted-foreground">
                       {rooms.length} Räume werden vollautomatisch über die PV-Automation und den
-                      KI-Parameter-Advisor gesteuert. Manuelle „Raumempfehlungen erstellen" und
-                      „Empfehlungen anwenden" sind nicht mehr nötig.
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      Status &amp; Live-Werte siehst du im Tab <strong>Heizung</strong>.
-                      KI-Parameter-Vorschläge dort in der Karte „KI-Autopilot · Parameter-Vorschläge".
+                      KI-Parameter-Advisor gesteuert. Status, Live-Werte und KI-Lernfortschritt
+                      findest du im Tab <strong>Heizung &amp; KI</strong>.
                     </p>
                   </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* KI-Lernstatus & Mustergedächtnis */}
-            <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="ml-status" className="border rounded-lg overflow-hidden">
-                <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-                  <div className="flex items-center gap-2">
-                    <Brain className="h-5 w-5 text-primary" />
-                    <span className="font-semibold">🧠 KI-Lernstatus &amp; Mustergedächtnis</span>
-                  </div>
-                </AccordionTrigger>
-                <AccordionContent className="p-4 space-y-4">
-                  <p className="text-xs text-muted-foreground">
-                    Hier siehst du wie gut die KI aus deinen Energiedaten gelernt hat. Die ML-Follow-Rate
-                    zeigt, wie oft die KI-Empfehlungen vom System tatsächlich umgesetzt wurden. PatternRecall
-                    zeigt welche Wochenmuster erkannt wurden.
-                  </p>
-                  <PatternRecallBlock />
-                  <LearningProgress />
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
           </div>
         )}
 
