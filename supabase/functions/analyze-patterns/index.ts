@@ -217,7 +217,7 @@ function buildDeterministicHeatingDecision(body: Record<string, any>, reason: st
   const thresholdOn = Number(settings?.pv_surplus_threshold_on ?? 500);
   const thresholdOff = Number(settings?.pv_surplus_threshold_off ?? 200);
   const heatingMinSoc = Number(settings?.heating_min_battery_soc ?? 80);
-  const { isNight } = isNightTimeFromSettings(settings?.night_start_time || '20:00', settings?.night_end_time || '08:00', 'Europe/Vienna');
+  const isNight = isNightTimeFromSettings(settings?.night_start_time || '20:00', settings?.night_end_time || '08:00', 'Europe/Vienna');
 
   const decisions: MLDecision[] = rooms.map((room: Record<string, any>) => {
     const ecoTemp = Number(room.eco_temp ?? settings?.eco_temp ?? 19);
