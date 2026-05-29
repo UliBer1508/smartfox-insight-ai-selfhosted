@@ -314,14 +314,14 @@ export function LearningProgress() {
     <Card>
       <Collapsible open={isOpen} onOpenChange={setIsOpen}>
         <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-2">
               <Brain className="h-4 w-4 text-primary" />
               <CardTitle className="text-sm">ML-Status</CardTitle>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center flex-wrap gap-2">
               {/* Compact stats */}
-              <div className="flex items-center gap-3 text-xs">
+              <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs">
                 <span className="text-muted-foreground">
                   <span className="font-mono font-medium text-foreground">{totalSamples}</span> Samples
                 </span>
