@@ -57,7 +57,13 @@ Deno.serve(async (req) => {
     .select('*').eq('id', suggestionId).maybeSingle();
   if (sugErr) return json({ error: sugErr.message }, 500);
   if (!sug) return json({ error: 'suggestion_not_found' }, 400);
-  if (sug.status !== 'pending') return json({ error: 'not_pending', status: sug.status }, 400);
+  // Idempotent: if already decided the same way, treat as success (stale UI / double-click)
+  if (sug.status !== 'pending') {
+    const already = (action === 'accept' && sug.status === 'accepted') ||
+                    (action === 'dismiss' && sug.status === 'dismissed');
+    if (already) return json({ success: true, new_value: sug.new_value, already: true });
+    return json({ error: 'not_pending', status: sug.status }, 400);
+  }
 
   const nowIso = new Date().toISOString();
 
