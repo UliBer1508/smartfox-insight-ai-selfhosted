@@ -142,8 +142,8 @@ export const DataRetentionSettings: React.FC = () => {
           )}
 
           {/* Actions */}
-          <div className="flex gap-3">
-            <Button type="submit" disabled={isLoading}>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
               Speichern
             </Button>
             <Button
@@ -151,6 +151,7 @@ export const DataRetentionSettings: React.FC = () => {
               variant="outline"
               onClick={handleRunCleanup}
               disabled={isRunningCleanup}
+              className="w-full sm:w-auto"
             >
               <Trash2 className="h-4 w-4 mr-2" />
               {isRunningCleanup ? 'Läuft...' : 'Jetzt bereinigen'}
