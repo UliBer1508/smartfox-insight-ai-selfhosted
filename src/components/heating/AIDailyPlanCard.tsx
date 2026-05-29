@@ -96,7 +96,7 @@ export function AIDailyPlanCard() {
 
   return (
     <div className="rounded-lg border bg-primary/5 border-primary/20 p-4 space-y-3">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+      <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={() => setCardExpanded((v) => !v)}
@@ -105,14 +105,14 @@ export function AIDailyPlanCard() {
         >
           {cardExpanded ? <ChevronUp className="h-4 w-4 text-primary shrink-0" /> : <ChevronDown className="h-4 w-4 text-primary shrink-0" />}
           <CalendarClock className="h-4 w-4 text-primary shrink-0" />
-          <span className="font-semibold text-sm">Tagesplan KI · {plan.plan_date}</span>
-          <Badge variant={plan.source === 'claude-haiku' ? 'default' : 'secondary'} className="text-[10px]">
+          <span className="font-semibold text-sm truncate">Tagesplan KI · {plan.plan_date}</span>
+          <Badge variant={plan.source === 'claude-haiku' ? 'default' : 'secondary'} className="text-[10px] shrink-0">
             {plan.source === 'claude-haiku' ? 'Claude' : plan.source === 'gemini-flash-fallback' ? 'Gemini (Fallback)' : plan.source}
           </Badge>
         </button>
-        <Button size="sm" variant="ghost" onClick={generateNow} disabled={generating}>
-          <Sparkles className="h-3.5 w-3.5 mr-1" />
-          {generating ? 'Neu …' : 'Neu erzeugen'}
+        <Button size="sm" variant="ghost" onClick={generateNow} disabled={generating} className="shrink-0 px-2">
+          <Sparkles className="h-3.5 w-3.5 sm:mr-1" />
+          <span className="hidden sm:inline">{generating ? 'Neu …' : 'Neu erzeugen'}</span>
         </Button>
       </div>
 
