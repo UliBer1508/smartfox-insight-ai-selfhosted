@@ -337,7 +337,7 @@ export function LearningProgress() {
               <Button
                 variant="outline"
                 size="sm"
-                className="h-7 text-xs"
+                className="h-7 text-xs shrink-0 whitespace-nowrap"
                 onClick={(e) => { e.stopPropagation(); runAnalysis(); }}
                 disabled={isAnalyzing || tuyaRooms.length === 0}
                 title="KI-Analyse starten"
@@ -350,7 +350,8 @@ export function LearningProgress() {
                 ) : (
                   <>
                     <Sparkles className="h-3 w-3 mr-1" />
-                    Analyse starten
+                    <span className="sm:hidden">Analyse</span>
+                    <span className="hidden sm:inline">Analyse starten</span>
                   </>
                 )}
               </Button>
