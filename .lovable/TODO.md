@@ -1,6 +1,6 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-01-12
+Stand: 2026-06-10
 
 ---
 
