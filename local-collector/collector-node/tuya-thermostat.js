@@ -245,7 +245,7 @@ class ThermostatController {
     }
 
     try {
-      await this.ensureConnected(device, deviceConfig);
+      device = await this.ensureConnected(device, deviceConfig);
 
       // Atomic SET: mode=manual + target_temp in einem Roundtrip
       await this.withTimeout(
