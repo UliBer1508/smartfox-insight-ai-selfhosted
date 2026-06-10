@@ -1,26 +1,27 @@
-# Kompakte Batterie-Gate-Verlauf-Anzeige
-
 ## Ziel
-Die Karte „Verlauf — Batterie-Gate-Änderungen" wächst aktuell mit jeder neuen Zeile und verbraucht viel vertikalen Platz. Sie wird zu einer kompakten, einklappbaren Karte mit hart gedeckelter Höhe umgebaut.
+Auf dem Desktop entsteht im Dashboard ein großer leerer Bereich, weil die linke Spalte (Energiefluss‑Diagramm) viel kürzer ist als die rechte Spalte (Statistiken + Gate‑Verlauf + Leistungsverlauf). Der Leistungsverlauf soll künftig über die **volle Breite** unter dem oberen Bereich stehen.
 
-## Umsetzung (nur Frontend)
-Datei: `src/components/heating/AutomationStatusCards.tsx` → Funktion `BatterySocHistoryCard`.
+## Neues Layout (nur Desktop, Mobile bleibt gleich)
 
-### Eingeklappter Standardzustand (klein)
-- Header mit Titel + Zähler-Badge (z. B. „14 Einträge").
-- Darunter nur die **2 neuesten Einträge** als einzeilige, dichte Zeilen:
-  `03.06. 10:05 · 55→50% · ●` (farbiger Status-Punkt statt großem Badge).
-- Button/Chevron **„Alle anzeigen (N)"** klappt den Rest auf.
+```text
+┌───────────────────────────────────────────────┐
+│  Verbindung / KI-Vorschlag / Automations-Status │  (volle Breite, unverändert)
+├──────────────────────┬────────────────────────┤
+│  Energiefluss        │  Statistiken           │
+│  (Netz/Batterie)     │  + Gate-Verlauf        │
+├──────────────────────┴────────────────────────┤
+│  Leistungsverlauf  (volle Breite)              │
+├───────────────────────────────────────────────┤
+│  Batterie-Verlauf  (volle Breite, unverändert) │
+└───────────────────────────────────────────────┘
+```
 
-### Aufgeklappter Zustand (scrollbar, gedeckelt)
-- Vollständige Liste (`history.slice(0, 30)`) in einem Container mit **`max-h-72 overflow-y-auto`** → Karte wächst nie unbegrenzt.
-- Begründung pro Zeile **einzeilig mit `truncate`**; voller Text per **Tooltip** (`@/components/ui/tooltip`).
+- Oberer Bereich: 2 Spalten (`lg:grid-cols-2`) – links Energiefluss‑Diagramm, rechts Statistiken + Gate‑Verlaufskarte. Dadurch sind beide Spalten ähnlich hoch.
+- Der **Leistungsverlauf (`EnergyChart`)** wandert aus der rechten Spalte heraus und steht darunter über die ganze Breite. Mehr horizontaler Platz = bessere Lesbarkeit der Kurve.
+- Auf Mobile (`< lg`) stapeln sich wie bisher alle Karten untereinander – keine sichtbare Änderung.
 
-### Dichteres Layout
-- Status als kleiner farbiger Punkt (grün = übernommen, grau = abgelehnt, gelb = offen) statt großem Badge.
-- Zeitpunkt + Änderung kompakt in einer Zeile, Begründung gedimmt/gekürzt darunter (nur aufgeklappt).
-
-## Technik
-- `useState` für `expanded`-Zustand.
-- Bestehendes `Tooltip`-Component für volle Begründung.
-- Keine Schema-, Hook- oder Logik-Änderung; `useBatterySocSuggestions` bleibt unangetastet.
+## Technische Umsetzung
+- Datei: `src/pages/Index.tsx`, Block `activeTab === 'dashboard'` (Zeilen ~115–146).
+- `grid lg:grid-cols-3` → `grid lg:grid-cols-2`; linke Spalte `lg:col-span-1` (Energiefluss), rechte Spalte `lg:col-span-1` (EnergyStats + BatterySocHistoryCard).
+- `EnergyChart` aus der rechten Spalte entfernen und als eigenständiges Element direkt nach dem Grid (vor `BatteryHistoryChart`) über volle Breite rendern.
+- Keine Logik-, Hook- oder Datenänderungen; reine Layout-/Markup-Anpassung.
