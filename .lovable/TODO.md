@@ -1,6 +1,6 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-01-12
+Stand: 2026-06-10
 
 ---
 
@@ -74,7 +74,10 @@ Stand: 2026-01-12
 ### Offen
 - [ ] Thermostat-Sync zeigt manchmal alten Wert (Cache-Problem?)
 - [ ] Chart-Tooltip überlappt bei vielen Datenpunkten
+- [ ] **Haustür + Wohnzimmer:** Falls Versions-Sweep (v2.6.0) den Timeout nicht behebt → `local_key` neu holen (Tuya API Explorer/TinyTuya) und in `config.json` eintragen
 - ~~Heizhistorie zeigt keine Daten wenn duration_minutes NULL ist~~ (v2.2.2)
+- ~~2 Thermostate (Haustür/Wohnzimmer) dauerhaft „connection timed out" durch fixe Protokoll-Version~~ (v2.6.0 — Auto-Versions-Erkennung)
+- ~~„Alle pushen" wirft 403 im Lokalmodus~~ (v2.6.0 — modusbewusster Push)
 
 ---
 
