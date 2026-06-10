@@ -38,20 +38,43 @@ class ThermostatController {
     this.devices = new Map();    // device_id -> TuyAPI instance
     this.connected = new Map();  // device_id -> boolean
     this.queues = new Map();     // device_id -> Promise chain
+    this.versions = new Map();   // device_id -> aktuell genutzte Protokoll-Version
+  }
+
+  /**
+   * Liefert die aktuell für ein Gerät genutzte Protokoll-Version.
+   * Priorität: bereits funktionierende (gemerkte) > config > Default.
+   */
+  currentVersion(deviceConfig) {
+    return (
+      this.versions.get(deviceConfig.device_id) ||
+      deviceConfig.version ||
+      DEFAULT_VERSION
+    );
   }
 
   /**
    * Holt oder erstellt persistente TuyAPI Device-Instanz.
+   * Optional mit erzwungener Protokoll-Version (für Auto-Detection).
    */
-  getDevice(deviceConfig) {
+  getDevice(deviceConfig, forceVersion = null) {
     const key = deviceConfig.device_id;
+    const version = forceVersion || this.currentVersion(deviceConfig);
+
+    // Bei Versionswechsel: alte Instanz verwerfen und neu erstellen.
+    const existing = this.devices.get(key);
+    if (existing && forceVersion && this.versions.get(key) !== forceVersion) {
+      try { existing.disconnect(); } catch (_) {}
+      this.devices.delete(key);
+      this.connected.set(key, false);
+    }
 
     if (!this.devices.has(key)) {
       const device = new TuyAPI({
         id: deviceConfig.device_id,
         key: deviceConfig.local_key,
         ip: deviceConfig.ip,
-        version: '3.3',
+        version,
         issueGetOnConnect: false,
         issueRefreshOnConnect: false  // verhindert Session-Drops
       });
@@ -72,10 +95,12 @@ class ThermostatController {
 
       this.devices.set(key, device);
       this.connected.set(key, false);
+      this.versions.set(key, version);
     }
 
     return this.devices.get(key);
   }
+
 
   /**
    * Serialisiert Operationen pro Gerät.
