@@ -69,13 +69,25 @@ const MODE_CONFIG: Record<HeatingMode, { label: string; icon: React.ReactNode; c
   }
 };
 
+// Tatsächlichen Modus eines Raumes aus dem aktuellen Soll-Wert ableiten
+function getRoomActualMode(room: Room, settings: HeatingSettings): HeatingMode | null {
+  if (room.target_temp == null) return null;
+  const night = room.night_temp ?? settings.night_temp ?? 17;
+  const eco = room.eco_temp ?? settings.eco_temp ?? 19;
+  const comfort = room.comfort_temp ?? settings.comfort_temp ?? 21;
+  if (room.target_temp <= night) return 'night';
+  if (room.target_temp >= comfort) return 'comfort';
+  return 'eco';
+}
+
 export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batterySoc }: DailyHeatingScheduleProps) {
   // Zeit-Strings normalisieren (DB liefert HH:MM:SS, wir brauchen HH:MM)
   const nightStart = (settings.night_start_time || '22:00').substring(0, 5);
   const nightEnd = (settings.night_end_time || '06:00').substring(0, 5);
   const thresholdOn = settings.pv_surplus_threshold_on || 500;
   const thresholdOff = settings.pv_surplus_threshold_off || 200;
-  const currentMode = useMemo(() => 
+  // Theoretischer Modus aus Uhrzeit + PV-Überschuss (was der Plan vorsieht)
+  const plannedMode = useMemo(() => 
     getCurrentMode(nightStart, nightEnd, currentSurplus, thresholdOn),
     [nightStart, nightEnd, currentSurplus, thresholdOn]
   );
@@ -85,6 +97,26 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
     [rooms]
   );
 
+  // Tatsächlicher Zustand aus den realen Soll-Werten (Mehrheits-Modus der Räume)
+  const actualMode = useMemo<HeatingMode>(() => {
+    const counts: Record<HeatingMode, number> = { night: 0, eco: 0, comfort: 0 };
+    let total = 0;
+    for (const room of rooms) {
+      const m = getRoomActualMode(room, settings);
+      if (!m) continue;
+      counts[m]++;
+      total++;
+    }
+    if (total === 0) return plannedMode;
+    return (Object.entries(counts) as [HeatingMode, number][])
+      .sort((a, b) => b[1] - a[1])[0][0];
+  }, [rooms, settings, plannedMode]);
+
+  // Komfort-Sättigung: Plan möchte Komfort, Räume stehen aber faktisch auf Eco
+  const comfortSaturated = plannedMode === 'comfort' && actualMode === 'eco';
+
+  // Anzeige folgt dem tatsächlichen Zustand (konsistent zur Raum-Übersicht)
+  const currentMode = actualMode;
   const modeConfig = MODE_CONFIG[currentMode];
 
   return (
