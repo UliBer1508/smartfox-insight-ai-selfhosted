@@ -156,7 +156,8 @@ class ThermostatController {
           console.log(`[TuyAPI] ${deviceConfig.name}: Protokoll-Version automatisch auf v${version} umgestellt`);
         }
         this.versions.set(key, version);
-        return;
+        return dev;
+
       } catch (err) {
         lastErr = err;
         try { await dev.disconnect(); } catch (_) {}
