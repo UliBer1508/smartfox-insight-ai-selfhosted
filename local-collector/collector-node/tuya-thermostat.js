@@ -234,7 +234,7 @@ class ThermostatController {
   }
 
   async _setTemperatureWithRetry(deviceConfig, temperature, retryCount) {
-    const device = this.getDevice(deviceConfig);
+    let device = this.getDevice(deviceConfig);
 
     const tempValue = Math.round(temperature * 10);
     if (tempValue < 50 || tempValue > 350) {
