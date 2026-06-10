@@ -112,7 +112,7 @@ const Index = () => {
 
 
 
-            <div className="grid lg:grid-cols-3 gap-6">
+            <div className="grid lg:grid-cols-2 gap-6">
               <div className="lg:col-span-1 space-y-4">
                 <EnergyFlowDiagram
                   pvPower={currentReading?.pv_power ?? null}
@@ -124,8 +124,8 @@ const Index = () => {
 
               </div>
 
-              {/* Rechte Spalte: Statistiken, Chart und aktive Verbraucher */}
-              <div className="lg:col-span-2 space-y-6">
+              {/* Rechte Spalte: Statistiken und Gate-Verlauf */}
+              <div className="lg:col-span-1 space-y-6">
                 <EnergyStats
                   energyIn={energyIn}
                   energyOut={energyOut}
@@ -136,12 +136,13 @@ const Index = () => {
                   largestGapMinutes={largestGapMinutes}
                 />
                 
-                {/* Verlaufs-Karte bleibt in rechter Spalte (nur sichtbar wenn history > 0) */}
+                {/* Verlaufs-Karte (nur sichtbar wenn history > 0) */}
                 <BatterySocHistoryCard />
-
-                <EnergyChart readings={readings} />
               </div>
             </div>
+
+            {/* Leistungsverlauf über volle Breite */}
+            <EnergyChart readings={readings} />
 
             <BatteryHistoryChart />
 
