@@ -112,8 +112,8 @@ const Index = () => {
 
 
 
-            <div className="grid lg:grid-cols-2 gap-6">
-              <div className="lg:col-span-1 space-y-4">
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="md:col-span-1 space-y-4">
                 <EnergyFlowDiagram
                   pvPower={currentReading?.pv_power ?? null}
                   consumption={currentReading?.consumption ?? null}
@@ -125,7 +125,7 @@ const Index = () => {
               </div>
 
               {/* Rechte Spalte: Statistiken und Gate-Verlauf */}
-              <div className="lg:col-span-1 space-y-6">
+              <div className="md:col-span-1 space-y-6">
                 <EnergyStats
                   energyIn={energyIn}
                   energyOut={energyOut}
