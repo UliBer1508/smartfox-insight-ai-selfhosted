@@ -198,12 +198,10 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                 const nightTemp = room.night_temp || settings.night_temp || 17;
                 const ecoTemp = room.eco_temp || settings.eco_temp || 19;
                 const comfortTemp = room.comfort_temp || settings.comfort_temp || 21;
-                
-                // Determine which temp column to highlight based on current mode
-                const activeTemp = currentMode === 'night' ? nightTemp 
-                  : currentMode === 'comfort' ? comfortTemp 
-                  : ecoTemp;
-                
+
+                // Hervorhebung folgt dem tatsächlichen Soll-Wert des Raumes (Fallback: globaler Modus)
+                const roomMode = getRoomActualMode(room, settings) ?? currentMode;
+
                 return (
                   <tr key={room.id} className="border-b border-muted/50 last:border-0">
                     <td className="py-2 pr-1">
@@ -214,13 +212,13 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                         )}
                       </div>
                     </td>
-                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${roomMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
                       {nightTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${roomMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
                       {ecoTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${roomMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
                       {comfortTemp}°
                     </td>
                     <td className="text-center py-2 text-xs font-mono text-muted-foreground">
