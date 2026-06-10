@@ -284,10 +284,10 @@ class ThermostatController {
   }
 
   async _setModeWithRetry(deviceConfig, mode, retryCount) {
-    const device = this.getDevice(deviceConfig);
+    let device = this.getDevice(deviceConfig);
 
     try {
-      await this.ensureConnected(device, deviceConfig);
+      device = await this.ensureConnected(device, deviceConfig);
       await this.withTimeout(
         device.set({ dps: DPS.MODE, set: mode }),
         OP_TIMEOUT_MS,
