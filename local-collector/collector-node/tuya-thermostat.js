@@ -26,6 +26,13 @@ const CONNECT_TIMEOUT_MS = 5000;
 const OP_TIMEOUT_MS = 3000;
 const MAX_RETRIES = 2;
 
+// Protokoll-Versionen, die bei Connect-Fehler automatisch durchprobiert werden.
+// Firmware-OTAs heben TGP508 teils von 3.3 auf 3.4/3.5 — dann scheitert der
+// Handshake mit fester Version als "connection timed out", obwohl Port 6668 offen ist.
+const VERSION_CANDIDATES = ['3.3', '3.4', '3.5'];
+const DEFAULT_VERSION = '3.3';
+
+
 class ThermostatController {
   constructor() {
     this.devices = new Map();    // device_id -> TuyAPI instance
