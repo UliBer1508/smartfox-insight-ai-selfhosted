@@ -193,10 +193,10 @@ class ThermostatController {
   }
 
   async _getStatusWithRetry(deviceConfig, retryCount) {
-    const device = this.getDevice(deviceConfig);
+    let device = this.getDevice(deviceConfig);
 
     try {
-      await this.ensureConnected(device, deviceConfig);
+      device = await this.ensureConnected(device, deviceConfig);
       const status = await this.withTimeout(
         device.get({ schema: true }),
         OP_TIMEOUT_MS,
