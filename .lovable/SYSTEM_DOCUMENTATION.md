@@ -10,7 +10,7 @@
 > 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
 > 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
 >
-> **Letzte Aktualisierung:** 2026-04-19 · **Version:** 3.0 · **Projekt:** tvqmhdpcixkfsudxughs
+> **Letzte Aktualisierung:** 2026-06-10 · **Version:** 3.1 · **Projekt:** tvqmhdpcixkfsudxughs
 
 ---
 
