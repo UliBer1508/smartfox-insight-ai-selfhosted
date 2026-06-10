@@ -137,8 +137,9 @@ class ThermostatController {
   async ensureConnected(device, deviceConfig) {
     const key = deviceConfig.device_id;
     if (this.connected.get(key) && device.isConnected && device.isConnected()) {
-      return;
+      return device;
     }
+
 
     // Versionsreihenfolge: aktuelle zuerst, dann die restlichen Kandidaten.
     const current = this.currentVersion(deviceConfig);
