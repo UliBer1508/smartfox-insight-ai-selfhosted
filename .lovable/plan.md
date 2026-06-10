@@ -1,27 +1,36 @@
-## Ziel
-Auf dem Desktop entsteht im Dashboard ein großer leerer Bereich, weil die linke Spalte (Energiefluss‑Diagramm) viel kürzer ist als die rechte Spalte (Statistiken + Gate‑Verlauf + Leistungsverlauf). Der Leistungsverlauf soll künftig über die **volle Breite** unter dem oberen Bereich stehen.
+# Fix: "Alle pushen"-Fehler + Eco/Komfort-Widerspruch
 
-## Neues Layout (nur Desktop, Mobile bleibt gleich)
+## Diagnose
 
-```text
-┌───────────────────────────────────────────────┐
-│  Verbindung / KI-Vorschlag / Automations-Status │  (volle Breite, unverändert)
-├──────────────────────┬────────────────────────┤
-│  Energiefluss        │  Statistiken           │
-│  (Netz/Batterie)     │  + Gate-Verlauf        │
-├──────────────────────┴────────────────────────┤
-│  Leistungsverlauf  (volle Breite)              │
-├───────────────────────────────────────────────┤
-│  Batterie-Verlauf  (volle Breite, unverändert) │
-└───────────────────────────────────────────────┘
-```
+**1. "Alle pushen" wirft Fehler**
+Die Anlage läuft im **lokalen Steuerungsmodus** (`tuya_control_mode = local`). Die Buttons „Alle pushen" (HeatingDashboard) und „Sync now" (Raum-Übersicht) rufen aber die **Cloud**-Edge-Function `tuya-control/push-all-temps` auf. Diese blockt im Local-Modus mit HTTP 403 (`„Cloud-Modus deaktiviert"`). `supabase.functions.invoke` wertet 403 als Fehler → es erscheint nur eine generische Fehler-Meldung.
 
-- Oberer Bereich: 2 Spalten (`lg:grid-cols-2`) – links Energiefluss‑Diagramm, rechts Statistiken + Gate‑Verlaufskarte. Dadurch sind beide Spalten ähnlich hoch.
-- Der **Leistungsverlauf (`EnergyChart`)** wandert aus der rechten Spalte heraus und steht darunter über die ganze Breite. Mehr horizontaler Platz = bessere Lesbarkeit der Kurve.
-- Auf Mobile (`< lg`) stapeln sich wie bisher alle Karten untereinander – keine sichtbare Änderung.
+**2. Raumübersicht „Eco" vs. Tagesprogramm „Komfort"**
+Kein echter Konflikt:
+- Das Badge im *Heizungs-Tagesprogramm* zeigt nur den **theoretischen** Modus aus Uhrzeit + PV-Überschuss (850W > Schwelle 200W → „Komfort").
+- Die *Raum-Übersicht* zeigt die **tatsächlichen** Soll-Temperaturen (Eco 21°).
+- Die Räume stehen auf Eco, weil sie **komfort-gesättigt** sind (`comfort_saturated_at` heute gesetzt) — das ist laut Optimierungsstrategie korrekt (Estrich speichert Wärme, 1 Call zurück auf Eco). Das Badge ist nur irreführend, weil es die Sättigung ignoriert.
 
-## Technische Umsetzung
-- Datei: `src/pages/Index.tsx`, Block `activeTab === 'dashboard'` (Zeilen ~115–146).
-- `grid lg:grid-cols-3` → `grid lg:grid-cols-2`; linke Spalte `lg:col-span-1` (Energiefluss), rechte Spalte `lg:col-span-1` (EnergyStats + BatterySocHistoryCard).
-- `EnergyChart` aus der rechten Spalte entfernen und als eigenständiges Element direkt nach dem Grid (vor `BatteryHistoryChart`) über volle Breite rendern.
-- Keine Logik-, Hook- oder Datenänderungen; reine Layout-/Markup-Anpassung.
+## Lösung
+
+### A) Push im Local-Modus reparieren (`src/hooks/usePushAllTemps.ts`)
+`usePushAllTemps` modus-bewusst machen (analog `useTuyaControl.setTemperature`):
+- Modus via `useControlMode()` lesen.
+- **Local-Modus:** alle Räume mit `tuya_device_id` + `target_temp` laden und je Raum eine Zeile in `thermostat_commands` (`command: 'set_temp'`, `value: target_temp`, `status: 'pending'`) einfügen; `last_thermostat_sync` aktualisieren. Erfolgs-Toast „N Sollwerte an lokalen Service gesendet". Kein Cloud-Quota-Verbrauch.
+- **Cloud-Modus:** bestehender Aufruf bleibt unverändert.
+- Rückgabeobjekt vereinheitlichen (`{ success, successCount, totalCount }`), damit `RoomStatusTable.handleSyncNow` und `HeatingDashboard` weiter funktionieren.
+
+### B) Tagesprogramm-Badge ehrlich machen (`src/components/heating/DailyHeatingSchedule.tsx`)
+- Neben dem theoretischen PV-Modus den **tatsächlichen** Zustand aus den Räumen ableiten (Mehrheits-Soll vs. eco/comfort je Raum).
+- Wenn theoretisch „Komfort", die Räume aber faktisch auf Eco stehen (Komfort-Sättigung), Badge auf **„Eco"** setzen mit kleinem Zusatz-Hinweis **„Komfort gesättigt"** (Tooltip/Untertitel), statt fälschlich „Komfort" anzuzeigen.
+- Pro-Raum-Hervorhebung der aktiven Temperatur-Spalte an der **echten** `target_temp` ausrichten (nicht nur am globalen Modus), damit Tabelle und Badge konsistent zur Raum-Übersicht sind.
+- Die drei Referenz-Kacheln (Nacht/Eco/Komfort mit PV-Schwelle) bleiben als Erklärung erhalten.
+
+## Technische Details
+- `thermostat_commands`-Insert-Muster ist bereits in `useTuyaControl.ts` etabliert (set_temp/pending) und wird vom lokalen Node-Collector über LAN (Port 6668) abgearbeitet.
+- Komfort-Sättigung erkennbar über `target_temp <= eco_temp` bei theoretischem Komfort-Modus; `comfort_saturated_at` ist in der DB vorhanden (optional zusätzlich abfragbar, für die UI reicht der Temperaturvergleich).
+- Reine Frontend-/Hook-Änderungen, keine Edge-Function- oder DB-Schema-Änderung nötig.
+
+## Geänderte Dateien
+- `src/hooks/usePushAllTemps.ts` — Local-/Cloud-Verzweigung
+- `src/components/heating/DailyHeatingSchedule.tsx` — Badge & Spalten-Highlight an echtem Raumzustand

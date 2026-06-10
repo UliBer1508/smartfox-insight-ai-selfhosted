@@ -69,13 +69,25 @@ const MODE_CONFIG: Record<HeatingMode, { label: string; icon: React.ReactNode; c
   }
 };
 
+// Tatsächlichen Modus eines Raumes aus dem aktuellen Soll-Wert ableiten
+function getRoomActualMode(room: Room, settings: HeatingSettings): HeatingMode | null {
+  if (room.target_temp == null) return null;
+  const night = room.night_temp ?? settings.night_temp ?? 17;
+  const eco = room.eco_temp ?? settings.eco_temp ?? 19;
+  const comfort = room.comfort_temp ?? settings.comfort_temp ?? 21;
+  if (room.target_temp <= night) return 'night';
+  if (room.target_temp >= comfort) return 'comfort';
+  return 'eco';
+}
+
 export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batterySoc }: DailyHeatingScheduleProps) {
   // Zeit-Strings normalisieren (DB liefert HH:MM:SS, wir brauchen HH:MM)
   const nightStart = (settings.night_start_time || '22:00').substring(0, 5);
   const nightEnd = (settings.night_end_time || '06:00').substring(0, 5);
   const thresholdOn = settings.pv_surplus_threshold_on || 500;
   const thresholdOff = settings.pv_surplus_threshold_off || 200;
-  const currentMode = useMemo(() => 
+  // Theoretischer Modus aus Uhrzeit + PV-Überschuss (was der Plan vorsieht)
+  const plannedMode = useMemo(() => 
     getCurrentMode(nightStart, nightEnd, currentSurplus, thresholdOn),
     [nightStart, nightEnd, currentSurplus, thresholdOn]
   );
@@ -85,6 +97,26 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
     [rooms]
   );
 
+  // Tatsächlicher Zustand aus den realen Soll-Werten (Mehrheits-Modus der Räume)
+  const actualMode = useMemo<HeatingMode>(() => {
+    const counts: Record<HeatingMode, number> = { night: 0, eco: 0, comfort: 0 };
+    let total = 0;
+    for (const room of rooms) {
+      const m = getRoomActualMode(room, settings);
+      if (!m) continue;
+      counts[m]++;
+      total++;
+    }
+    if (total === 0) return plannedMode;
+    return (Object.entries(counts) as [HeatingMode, number][])
+      .sort((a, b) => b[1] - a[1])[0][0];
+  }, [rooms, settings, plannedMode]);
+
+  // Komfort-Sättigung: Plan möchte Komfort, Räume stehen aber faktisch auf Eco
+  const comfortSaturated = plannedMode === 'comfort' && actualMode === 'eco';
+
+  // Anzeige folgt dem tatsächlichen Zustand (konsistent zur Raum-Übersicht)
+  const currentMode = actualMode;
   const modeConfig = MODE_CONFIG[currentMode];
 
   return (
@@ -95,10 +127,20 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
             <Thermometer className="h-5 w-5 text-primary" />
             Heizungs-Tagesprogramm
           </CardTitle>
-          <Badge variant="outline" className={`${modeConfig.color} ${modeConfig.bgColor} border-0`}>
-            {modeConfig.icon}
-            <span className="ml-1">{modeConfig.label}</span>
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {comfortSaturated && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                title="PV-Überschuss würde Komfort erlauben, die Räume sind aber komfort-gesättigt und stehen auf Eco. Der Estrich speichert die Wärme — das ist gewolltes Verhalten."
+              >
+                Komfort gesättigt
+              </span>
+            )}
+            <Badge variant="outline" className={`${modeConfig.color} ${modeConfig.bgColor} border-0`}>
+              {modeConfig.icon}
+              <span className="ml-1">{modeConfig.label}</span>
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -156,12 +198,10 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                 const nightTemp = room.night_temp || settings.night_temp || 17;
                 const ecoTemp = room.eco_temp || settings.eco_temp || 19;
                 const comfortTemp = room.comfort_temp || settings.comfort_temp || 21;
-                
-                // Determine which temp column to highlight based on current mode
-                const activeTemp = currentMode === 'night' ? nightTemp 
-                  : currentMode === 'comfort' ? comfortTemp 
-                  : ecoTemp;
-                
+
+                // Hervorhebung folgt dem tatsächlichen Soll-Wert des Raumes (Fallback: globaler Modus)
+                const roomMode = getRoomActualMode(room, settings) ?? currentMode;
+
                 return (
                   <tr key={room.id} className="border-b border-muted/50 last:border-0">
                     <td className="py-2 pr-1">
@@ -172,13 +212,13 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
                         )}
                       </div>
                     </td>
-                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${roomMode === 'night' ? 'font-bold text-blue-400' : 'text-muted-foreground'}`}>
                       {nightTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${roomMode === 'eco' ? 'font-bold text-yellow-500' : 'text-muted-foreground'}`}>
                       {ecoTemp}°
                     </td>
-                    <td className={`text-center py-2 font-mono text-xs ${currentMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
+                    <td className={`text-center py-2 font-mono text-xs ${roomMode === 'comfort' ? 'font-bold text-orange-500' : 'text-muted-foreground'}`}>
                       {comfortTemp}°
                     </td>
                     <td className="text-center py-2 text-xs font-mono text-muted-foreground">
