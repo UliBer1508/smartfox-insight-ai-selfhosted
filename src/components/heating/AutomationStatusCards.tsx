@@ -274,54 +274,122 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Verlaufs-Karte
+// Verlaufs-Karte — kompakt & einklappbar, harte Höhendeckelung
 // ---------------------------------------------------------------------------
+type BatterySocSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
 export function BatterySocHistoryCard() {
   const { history } = useBatterySocSuggestions();
+  const [expanded, setExpanded] = useState(false);
+
   if (history.length === 0) return null;
+
+  const total = history.length;
+  const preview = history.slice(0, 2);
+  const fullList = history.slice(0, 30);
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm">Verlauf — Batterie-Gate-Änderungen</CardTitle>
+        <CardTitle className="text-sm flex items-center justify-between gap-2">
+          <span>Verlauf — Batterie-Gate-Änderungen</span>
+          <Badge variant="secondary" className="font-normal">
+            {total} {total === 1 ? 'Eintrag' : 'Einträge'}
+          </Badge>
+        </CardTitle>
       </CardHeader>
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full text-xs">
-            <thead className="text-muted-foreground">
-              <tr className="text-left">
-                <th className="py-1 pr-3 font-normal">Zeitpunkt</th>
-                <th className="py-1 pr-3 font-normal">Status</th>
-                <th className="py-1 pr-3 font-normal">Änderung</th>
-                <th className="py-1 font-normal">Begründung</th>
-              </tr>
-            </thead>
-            <tbody>
-              {history.slice(0, 10).map((h) => (
-                <tr key={h.id} className="border-t">
-                  <td className="py-1.5 pr-3 whitespace-nowrap">
-                    {format(new Date(h.created_at), 'dd.MM. HH:mm', { locale: de })}
-                  </td>
-                  <td className="py-1.5 pr-3">
-                    <StatusBadge status={h.status} />
-                  </td>
-                  <td className="py-1.5 pr-3 font-mono whitespace-nowrap">
-                    {h.old_value}% → {h.new_value}%
-                  </td>
-                  <td className="py-1.5 text-muted-foreground line-clamp-2">{h.reason_text}</td>
-                </tr>
+      <CardContent className="pt-0">
+        {!expanded ? (
+          <div className="space-y-1">
+            {preview.map((h) => (
+              <HistoryRow key={h.id} item={h} showReason={false} />
+            ))}
+            {total > preview.length && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setExpanded(true)}
+                className="w-full justify-center h-7 text-xs text-muted-foreground mt-1"
+              >
+                <ChevronDown className="w-3.5 h-3.5 mr-1" />
+                Alle anzeigen ({total})
+              </Button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <div className="max-h-72 overflow-y-auto space-y-1 pr-1">
+              {fullList.map((h) => (
+                <HistoryRow key={h.id} item={h} showReason />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExpanded(false)}
+              className="w-full justify-center h-7 text-xs text-muted-foreground mt-1"
+            >
+              <ChevronUp className="w-3.5 h-3.5 mr-1" />
+              Einklappen
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function StatusBadge({ status }: { status: BatterySocSuggestionStatus }) {
-  if (status === 'pending') return <Badge className="bg-warning/20 text-foreground border border-warning/40">Offen</Badge>;
-  if (status === 'accepted') return <Badge className="bg-success/20 text-foreground border border-success/40">Übernommen</Badge>;
-  return <Badge variant="secondary">Abgelehnt</Badge>;
+function HistoryRow({
+  item,
+  showReason,
+}: {
+  item: ReturnType<typeof useBatterySocSuggestions>['history'][number];
+  showReason: boolean;
+}) {
+  const row = (
+    <div className="flex items-baseline gap-2 text-xs py-1 border-t first:border-t-0">
+      <StatusDot status={item.status as BatterySocSuggestionStatus} />
+      <span className="text-muted-foreground whitespace-nowrap tabular-nums">
+        {format(new Date(item.created_at), 'dd.MM. HH:mm', { locale: de })}
+      </span>
+      <span className="font-mono whitespace-nowrap">
+        {item.old_value}% → {item.new_value}%
+      </span>
+      {showReason && item.reason_text && (
+        <span className="text-muted-foreground truncate flex-1 min-w-0">{item.reason_text}</span>
+      )}
+    </div>
+  );
+
+  if (showReason && item.reason_text) {
+    return (
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>{row}</TooltipTrigger>
+          <TooltipContent className="max-w-xs text-xs leading-relaxed">
+            {item.reason_text}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    );
+  }
+
+  return row;
 }
-type BatterySocSuggestionStatus = 'pending' | 'accepted' | 'dismissed';
+
+const STATUS_DOT: Record<BatterySocSuggestionStatus, { cls: string; title: string }> = {
+  pending: { cls: 'bg-warning', title: 'Offen' },
+  accepted: { cls: 'bg-success', title: 'Übernommen' },
+  dismissed: { cls: 'bg-muted-foreground', title: 'Abgelehnt' },
+};
+
+function StatusDot({ status }: { status: BatterySocSuggestionStatus }) {
+  const cfg = STATUS_DOT[status] ?? STATUS_DOT.dismissed;
+  return (
+    <span
+      className={`inline-block w-2 h-2 rounded-full shrink-0 ${cfg.cls}`}
+      title={cfg.title}
+      aria-label={cfg.title}
+    />
+  );
+}
