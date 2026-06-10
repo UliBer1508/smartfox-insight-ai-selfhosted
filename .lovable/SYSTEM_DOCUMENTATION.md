@@ -293,14 +293,19 @@ const tolerate =
 ### TGP508 DPS-Mapping (alphanumerisch erforderlich)
 - `mode`, `temp_set`, `temp_current`, `switch`, `work_state`
 
-### Lokaler Service – Robustheit (Hybrid v2)
+### Lokaler Service – Robustheit (Hybrid v4)
 `local-collector/collector-node/tuya-thermostat.js` implementiert:
 1. **Per-Device Command-Queue** (`enqueue`) — serialisiert alle Operationen pro `device_id`, verhindert hängende Promises bei parallelem Zugriff (Sync + PV-Automation)
-2. **Connect-Timeout 5s** (`safeConnect`) — bricht ewig hängende `connect()`-Aufrufe bei toter IP ab
-3. **Garantiertes Disconnect** (`safeDisconnect` im `finally`) — verhindert half-open TCP-Verbindungen, auch im Fehlerpfad
-4. **Retry 3× mit Exponential Backoff** (1s, 2s, 3s) innerhalb der Queue, mit Disconnect zwischen Retries
-5. **DPS-Mapping beibehalten:** `MODE='1'` (string auto/manual/off), `TARGET_TEMP='2'` (×10), `CURRENT_TEMP='3'` (×10), `HEATING='4'` (read-only)
-6. **setTemperature-Sequenz:** erst `mode='manual'` (deaktiviert interne Zeitprogramme), dann `target_temp` × 10
+2. **Persistente Verbindungen** (kein Connect/Disconnect pro Befehl), `issueRefreshOnConnect: false` verhindert Session-Drops
+3. **Connect-Timeout 5s** + **Operation-Timeout 3s** (`withTimeout`) — bricht ewig hängende Aufrufe bei toter IP/Handshake ab
+4. **Garantiertes Force-Disconnect** im Fehlerpfad + **2 Retries mit Backoff** (1s, 2s) innerhalb der Queue
+5. **Auto-Protokoll-Versions-Erkennung** (v4): Scheitert der Connect (typisch „connection timed out" trotz offenem Port 6668), werden automatisch **3.3 → 3.4 → 3.5** durchprobiert. Die erste funktionierende Version wird pro `device_id` in der `versions`-Map gemerkt und künftig direkt genutzt. Fängt Firmware-OTA-bedingte Versionswechsel einzelner TGP508 selbstheilend ab. `ensureConnected` gibt die (ggf. neu erstellte) aktive Instanz zurück; Aufrufer nutzen diese. Optionales `version`-Feld pro Gerät in `config.json` (Default `3.3`).
+6. **DPS-Mapping:** `MODE='1'` (string auto/manual/off), `TARGET_TEMP='2'` (×10), `CURRENT_TEMP='3'` (×10), `HEATING='4'` (read-only)
+7. **setTemperature atomar:** `{multiple:true}` setzt `mode='manual'` + `target_temp` in 1 Roundtrip
+8. **TCP-Preflight** (`tcpProbe`, Port 6668, <1s) im Collector vor jedem Sync — unerreichbare Geräte werden sofort als `device_offline` geloggt, erreichbare in Batches á 3 verarbeitet.
+
+> **Wichtig:** Bleibt ein Gerät trotz Versions-Sweep im Timeout, ist der `local_key` veraltet (Gerät in Tuya/Smart-Life-App neu gekoppelt → Key rotiert). Key neu holen (API Explorer/TinyTuya) und in `config.json` eintragen.
+
 
 ### Push-All Funktion
 Manueller Sync aller 12 Thermostate (Settings) — überschreibt physische Werte mit DB-Targets.
