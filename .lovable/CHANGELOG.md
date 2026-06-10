@@ -5,7 +5,23 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.6.0] - 2026-06-10
+
+### Fixed (Thermostat-Sync: 2 Geräte dauerhaft offline)
+- **Auto-Protokoll-Versions-Erkennung** (`local-collector/collector-node/tuya-thermostat.js`): Haustür (seit 09.05.) und Wohnzimmer (seit 26.05.) timeten beim TuyAPI-Handshake dauerhaft mit „connection timed out" aus, obwohl der TCP-Preflight auf Port 6668 bestand (Port offen, Handshake scheitert). Ursache: fest verdrahtete `version: '3.3'` — nach Firmware-OTA können einzelne TGP508 auf 3.4/3.5 wechseln. Der Collector probiert nun bei Connect-Fehler automatisch **3.3 → 3.4 → 3.5** durch, merkt sich die funktionierende Version pro Gerät (`versions`-Map) und nutzt sie künftig direkt.
+- **`ensureConnected` gibt aktive Instanz zurück**: Bei Versionswechsel wird die TuyAPI-Instanz neu erstellt; alle Aufrufer (`getStatus`/`setTemperature`/`setMode`) verwenden jetzt die zurückgegebene Instanz statt einer veralteten Referenz.
+- **Optionales `version`-Feld** pro Gerät in `config.json` wird respektiert (Default `3.3`).
+- **Hinweis:** Bleibt der Timeout trotz Versions-Sweep, ist der `local_key` veraltet (Gerät wurde in der Tuya/Smart-Life-App neu gekoppelt → Key rotiert) und muss neu geholt werden.
+
+### Changed (UI Konsistenz & Desktop-Layout)
+- **Desktop-Layout** (`src/pages/Index.tsx`): 2-Spalten-Layout schaltet jetzt ab `md` (768px) statt `lg` (1024px); Leistungsverlauf-Chart über volle Breite.
+- **Push-All modusbewusst** (`src/hooks/usePushAllTemps.ts`): Im **Lokalmodus** werden `thermostat_commands` direkt aus `rooms.target_temp` eingefügt (LAN-Pickup, keine Cloud-Quota); im **Cloudmodus** weiterhin `tuya-control/push-all-temps`. Einheitliches Rückgabeobjekt `{ success, successCount, totalCount }`. Behebt den 403-Fehler beim „Alle pushen" im Lokalmodus.
+- **Tagesprogramm-Badge zeigt Ist-Zustand** (`src/components/heating/DailyHeatingSchedule.tsx`): Badge/Spalten folgen dem tatsächlichen `target_temp` pro Raum statt nur dem theoretischen PV-Modus. Bei Komfort-Sättigung (Räume auf Eco trotz „Komfort"-Plan) erscheint Hinweis „Komfort gesättigt".
+
+---
+
 ## [2.5.0] - 2026-04-28
+
 
 ### Changed (Parallele Heizungs-Allokation + UI-Feedback)
 - **Parallele Eco-Aktivierung** (`pv-automation`): Bei ausreichendem Export werden mehrere Räume gleichzeitig auf Eco gestartet — pro Raum genau **ein** Tuya-Call, kein zusätzlicher Prüf-Call. Sobald Budget frei wird (Raum erreicht Target oder mehr Solar verfügbar), wird der nächste Raum aufgenommen. Berücksichtigt `parallel_heating_capacity`, dynamischen Baseload-Puffer, symmetrischen Trend-Bonus und Forecast-Lookahead.
