@@ -127,10 +127,20 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
             <Thermometer className="h-5 w-5 text-primary" />
             Heizungs-Tagesprogramm
           </CardTitle>
-          <Badge variant="outline" className={`${modeConfig.color} ${modeConfig.bgColor} border-0`}>
-            {modeConfig.icon}
-            <span className="ml-1">{modeConfig.label}</span>
-          </Badge>
+          <div className="flex items-center gap-1.5">
+            {comfortSaturated && (
+              <span
+                className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                title="PV-Überschuss würde Komfort erlauben, die Räume sind aber komfort-gesättigt und stehen auf Eco. Der Estrich speichert die Wärme — das ist gewolltes Verhalten."
+              >
+                Komfort gesättigt
+              </span>
+            )}
+            <Badge variant="outline" className={`${modeConfig.color} ${modeConfig.bgColor} border-0`}>
+              {modeConfig.icon}
+              <span className="ml-1">{modeConfig.label}</span>
+            </Badge>
+          </div>
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
