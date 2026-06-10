@@ -26,25 +26,55 @@ const CONNECT_TIMEOUT_MS = 5000;
 const OP_TIMEOUT_MS = 3000;
 const MAX_RETRIES = 2;
 
+// Protokoll-Versionen, die bei Connect-Fehler automatisch durchprobiert werden.
+// Firmware-OTAs heben TGP508 teils von 3.3 auf 3.4/3.5 — dann scheitert der
+// Handshake mit fester Version als "connection timed out", obwohl Port 6668 offen ist.
+const VERSION_CANDIDATES = ['3.3', '3.4', '3.5'];
+const DEFAULT_VERSION = '3.3';
+
+
 class ThermostatController {
   constructor() {
     this.devices = new Map();    // device_id -> TuyAPI instance
     this.connected = new Map();  // device_id -> boolean
     this.queues = new Map();     // device_id -> Promise chain
+    this.versions = new Map();   // device_id -> aktuell genutzte Protokoll-Version
+  }
+
+  /**
+   * Liefert die aktuell für ein Gerät genutzte Protokoll-Version.
+   * Priorität: bereits funktionierende (gemerkte) > config > Default.
+   */
+  currentVersion(deviceConfig) {
+    return (
+      this.versions.get(deviceConfig.device_id) ||
+      deviceConfig.version ||
+      DEFAULT_VERSION
+    );
   }
 
   /**
    * Holt oder erstellt persistente TuyAPI Device-Instanz.
+   * Optional mit erzwungener Protokoll-Version (für Auto-Detection).
    */
-  getDevice(deviceConfig) {
+  getDevice(deviceConfig, forceVersion = null) {
     const key = deviceConfig.device_id;
+    const version = forceVersion || this.currentVersion(deviceConfig);
+
+    // Bei Versionswechsel: alte Instanz verwerfen und neu erstellen.
+    const existing = this.devices.get(key);
+    if (existing && forceVersion && this.versions.get(key) !== forceVersion) {
+      try { existing.disconnect(); } catch (_) {}
+      this.devices.delete(key);
+      this.connected.set(key, false);
+    }
 
     if (!this.devices.has(key)) {
       const device = new TuyAPI({
         id: deviceConfig.device_id,
         key: deviceConfig.local_key,
         ip: deviceConfig.ip,
-        version: '3.3',
+        version,
         issueGetOnConnect: false,
         issueRefreshOnConnect: false  // verhindert Session-Drops
       });
@@ -65,10 +95,12 @@ class ThermostatController {
 
       this.devices.set(key, device);
       this.connected.set(key, false);
+      this.versions.set(key, version);
     }
 
     return this.devices.get(key);
   }
+
 
   /**
    * Serialisiert Operationen pro Gerät.
@@ -96,15 +128,48 @@ class ThermostatController {
   /**
    * Stellt sicher, dass das Gerät verbunden ist (persistente Connection).
    * Reconnect nur, wenn nicht verbunden.
+   *
+   * Auto-Versions-Erkennung: scheitert der Handshake mit der aktuellen
+   * Protokoll-Version (typisch "connection timed out" trotz offenem Port),
+   * werden die übrigen Versionen (3.3/3.4/3.5) durchprobiert. Die erste,
+   * die verbindet, wird gemerkt und künftig direkt genutzt.
    */
   async ensureConnected(device, deviceConfig) {
     const key = deviceConfig.device_id;
     if (this.connected.get(key) && device.isConnected && device.isConnected()) {
-      return;
+      return device;
     }
-    await this.withTimeout(device.connect(), CONNECT_TIMEOUT_MS, `${deviceConfig.name} connect`);
-    this.connected.set(key, true);
+
+
+    // Versionsreihenfolge: aktuelle zuerst, dann die restlichen Kandidaten.
+    const current = this.currentVersion(deviceConfig);
+    const order = [current, ...VERSION_CANDIDATES.filter(v => v !== current)];
+
+    let lastErr;
+    for (let i = 0; i < order.length; i++) {
+      const version = order[i];
+      const dev = this.getDevice(deviceConfig, version);
+      try {
+        await this.withTimeout(dev.connect(), CONNECT_TIMEOUT_MS, `${deviceConfig.name} connect (v${version})`);
+        this.connected.set(key, true);
+        if (version !== current) {
+          console.log(`[TuyAPI] ${deviceConfig.name}: Protokoll-Version automatisch auf v${version} umgestellt`);
+        }
+        this.versions.set(key, version);
+        return dev;
+
+      } catch (err) {
+        lastErr = err;
+        try { await dev.disconnect(); } catch (_) {}
+        this.connected.set(key, false);
+        if (i < order.length - 1) {
+          console.log(`[TuyAPI] ${deviceConfig.name}: Connect v${version} fehlgeschlagen (${err.message}) → versuche v${order[i + 1]}`);
+        }
+      }
+    }
+    throw lastErr || new Error(`${deviceConfig.name}: Connect mit allen Protokoll-Versionen fehlgeschlagen`);
   }
+
 
   /**
    * Forciert Disconnect (z.B. nach Fehler, vor Retry).
@@ -128,10 +193,10 @@ class ThermostatController {
   }
 
   async _getStatusWithRetry(deviceConfig, retryCount) {
-    const device = this.getDevice(deviceConfig);
+    let device = this.getDevice(deviceConfig);
 
     try {
-      await this.ensureConnected(device, deviceConfig);
+      device = await this.ensureConnected(device, deviceConfig);
       const status = await this.withTimeout(
         device.get({ schema: true }),
         OP_TIMEOUT_MS,
@@ -169,7 +234,7 @@ class ThermostatController {
   }
 
   async _setTemperatureWithRetry(deviceConfig, temperature, retryCount) {
-    const device = this.getDevice(deviceConfig);
+    let device = this.getDevice(deviceConfig);
 
     const tempValue = Math.round(temperature * 10);
     if (tempValue < 50 || tempValue > 350) {
@@ -180,7 +245,7 @@ class ThermostatController {
     }
 
     try {
-      await this.ensureConnected(device, deviceConfig);
+      device = await this.ensureConnected(device, deviceConfig);
 
       // Atomic SET: mode=manual + target_temp in einem Roundtrip
       await this.withTimeout(
@@ -219,10 +284,10 @@ class ThermostatController {
   }
 
   async _setModeWithRetry(deviceConfig, mode, retryCount) {
-    const device = this.getDevice(deviceConfig);
+    let device = this.getDevice(deviceConfig);
 
     try {
-      await this.ensureConnected(device, deviceConfig);
+      device = await this.ensureConnected(device, deviceConfig);
       await this.withTimeout(
         device.set({ dps: DPS.MODE, set: mode }),
         OP_TIMEOUT_MS,
