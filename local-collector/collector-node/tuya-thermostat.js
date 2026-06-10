@@ -128,15 +128,46 @@ class ThermostatController {
   /**
    * Stellt sicher, dass das Gerät verbunden ist (persistente Connection).
    * Reconnect nur, wenn nicht verbunden.
+   *
+   * Auto-Versions-Erkennung: scheitert der Handshake mit der aktuellen
+   * Protokoll-Version (typisch "connection timed out" trotz offenem Port),
+   * werden die übrigen Versionen (3.3/3.4/3.5) durchprobiert. Die erste,
+   * die verbindet, wird gemerkt und künftig direkt genutzt.
    */
   async ensureConnected(device, deviceConfig) {
     const key = deviceConfig.device_id;
     if (this.connected.get(key) && device.isConnected && device.isConnected()) {
       return;
     }
-    await this.withTimeout(device.connect(), CONNECT_TIMEOUT_MS, `${deviceConfig.name} connect`);
-    this.connected.set(key, true);
+
+    // Versionsreihenfolge: aktuelle zuerst, dann die restlichen Kandidaten.
+    const current = this.currentVersion(deviceConfig);
+    const order = [current, ...VERSION_CANDIDATES.filter(v => v !== current)];
+
+    let lastErr;
+    for (let i = 0; i < order.length; i++) {
+      const version = order[i];
+      const dev = this.getDevice(deviceConfig, version);
+      try {
+        await this.withTimeout(dev.connect(), CONNECT_TIMEOUT_MS, `${deviceConfig.name} connect (v${version})`);
+        this.connected.set(key, true);
+        if (version !== current) {
+          console.log(`[TuyAPI] ${deviceConfig.name}: Protokoll-Version automatisch auf v${version} umgestellt`);
+        }
+        this.versions.set(key, version);
+        return;
+      } catch (err) {
+        lastErr = err;
+        try { await dev.disconnect(); } catch (_) {}
+        this.connected.set(key, false);
+        if (i < order.length - 1) {
+          console.log(`[TuyAPI] ${deviceConfig.name}: Connect v${version} fehlgeschlagen (${err.message}) → versuche v${order[i + 1]}`);
+        }
+      }
+    }
+    throw lastErr || new Error(`${deviceConfig.name}: Connect mit allen Protokoll-Versionen fehlgeschlagen`);
   }
+
 
   /**
    * Forciert Disconnect (z.B. nach Fehler, vor Retry).
