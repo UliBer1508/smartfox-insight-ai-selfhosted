@@ -305,6 +305,27 @@ async function syncThermostats() {
   const fail = total - ok;
   const dur = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log(`[Tuya] Sync fertig in ${dur}s — OK: ${ok}/${total}, Fehler: ${fail} (offline: ${offline.length})`);
+
+  // === Heartbeat: service_health aktualisieren ===
+  // pv-automation prüft service_health.last_sync (5-Minuten-Schwelle), um den
+  // lokalen Tuya-Service als online zu erkennen. Hier nach jedem Sync schreiben.
+  try {
+    const { error: hbErr } = await supabase
+      .from('service_health')
+      .upsert({
+        service_name: 'tuya-thermostat',
+        last_sync: new Date().toISOString(),
+        devices_configured: total,
+        devices_ok: ok,
+        last_error_count: fail,
+        updated_at: new Date().toISOString()
+      }, { onConflict: 'service_name' });
+    if (hbErr) {
+      console.error('[Heartbeat] service_health Upsert Fehler:', hbErr.message);
+    }
+  } catch (e) {
+    console.error('[Heartbeat] service_health Fehler:', e.message);
+  }
 }
 
 // Process pending commands from PWA
