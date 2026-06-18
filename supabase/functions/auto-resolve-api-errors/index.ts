@@ -61,12 +61,12 @@ Deno.serve(async (req) => {
     if (!error) summary.heartbeat_resolved = data?.length ?? 0;
   }
 
-  // 2) connection_error pro Raum: aufgelöst, wenn Raum in den letzten 30 min einen executed Command hat
-  //    ODER der Fehler älter als 2 h ist (kein neuer Fehler-Trigger).
+  // 2) connection_error / device_offline pro Raum: aufgelöst, wenn Raum in den letzten 30 min
+  //    einen executed Command hat ODER der Fehler älter als 2 h ist (kein neuer Fehler-Trigger).
   const { data: openConnErrors } = await supabase
     .from('api_errors')
     .select('id, room_id, created_at')
-    .eq('error_type', 'connection_error')
+    .in('error_type', ['connection_error', 'device_offline'])
     .is('resolved_at', null);
 
   if (openConnErrors && openConnErrors.length > 0) {
