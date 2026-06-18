@@ -80,9 +80,12 @@ export function useApiErrors() {
 
       // Hide stale connection/offline errors whose underlying cause has long passed.
       const cutoff = Date.now() - STALE_HIDE_MS;
-      return (data as ApiError[]).filter(
+      const fresh = (data as ApiError[]).filter(
         (e) => !(STALE_HIDE_TYPES.has(e.error_type) && new Date(e.created_at).getTime() < cutoff),
       );
+
+      // Suppress flapping single-cycle outages; only show persistent/repeated ones.
+      return filterFlapping(fresh);
     },
     refetchInterval: 30000, // Refresh every 30 seconds
   });
