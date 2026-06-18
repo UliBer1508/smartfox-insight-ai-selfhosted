@@ -22,6 +22,47 @@ export interface ApiError {
 const STALE_HIDE_MS = 2 * 60 * 60 * 1000; // 2 hours
 const STALE_HIDE_TYPES = new Set(['connection_error', 'device_offline']);
 
+// Transient/flapping types: a single Tuya device that doesn't answer in one
+// sync cycle (and recovers in the next ~45-60s) should NOT immediately surface
+// in the banner. These types are only shown once they persist (see below).
+const TRANSIENT_TYPES = new Set(['connection_error', 'device_offline']);
+// A transient error is considered a "real" persistent issue when either:
+//  - the oldest open error for this device is older than this threshold, OR
+//  - there are at least PERSIST_MIN_COUNT open entries for the same device.
+const PERSIST_MIN_AGE_MS = 3 * 60 * 1000; // 3 minutes
+const PERSIST_MIN_COUNT = 3;
+
+// Group key for a transient error: prefer the physical device, fall back to room.
+function deviceKey(e: ApiError): string {
+  return e.device_id || e.room_id || `${e.source}:${e.error_type}`;
+}
+
+// Suppress flapping single-cycle outages: keep transient errors only for devices
+// whose failures have persisted (old enough) or repeated (enough open entries).
+function filterFlapping(list: ApiError[]): ApiError[] {
+  const now = Date.now();
+  const groups = new Map<string, ApiError[]>();
+  for (const e of list) {
+    if (!TRANSIENT_TYPES.has(e.error_type)) continue;
+    const key = deviceKey(e);
+    const arr = groups.get(key);
+    if (arr) arr.push(e);
+    else groups.set(key, [e]);
+  }
+
+  const persistentKeys = new Set<string>();
+  for (const [key, arr] of groups) {
+    const oldest = Math.min(...arr.map((e) => new Date(e.created_at).getTime()));
+    const isOldEnough = now - oldest > PERSIST_MIN_AGE_MS;
+    const isRepeated = arr.length >= PERSIST_MIN_COUNT;
+    if (isOldEnough || isRepeated) persistentKeys.add(key);
+  }
+
+  return list.filter(
+    (e) => !TRANSIENT_TYPES.has(e.error_type) || persistentKeys.has(deviceKey(e)),
+  );
+}
+
 export function useApiErrors() {
   const queryClient = useQueryClient();
 
@@ -39,9 +80,12 @@ export function useApiErrors() {
 
       // Hide stale connection/offline errors whose underlying cause has long passed.
       const cutoff = Date.now() - STALE_HIDE_MS;
-      return (data as ApiError[]).filter(
+      const fresh = (data as ApiError[]).filter(
         (e) => !(STALE_HIDE_TYPES.has(e.error_type) && new Date(e.created_at).getTime() < cutoff),
       );
+
+      // Suppress flapping single-cycle outages; only show persistent/repeated ones.
+      return filterFlapping(fresh);
     },
     refetchInterval: 30000, // Refresh every 30 seconds
   });
