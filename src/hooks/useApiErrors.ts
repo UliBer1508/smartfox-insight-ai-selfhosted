@@ -17,6 +17,11 @@ export interface ApiError {
   retry_count: number;
 }
 
+// Connection/offline errors auto-expire from the UI after this window,
+// even if the DB row hasn't been resolved yet by the auto-resolve cron.
+const STALE_HIDE_MS = 2 * 60 * 60 * 1000; // 2 hours
+const STALE_HIDE_TYPES = new Set(['connection_error', 'device_offline']);
+
 export function useApiErrors() {
   const queryClient = useQueryClient();
 
@@ -31,7 +36,12 @@ export function useApiErrors() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      return data as ApiError[];
+
+      // Hide stale connection/offline errors whose underlying cause has long passed.
+      const cutoff = Date.now() - STALE_HIDE_MS;
+      return (data as ApiError[]).filter(
+        (e) => !(STALE_HIDE_TYPES.has(e.error_type) && new Date(e.created_at).getTime() < cutoff),
+      );
     },
     refetchInterval: 30000, // Refresh every 30 seconds
   });
