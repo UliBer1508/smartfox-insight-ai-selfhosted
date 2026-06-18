@@ -732,14 +732,17 @@ Deno.serve(async (req) => {
         // NIGHT-QUIET-GATE: Pro Nacht nur EINMAL Tuya-Calls absetzen.
         // "Nacht-Schlüssel" = Datum des Nacht-Beginns (Wien). Wenn aktuelle Wien-Zeit
         // vor night_end ist, gehört sie zur "Nacht" des Vortages.
-        const wienNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+        const wienHour = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false }));
+        const wienMinute = parseInt(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna', minute: '2-digit' }));
+        const wienDateStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' }); // YYYY-MM-DD in Wien-Zeit
         const { hour: nightEndHour, minute: nightEndMin } = parseTimeOfDay(nightEndTime, '08:00');
         const isBeforeNightEnd =
-          wienNow.getHours() < nightEndHour ||
-          (wienNow.getHours() === nightEndHour && wienNow.getMinutes() < nightEndMin);
-        const nightKeyDate = new Date(wienNow);
+          wienHour < nightEndHour ||
+          (wienHour === nightEndHour && wienMinute < nightEndMin);
+        const [wienY, wienM, wienD] = wienDateStr.split('-').map(Number);
+        const nightKeyDate = new Date(wienY, wienM - 1, wienD);
         if (isBeforeNightEnd) nightKeyDate.setDate(nightKeyDate.getDate() - 1);
-        const nightKey = nightKeyDate.toISOString().slice(0, 10); // YYYY-MM-DD
+        const nightKey = `${nightKeyDate.getFullYear()}-${String(nightKeyDate.getMonth() + 1).padStart(2, '0')}-${String(nightKeyDate.getDate()).padStart(2, '0')}`; // YYYY-MM-DD
 
         const { data: gateRow } = await supabase
           .from('system_settings')
@@ -1098,7 +1101,7 @@ Deno.serve(async (req) => {
       // - Night mode (night_temp)
       // - Budget pause (15°C when PV is low)
       // - But NO active PV heating to comfort temp
-      const todayStr = new Date().toISOString().slice(1,10);
+      const todayStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' }); // YYYY-MM-DD in Wien-Zeit
       let { data: rooms, error: roomsError } = await supabase
         .from('rooms')
         .select('*')
@@ -2422,8 +2425,9 @@ Deno.serve(async (req) => {
       const budgetAfterEco = effectiveComfortBudget - usedBudget;
 
       // Heutiger Tagesstart in Wien (für Sättigungs-Reset-Check)
-      const todayWienStart = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
-      todayWienStart.setHours(0, 0, 0, 0);
+      const todayWienStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' }); // YYYY-MM-DD in Wien-Zeit
+      const [twY, twM, twD] = todayWienStr.split('-').map(Number);
+      const todayWienStart = new Date(twY, twM - 1, twD, 0, 0, 0, 0);
 
       // ============= BATTERY-FULL-OVERRIDE für Komfort-Sättigung =============
       // Wenn Batterie voll, anhaltender Echt-Export hoch und Tag mit Sonne (Tagesprognose ≥ 5 kWh),
