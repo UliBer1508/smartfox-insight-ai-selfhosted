@@ -747,8 +747,7 @@ ALTER TABLE public."smartfox_settings" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."solar_heating_events" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."system_settings" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public."thermostat_commands" ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public."weather_data
-" ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public."weather_data" ENABLE ROW LEVEL SECURITY;
 
 -- ===== 4) RLS POLICIES (55) =====
 
