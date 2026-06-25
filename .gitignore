@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# Secrets / Umgebungsvariablen
+.env
+.env.*
+!.env.example
+config.json
