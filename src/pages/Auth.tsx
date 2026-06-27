@@ -62,7 +62,7 @@ export default function Auth() {
   return (
     <div className="flex-1 flex items-center justify-center bg-background p-4">
       <SEO
-        title="Anmelden — Fronius Smart AI"
+        title="Anmelden — Steinbockchalets-Heizungsmanagement"
         description="Melden Sie sich an, um Ihr Fronius Energie-Management, die Heizungssteuerung und KI-Analyse zu verwalten."
         path="/auth"
       />
@@ -73,7 +73,7 @@ export default function Auth() {
               <Zap className="w-8 h-8 text-primary" />
             </div>
           </div>
-          <CardTitle className="text-2xl">Fronius Smart AI</CardTitle>
+          <CardTitle className="text-2xl">Heizung</CardTitle>
           <CardDescription>
             Energie-Management & KI-Analyse
           </CardDescription>
