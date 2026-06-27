@@ -47,7 +47,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
               <Zap className="w-5 h-5 md:w-6 md:h-6 text-primary" />
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="text-base md:text-xl font-bold tracking-tight truncate">Fronius Smart AI</h1>
+              <h1 className="text-base md:text-xl font-bold tracking-tight truncate">Heizung</h1>
               <p className="text-[10px] md:text-xs text-muted-foreground truncate">
                 Energie-Management & KI-Analyse
                 {typeof __BUILD_TIME__ !== 'undefined' && (
