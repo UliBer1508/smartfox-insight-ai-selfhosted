@@ -1,0 +1,97 @@
+{
+"polling_interval_seconds": 60,
+  "tuya": {
+    "enabled": true,
+    "sync_interval_seconds": 60,
+    "command_poll_seconds": 5,
+    "devices": [
+      {
+        "name": "Haustür",
+        "room_id": "b94f15d6-9a87-44b6-8cc1-878e628cfd18",
+        "device_id": "bfaea1c0f312db52321ilc",
+        "local_key": "&P;dT'hMu`-}`9fk",
+        "ip": "192.168.188.149"
+      },
+      {
+        "name": "Toilette Eingang",
+        "room_id": "333da323-5b4d-4032-ba54-1dc8e63f135c",
+        "device_id": "bf731e80807b7006452fen",
+        "local_key": "+f&M{Ff2lOQLz|Lq",
+        "ip": "192.168.188.176"
+      },
+      {
+        "name": "Waschraum",
+        "room_id": "c2bbf1be-02b3-4a48-90d7-4d6cb5304cc8",
+        "device_id": "bf6c3657157cac2cd7zulr",
+        "local_key": "SPNA$t>`kzS85e1t",
+        "ip": "192.168.188.157"
+      },
+      {
+        "name": "Wirtschaftsraum",
+        "room_id": "9419cfa1-1510-4855-9f35-37e4e37f554d",
+        "device_id": "bf2cb2dbf2db634a34ukat",
+        "local_key": "ylU~fYV{pr|-eAh)",
+        "ip": "192.168.188.78"
+      },
+      {
+        "name": "Zimmer Uli",
+        "room_id": "0492135f-b081-4f0a-b037-4683e38c6dc2",
+        "device_id": "bf2f469ec7aa367dbeeni9",
+        "local_key": "uaD>qJ|v/-P:MqE}",
+        "ip": "192.168.188.173"
+      },
+      {
+        "name": "Büro",
+        "room_id": "5c458385-167e-4314-8098-7af78e2ba81e",
+        "device_id": "bf82697f99c1a5ecbde1vi",
+        "local_key": "iO{@?s8[m]=>*?bg",
+        "ip": "192.168.188.42"
+      },
+      {
+        "name": "Flur",
+        "room_id": "761d0fbf-db05-43b7-9b81-798925738854",
+        "device_id": "bf6494a907ec6a539d9tuz",
+        "local_key": "4V)o>=l1R68X_x[`",
+        "ip": "192.168.188.161"
+      },
+      {
+        "name": "Zimmer Luca",
+        "room_id": "02e1f9cc-ea15-4c7b-b1cf-9299159f838c",
+        "device_id": "bf4b206843d82adae6opwr",
+        "local_key": "/'bu>Y;h0haz!ksb",
+        "ip": "192.168.188.197"
+      },
+      {
+        "name": "Kinder Bad",
+        "room_id": "9d976632-eabb-4cbf-b4f5-25c4cf84dfaa",
+        "device_id": "bfc97f2493e23d5df3dxux",
+        "local_key": "=l.kn!r5pcWfa<:^",
+        "ip": "192.168.188.108"
+      },
+      {
+        "name": "Wohnzimmer",
+        "room_id": "83eea0c6-2646-44d1-8846-f785fd1292f9",
+        "device_id": "bf367d27c659476dda1bby",
+        "local_key": "cpiTy~R!YZs_8#Zp",
+        "ip": "192.168.188.165"
+      },
+      {
+        "name": "Bad Uli",
+        "room_id": "3d1e138f-dcc3-40a0-9aa4-17e834039419",
+        "device_id": "bfc0f118b0ff402d0e6tq5",
+        "local_key": "8kDgV8<:oK[w0HB1",
+        "ip": "192.168.188.180"
+      },
+      {
+        "name": "Zimmer Luis",
+        "room_id": "e276a8e7-5d1c-4185-94ff-9f1bc229595e",
+        "device_id": "bfe27fbf29b47ad197zpe4",
+        "local_key": "@-5{-p07qOkD'/hV",
+        "ip": "192.168.188.27"
+      }
+    ]
+  },
+  "supabase": {
+    "url": "https://pflnniklvqbwjwrjswaz.supabase.co",   "anon_key":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmbG5uaWtsdnFid2p3cmpzd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNDA3MjcsImV4cCI6MjA5NzkxNjcyN30.RADpIsCnV8ZgwozN6EfewE_ARWyKW7s9pmEWJe07uYA" 
+  }
+}

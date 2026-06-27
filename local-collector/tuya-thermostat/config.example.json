@@ -1,0 +1,23 @@
+{
+  "fronius": {
+    "ip": "192.168.1.101"
+  },
+  "tuya": {
+    "enabled": false,
+    "sync_interval_seconds": 60,
+    "devices": [
+      {
+        "name": "Beispiel Thermostat",
+        "room_id": "UUID_AUS_ROOMS_TABELLE",
+        "device_id": "TUYA_DEVICE_ID",
+        "local_key": "16_ZEICHEN_KEY",
+        "ip": "192.168.1.XXX"
+      }
+    ]
+  },
+  "polling_interval_seconds": 30,
+  "supabase": {
+    "url": "https://tvqmhdpcixkfsudxughs.supabase.co",
+    "service_role_key": "DEIN_SERVICE_ROLE_KEY_HIER"
+  }
+}

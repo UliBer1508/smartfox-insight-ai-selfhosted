@@ -1,0 +1,17 @@
+{
+  "name": "smartfox-collector",
+  "version": "1.0.0",
+  "description": "Lokaler Datensammler für Smartfox & Fronius",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "build": "pkg index.js --targets node18-win-x64 --output collector.exe"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.95.3",
+    "tuyapi": "^7.7.1"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

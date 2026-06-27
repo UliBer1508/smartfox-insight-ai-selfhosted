@@ -1,0 +1,22 @@
+{
+  "name": "smartfox-fronius-collector",
+  "version": "3.0.0",
+  "description": "Lokaler Collector für Fronius Energiedaten und Tuya Thermostat-Steuerung",
+  "main": "index.js",
+  "bin": "index.js",
+  "pkg": {
+    "targets": ["node18-win-x64"],
+    "outputPath": "dist"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "build": "pkg . --targets node18-win-x64 --output dist/smartfox-collector.exe"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.87.1",
+    "tuyapi": "^7.5.1"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}

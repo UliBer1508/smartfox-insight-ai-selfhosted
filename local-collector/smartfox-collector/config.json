@@ -1,0 +1,11 @@
+{
+  "smartfox": { "ip": "192.168.188.45", "enabled": false },
+  "fronius": { "ip": "192.168.188.64", "enabled": true },
+  "polling_interval_seconds": 30,
+  "supabase": {
+    "url": "https://pflnniklvqbwjwrjswaz.supabase.co",
+    "anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmbG5uaWtsdnFid2p3cmpzd2F6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNDA3MjcsImV4cCI6MjA5NzkxNjcyN30.RADpIsCnV8ZgwozN6EfewE_ARWyKW7s9pmEWJe07uYA"
+  },
+  "sync_interval_seconds": 60,
+  "sync_interval_seconds_local": 45
+}
