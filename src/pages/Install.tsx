@@ -19,8 +19,8 @@ const Install = () => {
   return (
     <div className="flex-1 bg-background flex items-center justify-center p-4">
       <SEO
-        title="App installieren — Fronius Smart AI"
-        description="Installieren Sie Fronius Smart AI als Progressive Web App auf Ihrem Smartphone oder Tablet für schnellen Zugriff auf Ihr Energie-Management."
+        title="App installieren — Steinbockchalets-Heizungsmanagement"
+        description="Installieren Sie Steinbockchalets-Heizungsmanagement PWA auf Ihrem Smartphone oder Tablet für schnellen Zugriff auf Ihr Energie-Management."
         path="/install"
       />
       <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur">
