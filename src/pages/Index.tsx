@@ -70,19 +70,19 @@ const Index = () => {
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
     dashboard: {
-      title: 'Übersicht — Fronius Smart AI',
+      title: 'Übersicht — Steinbockchalets-Heizungsmanagement',
       description: 'Live-Übersicht von PV-Erzeugung, Batterie-Speicher, Verbrauch und aktiver Heizungsleistung in Echtzeit.',
     },
     heating: {
-      title: 'Heizung & KI — Fronius Smart AI',
+      title: 'Steinbockchalets-Heizungsmanagement',
       description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten, KI-Lernstatus und Nachtmodus für 12 Tuya-Thermostate.',
     },
     analysis: {
-      title: 'Verlauf & Muster — Fronius Smart AI',
+      title: 'Verlauf & Muster Steinbockchalets-Heizungsmanagement',
       description: 'Tages-, Wochen- und Monatsanalyse von Heiz- und Energieverhalten mit KI-gestützter Mustererkennung.',
     },
     settings: {
-      title: 'Einstellungen — Fronius Smart AI',
+      title: 'Einstellungen Steinbockchalets-Heizungsmanagement',
       description: 'Konfiguration von Smartfox, Tuya, Heizungsparametern, Datenaufbewahrung und Energiekosten.',
     },
   };
