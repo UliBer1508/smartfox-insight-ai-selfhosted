@@ -17,7 +17,7 @@ export function Footer() {
     <footer className="relative z-10 mt-auto shrink-0 border-t bg-card/30 pb-20 backdrop-blur-sm md:pb-4">
       <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-muted-foreground">
         <div>
-          © {year} Fronius Smart AI. Alle Rechte vorbehalten.
+          © {year} Steinbockchalets. Alle Rechte vorbehalten.
         </div>
         <div className="flex items-center gap-2 font-mono">
           <span>v{version}</span>
