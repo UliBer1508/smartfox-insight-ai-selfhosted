@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Fronius Smart AI",
-  "short_name": "Fronius AI",
-  "description": "KI-gestütztes Energie-Management mit Fronius-Integration und intelligenter Heizungssteuerung.",
+  "name": "Steinbockchalets-Heizungsmanagement",
+  "short_name": "Heizung",
+  "description": "KI-gestütztes Energie-Management mit intelligenter Heizungssteuerung.",
   "lang": "de",
   "dir": "ltr",
   "theme_color": "#16a34a",
