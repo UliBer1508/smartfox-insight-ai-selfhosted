@@ -63,7 +63,7 @@ async function scoreOneDay(dateStr: string): Promise<{ ok: boolean; reason?: str
   // 1) Tageskennzahlen
   const { data: weekly, error: wErr } = await supabase.rpc('get_weekly_energy_summary', { days_back: daysBack });
   if (wErr) return { ok: false, reason: `RPC error: ${wErr.message}` };
-  const row = (weekly as any[]).find((r) => r.date === dateStr);
+  const row = (weekly as any[]).find((r) => String(r.date).slice(0, 10) === dateStr);
   if (!row) return { ok: false, reason: 'no data row for date' };
 
   // 2) Forecast (expected kWh)
