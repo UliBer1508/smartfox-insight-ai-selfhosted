@@ -1,0 +1,256 @@
+# Fix-Dokumentation: KI-Tagesplaner & KI-Autopilot
+
+**Datum:** 30. Juni 2026
+**Repo:** `UliBer1508/smartfox-insight-ai-selfhosted` (privat)
+**Supabase:** `pflnniklvqbwjwrjswaz`
+**Betroffene Komponenten:** Edge Function `ai-daily-planner`, Edge Function `ai-parameter-advisor`, pg_cron-Jobs, Tabelle `ai_parameter_whitelist`
+
+**Zusammenfassung:** In dieser Sitzung wurden drei unabhängige Probleme behoben, die verhinderten, dass (a) der KI-Tagesplan automatisch und mit korrektem Datum erzeugt wird und (b) der KI-Autopilot überhaupt Vorschläge produziert. Zwei Punkte bleiben offen (PV-Prognose-Lücke, API-Key-Rotation).
+
+---
+
+## Problem 1 — KI-Tagesplan: falsches Datum (Zeitzonen-Doppelcast)
+
+### Symptom
+Der Tagesplan erschien unter dem falschen Datum (z. B. `2026-06-29` statt `2026-06-30`). Die `pv-automation` suchte den Plan mit dem korrekten heutigen Datum und fand ihn nicht → Räume bekamen kein KI-Ranking.
+
+### Ursache
+In `supabase/functions/ai-daily-planner/index.ts` enthielt die Funktion `getTodayVienna()` das bekannte Doppel-Cast-Muster (identisch zum historischen `pv-automation`-Bug):
+
+```js
+// FEHLERHAFT
+function getTodayVienna(): string {
+  const d = new Date();
+  const v = new Date(d.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
+  return v.toISOString().slice(0, 10);
+}
+```
+
+`toLocaleString(..., {timeZone:'Europe/Vienna'})` erzeugt einen **Text** in Wien-Zeit. `new Date(text)` liest diesen Text wieder als **Server-Zeit (UTC)** ein. `toISOString()` rechnet erneut nach UTC zurück → die Stunde verschiebt sich um den UTC-Offset, in Randzeiten kippt das Datum auf den falschen Tag.
+
+### Fix
+```js
+// KORREKT
+function getTodayVienna(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' }); // YYYY-MM-DD in Wien
+}
+```
+
+`en-CA` liefert direkt `YYYY-MM-DD` in Wiener Zeit, kein zweiter Cast. Gleiches Muster wie in der bereits reparierten `pv-automation`.
+
+### Deployment
+```bash
+supabase functions deploy ai-daily-planner
+```
+
+### Verifikation
+```sql
+select plan_date, source, created_at
+from ai_daily_plans
+order by created_at desc limit 3;
+```
+Erwartung: oberste Zeile `plan_date = <heute>`, `source = claude-haiku`. **Bestätigt** am 30.06. (`plan_date 2026-06-30`, `created_at 04:40 UTC`).
+
+---
+
+## Problem 2 — KI-Tagesplan: Cron lief zur falschen Zeit UND in falscher Reihenfolge
+
+### Symptom
+Der Tagesplan lief nicht „um 6 Uhr". Außerdem plante er auf veralteter/fehlender PV-Prognose.
+
+### Ursache
+Stand der pg_cron-Jobs vor dem Fix:
+
+| Job | Schedule (UTC) | Funktion          | = Wien (Sommer) |
+|-----|----------------|-------------------|-----------------|
+| 15  | `0 5 * * *`    | ai-daily-planner  | 07:00           |
+| 16  | `0 6 * * *`    | fetch-pv-forecast | 08:00           |
+
+Zwei Fehler:
+1. Der Planner lief um **7:00 Wien**, nicht 6:00.
+2. Der Planner lief **vor** `fetch-pv-forecast`. Der Planner braucht aber die heutige PV-Prognose (`pv_forecasts` für heute) — er plante also jeden Morgen auf gestriger/fehlender Prognose.
+
+### Fix
+Reihenfolge umgedreht und Zeiten korrigiert — erst Prognose, dann Plan:
+
+```sql
+-- PV-Prognose auf 6:00 Wien (4:00 UTC) vorziehen
+select cron.alter_job(16, schedule := '0 4 * * *');
+
+-- Tagesplan auf 6:30 Wien (4:30 UTC), 30 Min nach der Prognose
+select cron.alter_job(15, schedule := '30 4 * * *');
+```
+
+### Verifikation
+```sql
+select jobid, schedule, active from cron.job where jobid in (15,16);
+```
+**Bestätigt:** Job 16 = `0 4 * * *`, Job 15 = `30 4 * * *`.
+
+### WICHTIG — Sommer-/Winterzeit-Vorbehalt
+pg_cron rechnet **immer in UTC** und kennt keine Sommerzeitumstellung. Die obigen UTC-Zeiten gelten für **Sommerzeit (MESZ, UTC+2)**. Bei Umstellung auf Winterzeit (Ende Oktober, UTC+1) läuft alles **eine Stunde früher** in Wien (Plan dann 5:30 statt 6:30 Wien). Kein Datenfehler, nur eine frühere Uhrzeit.
+**Dauerhaft saubere Lösung (später, optional):** Planner wie den `analysis-scheduler` über eine konfigurierbare Wien-Zeit in `heating_settings` + `within()`-Slot-Logik laufen lassen, statt über feste UTC-Cron-Zeiten.
+
+---
+
+## Problem 3 — KI-Autopilot: leere Whitelist + Locked/Auto-Widerspruch
+
+### Symptom
+Dashboard „KI-Autopilot · Parameter-Vorschläge": „Letzter Lauf —", „Auto heute 0", keine Vorschläge. Tabelle `ai_parameter_decisions` komplett leer (0 Zeilen).
+
+### Diagnose-Reihenfolge (zur Wiederverwendung)
+```sql
+-- 1) Master-Schalter
+select value from system_settings where key = 'ai_auto_mode_enabled';   -- war {"enabled":true} ✓
+
+-- 2) Whitelist gefüllt?
+select count(*) as aktive_whitelist from ai_parameter_whitelist where enabled = true;  -- war 0 ✗  ← URSACHE
+
+-- 3) Je Entscheidungen geschrieben?
+select count(*) as anzahl, max(created_at) from ai_parameter_decisions;  -- war 0 / null
+
+-- 4) Datenbasis
+select
+  (select count(*) from daily_pattern_scores) as pattern_scores,    -- 32 ✓
+  (select count(*) from energy_readings) as energy_readings,        -- 8162 ✓
+  (select count(*) from pv_forecasts where date >= current_date) as forecast_heute;  -- 0 ✗ (siehe offene Punkte)
+```
+
+### Ursache 3a — leere Whitelist (Hauptursache)
+Bei der Migration wurden Tabellen + Struktur übernommen, aber die `INSERT`-Seed-Daten für `ai_parameter_whitelist` fehlten. Folge: `ai-parameter-advisor` steigt sofort aus:
+```js
+if (wl.length === 0) {
+  return ... { ok: true, skipped: 'empty_whitelist' };
+}
+```
+Die Funktion wurde zwar alle 15 Min vom Cron aufgerufen, tat aber nie etwas (kein Gemini-Call, keine Decision).
+
+### Fix 3a — Whitelist nachträglich seeden
+```sql
+INSERT INTO public.ai_parameter_whitelist
+(parameter_key, scope, storage_table, storage_column, data_type, min_value, max_value, allowed_values, autonomy_level, enabled, description) VALUES
+('comfort_saturation_override_enabled','global','system_settings','comfort_saturation_override','boolean',NULL,NULL,'[true,false]'::jsonb,'shadow',true,'Battery-Full-Override für Komfort-Sättigung aktiv'),
+('comfort_override_soc_min','global','system_settings','comfort_override_soc_min','integer',80,100,NULL,'shadow',true,'SOC-Schwelle (%) ab der Override greift'),
+('comfort_override_grid_export_min','global','system_settings','comfort_override_grid_export_min','integer',1000,8000,NULL,'shadow',true,'Mindest-Netzeinspeisung (W) für Override'),
+('comfort_override_forecast_min_kwh','global','system_settings','comfort_override_forecast_min_kwh','integer',2,30,NULL,'shadow',true,'Mindest-Tagesprognose-Rest (kWh) für Override'),
+('parallel_heating_capacity','global','system_settings','parallel_heating_capacity','integer',1,12,NULL,'shadow',true,'Maximale Anzahl parallel heizender Räume'),
+('pattern_recall_strength','global','heating_settings','pattern_recall_strength','integer',0,100,NULL,'shadow',true,'Gewichtung historischer Muster (0-100)'),
+('heating_min_battery_soc','global','heating_settings','heating_min_battery_soc','integer',30,90,NULL,'shadow',true,'Hartes SOC-Gate für Heizung (%)'),
+('night_heating_mode','global','heating_settings','night_heating_mode','text',NULL,NULL,'["frost_only","maintain"]'::jsonb,'shadow',true,'Nacht-Heizmodus'),
+('pv_boost_max_temp','room','rooms','pv_boost_max_temp','number',19,26,NULL,'shadow',true,'Hardcap für PV-Boost pro Raum (°C)'),
+('eco_temp','room','rooms','eco_temp','number',16,21,NULL,'suggest',true,'Eco-Solltemperatur pro Raum (°C)'),
+('comfort_temp','room','rooms','comfort_temp','number',18,24,NULL,'suggest',true,'Komfort-Solltemperatur pro Raum (°C)'),
+('pv_surplus_threshold_on','global','heating_settings','pv_surplus_threshold_on','integer',300,800,NULL,'auto',true,'PV-Überschuss Schwellwert EIN'),
+('pv_surplus_threshold_off','global','heating_settings','pv_surplus_threshold_off','integer',100,400,NULL,'auto',true,'PV-Überschuss Schwellwert AUS'),
+('night_start_time','global','heating_settings','night_start_time','text',1260,1380,NULL,'auto',true,'Nachtmodus Startzeit (21:00-23:00, Minuten seit 00:00)')
+ON CONFLICT (parameter_key, scope) DO UPDATE SET
+  autonomy_level = EXCLUDED.autonomy_level,
+  enabled = EXCLUDED.enabled,
+  min_value = EXCLUDED.min_value,
+  max_value = EXCLUDED.max_value,
+  description = EXCLUDED.description,
+  data_type = EXCLUDED.data_type;
+```
+**Ergebnis:** 14 aktive Whitelist-Einträge.
+
+### Ursache 3b — Widerspruch zwischen `auto`-Whitelist und `LOCKED_PARAMS`
+Die drei einzigen `auto`-Parameter (`pv_surplus_threshold_on`, `pv_surplus_threshold_off`, `night_start_time`) stehen im Code von `ai-parameter-advisor` gleichzeitig auf der harten Sperrliste:
+```js
+const LOCKED_PARAMS = new Set([
+  'heating_min_battery_soc', 'battery_reserve_for_night_soc', 'micro_budget_min_battery_soc',
+  'pv_surplus_threshold_on', 'pv_surplus_threshold_off', 'night_start_time', 'night_end_time',
+]);
+```
+Folge: Selbst mit gefüllter Whitelist würde jeder Auto-Apply mit `reason: locked_param` abgelehnt → „Auto heute" bliebe dauerhaft 0.
+
+### Fix 3b — gewählte Lösung: „Weg B" (Auto-Parameter auf `suggest` zurückstufen)
+Bewusste Entscheidung: Bei frisch migriertem System soll der Autopilot **nur Vorschläge** machen, nichts eigenmächtig schreiben.
+```sql
+UPDATE ai_parameter_whitelist
+SET autonomy_level = 'suggest'
+WHERE parameter_key IN ('pv_surplus_threshold_on','pv_surplus_threshold_off','night_start_time')
+  AND scope = 'global';
+```
+**Alternativen (nicht gewählt):**
+- Weg A: Die drei Params aus `LOCKED_PARAMS` im Code entfernen → echter Auto-Modus. Erst sinnvoll, wenn mehrere Wochen Datenbasis vorhanden sind.
+- Weg C: nichts ändern → bleibt inkonsistent.
+
+**Spätere Hochstufung:** Wenn ein Parameter wirklich `auto` werden soll, muss er sowohl in der Whitelist auf `auto` gesetzt **als auch** aus `LOCKED_PARAMS` im Code entfernt werden (beide Stellen, sonst erneut Widerspruch).
+
+---
+
+## Problem 4 — KI-Autopilot: Gemini 429 (Tagesquota)
+
+### Symptom (Edge-Function-Logs)
+```
+ERROR   [ai-parameter-advisor] Gemini retry failed 429 "You exceeded your current quota..."
+WARNING [ai-parameter-advisor] Gemini 429 — retry in 30s
+INFO    [ai-parameter-advisor] daily_score missing for 2026-06-29 — triggering backfill
+```
+
+### Einordnung
+**Kein Code-Bug.** Nach dem Whitelist-Seed läuft die Funktion vollständig durch und ruft Gemini auf — Gemini lehnt aber mit HTTP 429 ab (Free-Tier-Tageslimit erreicht). Modell: `gemini-2.5-flash-lite`. Die hohe Aufruffrequenz (alle 15 Min, plus Backfill-Kette, plus Planner-Fallback) hatte die Tagesquota aufgebraucht.
+
+### Fix (Option 2) — Cron ausdünnen
+Job 10 = `ai-parameter-advisor`. Von alle 15 Min auf stündlich:
+```sql
+select cron.alter_job(10, schedule := '0 5-21 * * *');
+```
+Reduktion: ~64 → ~17 Aufrufe/Tag. **Bestätigt:** Job 10 = `0 5-21 * * *`.
+
+### Option 1 — Verifikation mit frischer Quota (TODO morgen)
+Gemini-Tagesquota setzt um Mitternacht **Pacific Time** zurück (≈ 9–10 Uhr Wien). Danach:
+```sql
+-- manueller Trigger (entspricht Dashboard-Button „Jetzt analysieren")
+select net.http_post(
+  url := 'https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/ai-parameter-advisor',
+  headers := jsonb_build_object('Content-Type','application/json','apikey', current_setting('app.anon_key'), 'Authorization','Bearer '||current_setting('app.anon_key')),
+  body := '{"trigger":"manual"}'::jsonb
+) as request_id;
+
+-- ~10 s warten, dann prüfen:
+select created_at, parameter_key, decision_mode, proposed_value, confidence
+from ai_parameter_decisions order by created_at desc limit 10;
+```
+- Zeilen erscheinen → Autopilot endgültig bestätigt.
+- Weiterhin nur `429` → Quota strukturell zu klein → bezahltes Google-AI-Tier erwägen (Option 3).
+
+---
+
+## Aktueller pg_cron-Stand nach dieser Sitzung (geänderte Jobs)
+
+| Job | Schedule (UTC) | = Wien (Sommer) | Funktion           | Änderung |
+|-----|----------------|-----------------|--------------------|----------|
+| 10  | `0 5-21 * * *` | stündlich 7–23  | ai-parameter-advisor | von `*/15 5-21 * * *` |
+| 15  | `30 4 * * *`   | 06:30           | ai-daily-planner   | von `0 5 * * *` |
+| 16  | `0 4 * * *`    | 06:00           | fetch-pv-forecast  | von `0 6 * * *` |
+
+---
+
+## Offene Punkte (für nächste Sitzung)
+
+1. **PV-Prognose fehlt für heute** (`forecast_heute = 0`). Betrifft **beide** KI-Funktionen (Planner + Advisor). Prüfen, warum `fetch-pv-forecast` keine heutigen Daten geschrieben hat (Job lief evtl. zu spät / API-Fehler / Key). Nach der Cron-Umstellung läuft fetch-pv-forecast jetzt 6:00 Wien — morgen kontrollieren:
+   ```sql
+   select date, expected_kwh, created_at from pv_forecasts order by date desc limit 3;
+   ```
+2. **`ANTHROPIC_API_KEY` rotieren** — war früher im Klartext exponiert. `console.anthropic.com` → revoke → neu → am PC `supabase secrets set ANTHROPIC_API_KEY=...` (Wert nicht in Chats kopieren).
+3. **Gemini-Lastübersicht** — systematisch erfassen, welche Edge Functions Gemini rufen und wie oft, um 429 dauerhaft zu vermeiden. Kandidaten: `ai-parameter-advisor`, `ai-daily-planner` (Fallback), evtl. `analyze-patterns`, `analysis-summary`.
+4. **Sommer-/Winterzeit** der UTC-Cron-Jobs (siehe Problem 2) — bei Bedarf auf zeitzonenbewusste Scheduler-Logik umstellen.
+
+---
+
+## Verifikations-Checkliste für morgen früh (nach ~9–10 Uhr Wien)
+
+```sql
+-- 1) Tagesplan automatisch + korrektes Datum?
+select plan_date, source, created_at from ai_daily_plans order by created_at desc limit 1;
+-- Erwartung: plan_date = morgiges Datum, created_at ~6:30 Wien
+
+-- 2) PV-Prognose vorhanden?
+select date, expected_kwh, created_at from pv_forecasts order by date desc limit 3;
+-- Erwartung: heutiges Datum vorhanden
+
+-- 3) Autopilot schreibt Decisions? (nach „Jetzt analysieren" / frischer Quota)
+select created_at, parameter_key, decision_mode, proposed_value from ai_parameter_decisions order by created_at desc limit 10;
+-- Erwartung: Zeilen mit decision_mode = 'suggest'/'shadow'
+```
