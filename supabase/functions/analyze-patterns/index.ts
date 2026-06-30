@@ -51,13 +51,13 @@ const TYPE_TEMPERATURE_MAP: Record<string, number> = {
 };
 
 const TYPE_TOKEN_MAP: Record<string, number> = {
-  optimize_decision: 4096,
-  heating_optimization: 2048,
-  room_heating_optimization: 2048,
-  weekly_comparison: 2048,
-  weekly_insight: 1024,
-  daily_pattern: 1024,
-  default: 2048,
+  optimize_decision: 8192,
+  heating_optimization: 4096,
+  room_heating_optimization: 4096,
+  weekly_comparison: 4096,
+  weekly_insight: 2048,
+  daily_pattern: 2048,
+  default: 4096,
 };
 
 async function callAI(requestBody: AIRequestBody, analysisType?: string): Promise<AIResponse> {
@@ -98,7 +98,7 @@ async function callAI(requestBody: AIRequestBody, analysisType?: string): Promis
       generationConfig: {
         temperature,
         maxOutputTokens,
-        thinkingConfig: { thinkingBudget: 0 },
+        thinkingConfig: { thinkingBudget: 512 },
       },
     };
 
