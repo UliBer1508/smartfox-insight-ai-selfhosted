@@ -97,9 +97,7 @@ async function callGeminiFallback(prompt: string): Promise<any> {
 // Helpers
 // ================================================================
 function getTodayVienna(): string {
-  const d = new Date();
-  const v = new Date(d.toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
-  return v.toISOString().slice(0, 10);
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' }); // YYYY-MM-DD in Wien
 }
 
 function buildToolSchema() {
