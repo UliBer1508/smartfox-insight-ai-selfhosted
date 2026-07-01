@@ -56,7 +56,7 @@ const TYPE_TOKEN_MAP: Record<string, number> = {
   room_heating_optimization: 4096,
   weekly_comparison: 4096,
   weekly_insight: 2048,
-  daily_pattern: 2048,
+  daily_pattern: 4096,
   default: 4096,
 };
 
@@ -109,7 +109,7 @@ async function callAI(requestBody: AIRequestBody, analysisType?: string): Promis
     if (geminiTools) {
       geminiBody.tools = geminiTools;
       geminiBody.toolConfig = {
-        functionCallingConfig: { mode: 'ANY' }
+        functionCallingConfig: { mode: 'AUTO' }
       };
     }
 
