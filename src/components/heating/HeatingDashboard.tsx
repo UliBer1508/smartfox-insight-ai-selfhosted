@@ -23,6 +23,7 @@ import { ThermostatCard } from './ThermostatCard';
 import { HeatingOverviewCard } from './HeatingOverviewCard';
 import { HeatingHistoryChart } from './HeatingHistoryChart';
 import { SolarGainChart } from './SolarGainChart';
+import { PvAccuracyChart } from './PvAccuracyChart';
 import { EnergyCostWidget } from '@/components/energy/EnergyCostWidget';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { AIStatusWidget } from './AIStatusWidget';
@@ -456,6 +457,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
             <CardContent className="space-y-6">
               <HeatingHistoryChart rooms={rooms} />
               <SolarGainChart rooms={rooms} />
+              <PvAccuracyChart />
             </CardContent>
           </CollapsibleContent>
         </Card>
