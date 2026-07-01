@@ -1,6 +1,9 @@
 // Edge Function: fetch-energy-prices
-// Scraped ÖMAG-Marktpreis und Salzburg AG Tarife, vergleicht mit aktuellen
-// Werten und legt bei Abweichung price_suggestions an (kein Auto-Apply).
+// Beide Preise sind feste Vertrags-/Richtwerte (kein Scraping mehr).
+// - Salzburg AG: Bezugspreis (was eine Netz-kWh kostet), Jahreswert.
+// - ÖMAG: Einspeise-/Marktpreis (PV-Überschuss-Verkauf), als Richtwert.
+// Bei Abweichung zum aktuell gültigen Wert wird ein price_suggestions-Eintrag
+// angelegt (kein Auto-Apply — Bestätigung erfolgt im Dashboard).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 
 const corsHeaders = {
@@ -19,113 +22,59 @@ interface FetchResult {
   excerpt: string;
 }
 
-async function fetchHtml(url: string): Promise<string> {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (compatible; SmartfoxInsightAI/1.0; +https://lovable.dev)",
-      Accept: "text/html,application/xhtml+xml",
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return await res.text();
-}
-
-function parseGermanNumber(s: string): number | null {
-  // "7,12" -> 7.12 ; "20,28" -> 20.28
-  const m = s.replace(/\s/g, "").match(/(-?\d+[,.]\d+)/);
-  if (!m) return null;
-  return parseFloat(m[1].replace(",", "."));
-}
-
-// --- ÖMAG ---
+// --- ÖMAG (Einspeise-/Marktpreis für PV-Überschuss) ---
+// Fester Richtwert statt Scraping. Grund: ÖMAG veröffentlicht den Marktpreis
+// seit 2024 MONATLICH und rückwirkend in einer Tabelle (nicht mehr als einzelner
+// Quartalssatz). Der alte Scraper suchte ein "Marktpreis ... ct/kWh"-Muster,
+// das es so nicht mehr gibt → still gebrochen. Für die Heizentscheidung ist der
+// exakte Wert zweitrangig (Bezugspreis ~30 ct >> Einspeisung ~6,8 ct → Selbst-
+// verbrauch/Heizen gewinnt praktisch immer). 6,772 ct = stabiler Wert der
+// letzten Monate (April/Mai/Juni 2026, Photovoltaik).
+// Bei Bedarf halbjährlich prüfen: oem-ag.at/de/marktpreis/ → nur die Zahl anpassen.
 async function fetchOemag(): Promise<FetchResult[]> {
-  const html = await fetchHtml("https://www.oem-ag.at/de/marktpreis/");
-  const results: FetchResult[] = [];
+  const OEMAG_PV = {
+    marktpreis_cent: 6.772,          // ct/kWh, Photovoltaik (Durchschnitt 2026)
+    stand: "Richtwert 2026 (ÖMAG Marktpreis PV, monatlich rückwirkend)",
+  };
 
-  // Suche "Marktpreis ... <ct>" Pattern, z.B. "Marktpreis 4. Quartal 2025: 7,12 Cent/kWh"
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
-  const matches = [
-    ...text.matchAll(/Marktpreis[^0-9]{0,80}(\d+[,.]\d+)\s*(?:Cent|ct)\s*\/\s*kWh/gi),
+  return [
+    {
+      source: "oemag",
+      field: "feed_in_price_cent",
+      value: OEMAG_PV.marktpreis_cent,
+      excerpt: `ÖMAG Marktpreis Photovoltaik ${OEMAG_PV.marktpreis_cent} ct/kWh (${OEMAG_PV.stand})`,
+    },
   ];
-
-  if (matches.length > 0) {
-    // Erstes Match = aktueller Wert (in Reihenfolge der Seite)
-    const m = matches[0];
-    const v = parseGermanNumber(m[1]);
-    if (v !== null && v > 0 && v < 100) {
-      const excerpt = text.substring(
-        Math.max(0, (m.index ?? 0) - 60),
-        Math.min(text.length, (m.index ?? 0) + 120),
-      );
-      results.push({
-        source: "oemag",
-        field: "feed_in_price_cent",
-        value: v,
-        excerpt: excerpt.trim(),
-      });
-    }
-  }
-
-  return results;
 }
 
-// --- Salzburg AG (Privat Klassik) ---
+// --- Salzburg AG (Strom Privat 24) ---
+// Fester Vertragspreis statt Scraping. Grund: Salzburg AG hat die Tarifseite
+// umgebaut (404), der Preis ist ein Jahreswert (gültig ab 1.1.2026) und ändert
+// sich nur 1-2x/Jahr. Werte aus dem offiziellen Produktblatt "Stromtarife für
+// Privatkund:innen", Tarif "Strom Privat 24", GESAMTPREIS brutto (inkl. Netz,
+// Abgaben, Steuern) — das ist der real ersparte Preis pro selbst erzeugter kWh.
+// Bei Preisänderung: nur die beiden Zahlen hier anpassen + neu deployen.
 async function fetchSalzburgAg(): Promise<FetchResult[]> {
-  const url =
-    "https://www.salzburg-ag.at/privat/strom/tarife/oekoenergie-klassik.html";
-  let html: string;
-  try {
-    html = await fetchHtml(url);
-  } catch {
-    html = await fetchHtml("https://www.salzburg-ag.at/privat/strom/tarife.html");
-  }
-  const results: FetchResult[] = [];
-  const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+  const STROM_PRIVAT_24 = {
+    arbeitspreis_cent_brutto: 29.9351,      // Gesamtpreis Arbeitspreis ct/kWh brutto
+    grundentgelt_eur_jahr_brutto: 128.1792, // Gesamtpreis Grundentgelt €/Jahr brutto
+    stand: "gültig ab 1.1.2026 (Produktblatt Salzburg AG)",
+  };
 
-  // Arbeitspreis: "Arbeitspreis ... 20,28 Cent/kWh" oder "ct/kWh"
-  const arb = text.match(
-    /Arbeitspreis[^0-9]{0,80}(\d+[,.]\d+)\s*(?:Cent|ct)\s*\/?\s*kWh/i,
-  );
-  if (arb) {
-    const v = parseGermanNumber(arb[1]);
-    if (v !== null && v > 5 && v < 80) {
-      results.push({
-        source: "salzburg_ag",
-        field: "electricity_price_cent",
-        value: v,
-        excerpt: arb[0].trim(),
-      });
-    }
-  }
-
-  // Grundgebühr: "Grundpreis ... 3,00 €/Monat" → *12, oder "36,00 €/Jahr"
-  const grundYear = text.match(
-    /Grundpreis[^0-9]{0,80}(\d+[,.]\d+)\s*€\s*\/\s*Jahr/i,
-  );
-  const grundMonth = text.match(
-    /Grundpreis[^0-9]{0,80}(\d+[,.]\d+)\s*€\s*\/\s*Monat/i,
-  );
-  let baseFeeYear: number | null = null;
-  let excerpt = "";
-  if (grundYear) {
-    baseFeeYear = parseGermanNumber(grundYear[1]);
-    excerpt = grundYear[0].trim();
-  } else if (grundMonth) {
-    const m = parseGermanNumber(grundMonth[1]);
-    if (m !== null) baseFeeYear = +(m * 12).toFixed(2);
-    excerpt = grundMonth[0].trim();
-  }
-  if (baseFeeYear !== null && baseFeeYear > 5 && baseFeeYear < 500) {
-    results.push({
+  return [
+    {
+      source: "salzburg_ag",
+      field: "electricity_price_cent",
+      value: STROM_PRIVAT_24.arbeitspreis_cent_brutto,
+      excerpt: `Strom Privat 24, Gesamtpreis Arbeitspreis ${STROM_PRIVAT_24.arbeitspreis_cent_brutto} ct/kWh brutto (${STROM_PRIVAT_24.stand})`,
+    },
+    {
       source: "salzburg_ag",
       field: "electricity_base_fee_year_eur",
-      value: baseFeeYear,
-      excerpt,
-    });
-  }
-
-  return results;
+      value: STROM_PRIVAT_24.grundentgelt_eur_jahr_brutto,
+      excerpt: `Strom Privat 24, Gesamtpreis Grundentgelt ${STROM_PRIVAT_24.grundentgelt_eur_jahr_brutto} €/Jahr brutto (${STROM_PRIVAT_24.stand})`,
+    },
+  ];
 }
 
 Deno.serve(async (req) => {
