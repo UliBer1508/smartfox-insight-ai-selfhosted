@@ -321,7 +321,7 @@ async function syncThermostats() {
       return { name: deviceConfig.name, ok: false, error: error.message };
     }
 
-   console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
+    console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
     // Nur EINEN offenen connection_error pro Gerät (kein Duplikat-Stapel).
     // Analog zum device_offline-Schutz oben: verhindert, dass ein Gerät, das
     // den Preflight besteht aber beim Status-Auslesen zickt, bei jedem Zyklus
@@ -343,6 +343,8 @@ async function syncThermostats() {
         room_name: deviceConfig.name
       });
     }
+    return { name: deviceConfig.name, ok: false, error: status.error };
+  });
 
   const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
   const fail = total - ok;
