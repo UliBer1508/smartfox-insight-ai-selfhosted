@@ -1,9 +1,10 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Badge } from '@/components/ui/badge';
 import { Room } from '@/types/room';
 import { HeatingSettings } from '@/types/heating';
-import { Sun, Moon, Thermometer, Zap, Check, X, Bot } from 'lucide-react';
+import { Sun, Moon, Thermometer, Zap, Check, X, Bot, ChevronDown } from 'lucide-react';
 
 interface DailyHeatingScheduleProps {
   rooms: Room[];
@@ -120,29 +121,34 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
   const modeConfig = MODE_CONFIG[currentMode];
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Thermometer className="h-5 w-5 text-primary" />
-            Heizungs-Tagesprogramm
-          </CardTitle>
-          <div className="flex items-center gap-1.5">
-            {comfortSaturated && (
-              <span
-                className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
-                title="PV-Überschuss würde Komfort erlauben, die Räume sind aber komfort-gesättigt und stehen auf Eco. Der Estrich speichert die Wärme — das ist gewolltes Verhalten."
-              >
-                Komfort gesättigt
-              </span>
-            )}
-            <Badge variant="outline" className={`${modeConfig.color} ${modeConfig.bgColor} border-0`}>
-              {modeConfig.icon}
-              <span className="ml-1">{modeConfig.label}</span>
-            </Badge>
-          </div>
-        </div>
-      </CardHeader>
+    <Collapsible defaultOpen={false}>
+      <Card>
+        <CollapsibleTrigger asChild>
+          <CardHeader className="pb-3 cursor-pointer select-none">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Thermometer className="h-5 w-5 text-primary" />
+                Heizungs-Tagesprogramm
+              </CardTitle>
+              <div className="flex items-center gap-1.5">
+                {comfortSaturated && (
+                  <span
+                    className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground"
+                    title="PV-Überschuss würde Komfort erlauben, die Räume sind aber komfort-gesättigt und stehen auf Eco. Der Estrich speichert die Wärme — das ist gewolltes Verhalten."
+                  >
+                    Komfort gesättigt
+                  </span>
+                )}
+                <Badge variant="outline" className={`${modeConfig.color} ${modeConfig.bgColor} border-0`}>
+                  {modeConfig.icon}
+                  <span className="ml-1">{modeConfig.label}</span>
+                </Badge>
+                <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform data-[state=open]:rotate-180" />
+              </div>
+            </div>
+          </CardHeader>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
       <CardContent className="space-y-4">
         {/* Mode explanation */}
         <div className="grid grid-cols-3 gap-2 text-xs">
@@ -265,6 +271,8 @@ export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batteryS
           <span>Schwelle Aus: <span className="font-mono">{thresholdOff}W</span></span>
         </div>
       </CardContent>
-    </Card>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
