@@ -215,7 +215,7 @@ async function syncThermostats() {
   const online = reachability.filter(r => r.online);
   const offline = reachability.filter(r => !r.online);
 
- // Online-Geräte heilen sich selbst: offene device_offline-Fehler auflösen,
+  // Online-Geräte heilen sich selbst: offene device_offline-Fehler auflösen,
   // sobald der TCP-Preflight wieder besteht. Im Lokal-Modus quota-frei, daher
   // ist der Preflight (läuft ohnehin jeden Zyklus) die verlässlichste Signal-
   // quelle — Fehler entsteht und verschwindet an derselben Stelle (symmetrisch).
@@ -321,16 +321,28 @@ async function syncThermostats() {
       return { name: deviceConfig.name, ok: false, error: error.message };
     }
 
-    console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
-    await supabase.from('api_errors').insert({
-      source: 'tuya-local',
-      error_type: 'connection_error',
-      error_message: status.error,
-      device_id: deviceConfig.device_id,
-      room_name: deviceConfig.name
-    });
-    return { name: deviceConfig.name, ok: false, error: status.error };
-  });
+   console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
+    // Nur EINEN offenen connection_error pro Gerät (kein Duplikat-Stapel).
+    // Analog zum device_offline-Schutz oben: verhindert, dass ein Gerät, das
+    // den Preflight besteht aber beim Status-Auslesen zickt, bei jedem Zyklus
+    // einen neuen Fehler anhäuft und so fälschlich die "persistent"-Schwelle
+    // (PERSIST_MIN_COUNT) im Frontend-Banner auslöst.
+    const { data: existingConnErr } = await supabase
+      .from('api_errors')
+      .select('id')
+      .eq('error_type', 'connection_error')
+      .eq('device_id', deviceConfig.device_id)
+      .is('resolved_at', null)
+      .limit(1);
+    if (!existingConnErr || existingConnErr.length === 0) {
+      await supabase.from('api_errors').insert({
+        source: 'tuya-local',
+        error_type: 'connection_error',
+        error_message: status.error,
+        device_id: deviceConfig.device_id,
+        room_name: deviceConfig.name
+      });
+    }
 
   const ok = results.filter(r => r.status === 'fulfilled' && r.value.ok).length;
   const fail = total - ok;
