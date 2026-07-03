@@ -303,19 +303,23 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
         />
       )}
 
-      {/* Thermostat Control */}
+      {/* Thermostat Control — aufklappbar, default eingeklappt */}
       {rooms.some(r => r.tuya_device_id) && (
+        <Collapsible defaultOpen={false}>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Thermometer className="w-5 h-5 text-primary" />
-                Thermostat-Steuerung
-              </CardTitle>
-              <CardDescription>
-                Live-Temperaturen und manuelle Steuerung · <span className={isLocalMode ? 'text-primary font-medium' : 'font-medium'}>{modeLabel}</span>
-              </CardDescription>
-            </div>
+            <CollapsibleTrigger asChild>
+              <div className="cursor-pointer select-none flex-1 min-w-0">
+                <CardTitle className="flex items-center gap-2">
+                  <Thermometer className="w-5 h-5 text-primary" />
+                  Thermostat-Steuerung
+                  <ChevronDown className="w-4 h-4 text-muted-foreground transition-transform data-[state=open]:rotate-180" />
+                </CardTitle>
+                <CardDescription>
+                  Live-Temperaturen und manuelle Steuerung · <span className={isLocalMode ? 'text-primary font-medium' : 'font-medium'}>{modeLabel}</span>
+                </CardDescription>
+              </div>
+            </CollapsibleTrigger>
             <div className="flex items-center gap-2">
               {lastSyncTime && (
                 <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -354,6 +358,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               </Button>
             </div>
           </CardHeader>
+          <CollapsibleContent>
           <CardContent>
             <StatusLegend />
             <div className="grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3 w-full min-w-1">
@@ -375,7 +380,9 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
               ))}
             </div>
           </CardContent>
+          </CollapsibleContent>
         </Card>
+        </Collapsible>
       )}
 
       {/* KI-Lernstatus & Mustergedächtnis — aufklappbar */}
