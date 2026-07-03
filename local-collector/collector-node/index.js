@@ -215,9 +215,40 @@ async function syncThermostats() {
   const online = reachability.filter(r => r.online);
   const offline = reachability.filter(r => !r.online);
 
-  // Offline-Geräte sofort als Fehler loggen
+ // Online-Geräte heilen sich selbst: offene device_offline-Fehler auflösen,
+  // sobald der TCP-Preflight wieder besteht. Im Lokal-Modus quota-frei, daher
+  // ist der Preflight (läuft ohnehin jeden Zyklus) die verlässlichste Signal-
+  // quelle — Fehler entsteht und verschwindet an derselben Stelle (symmetrisch).
+  const onlineDeviceIds = online.map(r => r.device.device_id);
+  if (onlineDeviceIds.length > 0) {
+    const { data: healed, error: healErr } = await supabase
+      .from('api_errors')
+      .update({ resolved_at: new Date().toISOString() })
+      .eq('error_type', 'device_offline')
+      .is('resolved_at', null)
+      .in('device_id', onlineDeviceIds)
+      .select('id');
+    if (healErr) {
+      console.error('[Tuya] Auto-Heal device_offline Fehler:', healErr.message);
+    } else if (healed && healed.length > 0) {
+      console.log(`[Tuya] ${healed.length} device_offline-Fehler aufgelöst (Geräte wieder erreichbar)`);
+    }
+  }
+
+  // Offline-Geräte als Fehler loggen — aber nur EINEN offenen Eintrag pro Gerät
+  // (kein neuer Insert, solange schon ein unaufgelöster device_offline existiert).
+  // Verhindert Duplikat-Ansammlung, die im Frontend fälschlich als "persistent"
+  // (PERSIST_MIN_COUNT) zählt.
   for (const { device } of offline) {
     console.error(`[Tuya] ${device.name}: offline (TCP 6668 unerreichbar)`);
+    const { data: existingOpen } = await supabase
+      .from('api_errors')
+      .select('id')
+      .eq('error_type', 'device_offline')
+      .eq('device_id', device.device_id)
+      .is('resolved_at', null)
+      .limit(1);
+    if (existingOpen && existingOpen.length > 0) continue;
     await supabase.from('api_errors').insert({
       source: 'tuya-local',
       error_type: 'device_offline',
