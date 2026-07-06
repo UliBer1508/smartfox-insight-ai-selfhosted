@@ -9,6 +9,12 @@
 //         muss Prognose-vs-Ist VOR der Löschung dauerhaft gesichert werden.
 //         Vorbild-Logik: Trapez-Integration aus pv-automation (~Z.1336-1348),
 //         Buckets aus compute-daily-score.
+//
+//  FIX 2026-07-06: .limit(5000) wurde von Supabase/PostgREST still auf das
+//         Server-max-rows-Limit (1000) gekappt. An vollen Tagen (~2900 Samples
+//         à 30 s) wurden dadurch nur die ersten ~8 h integriert -> Tagesertrag
+//         massiv zu klein (z.B. 3.13 statt 74 kWh). Lösung: ALLE Samples per
+//         .range()-Paginierung in 1000er-Blöcken laden, bis der Tag komplett ist.
 // ============================================================================
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
@@ -71,21 +77,40 @@ function integrateKwh(samples: Array<{ t: Date; w: number }>): { kwh: number; pe
   return { kwh: wh / 1000, peakW: peak, n: pts.length };
 }
 
+// --- ALLE Zeilen eines Tages laden (Paginierung, umgeht das 1000er-Serverlimit) ---
+//     .limit(5000) allein reicht NICHT: PostgREST kappt hart auf max-rows (1000).
+//     Deshalb blockweise per .range() bis der Tag vollständig geladen ist.
+async function fetchAllReadings(dayStart: string, dayEnd: string):
+    Promise<{ rows: Array<{ timestamp: string; pv_power: number | null }>; error: string | null }> {
+  const PAGE = 1000;
+  const all: Array<{ timestamp: string; pv_power: number | null }> = [];
+  for (let from = 0; ; from += PAGE) {
+    const to = from + PAGE - 1;
+    const { data, error } = await supabase
+      .from('energy_readings')
+      .select('timestamp, pv_power')
+      .gte('timestamp', dayStart)
+      .lte('timestamp', dayEnd)
+      .order('timestamp', { ascending: true })
+      .range(from, to);
+    if (error) return { rows: all, error: error.message };
+    if (!data || data.length === 0) break;
+    all.push(...data);
+    if (data.length < PAGE) break; // letzte (Teil-)Seite erreicht
+    if (from > 100_000) break;      // harte Sicherheitsgrenze gegen Endlosschleife
+  }
+  return { rows: all, error: null };
+}
+
 async function recordOneDay(dateStr: string) {
   // Tagesgrenzen in Wien-Zeit (Sommer +02:00). Hinweis: bei Winterzeit +01:00;
   // für die Tages-Integration unkritisch, da wir alle Samples des Kalendertags nehmen.
   const dayStart = `${dateStr}T00:00:00+02:00`;
   const dayEnd = `${dateStr}T23:59:59+02:00`;
 
-  // 1) pv_power-Samples des Tages laden
-  const { data: rows, error } = await supabase
-    .from('energy_readings')
-    .select('timestamp, pv_power')
-    .gte('timestamp', dayStart)
-    .lte('timestamp', dayEnd)
-    .order('timestamp', { ascending: true })
-    .limit(5000); // Supabase-Default ist 1000 -> an vollen Tagen sonst abgeschnitten
-  if (error) return { ok: false, reason: `energy_readings: ${error.message}` };
+  // 1) ALLE pv_power-Samples des Tages laden (paginiert, nicht auf 1000 gekappt)
+  const { rows, error } = await fetchAllReadings(dayStart, dayEnd);
+  if (error) return { ok: false, reason: `energy_readings: ${error}` };
   if (!rows || rows.length === 0) return { ok: false, reason: 'keine energy_readings für Tag' };
 
   const samples = rows
@@ -157,4 +182,3 @@ serve(async (req) => {
     });
   }
 });
-
