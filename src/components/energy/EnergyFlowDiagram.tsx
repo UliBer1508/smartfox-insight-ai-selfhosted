@@ -357,7 +357,7 @@ export function EnergyFlowDiagram({
             value={batterySoc ?? 0}
             maxValue={100}
             color={colors.battery}
-            label={`${batterySoc ?? 0}%`}
+           label={`${(batterySoc ?? 0).toFixed(1)}%`}
             icon={Battery}
           />
           
