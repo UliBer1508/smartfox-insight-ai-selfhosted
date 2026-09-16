@@ -356,17 +356,20 @@ Deno.serve(async (req) => {
       });
     }
 
-    const accessId = Deno.env.get('TUYA_ACCESS_ID')?.trim();
-    const accessSecret = Deno.env.get('TUYA_ACCESS_SECRET')?.trim();
-
-    if (!accessId || !accessSecret) {
-      throw new Error('Tuya credentials not configured');
-    }
-
-    console.log('Using accessId:', accessId, 'length:', accessId.length);
+    const accessId = Deno.env.get('TUYA_ACCESS_ID')?.trim() as string;
+    const accessSecret = Deno.env.get('TUYA_ACCESS_SECRET')?.trim() as string;
 
     const url = new URL(req.url);
     const path = url.pathname.replace('/tuya-control', '');
+
+    // /test darf auch OHNE Credentials laufen: Der Handler meldet genau diesen
+    // Zustand sauber zurueck (credentials_configured: false, Status 200).
+    // Vorher brach der globale Check hier mit 500 ab und machte den Test unbrauchbar.
+    if ((!accessId || !accessSecret) && path !== '/test') {
+      throw new Error('Tuya credentials not configured');
+    }
+
+    if (accessId) console.log('Using accessId:', accessId, 'length:', accessId.length);
 
     console.log(`Request: ${req.method} ${path}`);
 
