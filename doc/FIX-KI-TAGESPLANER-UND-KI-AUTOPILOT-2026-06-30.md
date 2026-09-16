@@ -1,4 +1,4 @@
-FIX-KI-TAGESPLANER-UND-KI-AUTOPILOT-2026-06-30.md
+#FIX-KI-TAGESPLANER-UND-KI-AUTOPILOT-2026-06-30.md
 
 **Datum:** 30. Juni 2026
 **Repo:** `UliBer1508/smartfox-insight-ai-selfhosted` (privat)
