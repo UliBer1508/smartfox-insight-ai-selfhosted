@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useTuyaConnectionTest, RegionResult } from '@/hooks/useTuyaConnectionTest';
+import { useControlMode } from '@/hooks/useControlMode';
 import { 
   CheckCircle, 
   XCircle, 
@@ -123,15 +124,24 @@ function RegionRow({ region, isCurrent, onSelect, isLoading }: RegionRowProps) {
 
 export function TuyaConnectionTest() {
   const { result, isLoading, error, runTest, setRegion, isSettingRegion, getTimeSinceTest } = useTuyaConnectionTest();
+  const { mode } = useControlMode();
 
-  // Auto-run test on mount
+  // Im lokalen Modus laufen die Thermostate ueber LAN (Port 6668).
+  // Die Cloud-API ist dann bewusst ungenutzt - fehlende Zugangsdaten
+  // sind kein Fehler, sondern der erwartete Zustand.
+  const isLocal = mode === 'local';
+
+  // Auto-Test nur im Cloud-Modus. Im lokalen Modus wuerde er lediglich
+  // "nicht konfiguriert" melden und wie ein Defekt aussehen.
   useEffect(() => {
-    runTest();
-  }, [runTest]);
+    if (!isLocal) runTest();
+  }, [runTest, isLocal]);
 
   const getCredentialsStatus = (): TestStepProps['status'] => {
     if (isLoading && !result) return 'loading';
     if (!result) return 'pending';
+    // Im lokalen Modus sind fehlende Cloud-Credentials kein Fehlerzustand
+    if (!result.credentials_configured && isLocal) return 'pending';
     return result.credentials_configured ? 'success' : 'error';
   };
 
@@ -184,10 +194,15 @@ export function TuyaConnectionTest() {
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Wifi className="h-4 w-4" />
-            API-Verbindungstest
-          </CardTitle>
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Wifi className="h-4 w-4" />
+              Tuya Cloud API-Verbindungstest
+            </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">
+              Prüft die Verbindung zur Tuya Cloud (nicht die lokale LAN-Steuerung).
+            </p>
+          </div>
           <Button 
             variant="outline" 
             size="sm" 
@@ -204,6 +219,19 @@ export function TuyaConnectionTest() {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Hinweis im lokalen Modus */}
+        {isLocal && (
+          <Alert>
+            <Server className="h-4 w-4" />
+            <AlertTitle>Lokaler Service-Modus aktiv</AlertTitle>
+            <AlertDescription>
+              Die Thermostate werden über das LAN gesteuert (Port 6668). Die Tuya Cloud API
+              wird derzeit nicht verwendet — fehlende Zugangsdaten sind hier kein Fehler.
+              Dieser Test ist erst relevant, wenn Sie auf den Cloud-Modus umstellen.
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* Test Steps */}
         <div className="space-y-2">
           <TestStep
@@ -285,13 +313,13 @@ export function TuyaConnectionTest() {
           </Alert>
         )}
 
-        {result && !result.credentials_configured && (
+        {result && !result.credentials_configured && !isLocal && (
           <Alert>
             <AlertTriangle className="h-4 w-4" />
             <AlertTitle>Zugangsdaten fehlen</AlertTitle>
             <AlertDescription>
-              Die Tuya API-Zugangsdaten (TUYA_ACCESS_ID und TUYA_ACCESS_SECRET) 
-              sind nicht konfiguriert.
+              Die Tuya Cloud API-Zugangsdaten (TUYA_ACCESS_ID und TUYA_ACCESS_SECRET) 
+              sind nicht als Supabase-Secrets konfiguriert.
             </AlertDescription>
           </Alert>
         )}
@@ -319,17 +347,24 @@ export function TuyaConnectionTest() {
         {/* Status Summary */}
         <div className="flex items-center justify-between text-sm text-muted-foreground pt-2 border-t">
           <div className="flex items-center gap-2">
+            {isLocal && !result && (
+              <Badge variant="outline" className="bg-muted text-muted-foreground">
+                Nicht in Verwendung
+              </Badge>
+            )}
             {result && (
               <Badge 
                 variant="outline" 
                 className={
                   overallStatus === 'success' ? 'bg-green-500/10 text-green-600 border-green-500/20' :
                   overallStatus === 'quota_exhausted' ? 'bg-destructive/10 text-destructive border-destructive/20' :
+                  isLocal ? 'bg-muted text-muted-foreground' :
                   'bg-yellow-500/10 text-yellow-600 border-yellow-500/20'
                 }
               >
                 {overallStatus === 'success' ? 'Verbunden' : 
                  overallStatus === 'quota_exhausted' ? 'Kontingent erschöpft' : 
+                 isLocal ? 'Nicht in Verwendung' :
                  'Verbindungsproblem'}
               </Badge>
             )}
