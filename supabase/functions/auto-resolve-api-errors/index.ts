@@ -39,6 +39,7 @@ Deno.serve(async (req) => {
   const summary = {
     heartbeat_resolved: 0,
     connection_resolved: 0,
+    device_reachable_resolved: 0,
     safety_net_resolved: 0,
   };
 
@@ -61,21 +62,45 @@ Deno.serve(async (req) => {
     if (!error) summary.heartbeat_resolved = data?.length ?? 0;
   }
 
-  // 2) connection_error / device_offline pro Raum: aufgelöst, wenn Raum in den letzten 30 min
-  //    einen executed Command hat ODER der Fehler älter als 2 h ist (kein neuer Fehler-Trigger).
+  // 2) connection_error / device_offline pro Raum: aufgelöst, wenn
+  //    (a) Raum in den letzten 30 min einen executed Command hat, ODER
+  //    (b) das Gerät laut rooms.last_thermostat_sync wieder erreichbar ist (< 10 min), ODER
+  //    (c) der Fehler älter als 2 h ist (kein neuer Fehler-Trigger).
+  //
+  //    Bedingung (b) ist neu: Sie loest ueber device_id auf und funktioniert damit auch,
+  //    wenn der Collector kein room_id mitschreibt. Ausserdem haengt sie an der reinen
+  //    Erreichbarkeit statt an einem ausgefuehrten Kommando - sonst bleiben Fehler in
+  //    Phasen ohne Heizbedarf bis zu 2 h stehen, obwohl das Geraet laengst wieder liefert.
   const { data: openConnErrors } = await supabase
     .from('api_errors')
-    .select('id, room_id, created_at')
+    .select('id, room_id, device_id, created_at')
     .in('error_type', ['connection_error', 'device_offline'])
     .is('resolved_at', null);
 
   if (openConnErrors && openConnErrors.length > 0) {
     const thirtyMinAgo = new Date(now - 30 * 60 * 1000).toISOString();
     const twoHoursAgo = now - 2 * 60 * 60 * 1000;
+    const freshSyncMs = 10 * 60 * 1000;
+
+    // Geraete-Sync-Zeitpunkte einmalig laden (device_id -> last_thermostat_sync)
+    const { data: roomSyncs } = await supabase
+      .from('rooms')
+      .select('tuya_device_id, last_thermostat_sync')
+      .not('tuya_device_id', 'is', null);
+
+    const syncByDevice = new Map<string, string | null>(
+      (roomSyncs ?? []).map((r: { tuya_device_id: string; last_thermostat_sync: string | null }) =>
+        [r.tuya_device_id, r.last_thermostat_sync]
+      )
+    );
+
     const toResolve: string[] = [];
+    let reachableCount = 0;
 
     for (const err of openConnErrors) {
       let resolve = false;
+
+      // (a) Ausgefuehrtes Kommando im Raum innerhalb der letzten 30 min
       if (err.room_id) {
         const { data: recentExec } = await supabase
           .from('thermostat_commands')
@@ -86,7 +111,19 @@ Deno.serve(async (req) => {
           .limit(1);
         if (recentExec && recentExec.length > 0) resolve = true;
       }
+
+      // (b) Geraet liefert wieder frische Daten
+      if (!resolve && err.device_id) {
+        const lastSync = syncByDevice.get(err.device_id);
+        if (lastSync && (now - new Date(lastSync).getTime()) < freshSyncMs) {
+          resolve = true;
+          reachableCount++;
+        }
+      }
+
+      // (c) Fehler ist aelter als 2 h
       if (!resolve && new Date(err.created_at).getTime() < twoHoursAgo) resolve = true;
+
       if (resolve) toResolve.push(err.id);
     }
 
@@ -96,7 +133,10 @@ Deno.serve(async (req) => {
         .update({ resolved_at: nowIso })
         .in('id', toResolve)
         .select('id');
-      if (!error) summary.connection_resolved = data?.length ?? 0;
+      if (!error) {
+        summary.connection_resolved = data?.length ?? 0;
+        summary.device_reachable_resolved = reachableCount;
+      }
     }
   }
 
