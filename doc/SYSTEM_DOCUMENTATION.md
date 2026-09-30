@@ -334,7 +334,7 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 
 ## 12. Machine Learning & AI
 
-**AI-Provider:** **Direkte Google Gemini API** (`gemini-2.5-flash`). Keine Lovable AI Gateway. Secret: `GEMINI_API_KEY`.
+**AI-Provider:** **Direkte Google Gemini API** (`gemini-2.5-flash`). Keine Lovable AI Gateway. Secret: `GOOGLE_AI_API_KEY`.
 
 ### Komponenten
 - **`analyze-patterns`** — generiert Empfehlungen, im Nachtfenster suppressed
@@ -569,4 +569,4 @@ Detaillierte Spec-Dateien unter `mem://`:
 - `data-pipeline/ml-feature-extraction-logic` — Zyklus-Rekonstruktion
 - `arch/timezone-standardization` — Europe/Vienna
 
-**Vollständiger Index:** `.lovable/memory/index.md`
+**Vollständiger Index:** `doc/memory/index.md`

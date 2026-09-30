@@ -195,11 +195,12 @@ graph LR
 ## Ordnerstruktur
 
 ```
-├── .lovable/              # Dokumentation
+├── doc/                   # Dokumentation
 │   ├── SYSTEM_DOCUMENTATION.md
 │   ├── CHANGELOG.md
 │   ├── ARCHITECTURE.md
-│   └── TODO.md
+│   ├── TODO.md
+│   └── memory/            # Detail-Specs (index.md)
 ├── local-collector/       # Datensammler
 │   ├── collector.py       # Python-Version
 │   └── collector-node/    # Node.js-Version
