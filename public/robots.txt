@@ -1,16 +1,3 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
+# Private Heizungssteuerung - nicht fuer Suchmaschinen bestimmt.
 User-agent: *
-Allow: /
-
-Sitemap: https://smartfox-insight-ai.lovable.app/sitemap.xml
+Disallow: /
