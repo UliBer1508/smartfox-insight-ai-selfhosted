@@ -2,7 +2,7 @@
  * PWA-Registrierung mit Auto-Update.
  *
  * Verhalten:
- *  - Im Lovable-Editor-Iframe oder auf Preview-Hosts wird der SW NICHT registriert
+ *  - In einem Iframe oder lokal (localhost) wird der SW NICHT registriert
  *    und vorhandene SWs/Caches werden gelöscht (verhindert Stale-Preview-Bugs).
  *  - In Produktion: Vite-PWA prüft regelmäßig auf neue Builds. Sobald ein neuer
  *    SW bereit ("waiting") ist, aktivieren wir ihn automatisch und reloaden die
@@ -21,8 +21,6 @@ export async function setupPWA() {
 
   const host = window.location.hostname;
   const isPreviewHost =
-    host.includes("id-preview--") ||
-    host.includes("lovableproject.com") ||
     host === "localhost" ||
     host === "127.0.0.1";
 
