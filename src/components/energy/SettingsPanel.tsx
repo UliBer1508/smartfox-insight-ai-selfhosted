@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Server, CheckCircle, AlertCircle, Settings, Home, Database, Plug, Cloud, MonitorSmartphone } from 'lucide-react';
+import { Server, CheckCircle, AlertCircle, Settings, Home, Database, DatabaseBackup, Plug, Cloud, MonitorSmartphone } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { DataRetentionSettings } from './DataRetentionSettings';
 import { TariffHistoryPanel } from './TariffHistoryPanel';
@@ -13,6 +13,7 @@ import { TuyaConnectionTest } from "@/components/settings/TuyaConnectionTest";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { useControlMode } from "@/hooks/useControlMode";
+import { BackupSettingsSection } from "@/components/settings/BackupSettingsSection";
 
 interface SettingsPanelProps {
   isConnected: boolean;
@@ -165,6 +166,19 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
           </AccordionTrigger>
           <AccordionContent className="p-4">
             <DataRetentionSettings />
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Datensicherung (PN40 -> OneDrive), Protokoll aus backup_runs */}
+        <AccordionItem value="sicherung" className="border rounded-lg overflow-hidden">
+          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
+            <div className="flex items-center gap-2">
+              <DatabaseBackup className="h-5 w-5 text-primary" />
+              <span className="font-semibold">Datensicherung</span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent className="p-4">
+            <BackupSettingsSection />
           </AccordionContent>
         </AccordionItem>
 
