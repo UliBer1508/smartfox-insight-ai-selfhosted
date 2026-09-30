@@ -1250,7 +1250,7 @@ Kurze Einschätzung auf Deutsch.`;
       aiRequestBody.tool_choice = { type: "function", function: { name: toolName } };
     }
 
-    // Use unified AI call with Google AI (free) + Lovable AI (fallback)
+    // Unified AI call: Google Gemini (GOOGLE_AI_API_KEY)
     const aiResponse = await callAI(aiRequestBody, type);
 
     if (!aiResponse.ok) {
