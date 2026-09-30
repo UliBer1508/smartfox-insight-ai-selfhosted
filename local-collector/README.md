@@ -214,7 +214,7 @@ launchctl load ~/Library/LaunchAgents/com.smartfox.collector.plist
 ## 📊 Daten in der PWA
 
 Die gesammelten Daten werden automatisch in der PWA angezeigt:
-- Öffne die App unter: https://e1db9897-1b63-4925-9f1e-d169d22f705a.lovableproject.com
+- Öffne die App unter: https://heizung.steinbockchalets-charge.com
 - Die Daten aktualisieren sich in Echtzeit dank Realtime-Subscription
 
 ## 📝 Lizenz
