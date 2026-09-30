@@ -135,7 +135,7 @@ Die `room_id` muss mit der UUID in der Supabase `rooms` Tabelle übereinstimmen.
 
 So findest du die UUIDs:
 1. Öffne die App → Heizung → Einstellungen eines Raums
-2. Oder: Lovable Cloud → Database → rooms → id Spalte
+2. Oder: Supabase-Dashboard (Projekt `pflnniklvqbwjwrjswaz`) → Table Editor → `rooms` → Spalte `id`
 
 ---
 
