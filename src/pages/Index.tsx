@@ -10,6 +10,7 @@ import { ConnectionStatus } from '@/components/energy/ConnectionStatus';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { AnalysisPanel } from '@/components/energy/AnalysisPanel';
 import { HeatingDashboard } from '@/components/heating/HeatingDashboard';
+import { HouseOverview } from '@/components/overview/HouseOverview';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 
 
@@ -36,7 +37,7 @@ import { toast } from 'sonner';
 
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'settings' | 'analysis' | 'heating'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'overview' | 'dashboard' | 'settings' | 'analysis' | 'heating'>('overview');
   const { settings } = useSmartfoxSettings();
   const { settings: heatingSettings } = useHeatingSettings();
   const { 
@@ -59,6 +60,7 @@ const Index = () => {
 
   const {
     rooms,
+    updateRoomLocally,
   } = useRooms();
 
   useEffect(() => {
@@ -69,8 +71,12 @@ const Index = () => {
 
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
-    dashboard: {
+    overview: {
       title: 'Übersicht — Heizung Venediger',
+      description: 'Betriebsmodus, Energie, Wetter- und PV-Prognose sowie alle Räume auf einen Blick.',
+    },
+    dashboard: {
+      title: 'Energie — Heizung Venediger',
       description: 'Live-Übersicht von PV-Erzeugung, Batterie-Speicher, Verbrauch und aktiver Heizungsleistung in Echtzeit.',
     },
     heating: {
@@ -95,6 +101,16 @@ const Index = () => {
 
       <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 md:pb-6">
         
+        {activeTab === 'overview' && (
+          <HouseOverview
+            currentReading={currentReading}
+            isConnected={isConnected}
+            rooms={rooms}
+            settings={heatingSettings}
+            updateRoomLocally={updateRoomLocally}
+          />
+        )}
+
         {activeTab === 'dashboard' && (
           <>
             <ConnectionStatus

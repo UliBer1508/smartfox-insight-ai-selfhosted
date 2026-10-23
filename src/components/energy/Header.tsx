@@ -1,4 +1,4 @@
-import { Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, LogOut } from 'lucide-react';
+import { Home, Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
@@ -8,12 +8,13 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ControlModeBadge } from '@/components/layout/ControlModeBadge';
 
 interface HeaderProps {
-  activeTab: 'dashboard' | 'settings' | 'analysis' | 'heating';
-  onTabChange: (tab: 'dashboard' | 'settings' | 'analysis' | 'heating') => void;
+  activeTab: 'overview' | 'dashboard' | 'settings' | 'analysis' | 'heating';
+  onTabChange: (tab: 'overview' | 'dashboard' | 'settings' | 'analysis' | 'heating') => void;
 }
 
 const tabs = [
-  { key: 'dashboard' as const, icon: BarChart3, label: 'Übersicht' },
+  { key: 'overview' as const, icon: Home, label: 'Übersicht' },
+  { key: 'dashboard' as const, icon: BarChart3, label: 'Energie' },
   { key: 'heating' as const, icon: Thermometer, label: 'Heizung & KI' },
   { key: 'analysis' as const, icon: Zap, label: 'Verlauf & Muster' },
   { key: 'settings' as const, icon: Settings, label: 'Einstellungen' },
