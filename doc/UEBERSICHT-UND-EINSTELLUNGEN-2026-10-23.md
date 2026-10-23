@@ -93,8 +93,8 @@ protokollierte `current_value` stammt aus der Gemini-Antwort, nicht aus der DB (
 `SettingsPanel.tsx` → **Betrieb** (Lokal/Cloud, Cloud mit Rückfrage) · **Haus**
 (`settings/HouseSettingsCard.tsx`: Zeiten, PV-Überschuss, Batterie, Verteilung, Anlage) · **Räume**
 (`settings/RoomsSection.tsx`: Karte je Raum, Nacht/Eco/Komfort direkt, PV-Automatik, Technik &
-Lernwerte aufklappbar) · **System** eingeklappt (Datensammler, Tuya Cloud, Datenspeicherung,
-Datensicherung, Tarife).
+Lernwerte aufklappbar) · Datensammler · Tuya Cloud · Datenspeicherung · Datensicherung · Tarife.
+Jeder Abschnitt ist wie früher ausklappbar; der Auf/Zu-Zustand wird je Abschnitt im Browser gemerkt.
 
 **Ausgeblendet (DB-Werte bleiben):** `max_grid_heating_power_w` (gelesen, nie verwendet),
 `pv_boost_temp_delta` (gelesen, nie verwendet), Strompreise im Formular (Quelle der Wahrheit ist

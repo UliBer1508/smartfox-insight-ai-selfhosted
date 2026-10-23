@@ -225,8 +225,10 @@ export function HouseSettingsCard({ settings, onSave, isLoading }: Props) {
 
   return (
     <SectionCard
+      id="haus"
       title="Haus"
-      icon={<Home className="w-5 h-5 text-primary" />}
+      icon={<Home className="h-5 w-5 text-primary" />}
+      badge={changed.length > 0 ? <span className="ml-1 text-xs font-normal text-warning">{changed.length} ungespeichert</span> : undefined}
       description="Gilt für alle Räume. Gespeichert werden nur die Felder, die du änderst."
     >
       {GROUPS.map((g) => (
@@ -239,7 +241,7 @@ export function HouseSettingsCard({ settings, onSave, isLoading }: Props) {
       <p className="text-xs text-muted-foreground border-t pt-3">
         Strompreise ({price != null ? `${Number(price).toLocaleString('de-DE')} ct` : '–'} Bezug,
         {' '}{feed != null ? `${Number(feed).toLocaleString('de-DE')} ct` : '–'} Einspeisung) pflegst du unten unter
-        {' '}<strong>System → Tarife & Preisverlauf</strong>.
+        {' '}<strong>Tarife & Preisverlauf</strong>.
       </p>
 
       {errors.length > 0 && (

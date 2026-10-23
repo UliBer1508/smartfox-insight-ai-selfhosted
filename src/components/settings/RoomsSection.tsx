@@ -23,7 +23,7 @@ import {
 import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
 import { sameValue } from '@/lib/safeSave';
 import { useSolarGainAnalysis } from '@/hooks/useSolarGainAnalysis';
-import { Home, Plus, BarChart3, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench } from 'lucide-react';
+import { Home, Thermometer, Plus, BarChart3, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench } from 'lucide-react';
 import { SectionCard, Eyebrow, LabeledInput } from './SettingsBits';
 
 const TEMP_MIN = 5;
@@ -388,8 +388,9 @@ export function RoomsSection({ rooms, isLoading, onSave, onCreate, onDelete, onR
 
   return (
     <SectionCard
-      title="Räume"
-      icon={<Home className="w-5 h-5 text-primary" />}
+      id="raeume"
+      title="Räume & Thermostate"
+      icon={<Thermometer className="w-5 h-5 text-primary" />}
       description="Jede Karte speichert nur ihre eigenen Änderungen. Sollwert, Ist-Temperatur und Heizstatus setzt weiterhin die Automatik."
       right={
         <div className="flex gap-2 shrink-0">
