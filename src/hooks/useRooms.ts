@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Room, RoomRecommendation } from '@/types/room';
 import { toast } from 'sonner';
 import { getLocalDateString, getViennaTimeString } from '@/lib/dateUtils';
+import { cleanPatch, findConflicts } from '@/lib/safeSave';
 
 const sortRooms = (rooms: Room[]): Room[] =>
   [...rooms].sort((a, b) => (a.priority ?? 99) - (b.priority ?? 99) || a.name.localeCompare(b.name));
@@ -112,6 +113,70 @@ export function useRooms() {
     }
   }, [loadRooms, updateRoomLocally]);
 
+  /**
+   * Speichert nur die geänderten Raumfelder (seit 23.10.2026).
+   * `base` = Werte dieser Felder zu dem Zeitpunkt, als der Nutzer sie zu bearbeiten begann.
+   * Hat jemand anders (pv-automation, Collector, KI) genau diese Felder inzwischen geändert,
+   * wird nicht überschrieben. Felder wie target_temp, current_temp oder is_heating werden
+   * aus der Einstellungsseite nie mitgeschickt.
+   */
+  const updateRoomFields = useCallback(async (
+    roomId: string,
+    patch: Partial<Room>,
+    base: Partial<Room>,
+  ): Promise<boolean> => {
+    try {
+      const clean = cleanPatch(patch as Record<string, unknown>) as Partial<Room>;
+      const keys = Object.keys(clean);
+      if (keys.length === 0) return true;
+
+      const { data: fresh, error: freshErr } = await supabase
+        .from('rooms')
+        .select(keys.join(','))
+        .eq('id', roomId)
+        .single();
+      if (freshErr) throw freshErr;
+      const conflicts = findConflicts(
+        keys,
+        base as Record<string, unknown>,
+        fresh as unknown as Record<string, unknown>,
+        clean as Record<string, unknown>,
+      );
+      if (conflicts.length > 0) {
+        toast.error(
+          `Nicht gespeichert: ${conflicts.join(', ')} wurde inzwischen an anderer Stelle geändert. Bitte prüfen und erneut speichern.`,
+          { duration: 10000 },
+        );
+        await loadRooms();
+        return false;
+      }
+
+      const { error } = await supabase
+        .from('rooms')
+        .update({ ...clean, updated_at: new Date().toISOString() })
+        .eq('id', roomId);
+      if (error) {
+        if (error.code === '23505' && error.message?.includes('priority')) {
+          toast.error(`Priorität ${clean.priority} ist bereits vergeben`);
+          return false;
+        }
+        if (error.code === '23514') {
+          toast.error('Ungültiger Wert (z. B. Priorität außerhalb 1–12)');
+          return false;
+        }
+        throw error;
+      }
+      updateRoomLocally(roomId, clean);
+      toast.success('Raum gespeichert');
+      return true;
+    } catch (error) {
+      console.error('Error updating room fields:', error);
+      toast.error('Fehler beim Speichern');
+      await loadRooms();
+      return false;
+    }
+  }, [loadRooms, updateRoomLocally]);
+
   const deleteRoom = useCallback(async (roomId: string) => {
     try {
       const { error } = await supabase
@@ -179,6 +244,7 @@ export function useRooms() {
     loadRooms,
     loadRecommendations,
     saveRoom,
+    updateRoomFields,
     deleteRoom,
     saveRecommendations,
     getCurrentRecommendation,

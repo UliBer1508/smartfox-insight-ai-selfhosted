@@ -38,24 +38,28 @@ export const useDataRetentionSettings = () => {
     }
   }, []);
 
-  const saveSettings = useCallback(async (newSettings: DataRetentionSettings) => {
+  // Speichert nur geänderte Felder (seit 23.10.2026), damit z. B. last_cleanup_at nicht mit
+  // einem alten Stand überschrieben wird.
+  const saveSettings = useCallback(async (changes: Partial<DataRetentionSettings>) => {
     try {
-      if (newSettings.id) {
+      const { id: _id, created_at: _c, updated_at: _u, ...patch } = changes as DataRetentionSettings & { created_at?: string; updated_at?: string };
+      if (Object.keys(patch).length === 0) return;
+      if (settings.id) {
         const { error } = await supabase
           .from('data_retention_settings')
-          .update(newSettings)
-          .eq('id', newSettings.id);
+          .update(patch)
+          .eq('id', settings.id);
 
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from('data_retention_settings')
-          .insert(newSettings);
+          .insert({ ...settings, ...patch });
 
         if (error) throw error;
       }
 
-      setSettings(newSettings);
+      setSettings((prev) => ({ ...prev, ...patch }));
       toast({
         title: 'Einstellungen gespeichert',
         description: 'Datenspeicherungs-Einstellungen wurden aktualisiert.',
@@ -68,7 +72,7 @@ export const useDataRetentionSettings = () => {
         variant: 'destructive',
       });
     }
-  }, [toast]);
+  }, [toast, settings]);
 
   const runCleanupNow = useCallback(async () => {
     try {

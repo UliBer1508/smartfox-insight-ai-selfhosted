@@ -1,248 +1,174 @@
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Server, CheckCircle, AlertCircle, Settings, Home, Database, DatabaseBackup, Plug, Cloud, MonitorSmartphone } from 'lucide-react';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+// Einstellungsseite der Heizung Venediger – Aufbau wie in der Heizung München (Stand 23.10.2026):
+//   1. Betrieb   – Steuerungsmodus
+//   2. Haus      – Werte für alle Räume, in Gruppen, ein Speichern-Knopf
+//   3. Räume     – eine Karte pro Raum, Solltemperaturen direkt editierbar
+//   4. System    – eingeklappt: Tuya Cloud, Datenspeicherung, Datensicherung, Tarife, Collector
+// Gespeichert werden überall nur geänderte Felder (siehe src/lib/safeSave.ts).
+import { useState } from 'react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Server, CheckCircle, AlertCircle, Database, DatabaseBackup, Plug, Cloud, MonitorSmartphone, Euro, Power, Wrench } from 'lucide-react';
 import { DataRetentionSettings } from './DataRetentionSettings';
 import { TariffHistoryPanel } from './TariffHistoryPanel';
-import { HeatingSettingsForm } from "@/components/heating/HeatingSettingsForm";
-import { RoomManager } from "@/components/heating/RoomManager";
-import { useHeatingSettings } from "@/hooks/useHeatingSettings";
-import { useRooms } from "@/hooks/useRooms";
-import { TuyaSubscriptionAlert } from "@/components/settings/TuyaSubscriptionAlert";
-import { TuyaConnectionTest } from "@/components/settings/TuyaConnectionTest";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { Label } from "@/components/ui/label";
-import { useControlMode } from "@/hooks/useControlMode";
-import { BackupSettingsSection } from "@/components/settings/BackupSettingsSection";
+import { useHeatingSettings } from '@/hooks/useHeatingSettings';
+import { useRooms } from '@/hooks/useRooms';
+import { TuyaSubscriptionAlert } from '@/components/settings/TuyaSubscriptionAlert';
+import { TuyaConnectionTest } from '@/components/settings/TuyaConnectionTest';
+import { useControlMode } from '@/hooks/useControlMode';
+import { BackupSettingsSection } from '@/components/settings/BackupSettingsSection';
+import { HouseSettingsCard } from '@/components/settings/HouseSettingsCard';
+import { RoomsSection } from '@/components/settings/RoomsSection';
+import { SectionCard } from '@/components/settings/SettingsBits';
 
 interface SettingsPanelProps {
   isConnected: boolean;
   lastUpdate?: string;
 }
 
+function ModeButton({ active, onClick, icon, title, text }: {
+  active: boolean; onClick: () => void; icon: React.ReactNode; title: string; text: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-left flex items-start gap-3 p-3 rounded-lg border transition-colors ${
+        active ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-border hover:bg-muted/50'
+      }`}
+    >
+      <span className={`mt-0.5 ${active ? 'text-primary' : 'text-muted-foreground'}`}>{icon}</span>
+      <span>
+        <span className="block text-sm font-medium">{title}{active && <span className="ml-2 text-xs text-primary">aktiv</span>}</span>
+        <span className="block text-xs text-muted-foreground">{text}</span>
+      </span>
+    </button>
+  );
+}
+
 export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
   const { settings, saveSettings, isLoading: isHeatingLoading } = useHeatingSettings();
-  const { rooms, saveRoom, deleteRoom, isLoading: isRoomsLoading } = useRooms();
+  const { rooms, saveRoom, updateRoomFields, deleteRoom, loadRooms, isLoading: isRoomsLoading } = useRooms();
   const { mode, setMode, isLoading: isModeLoading } = useControlMode();
+  const [confirmCloud, setConfirmCloud] = useState(false);
 
-  const getTimeSinceUpdate = () => {
-    if (!lastUpdate) return null;
-    const diff = Date.now() - new Date(lastUpdate).getTime();
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    
-    if (minutes < 1) return `vor ${seconds} Sekunden`;
-    if (minutes < 60) return `vor ${minutes} Minuten`;
-    return `vor mehr als einer Stunde`;
-  };
+  const minutesSinceUpdate = lastUpdate ? Math.floor((Date.now() - new Date(lastUpdate).getTime()) / 60000) : null;
 
   return (
-    <div className="space-y-6">
-      <Accordion type="multiple" defaultValue={["tuya", "anlage", "raeume", "daten"]} className="space-y-4">
-        {/* Tuya API-Verbindung */}
-        <AccordionItem value="tuya" className="border rounded-lg overflow-hidden">
-          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2 flex-1">
-              <Plug className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Tuya API-Verbindung</span>
-              <span
-                className={`ml-auto mr-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${
-                  mode === 'local'
-                    ? 'bg-primary/10 text-primary border-primary/30'
-                    : 'bg-muted text-muted-foreground border-border'
-                }`}
-              >
-                {mode === 'local' ? <MonitorSmartphone className="h-3 w-3" /> : <Cloud className="h-3 w-3" />}
-                {mode === 'local' ? 'Lokal aktiv' : 'Cloud aktiv'}
+    <div className="space-y-4 md:space-y-6">
+      {/* 1. Betrieb */}
+      <SectionCard
+        title="Betrieb"
+        icon={<Power className="w-5 h-5 text-primary" />}
+        description="Wie die Befehle zu den 12 Thermostaten kommen."
+      >
+        <div className="grid sm:grid-cols-2 gap-3">
+          <ModeButton
+            active={mode === 'local'}
+            onClick={() => mode !== 'local' && !isModeLoading && setMode('local')}
+            icon={<MonitorSmartphone className="w-4 h-4" />}
+            title="Lokaler Service (LAN)"
+            text="Befehle gehen über den Thermostat-Dienst auf dem PC in Österreich. Kein Cloud-Kontingent."
+          />
+          <ModeButton
+            active={mode === 'cloud'}
+            onClick={() => mode !== 'cloud' && !isModeLoading && setConfirmCloud(true)}
+            icon={<Cloud className="w-4 h-4" />}
+            title="Tuya Cloud"
+            text="Nur mit gültigem Tuya-IoT-Abo. Die Lizenzen sind derzeit nicht verlängert."
+          />
+        </div>
+        <AlertDialog open={confirmCloud} onOpenChange={setConfirmCloud}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Auf Tuya Cloud umschalten?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Ohne gültige Tuya-Cloud-Zugangsdaten erreicht danach <strong>kein Befehl</strong> mehr die
+                Thermostate – die Automatik steuert dann ins Leere. Nur umschalten, wenn das Cloud-Abo aktiv ist.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Lokal bleiben</AlertDialogCancel>
+              <AlertDialogAction onClick={() => setMode('cloud')}>Trotzdem umschalten</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </SectionCard>
+
+      {/* 2. Haus */}
+      <HouseSettingsCard settings={settings} onSave={saveSettings} isLoading={isHeatingLoading} />
+
+      {/* 3. Räume */}
+      <RoomsSection
+        rooms={rooms}
+        isLoading={isRoomsLoading}
+        onSave={updateRoomFields}
+        onCreate={(room) => saveRoom(room)}
+        onDelete={deleteRoom}
+        onReload={loadRooms}
+      />
+
+      {/* 4. System */}
+      <SectionCard title="System" icon={<Wrench className="w-5 h-5 text-muted-foreground" />} description="Selten benötigt – deshalb eingeklappt.">
+        <Accordion type="multiple" className="space-y-2">
+          <AccordionItem value="collector" className="border rounded-lg overflow-hidden">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 text-sm font-medium">
+                <Server className="h-4 w-4 text-primary" />Datensammler (Fronius)
+                <span className={`ml-2 inline-flex items-center gap-1 text-xs ${isConnected ? 'text-success' : 'text-destructive'}`}>
+                  {isConnected ? <CheckCircle className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
+                  {isConnected ? 'aktiv' : 'keine Daten'}
+                </span>
               </span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="p-4 space-y-4">
-            {/* Steuerungsmodus */}
-            <div className="space-y-3">
-              <Label className="text-sm font-semibold">Steuerungsmodus</Label>
-              <RadioGroup
-                value={mode}
-                onValueChange={(val) => setMode(val as 'cloud' | 'local')}
-                disabled={isModeLoading}
-                className="grid grid-cols-1 gap-3"
-              >
-                <label
-                  htmlFor="mode-cloud"
-                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                    mode === 'cloud' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
-                  }`}
-                >
-                  <RadioGroupItem value="cloud" id="mode-cloud" className="mt-0.5" />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <Cloud className="h-4 w-4 text-primary" />
-                      <span className="font-medium text-sm">Cloud API</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Thermostate werden direkt über die Tuya Cloud API gesteuert. Erfordert aktives Tuya IoT-Abo.
-                    </p>
-                  </div>
-                </label>
-                <label
-                  htmlFor="mode-local"
-                  className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                    mode === 'local' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50'
-                  }`}
-                >
-                  <RadioGroupItem value="local" id="mode-local" className="mt-0.5" />
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <MonitorSmartphone className="h-4 w-4 text-primary" />
-                      <span className="font-medium text-sm">Lokaler Service</span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Befehle werden an den lokalen Thermostat-Service gesendet (LAN-Steuerung). Kein Cloud-API-Verbrauch.
-                    </p>
-                  </div>
-                </label>
-              </RadioGroup>
-              {mode === 'local' && (
-                <Alert>
-                  <MonitorSmartphone className="h-4 w-4" />
-                  <AlertDescription className="text-xs">
-                    Im lokalen Modus werden alle Thermostat-Befehle über den lokalen Thermostat-Service ausgeführt. 
-                    Die Tuya Cloud API wird <strong>nicht</strong> verwendet.
-                  </AlertDescription>
-                </Alert>
-              )}
-            </div>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4 text-sm text-muted-foreground space-y-2">
+              <p>
+                {isConnected
+                  ? `Letzte Messung vor ${minutesSinceUpdate ?? 0} Minuten.`
+                  : 'Seit längerem keine Messwerte. Dienst „SmartfoxFronius“ auf dem PC in Österreich prüfen.'}
+              </p>
+              <p>
+                Der Datensammler läuft als Windows-Dienst im LAN, liest den Fronius-Wechselrichter und schreibt
+                die Werte in die Datenbank. Die App fragt sie regelmäßig ab. Einrichtung: Ordner
+                {' '}<code className="px-1 rounded bg-muted font-mono text-xs">local-collector/</code> im Repo.
+              </p>
+            </AccordionContent>
+          </AccordionItem>
 
-            <TuyaConnectionTest />
-            {mode === 'cloud' && <TuyaSubscriptionAlert />}
-          </AccordionContent>
-        </AccordionItem>
+          <AccordionItem value="tuya" className="border rounded-lg overflow-hidden">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 text-sm font-medium"><Plug className="h-4 w-4 text-primary" />Tuya Cloud (Verbindungstest & Abo)</span>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4 space-y-4">
+              <TuyaConnectionTest />
+              {mode === 'cloud' && <TuyaSubscriptionAlert />}
+            </AccordionContent>
+          </AccordionItem>
 
-        {/* Anlagen-Konfiguration */}
-        <AccordionItem value="anlage" className="border rounded-lg overflow-hidden">
-          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Anlagen-Konfiguration</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="p-4 space-y-4">
-            <p className="text-xs text-muted-foreground">
-              Diese Werte werden von der KI verwendet um PV-Überschuss zu berechnen und Heizentscheidungen zu optimieren. Gib deine tatsächlichen Anlagenwerte ein — je genauer, desto besser lernt die KI.
-            </p>
-            <HeatingSettingsForm
-              settings={settings}
-              onSave={saveSettings}
-              isLoading={isHeatingLoading}
-            />
-          </AccordionContent>
-        </AccordionItem>
+          <AccordionItem value="daten" className="border rounded-lg overflow-hidden">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 text-sm font-medium"><Database className="h-4 w-4 text-primary" />Datenspeicherung</span>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4"><DataRetentionSettings /></AccordionContent>
+          </AccordionItem>
 
-        {/* Räume verwalten */}
-        <AccordionItem value="raeume" className="border rounded-lg overflow-hidden">
-          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2">
-              <Home className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Räume verwalten</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="p-0">
-            <RoomManager
-              rooms={rooms}
-              onSave={saveRoom}
-              onDelete={deleteRoom}
-              isLoading={isRoomsLoading}
-            />
-          </AccordionContent>
-        </AccordionItem>
+          <AccordionItem value="sicherung" className="border rounded-lg overflow-hidden">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 text-sm font-medium"><DatabaseBackup className="h-4 w-4 text-primary" />Datensicherung</span>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4"><BackupSettingsSection /></AccordionContent>
+          </AccordionItem>
 
-        {/* Datenspeicherung */}
-        <AccordionItem value="daten" className="border rounded-lg overflow-hidden">
-          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Datenspeicherung</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="p-4">
-            <DataRetentionSettings />
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Datensicherung (PN40 -> OneDrive), Protokoll aus backup_runs */}
-        <AccordionItem value="sicherung" className="border rounded-lg overflow-hidden">
-          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2">
-              <DatabaseBackup className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Datensicherung</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="p-4">
-            <BackupSettingsSection />
-          </AccordionContent>
-        </AccordionItem>
-
-        {/* Tarife & Preisverlauf */}
-        <AccordionItem value="tarife" className="border rounded-lg overflow-hidden">
-          <AccordionTrigger className="px-4 py-3 bg-muted/50 hover:bg-muted">
-            <div className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-primary" />
-              <span className="font-semibold">Tarife & Preisverlauf</span>
-            </div>
-          </AccordionTrigger>
-          <AccordionContent className="p-4">
-            <TariffHistoryPanel />
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-
-      {/* Collector Status */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Server className="w-5 h-5" />
-            Collector-Status
-          </CardTitle>
-          <CardDescription>
-            Die Daten werden von einem lokalen Collector gesammelt und in die Datenbank geschrieben.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Alert variant={isConnected ? "default" : "destructive"}>
-            {isConnected ? (
-              <CheckCircle className="h-4 w-4" />
-            ) : (
-              <AlertCircle className="h-4 w-4" />
-            )}
-            <AlertTitle>
-              {isConnected ? 'Collector aktiv' : 'Keine aktuellen Daten'}
-            </AlertTitle>
-            <AlertDescription>
-              {isConnected 
-                ? `Daten werden empfangen (${getTimeSinceUpdate()})`
-                : 'Der Collector sendet keine Daten. Überprüfen Sie den lokalen Collector.'
-              }
-            </AlertDescription>
-          </Alert>
-
-          <div className="p-4 rounded-lg bg-muted/50 border border-dashed space-y-3">
-            <p className="text-sm font-medium">So funktioniert es:</p>
-            <ol className="text-sm text-muted-foreground space-y-2 list-decimal list-inside">
-              <li>Der <strong>Node.js Collector</strong> läuft auf einem lokalen PC im selben Netzwerk wie der Fronius-Wechselrichter</li>
-              <li>Er liest Daten von den Geräten und speichert sie in der Cloud-Datenbank</li>
-              <li>Diese PWA zeigt die Daten in Echtzeit an (Realtime-Updates)</li>
-            </ol>
-          </div>
-
-          <div className="p-4 rounded-lg bg-primary/10 border border-primary/20">
-            <p className="text-sm">
-              <strong>Collector-Dokumentation:</strong> Die Einrichtung des lokalen Collectors finden Sie im 
-              <code className="mx-1 px-1 py-0.5 rounded bg-muted font-mono text-xs">local-collector/</code> 
-              Ordner des Projekts.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+          <AccordionItem value="tarife" className="border rounded-lg overflow-hidden">
+            <AccordionTrigger className="px-4 py-3 hover:no-underline">
+              <span className="flex items-center gap-2 text-sm font-medium"><Euro className="h-4 w-4 text-primary" />Tarife & Preisverlauf</span>
+            </AccordionTrigger>
+            <AccordionContent className="px-4 pb-4"><TariffHistoryPanel /></AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      </SectionCard>
     </div>
   );
 }

@@ -51,7 +51,7 @@ export function ThermostatCard({
   isLoading = false,
   heatingStats,
   nightStartTime = '22:00',
-  nightEndTime = '06:00',
+  nightEndTime = '08:00',
   hasApiError = false,
 }: ThermostatCardProps) {
   const [localTemp, setLocalTemp] = useState(room.target_temp ?? room.comfort_temp);

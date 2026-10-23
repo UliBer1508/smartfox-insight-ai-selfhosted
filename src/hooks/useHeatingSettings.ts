@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { HeatingSettings } from '@/types/heating';
 import { toast } from 'sonner';
+import { cleanPatch, findConflicts } from '@/lib/safeSave';
 
 const defaultSettings: HeatingSettings = {
   pv_capacity_kwp: 15.8,
@@ -13,9 +14,9 @@ const defaultSettings: HeatingSettings = {
   // PV-Automatik Schwellwerte
   pv_surplus_threshold_on: 500,
   pv_surplus_threshold_off: 200,
-  min_switch_interval_min: 5,
+  min_switch_interval_min: 25, // = DEFAULT_MIN_SWITCH_INTERVAL_MIN in pv-automation
   // Fußbodenheizung
-  floor_heating_response_hours: 2,
+  floor_heating_response_hours: 0, // = Code-Default in pv-automation
   estrich_storage_enabled: true,
   // E-Auto
   car_charging_enabled: false,
@@ -39,7 +40,7 @@ const defaultSettings: HeatingSettings = {
   feed_in_price_kwh_cent: 8.00,
   // Nacht-Zeiten
   night_start_time: '22:00',
-  night_end_time: '08:00',
+  night_end_time: '08:00', // = Code-Default in pv-automation
   // Leistungsbudget-Management
   power_budget_enabled: true,
   max_grid_heating_power_w: 2000,
@@ -119,44 +120,79 @@ export function useHeatingSettings() {
     }
   }, []);
 
-  const saveSettings = useCallback(async (newSettings: Partial<HeatingSettings>) => {
+  /**
+   * Speichert NUR die übergebenen Felder (seit 23.10.2026).
+   * Früher wurde die komplette Zeile aus dem Stand beim Laden zurückgeschrieben – das hat
+   * Änderungen von KI-Autopilot, Batterie-Vorschlag, KI-Rückabwicklung und Preisverlauf
+   * still rückgängig gemacht. Vor dem Schreiben wird geprüft, ob genau diese Felder
+   * inzwischen von anderer Stelle geändert wurden; dann wird nicht gespeichert.
+   */
+  const saveSettings = useCallback(async (newSettings: Partial<HeatingSettings>): Promise<boolean> => {
     try {
-      const merged = { ...settings, ...newSettings };
+      const patch = cleanPatch(newSettings as Record<string, unknown>) as Partial<HeatingSettings>;
       // Konsolidierung: battery_reserve_for_night_soc spiegelt heating_min_battery_soc (Backwards-Compat für Edge Functions)
-      if (merged.heating_min_battery_soc !== undefined) {
-        merged.battery_reserve_for_night_soc = merged.heating_min_battery_soc;
+      if (patch.heating_min_battery_soc !== undefined) {
+        patch.battery_reserve_for_night_soc = patch.heating_min_battery_soc;
       }
-      const updatedSettings = { ...merged, updated_at: new Date().toISOString() };
-      
-      if (settings.id) {
-        const { error } = await supabase
-          .from('heating_settings')
-          .update(updatedSettings)
-          .eq('id', settings.id);
-        
-        if (error) throw error;
-      } else {
+      const keys = Object.keys(patch);
+      if (keys.length === 0) return true;
+
+      if (!settings.id) {
+        // Noch keine Zeile vorhanden (nur direkt nach einer Migration) → einmalig komplett anlegen
         const { data, error } = await supabase
           .from('heating_settings')
-          .insert(updatedSettings)
+          .insert({ ...cleanPatch(settings as unknown as Record<string, unknown>), ...patch })
           .select()
           .single();
-        
         if (error) throw error;
-        updatedSettings.id = data.id;
+        setSettings(data as HeatingSettings);
+        toast.success('Heizungs-Einstellungen gespeichert');
+        return true;
       }
-      
-      setSettings(updatedSettings as HeatingSettings);
+
+      // Konfliktprüfung: aktuellen DB-Stand genau dieser Felder holen
+      const checkKeys = keys.filter((k) => k !== 'battery_reserve_for_night_soc');
+      const { data: fresh, error: freshErr } = await supabase
+        .from('heating_settings')
+        .select(checkKeys.join(','))
+        .eq('id', settings.id)
+        .single();
+      if (freshErr) throw freshErr;
+      const conflicts = findConflicts(
+        checkKeys,
+        settings as unknown as Record<string, unknown>,
+        fresh as unknown as Record<string, unknown>,
+        patch as Record<string, unknown>,
+      );
+      if (conflicts.length > 0) {
+        toast.error(
+          `Nicht gespeichert: ${conflicts.join(', ')} wurde inzwischen an anderer Stelle geändert. ` +
+          'Die Werte wurden neu geladen – bitte prüfen und erneut speichern.',
+          { duration: 10000 },
+        );
+        await loadSettings();
+        return false;
+      }
+
+      const { error } = await supabase
+        .from('heating_settings')
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq('id', settings.id);
+      if (error) throw error;
+
+      setSettings((prev) => ({ ...prev, ...patch }));
       toast.success('Heizungs-Einstellungen gespeichert');
+      return true;
     } catch (error) {
       console.error('Error saving heating settings:', error);
       toast.error('Fehler beim Speichern');
+      return false;
     }
-  }, [settings]);
+  }, [settings, loadSettings]);
 
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
 
-  return { settings, saveSettings, isLoading };
+  return { settings, saveSettings, isLoading, reload: loadSettings };
 }

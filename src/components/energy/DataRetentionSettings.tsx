@@ -8,6 +8,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Database, Trash2, Clock, HardDrive } from 'lucide-react';
 import { useDataRetentionSettings } from '@/hooks/useDataRetentionSettings';
 import { DataRetentionSettings as DataRetentionSettingsType } from '@/types/dataRetention';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 
 export const DataRetentionSettings: React.FC = () => {
   const { settings, saveSettings, isLoading, runCleanupNow } = useDataRetentionSettings();
@@ -22,9 +26,14 @@ export const DataRetentionSettings: React.FC = () => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
+  // Nur geänderte Felder speichern
+  const changedKeys = (Object.keys(formData) as (keyof DataRetentionSettingsType)[])
+    .filter((k) => !['id', 'created_at', 'updated_at', 'last_cleanup_at'].includes(k) && formData[k] !== settings[k]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    saveSettings(formData);
+    const patch = Object.fromEntries(changedKeys.map((k) => [k, formData[k]])) as Partial<DataRetentionSettingsType>;
+    saveSettings(patch);
   };
 
   const handleRunCleanup = async () => {
@@ -71,6 +80,12 @@ export const DataRetentionSettings: React.FC = () => {
             <p className="text-xs text-muted-foreground">
               Collector muss diese Einstellung übernehmen. Bei 5 Min: ~8.640 Datensätze/Monat
             </p>
+            {formData.polling_interval_seconds !== settings.polling_interval_seconds && (
+              <p className="text-xs text-foreground bg-warning/15 border border-warning/40 rounded-md p-2">
+                Achtung: Schwellen wie der PV-Genauigkeits-Watchdog (erwartet ~280 Messwerte/Tag bei 5 Min)
+                hängen vom Intervall ab und müssen dann mit angepasst werden.
+              </p>
+            )}
           </div>
 
           {/* Raw Data Retention */}
@@ -143,19 +158,36 @@ export const DataRetentionSettings: React.FC = () => {
 
           {/* Actions */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <Button type="submit" disabled={isLoading} className="w-full sm:w-auto">
+            <Button type="submit" disabled={isLoading || changedKeys.length === 0} className="w-full sm:w-auto">
               Speichern
             </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleRunCleanup}
-              disabled={isRunningCleanup}
-              className="w-full sm:w-auto"
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              {isRunningCleanup ? 'Läuft...' : 'Jetzt bereinigen'}
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={isRunningCleanup}
+                  className="w-full sm:w-auto"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  {isRunningCleanup ? 'Läuft...' : 'Jetzt bereinigen'}
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Daten jetzt bereinigen?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Rohdaten älter als {settings.raw_data_retention_days} Tage werden zu Stundenwerten
+                    zusammengefasst und anschließend <strong>endgültig gelöscht</strong>. Das läuft ohnehin
+                    jede Nacht automatisch – manuell ist es nur selten nötig.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Abbrechen</AlertDialogCancel>
+                  <AlertDialogAction onClick={handleRunCleanup}>Bereinigen</AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </form>
       </CardContent>

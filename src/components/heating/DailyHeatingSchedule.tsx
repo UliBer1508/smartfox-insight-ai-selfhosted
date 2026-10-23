@@ -84,7 +84,7 @@ function getRoomActualMode(room: Room, settings: HeatingSettings): HeatingMode |
 export function DailyHeatingSchedule({ rooms, settings, currentSurplus, batterySoc }: DailyHeatingScheduleProps) {
   // Zeit-Strings normalisieren (DB liefert HH:MM:SS, wir brauchen HH:MM)
   const nightStart = (settings.night_start_time || '22:00').substring(0, 5);
-  const nightEnd = (settings.night_end_time || '06:00').substring(0, 5);
+  const nightEnd = (settings.night_end_time || '08:00').substring(0, 5);
   const thresholdOn = settings.pv_surplus_threshold_on || 500;
   const thresholdOff = settings.pv_surplus_threshold_off || 200;
   // Theoretischer Modus aus Uhrzeit + PV-Überschuss (was der Plan vorsieht)

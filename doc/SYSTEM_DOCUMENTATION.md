@@ -403,7 +403,7 @@ Speichert in `pv_forecasts`:
 **Stack:** React 18 + Vite 5 + Tailwind v3 + TypeScript + shadcn/ui.
 
 ### Seiten
-- `Index.tsx` — 4 Tabs: Dashboard, Einstellungen, Analyse, Heizung
+- `Index.tsx` — 5 Tabs: Übersicht (HouseOverview), Energie, Heizung & KI, Verlauf & Muster, Einstellungen
 - `Auth.tsx` — Email/Passwort + Google OAuth
 - `Install.tsx` — PWA-Installationsanleitung
 
@@ -435,7 +435,7 @@ Speichert in `pv_forecasts`:
 
 ## 16. PWA & Service Worker
 
-**Manifest:** `name=Energiemonitor`, `display=standalone`, `start_url=/`
+**Manifest:** `name=Heizung Venediger`, `short_name=Venediger`, `display=standalone`, `start_url=/`
 
 **Workbox:**
 - `skipWaiting: true`, `clientsClaim: true`
@@ -510,6 +510,14 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-23 — Übersicht & Einstellungen im München-Aufbau, Wetter-Job, Battery-Full-Grenzen
+- App heißt „Heizung Venediger“. Neue Startseite `overview/HouseOverview.tsx` (Modus, Energie, Wetter/Prognose, Raumkarten).
+- Einstellungsseite neu: Betrieb · Haus · Räume · System. Speichern **nur geänderter Felder** mit Konfliktprüfung (`src/lib/safeSave.ts`, `useHeatingSettings.saveSettings`, `useRooms.updateRoomFields`). Raum löschen nur mit Namens-Bestätigung.
+- pg_cron `fetch-weather-hourly` (xx:05) neu angelegt – `weather_data` war seit der Migration leer.
+- `rooms.pv_boost_max_temp` in 5 Räumen geleert (lag ≤ Komfort → Battery-Full-Override wirkungslos). Grenze jetzt überall Komfort + 1,5 °C (Code-Fallback).
+- Ausgeblendet ohne Wirkung: `max_grid_heating_power_w`, `pv_boost_temp_delta`; Strompreise nur noch unter Tarife.
+- Details: `doc/UEBERSICHT-UND-EINSTELLUNGEN-2026-10-23.md`
 
 ### 2026-04-19 — Tolerante Deaktivierung (Phase 1)
 - `pv-automation/index.ts`: Phase-1-Loop um Toleranz-Block erweitert

@@ -62,7 +62,7 @@ export function AutomationStatusCard() {
             icon={<Activity className="w-4 h-4" />}
             label="Nacht-Modus"
             value={settings.night_heating_mode === 'maintain' ? 'Maintain' : 'Frost-only'}
-            sub={`${settings.night_start_time ?? '22:00'} – ${settings.night_end_time ?? '06:00'}`}
+            sub={`${settings.night_start_time ?? '22:00'} – ${settings.night_end_time ?? '08:00'}`}
           />
         </div>
 

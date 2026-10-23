@@ -374,7 +374,7 @@ export function HeatingDashboard({ readings, currentReading, energyIn, energyOut
                   isLoading={isSyncing}
                   heatingStats={room.id ? getRoomStats(room.id) : undefined}
                   nightStartTime={settings.night_start_time ?? '22:00'}
-                  nightEndTime={settings.night_end_time ?? '06:00'}
+                  nightEndTime={settings.night_end_time ?? '08:00'}
                   hasApiError={room.id ? hasRoomError(room.id) : false}
                 />
               ))}
