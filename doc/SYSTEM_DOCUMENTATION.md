@@ -438,7 +438,7 @@ Speichert in `pv_forecasts`:
 **Manifest:** `name=Heizung Venediger`, `short_name=Venediger`, `display=standalone`, `start_url=/`
 
 **Workbox:**
-- `skipWaiting: true`, `clientsClaim: true`
+- `skipWaiting: true`, `clientsClaim: true` (zwingend bei registerType autoUpdate – siehe Fix 23.10.2026)
 - `runtimeCaching`: Supabase = NetworkFirst (5 Min, 50 Entries)
 
 **Update-Strategie:**
@@ -517,6 +517,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - pg_cron `fetch-weather-hourly` (xx:05) neu angelegt – `weather_data` war seit der Migration leer.
 - `rooms.pv_boost_max_temp` in 5 Räumen geleert (lag ≤ Komfort → Battery-Full-Override wirkungslos). Grenze jetzt überall Komfort + 1,5 °C (Code-Fallback).
 - Ausgeblendet ohne Wirkung: `max_grid_heating_power_w`, `pv_boost_temp_delta`; Strompreise nur noch unter Tarife.
+- PWA-Update-Fix: `workbox.skipWaiting: true` (vorher blieb der neue Service Worker auf dem Handy dauerhaft „waiting“), `vercel.json` no-cache für sw.js/manifest/index.html.
 - Details: `doc/UEBERSICHT-UND-EINSTELLUNGEN-2026-10-23.md`
 
 ### 2026-04-19 — Tolerante Deaktivierung (Phase 1)

@@ -59,12 +59,13 @@ export async function setupPWA() {
       setTimeout(() => window.location.reload(), 50);
     };
 
-    const updateSW = registerSW({
+    // registerType "autoUpdate": der neue SW aktiviert sich selbst (skipWaiting in vite.config.ts),
+    // registerSW meldet das über onNeedReload → einmal neu laden.
+    registerSW({
       immediate: true,
-      onNeedRefresh() {
-        // Neuer Build erkannt → sofort aktivieren + reload
-        console.info("[PWA] Neue Version verfügbar – wird automatisch aktiviert.");
-        updateSW(true);
+      onNeedReload() {
+        console.info("[PWA] Neue Version aktiv – lade neu.");
+        triggerReload();
       },
       onOfflineReady() {
         console.info("[PWA] App bereit für Offline-Nutzung.");

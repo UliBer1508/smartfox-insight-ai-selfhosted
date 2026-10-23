@@ -61,7 +61,10 @@ export default defineConfig(({ mode }) => ({
         ],
         cleanupOutdatedCaches: true,
         clientsClaim: true,
-        skipWaiting: false, // wir entscheiden manuell, wann aktiviert wird
+        // MUSS true sein (Fix 23.10.2026): registerType "autoUpdate" sendet kein SKIP_WAITING.
+        // Mit false blieb der neue Service Worker auf dem Handy dauerhaft im Zustand "waiting",
+        // solange die App irgendwo noch offen/im Hintergrund war → keine Updates.
+        skipWaiting: true,
         globPatterns: ["**/*.{js,css,html,svg,png,ico,webmanifest,woff2}"],
         runtimeCaching: [
           {

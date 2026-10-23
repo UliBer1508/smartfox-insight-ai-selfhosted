@@ -103,6 +103,21 @@ Jeder Abschnitt ist wie früher ausklappbar; der Auf/Zu-Zustand wird je Abschnit
 
 `HeatingSettingsForm.tsx` und `RoomManager.tsx` werden nicht mehr verwendet und können gelöscht werden.
 
+## 7. PWA-Updates kamen auf dem Handy nicht an ⭐
+
+**Ursache:** `vite.config.ts` hatte `registerType: "autoUpdate"`, aber `workbox.skipWaiting: false`.
+Im Auto-Modus sendet `registerSW` kein `SKIP_WAITING` (in `vite-plugin-pwa/dist/client/build/register.js`
+nur bei `!auto`), und `onNeedRefresh` wird nie aufgerufen. Der neue Service Worker blieb deshalb im
+Zustand *waiting*, solange die App irgendwo offen oder im Hintergrund war – auf dem Handy praktisch immer.
+
+**Fix:** `skipWaiting: true`; in `src/pwa/registerSW.ts` `onNeedReload` statt des wirkungslosen
+`onNeedRefresh`. Neu: `vercel.json` mit `Cache-Control: no-cache` für `sw.js`, `workbox-*.js`,
+`manifest.webmanifest`, `index.html` (die gehashten Dateien unter `/assets/` bleiben langlebig).
+
+**Einmalig:** Handys mit dem alten Service Worker holen den neuen beim nächsten Öffnen/Wechsel in den
+Vordergrund; der neue aktiviert sich selbst und lädt die App einmal neu. Falls nicht: App ganz
+schließen und neu öffnen.
+
 ## Offen
 
 - `pv_boost_max_temp` aus der KI-Whitelist nehmen (stündliche Wiederholungsvorschläge).
