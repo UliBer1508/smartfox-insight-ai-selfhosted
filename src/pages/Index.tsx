@@ -70,19 +70,19 @@ const Index = () => {
 
   const tabMeta: Record<typeof activeTab, { title: string; description: string }> = {
     dashboard: {
-      title: 'Übersicht — Steinbockchalets-Heizungsmanagement',
+      title: 'Übersicht — Heizung Venediger',
       description: 'Live-Übersicht von PV-Erzeugung, Batterie-Speicher, Verbrauch und aktiver Heizungsleistung in Echtzeit.',
     },
     heating: {
-      title: 'Steinbockchalets-Heizungsmanagement',
+      title: 'Heizung Venediger',
       description: 'Intelligente Heizungssteuerung mit PV-Überschuss-Optimierung, Raumprioritäten, KI-Lernstatus und Nachtmodus für 12 Tuya-Thermostate.',
     },
     analysis: {
-      title: 'Verlauf & Muster Steinbockchalets-Heizungsmanagement',
+      title: 'Verlauf & Muster — Heizung Venediger',
       description: 'Tages-, Wochen- und Monatsanalyse von Heiz- und Energieverhalten mit KI-gestützter Mustererkennung.',
     },
     settings: {
-      title: 'Einstellungen Steinbockchalets-Heizungsmanagement',
+      title: 'Einstellungen — Heizung Venediger',
       description: 'Konfiguration von Smartfox, Tuya, Heizungsparametern, Datenaufbewahrung und Energiekosten.',
     },
   };

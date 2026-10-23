@@ -62,8 +62,8 @@ export default function Auth() {
   return (
     <div className="flex-1 flex items-center justify-center bg-background p-4">
       <SEO
-        title="Anmelden — Steinbockchalets-Heizungsmanagement"
-        description="Melden Sie sich an, um Ihr Fronius Energie-Management, die Heizungssteuerung und KI-Analyse zu verwalten."
+        title="Anmelden — Heizung Venediger"
+        description="Melden Sie sich an, um die Heizung Venediger mit Energie-Management, Heizungssteuerung und KI-Analyse zu verwalten."
         path="/auth"
       />
       <Card className="w-full max-w-md">

@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "Steinbockchalets-Heizungsmanagement",
-  "short_name": "Heizung",
+  "name": "Heizung Venediger",
+  "short_name": "Venediger",
   "description": "KI-gestütztes Energie-Management mit intelligenter Heizungssteuerung.",
   "lang": "de",
   "dir": "ltr",
@@ -30,7 +30,7 @@
     },
     {
       "name": "Heizung",
-      "short_name": "Heizung",
+      "short_name": "Venediger",
       "url": "/?tab=heating",
       "icons": [{ "src": "/pwa-192x192.png", "sizes": "192x192" }]
     }

@@ -19,8 +19,8 @@ const Install = () => {
   return (
     <div className="flex-1 bg-background flex items-center justify-center p-4">
       <SEO
-        title="App installieren — Steinbockchalets-Heizungsmanagement"
-        description="Installieren Sie Steinbockchalets-Heizungsmanagement PWA auf Ihrem Smartphone oder Tablet für schnellen Zugriff auf Ihr Energie-Management."
+        title="App installieren — Heizung Venediger"
+        description="Installieren Sie die App Heizung Venediger auf Ihrem Smartphone oder Tablet für schnellen Zugriff auf Ihr Energie-Management."
         path="/install"
       />
       <Card className="w-full max-w-md border-border/50 bg-card/80 backdrop-blur">
@@ -36,7 +36,7 @@ const Install = () => {
           </div>
           <div>
             <CardTitle className="text-2xl font-bold text-foreground">
-              Smartfox Energy Pipeline
+              Heizung Venediger
             </CardTitle>
             <CardDescription className="text-muted-foreground mt-2">
               App auf deinem Gerät installieren
