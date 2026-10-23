@@ -111,7 +111,8 @@ function StatusBar({ energyOk, energyTs }: { energyOk: boolean; energyTs?: strin
 }
 
 // ---------------------------------------------------------------- Betriebsmodus
-function ModeHero({ rooms, settings, surplus, energyTs }: { rooms: Room[]; settings: HeatingSettings; surplus: number | null; energyTs?: string }) {
+function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settings: HeatingSettings; surplus: number | null; reading: EnergyReading | null }) {
+  const energyTs = reading?.timestamp;
   const night = isNight(settings);
   const auto = rooms.filter(r => r.tuya_device_id);
   const heating = auto.filter(r => r.is_heating).length;
@@ -119,18 +120,31 @@ function ModeHero({ rooms, settings, surplus, energyTs }: { rooms: Room[]; setti
   const manual = auto.filter(r => r.manual_override_until && new Date(r.manual_override_until) > new Date()).length;
   const thresholdOn = settings.pv_surplus_threshold_on ?? 500;
 
+  const socGate = settings.heating_min_battery_soc ?? 80;
+  const soc = reading?.battery_soc ?? null;
+  const charging = (reading?.battery_power ?? 0) < -50;
+
   let tone: Tone = 'normal';
   let label = 'Normal';
   let Icon = Zap;
-  let reason = surplus != null && surplus > 0 ? `Überschuss ${fmtW(surplus)} – unter der Einschaltschwelle (${fmtW(thresholdOn)})` : 'Kein Überschuss (0 W)';
+  let reason: string;
   if (night) {
     tone = 'night'; label = 'Nacht'; Icon = Moon;
     reason = settings.night_heating_mode === 'frost_only'
       ? `Frostschutz 5 °C bis ${settings.night_end_time?.slice(0, 5) ?? '08:00'}`
       : `Nachtabsenkung bis ${settings.night_end_time?.slice(0, 5) ?? '08:00'}`;
-  } else if (pvRooms > 0 || (surplus ?? 0) >= thresholdOn) {
-    tone = 'pv'; label = 'PV-Überschuss'; Icon = Sun;
-    reason = `${fmtW(surplus)} nutzbar · ${pvRooms} ${pvRooms === 1 ? 'Raum' : 'Räume'} im PV-Boost`;
+  } else if (pvRooms > 0) {
+    // Nur dann PV-Modus, wenn die Automatik tatsächlich Räume mit Überschuss heizt
+    tone = 'pv'; label = 'PV-Heizen'; Icon = Sun;
+    reason = `${pvRooms} ${pvRooms === 1 ? 'Raum' : 'Räume'} im PV-Boost · ${fmtW(surplus)} Überschuss`;
+  } else if (charging && soc != null && soc < socGate) {
+    reason = `Sonne lädt zuerst die Batterie (${Math.round(soc)} % von ${socGate} %)`;
+  } else if ((surplus ?? 0) >= thresholdOn) {
+    reason = `${fmtW(surplus)} Überschuss · Automatik heizt gerade keinen Raum damit`;
+  } else if ((surplus ?? 0) > 0) {
+    reason = `${fmtW(surplus)} Überschuss – unter der Einschaltschwelle (${fmtW(thresholdOn)})`;
+  } else {
+    reason = 'Kein Überschuss (0 W)';
   }
   const t = TONE[tone];
   return (
@@ -452,7 +466,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
     <div className="space-y-4 md:space-y-6">
       <StatusBar energyOk={isConnected} energyTs={currentReading?.timestamp} />
       <div className="grid md:grid-cols-2 gap-4">
-        <ModeHero rooms={rooms} settings={settings} surplus={surplus} energyTs={currentReading?.timestamp} />
+        <ModeHero rooms={rooms} settings={settings} surplus={surplus} reading={currentReading} />
         <EnergyTiles r={currentReading} surplus={surplus} />
       </div>
       <Forecast kwp={settings.pv_capacity_kwp} />
