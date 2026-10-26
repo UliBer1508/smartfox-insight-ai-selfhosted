@@ -6,6 +6,10 @@ Stand: 2026-06-10
 
 ## 🔴 Hohe Priorität
 
+### api_errors doppelt (Trigger seit 26.10.)
+- [x] Trigger `trg_api_errors_dedupe` fasst offene Fehler je Gerät + Typ zusammen (`doc/FIX-API-ERRORS-DOPPELT-2026-10-26.md`)
+- [ ] Wirtschaftsraum-Thermostat seit 26.10. ~11:43 offline – Ursache vor Ort/FritzBox prüfen
+
 ### ai-parameter-advisor wiederholt offene Vorschläge stündlich
 - [ ] Vor dem Insert prüfen, ob für Parameter + Raum schon ein offener Vorschlag existiert → aktualisieren statt neu anlegen (Frontend zählt seit 26.10. nur den neuesten)
 
