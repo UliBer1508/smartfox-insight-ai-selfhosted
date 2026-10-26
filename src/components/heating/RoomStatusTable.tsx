@@ -166,7 +166,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
           <CardHeader className="pb-2 cursor-pointer select-none">
             <CardTitle className="text-sm flex items-center gap-2">
               <Thermometer className="w-4 h-4 text-primary" />
-              Raum-Übersicht
+              Raum-Status &amp; Heizleistung
               <span className="text-xs font-normal text-muted-foreground ml-1">({tuyaRooms.length})</span>
               <ChevronDown className={`w-4 h-4 ml-auto transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
             </CardTitle>
@@ -298,14 +298,16 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                       <div className="flex items-center gap-4 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           Prio:
-                          <Input
-                            type="number"
-                            min={1}
-                            max={12}
-                            defaultValue={room.priority ?? 5}
-                            className="w-12 h-6 text-xs px-1 text-center text-foreground"
-                            onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
-                          />
+                          {onSavePriority ? (
+                            <Input
+                              type="number"
+                              min={1}
+                              max={12}
+                              defaultValue={room.priority ?? 5}
+                              className="w-12 h-6 text-xs px-1 text-center text-foreground"
+                              onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
+                            />
+                          ) : <strong className="text-foreground">P{room.priority ?? '–'}</strong>}
                         </span>
                         {room.current_temp != null && (
                           <span>Ist: <strong className="text-foreground">{room.current_temp}°</strong></span>
@@ -376,14 +378,16 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             </TableCell>
                             <TableCell className="text-xs font-medium">{room.name}</TableCell>
                             <TableCell onClick={e => e.stopPropagation()}>
-                              <Input
-                                type="number"
-                                min={1}
-                                max={12}
-                                defaultValue={room.priority ?? 5}
-                                className="w-14 h-7 text-xs px-1 text-center"
-                                onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
-                              />
+                              {onSavePriority ? (
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={12}
+                                  defaultValue={room.priority ?? 5}
+                                  className="w-14 h-7 text-xs px-1 text-center"
+                                  onBlur={e => room.id && handlePriorityChange(room.id, e.target.value, room.priority ?? 5)}
+                                />
+                              ) : <span className="text-xs font-medium">P{room.priority ?? '–'}</span>}
                             </TableCell>
                             <TableCell className="text-xs">{room.current_temp != null ? `${room.current_temp}°` : '-'}</TableCell>
                             <TableCell className="text-xs">{room.target_temp != null ? `${room.target_temp}°` : '-'}</TableCell>

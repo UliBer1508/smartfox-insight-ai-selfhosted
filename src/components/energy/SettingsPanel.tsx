@@ -1,8 +1,9 @@
 // Einstellungsseite der Heizung Venediger – Aufbau wie in der Heizung München (Stand 23.10.2026):
 //   1. Betrieb   – Steuerungsmodus + Thermostat-Wartung (alle senden / Cloud lesen, seit 26.10.2026)
 //   2. Haus      – Werte für alle Räume, in Gruppen, ein Speichern-Knopf
-//   3. Räume     – eine Karte pro Raum, Solltemperaturen direkt editierbar
-//   4. System    – Datensammler, Tuya Cloud, Datenspeicherung, Datensicherung, Tarife
+//   3. Räume     – eine Karte pro Raum, Solltemperaturen direkt editierbar; Heiz-Reihenfolge (seit 26.10.)
+//   4. KI        – Autopilot, Modus je Parameter, Mustergedächtnis, Zeitplan, Datenpflege (seit 26.10.)
+//   5. System    – Datensammler + Systeminfo, Tuya Cloud, Datenspeicherung, Datensicherung, Tarife
 // Jeder Abschnitt ist ausklappbar (Zustand wird im Browser gemerkt).
 // Gespeichert werden überall nur geänderte Felder (siehe src/lib/safeSave.ts).
 import { useState } from 'react';
@@ -10,7 +11,12 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Server, CheckCircle, AlertCircle, Database, DatabaseBackup, Plug, Cloud, MonitorSmartphone, Euro, Power } from 'lucide-react';
+import { Server, CheckCircle, AlertCircle, Database, DatabaseBackup, Plug, Cloud, MonitorSmartphone, Euro, Power, Brain, ListOrdered } from 'lucide-react';
+import { RoomPriorityList } from '@/components/settings/RoomPriorityList';
+import { AIAutopilotToggle } from '@/components/heating/AIAutopilotToggle';
+import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
+import { ParameterAutonomySettings } from '@/components/settings/ParameterAutonomySettings';
+import { AnalysisScheduleSettings } from '@/components/settings/AnalysisScheduleSettings';
 import { DataRetentionSettings } from './DataRetentionSettings';
 import { TariffHistoryPanel } from './TariffHistoryPanel';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
@@ -27,6 +33,8 @@ import { SectionCard } from '@/components/settings/SettingsBits';
 interface SettingsPanelProps {
   isConnected: boolean;
   lastUpdate?: string;
+  /** Systeminfo (früher Tab Energie) */
+  systemInfo?: { totalCount: number; pollingInterval: number; oldest: string | null };
 }
 
 function ModeButton({ active, onClick, icon, title, text }: {
@@ -49,7 +57,7 @@ function ModeButton({ active, onClick, icon, title, text }: {
   );
 }
 
-export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
+export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsPanelProps) {
   const { settings, saveSettings, isLoading: isHeatingLoading } = useHeatingSettings();
   const { rooms, saveRoom, updateRoomFields, deleteRoom, loadRooms, isLoading: isRoomsLoading } = useRooms();
   const { mode, setMode, isLoading: isModeLoading } = useControlMode();
@@ -114,6 +122,31 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
         onReload={loadRooms}
       />
 
+      <SectionCard id="reihenfolge" title="Heiz-Reihenfolge" icon={<ListOrdered className="w-5 h-5 text-primary" />}
+        description="Welcher Raum bekommt den Überschuss zuerst?">
+        <RoomPriorityList rooms={rooms.filter(r => r.tuya_device_id)} onChanged={loadRooms} />
+      </SectionCard>
+
+      {/* 4. KI – Einstellungen; prüfen und entscheiden im Tab KI */}
+      <SectionCard id="ki" title="KI" icon={<Brain className="w-5 h-5 text-primary" />}
+        description="Wie selbstständig die KI handeln darf und wann sie auswertet. Vorschläge prüfen: Tab KI.">
+        <div className="space-y-5">
+          <AIAutopilotToggle />
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">Modus je Parameter</div>
+            <ParameterAutonomySettings />
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">Mustergedächtnis</div>
+            <PatternRecallBlock />
+          </div>
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">Zeitplan der Auswertungen &amp; Datenpflege</div>
+            <AnalysisScheduleSettings settings={settings} onSave={saveSettings} />
+          </div>
+        </div>
+      </SectionCard>
+
       {/* 4. System – einzeln ausklappbar wie früher */}
       <SectionCard
         id="collector"
@@ -137,6 +170,13 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             die Werte in die Datenbank. Die App fragt sie regelmäßig ab. Einrichtung: Ordner
             {' '}<code className="px-1 rounded bg-muted font-mono text-xs">local-collector/</code> im Repo.
           </p>
+          {systemInfo && (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+              <div className="rounded-lg border p-3"><div className="text-xs">Messungen gespeichert</div><div className="text-lg font-bold font-mono text-foreground">{systemInfo.totalCount.toLocaleString('de-DE')}</div></div>
+              <div className="rounded-lg border p-3"><div className="text-xs">Abfrage der App</div><div className="text-lg font-bold font-mono text-foreground">{systemInfo.pollingInterval} s</div></div>
+              <div className="rounded-lg border p-3"><div className="text-xs">Ältester Messpunkt</div><div className="text-lg font-bold font-mono text-foreground">{systemInfo.oldest ? new Date(systemInfo.oldest).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' }) : '–'}</div></div>
+            </div>
+          )}
         </div>
       </SectionCard>
 

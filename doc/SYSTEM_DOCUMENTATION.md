@@ -419,7 +419,7 @@ Speichert in `pv_forecasts`:
 **Stack:** React 18 + Vite 5 + Tailwind v3 + TypeScript + shadcn/ui.
 
 ### Seiten
-- `Index.tsx` — 5 Tabs: Übersicht (HouseOverview), Energie, Heizung & KI, Verlauf & Muster, Einstellungen
+- `Index.tsx` — 4 Tabs nach Zweck (seit 26.10.2026): **Übersicht** (`overview/HouseOverview`, jetzt), **Analyse** (`analysis/AnalysisTab`, Rückblick + Einstellungs-Vorschläge), **KI** (`ki/KiTab`, prüfen & entscheiden), **Einstellungen** (`energy/SettingsPanel`, inkl. Abschnitt KI und Heiz-Reihenfolge). Umzugsliste: `doc/NEUE-TAB-STRUKTUR-2026-10-26.md`
 - `Auth.tsx` — Email/Passwort + Google OAuth
 - `Install.tsx` — PWA-Installationsanleitung
 
@@ -437,6 +437,8 @@ Speichert in `pv_forecasts`:
 | `usePushAllTemps` | Alle Sollwerte erneut senden (Lokal: Befehle, Cloud: push-all-temps) |
 | `useTuyaControl` | `setTemperature` (Übersteuern, modusabhängig), `syncAllStatus({force, silent})` (Cloud-Lesung) |
 | `useServiceWorkerUpdate` | Update-Banner alle 5 Min |
+| `useDayAnalysis` | Wiener Kalendertag laden + `lib/dayAnalysis` (Energieflüsse, Heizung je Raum, Befunde) |
+| `useKiPending` | Zähler offener KI-Entscheidungen (Tab-Badge, Hinweis in Übersicht) |
 
 ### UI-Standards
 - **Default Light Theme** (#ffffff)
@@ -527,6 +529,13 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-26 — Neue Tab-Struktur, Analyse mit Einstellungs-Vorschlägen
+- 4 Tabs nach Zweck: Übersicht · Analyse · KI · Einstellungen. Energie, Heizung & KI, Verlauf & Muster aufgelöst; jede der 30 Karten hat einen Platz (Umzugsliste).
+- Analyse: Tag (7 Tage) / Woche / Monat / Jahr; Tagesbilanz aus 5-Min-Werten und Thermostat-Samples; „Das Wichtigste“ mit regelbasierten Vorschlägen (PV-Schwelle EIN, Nacht-Heizmodus) – nur abgeschlossene Tage, nur Whitelist, Anwenden nach Bestätigung mit Wertvergleich, Protokoll in `ai_parameter_decisions`.
+- KI-Tab bündelt alle Vorschläge (Zähler am Tab); Parameter-Vorschläge mit Ablehnen. KI-Einstellungen (Autopilot, Modus je Parameter, Mustergedächtnis, Zeitplan) unter Einstellungen › KI. Heiz-Reihenfolge per ▲▼.
+- Gemeinsamer Anwende-Weg `src/lib/aiParameters.ts`; `parallel_heating_capacity` aus der Whitelist wird nicht angewendet (kein Grenzwert, sondern Heizplan).
+- Details: `doc/NEUE-TAB-STRUKTUR-2026-10-26.md`
 
 ### 2026-10-26 — Heizzyklen per Datenbank-Trigger
 - Trigger `trg_log_room_heating_transition` auf `rooms.is_heating` schreibt `heating_start`/`heating_stop` (mit Dauer, Energie, Überschuss) – unabhängig von RLS und vom Steuermodus; Duplikat-Schutz über offenen Start. Vorher fehlten alle Zyklen (falsches DP bis 24.10., danach RLS).

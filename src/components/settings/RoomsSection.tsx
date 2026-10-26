@@ -152,7 +152,7 @@ function RoomCard({ room, onSave, onDelete }: {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          <Badge variant="outline" title="Heiz-Priorität (änderst du im Tab Heizung & KI)">P{room.priority}</Badge>
+          <Badge variant="outline" title="Heiz-Priorität (ändern unter „Heiz-Reihenfolge“)">P{room.priority}</Badge>
           {room.automation_enabled !== true && <Badge variant="outline" className="text-warning border-warning/50">Automatik aus</Badge>}
           {room.pv_auto_enabled && <Badge className="bg-energy-export/15 text-energy-export border-energy-export/30 hover:bg-energy-export/15">PV-Auto</Badge>}
         </div>
@@ -276,7 +276,7 @@ function RoomCard({ room, onSave, onDelete }: {
               Solargewinn: {room.calculated_solar_gain_factor != null ? `${(room.calculated_solar_gain_factor * 5).toFixed(1)} °C/h bei 5 kW PV` : '–'}
               {room.solar_gain_confidence != null && ` (${Math.round(room.solar_gain_confidence * 100)} % sicher)`}
             </div>
-            <div>Priorität: P{room.priority} – ändern im Tab <strong>Heizung & KI</strong> (Raumpriorität).</div>
+            <div>Priorität: P{room.priority} – ändern im Abschnitt <strong>Heiz-Reihenfolge</strong> unten.</div>
           </div>
 
           <AlertDialog onOpenChange={(o) => !o && setConfirmName('')}>

@@ -9,8 +9,7 @@ import { Brain, RefreshCw, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { AIDailyPlanCard } from './AIDailyPlanCard';
-import { AIAutopilotToggle } from './AIAutopilotToggle';
+import { applyParameterValue, NOT_A_SETTING_KEYS, WhitelistRow as SharedWhitelistRow } from '@/lib/aiParameters';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
@@ -95,9 +94,10 @@ export function AIShadowDecisions() {
   const [lastRun, setLastRun] = useState<{ at: string; ok: boolean; message: string } | null>(null);
   const [applying, setApplying] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [filter, setFilter] = useState<'all' | 'unevaluated' | 'evaluated'>('unevaluated');
+  // 'open' = wartet auf deine Entscheidung (Modus Vorschlag, weder übernommen noch abgelehnt)
+  const [filter, setFilter] = useState<'open' | 'all' | 'unevaluated' | 'evaluated'>('open');
   const [paramFilter, setParamFilter] = useState<string | null>(null);
-  const [listCollapsed, setListCollapsed] = useState<boolean>(true);
+  const [listCollapsed, setListCollapsed] = useState<boolean>(false);
 
   const load = async () => {
     setLoading(true);
@@ -159,7 +159,7 @@ export function AIShadowDecisions() {
 
   const applyDecision = async (d: Decision) => {
     if (SOC_LOCKED_KEYS.has(d.parameter_key)) {
-      toast.error('SOC-Parameter werden ausschließlich über „KI Batterie-Empfehlung" (Übersicht) übernommen.');
+      toast.error('SOC-Parameter werden ausschließlich über die „KI Batterie-Empfehlung" (KI › Zu entscheiden) übernommen.');
       return;
     }
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
@@ -175,24 +175,10 @@ export function AIShadowDecisions() {
 
     setApplying(d.id);
     try {
-      if (wl.storage_table === 'rooms') {
-        if (!d.room_id) throw new Error('Raum-ID fehlt');
-        const { error } = await supabase.from('rooms').update({ [wl.storage_column]: v.value }).eq('id', d.room_id);
-        if (error) throw error;
-      } else if (wl.storage_table === 'heating_settings') {
-        const { data: s, error: se } = await supabase.from('heating_settings').select('id').limit(1).single();
-        if (se || !s) throw se ?? new Error('heating_settings nicht gefunden');
-        const { error } = await supabase.from('heating_settings').update({ [wl.storage_column]: v.value }).eq('id', s.id);
-        if (error) throw error;
-      } else if (wl.storage_table === 'system_settings') {
-        // key/value jsonb store
-        const { error } = await supabase
-          .from('system_settings')
-          .upsert({ key: wl.storage_column, value: v.value as never }, { onConflict: 'key' });
-        if (error) throw error;
-      } else {
-        throw new Error(`Unbekannte storage_table: ${wl.storage_table}`);
-      }
+      // Gemeinsamer Weg (src/lib/aiParameters.ts). Ohne Wertvergleich: current_value der KI stammt
+      // aus der Modell-Antwort, nicht aus der Datenbank (siehe Doku 23.10.2026).
+      const res = await applyParameterValue({ wl: wl as unknown as SharedWhitelistRow, proposed: d.proposed_value, roomId: d.room_id });
+      if (res.ok === false) throw new Error(res.error);
 
       const { error: ue } = await supabase
         .from('ai_parameter_decisions')
@@ -208,6 +194,21 @@ export function AIShadowDecisions() {
     } finally {
       setApplying(null);
     }
+  };
+
+  const rejectDecision = async (d: Decision) => {
+    setApplying(d.id);
+    const { error } = await supabase.from('ai_parameter_decisions').update({ decision_mode: 'rejected' }).eq('id', d.id);
+    setApplying(null);
+    if (error) { toast.error(`Ablehnen fehlgeschlagen: ${error.message}`); return; }
+    toast.success(`${d.parameter_key}: Vorschlag abgelehnt`);
+    load();
+  };
+
+  const isOpenDecision = (d: Decision) => {
+    const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
+    return !!wl && wl.autonomy_level === 'suggest' && !d.applied_at && !d.auto_applied && d.decision_mode !== 'rejected'
+      && !NOT_A_SETTING_KEYS.has(d.parameter_key);
   };
 
   const setAutonomy = async (wl: WhitelistRow, level: AutonomyLevel) => {
@@ -226,6 +227,7 @@ export function AIShadowDecisions() {
   const filtered = decisions.filter((d) => {
     if (SOC_LOCKED_KEYS.has(d.parameter_key)) return false; // konsolidiert in KI Batterie-Empfehlung
     if (paramFilter && d.parameter_key !== paramFilter) return false;
+    if (filter === 'open') return isOpenDecision(d);
     if (filter === 'unevaluated') return !d.outcome_evaluated_at;
     if (filter === 'evaluated') return !!d.outcome_evaluated_at;
     return true;
@@ -274,6 +276,7 @@ export function AIShadowDecisions() {
     if (d.auto_applied) {
       return <Badge className="bg-emerald-600 gap-1"><Check className="h-3 w-3" />Auto</Badge>;
     }
+    if (d.decision_mode === 'rejected') return <Badge variant="secondary">Abgelehnt</Badge>;
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
     if (!wl) return <Badge variant="outline">unbekannt</Badge>;
     if (wl.autonomy_level === 'shadow') return <Badge variant="secondary">Schatten</Badge>;
@@ -288,7 +291,7 @@ export function AIShadowDecisions() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Brain className="h-5 w-5 text-primary" />
-              KI-Autopilot · Parameter-Vorschläge
+              Parameter-Vorschläge &amp; Protokoll
             </CardTitle>
             <CardDescription>
               Die KI beobachtet im Hintergrund und schlägt Parameteranpassungen vor. „Schatten-Modus" bedeutet:
@@ -322,9 +325,9 @@ export function AIShadowDecisions() {
             </details>
           </div>
           <div className="flex gap-2 flex-wrap items-center">
-            {(['all', 'unevaluated', 'evaluated'] as const).map((f) => (
+            {(['open', 'all', 'unevaluated', 'evaluated'] as const).map((f) => (
               <Button key={f} size="sm" variant={filter === f ? 'default' : 'outline'} onClick={() => setFilter(f)}>
-                {f === 'all' ? 'Alle' : f === 'unevaluated' ? 'Offen' : 'Bewertet'}
+                {f === 'open' ? `Zu entscheiden (${decisions.filter(isOpenDecision).length})` : f === 'all' ? 'Alle' : f === 'unevaluated' ? 'Unbewertet' : 'Bewertet'}
               </Button>
             ))}
             <Button size="sm" onClick={triggerRun} disabled={running}>
@@ -335,8 +338,6 @@ export function AIShadowDecisions() {
       </CardHeader>
 
       <CardContent className="space-y-4">
-        <AIAutopilotToggle />
-        <AIDailyPlanCard />
 
 
 
@@ -416,7 +417,9 @@ export function AIShadowDecisions() {
           <p className="text-sm text-muted-foreground py-8 text-center">
             {lastRun?.ok === false
               ? 'Keine KI-Vorschläge verfügbar — siehe Fehlermeldung oben.'
-              : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
+              : filter === 'open'
+                ? 'Keine offenen Vorschläge – nichts zu entscheiden.'
+                : 'Noch keine KI-Vorschläge. Klick auf „Jetzt analysieren" um zu starten.'}
           </p>
         ) : listCollapsed ? null : (
           <>
@@ -424,7 +427,7 @@ export function AIShadowDecisions() {
             <div className="md:hidden space-y-2">
               {filtered.map((d) => {
                 const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
-                const canApply = wl && wl.autonomy_level === 'suggest' && !d.applied_at;
+                const canApply = isOpenDecision(d);
                 const isOpen = expanded.has(d.id);
                 return (
                   <div
@@ -495,14 +498,14 @@ export function AIShadowDecisions() {
                           </div>
                         )}
                         {canApply && (
-                          <Button
-                            size="sm"
-                            className="w-full"
-                            onClick={() => applyDecision(d)}
-                            disabled={applying === d.id}
-                          >
-                            {applying === d.id ? '…' : 'Übernehmen'}
-                          </Button>
+                          <div className="flex gap-2">
+                            <Button size="sm" className="flex-1" onClick={() => applyDecision(d)} disabled={applying === d.id}>
+                              {applying === d.id ? '…' : 'Übernehmen'}
+                            </Button>
+                            <Button size="sm" variant="outline" className="flex-1" onClick={() => rejectDecision(d)} disabled={applying === d.id}>
+                              Ablehnen
+                            </Button>
+                          </div>
                         )}
                         {d.auto_applied && (
                           <div className="text-emerald-700 dark:text-emerald-400">
@@ -539,7 +542,7 @@ export function AIShadowDecisions() {
               <TableBody>
                 {filtered.map((d) => {
                   const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
-                  const canApply = wl && wl.autonomy_level === 'suggest' && !d.applied_at;
+                  const canApply = isOpenDecision(d);
                   return (
                     <Fragment key={d.id}>
                       <TableRow
@@ -563,13 +566,14 @@ export function AIShadowDecisions() {
                         <TableCell>{scoreBadge(d.outcome_score)}</TableCell>
                         <TableCell className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                           {canApply && (
-                            <Button
-                              size="sm"
-                              onClick={() => applyDecision(d)}
-                              disabled={applying === d.id}
-                            >
-                              {applying === d.id ? '…' : 'Übernehmen'}
-                            </Button>
+                            <>
+                              <Button size="sm" onClick={() => applyDecision(d)} disabled={applying === d.id}>
+                                {applying === d.id ? '…' : 'Übernehmen'}
+                              </Button>
+                              <Button size="sm" variant="outline" onClick={() => rejectDecision(d)} disabled={applying === d.id}>
+                                Ablehnen
+                              </Button>
+                            </>
                           )}
                           <Button
                             variant="ghost"

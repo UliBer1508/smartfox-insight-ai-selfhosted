@@ -6,6 +6,10 @@ Stand: 2026-06-10
 
 ## 🔴 Hohe Priorität
 
+### Analyse-Vorschläge (seit 26.10.)
+- [ ] Nach einigen Tagen echter Heizdaten prüfen, ob die Regeln zu oft/zu selten auslösen
+- [ ] Optional: Whitelist-Eintrag `parallel_heating_capacity` abschalten (SQL in `doc/NEUE-TAB-STRUKTUR-2026-10-26.md` §4)
+
 ### Heizzyklen (Trigger seit 26.10.)
 - [x] Trigger `trg_log_room_heating_transition` schreibt `heating_start/stop` (`doc/FIX-HEIZZYKLEN-TRIGGER-2026-10-26.md`)
 - [ ] Nach 1–2 Tagen: Zyklen prüfen, dann entscheiden, ob `solar_limit_stop` weiter als Heizenergie zählt (Doppelzählung)

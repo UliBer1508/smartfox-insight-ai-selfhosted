@@ -13,7 +13,12 @@ import { getLocalDateString, getViennaMinutesSinceMidnight } from '@/lib/dateUti
 import { EnergyReading } from '@/types/energy';
 import { HeatingSettings } from '@/types/heating';
 import { Room } from '@/types/room';
-import { Moon, Sun, Zap, Hand, PauseCircle, Flame, Snowflake } from 'lucide-react';
+import { Moon, Sun, Zap, Hand, PauseCircle, Flame, Snowflake, Brain, ChevronDown } from 'lucide-react';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { ApiErrorBanner } from '@/components/heating/ApiErrorBanner';
+import { EnergyFlowDiagram } from '@/components/energy/EnergyFlowDiagram';
+import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
+import { useKiPending } from '@/hooks/useKiPending';
 
 const TZ = 'Europe/Vienna';
 
@@ -479,25 +484,68 @@ interface HouseOverviewProps {
   rooms: Room[];
   settings: HeatingSettings;
   updateRoomLocally: (roomId: string, updates: Partial<Room>) => void;
+  onNavigate?: (tab: 'ki') => void;
 }
 
-export function HouseOverview({ currentReading, isConnected, rooms, settings, updateRoomLocally }: HouseOverviewProps) {
+// Aufklappbarer Block (Zustand nicht gemerkt – standardmäßig zu)
+function Fold({ title, children }: { title: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card>
+        <CollapsibleTrigger className="w-full flex items-center gap-2 px-5 py-3 text-sm font-medium hover:bg-muted/40 rounded-lg">
+          {title}
+          <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${open ? 'rotate-180' : ''}`} />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="px-3 pb-3">{children}</CollapsibleContent>
+      </Card>
+    </Collapsible>
+  );
+}
+
+export function HouseOverview({ currentReading, isConnected, rooms, settings, updateRoomLocally, onNavigate }: HouseOverviewProps) {
+  const pending = useKiPending();
+  const { syncAllStatus } = useTuyaControl();
   const surplus = usableSurplus(currentReading, settings.heating_min_battery_soc ?? 80);
   const night = isNight(settings);
   const thermostatRooms = rooms.filter(r => r.tuya_device_id);
   return (
     <div className="space-y-4 md:space-y-6">
       <StatusBar energyOk={isConnected} energyTs={currentReading?.timestamp} />
+      {/* Fehler und offene KI-Entscheidungen zuerst (seit 26.10.2026 hier statt in Heizung & KI) */}
+      <ApiErrorBanner onRetry={() => { syncAllStatus({ silent: true }); }} />
+      {pending.total > 0 && onNavigate && (
+        <button type="button" onClick={() => onNavigate('ki')}
+          className="w-full text-left rounded-lg border border-violet-500/40 bg-violet-500/10 px-4 py-3 flex items-center gap-3 hover:bg-violet-500/15">
+          <Brain className="w-5 h-5 text-violet-600 dark:text-violet-400 shrink-0" />
+          <span className="text-sm">
+            <strong>{pending.total} KI-{pending.total === 1 ? 'Vorschlag wartet' : 'Vorschläge warten'}</strong> auf deine Entscheidung
+            <span className="text-muted-foreground"> · {[pending.parameters && `${pending.parameters} Parameter`, pending.battery && 'Batterie', pending.prices && `${pending.prices} Preis`].filter(Boolean).join(' · ')}</span>
+          </span>
+          <span className="ml-auto text-sm text-violet-700 dark:text-violet-300 font-medium">Zu KI →</span>
+        </button>
+      )}
       <div className="grid md:grid-cols-2 gap-4">
         <ModeHero rooms={rooms} settings={settings} surplus={surplus} reading={currentReading} />
         <EnergyTiles r={currentReading} surplus={surplus} />
       </div>
+      <Fold title="Energiefluss jetzt">
+        <EnergyFlowDiagram
+          pvPower={currentReading?.pv_power ?? null}
+          consumption={currentReading?.consumption ?? null}
+          batteryPower={currentReading?.battery_power ?? null}
+          gridPower={currentReading?.power_io ?? 0}
+          batterySoc={currentReading?.battery_soc ?? null}
+        />
+      </Fold>
       <Forecast kwp={settings.pv_capacity_kwp} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {thermostatRooms.map(r => (
           <RoomCard key={r.id} room={r} night={night} onChanged={updateRoomLocally} />
         ))}
       </div>
+      {/* Heizleistung live, aktiviert/wartend, parallele Kapazität, Komfort-Budget (früher Heizung & KI) */}
+      <RoomStatusTable rooms={rooms} />
     </div>
   );
 }

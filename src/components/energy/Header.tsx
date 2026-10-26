@@ -1,4 +1,5 @@
-import { Home, Zap, Settings, BarChart3, Moon, Sun, Thermometer, Download, WifiOff, LogOut } from 'lucide-react';
+import { Home, Zap, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut } from 'lucide-react';
+import { useKiPending } from '@/hooks/useKiPending';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
@@ -7,18 +8,30 @@ import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ControlModeBadge } from '@/components/layout/ControlModeBadge';
 
+// Tabs nach Zweck (seit 26.10.2026): ansehen · rückblicken · prüfen/entscheiden · einstellen
+export type AppTab = 'overview' | 'analysis' | 'ki' | 'settings';
+
 interface HeaderProps {
-  activeTab: 'overview' | 'dashboard' | 'settings' | 'analysis' | 'heating';
-  onTabChange: (tab: 'overview' | 'dashboard' | 'settings' | 'analysis' | 'heating') => void;
+  activeTab: AppTab;
+  onTabChange: (tab: AppTab) => void;
 }
 
 const tabs = [
   { key: 'overview' as const, icon: Home, label: 'Übersicht' },
-  { key: 'dashboard' as const, icon: BarChart3, label: 'Energie' },
-  { key: 'heating' as const, icon: Thermometer, label: 'Heizung & KI' },
-  { key: 'analysis' as const, icon: Zap, label: 'Verlauf & Muster' },
+  { key: 'analysis' as const, icon: BarChart3, label: 'Analyse' },
+  { key: 'ki' as const, icon: Brain, label: 'KI' },
   { key: 'settings' as const, icon: Settings, label: 'Einstellungen' },
 ];
+
+function PendingDot({ n, mobile }: { n: number; mobile?: boolean }) {
+  if (n <= 0) return null;
+  return (
+    <span
+      aria-label={`${n} offene KI-Vorschläge`}
+      className={`${mobile ? 'absolute -top-0.5 -right-2.5' : 'ml-1.5'} inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-violet-600 text-white text-[10px] font-bold`}
+    >{n}</span>
+  );
+}
 
 export function Header({ activeTab, onTabChange }: HeaderProps) {
   const [isDark, setIsDark] = useState(false);
@@ -26,6 +39,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
   const { isOnline, getOfflineMinutes } = useOnlineStatus();
   const { signOut } = useAuth();
   const isMobile = useIsMobile();
+  const pending = useKiPending();
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDark);
@@ -95,6 +109,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
                 >
                   <tab.icon className="w-4 h-4 mr-2" />
                   {tab.label}
+                  {tab.key === 'ki' && <PendingDot n={pending.total} />}
                 </Button>
               ))}
 
@@ -140,7 +155,10 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
                       : 'text-muted-foreground'
                   }`}
                 >
-                  <tab.icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                  <span className="relative">
+                    <tab.icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5]' : ''}`} />
+                    {tab.key === 'ki' && <PendingDot n={pending.total} mobile />}
+                  </span>
                   <span className="text-[10px] font-medium leading-tight">{tab.label}</span>
                 </button>
               );

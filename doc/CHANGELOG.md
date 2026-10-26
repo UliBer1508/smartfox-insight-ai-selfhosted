@@ -5,6 +5,28 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.8.0] - 2026-10-26
+
+### Changed (Tab-Struktur nach Zweck)
+- 4 Tabs statt 5: **Übersicht** (jetzt) · **Analyse** (Rückblick) · **KI** (prüfen & entscheiden) · **Einstellungen**. Energie, Heizung & KI und Verlauf & Muster sind aufgelöst, keine Karte geht verloren.
+- Übersicht zusätzlich: Fehlerbanner, Hinweis auf offene KI-Vorschläge, Energiefluss, Raum-Status & Heizleistung.
+- Einstellungen zusätzlich: Heiz-Reihenfolge (▲▼), Abschnitt KI (Autopilot, Modus je Parameter, Mustergedächtnis, Zeitplan & Datenpflege), Systeminfo beim Datensammler.
+
+### Added
+- Analyse-Tab mit Tagesbilanz (PV-Verwendung, Batterie, Heizung je Raum mit Herkunft Sonne/Batterie/Netz, Kosten) und „Das Wichtigste“: Befunde mit Einstellungs-Vorschlag, angewendet erst nach Bestätigung, protokolliert in `ai_parameter_decisions`.
+- KI-Tab mit Zähler offener Entscheidungen; Parameter-Vorschläge mit Ablehnen und Filter „Zu entscheiden“.
+
+### Fixed
+- Kosten-Widget bekommt immer die Werte von heute (es speichert sie als heutigen Tag).
+- `parallel_heating_capacity` wird nicht mehr als Parameter angewendet (überschrieb den Heizplan der pv-automation).
+
+### Removed
+- `HeatingDashboard`, `DailyHeatingSchedule`, `BatteryStatus`, `AnalysisPanel`, `EnergyStats`, `ConnectionStatus`, `EnergyChart`, `useHeatingAnalysis` (Inhalte umgezogen oder ersetzt).
+
+Details: `doc/NEUE-TAB-STRUKTUR-2026-10-26.md`
+
+---
+
 ## [2.7.1] - 2026-10-26
 
 ### Fixed (Heizzyklen)
