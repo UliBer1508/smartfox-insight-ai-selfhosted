@@ -9,7 +9,7 @@ import { Brain, RefreshCw, ChevronDown, ChevronUp, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import { de } from 'date-fns/locale';
-import { applyParameterValue, NOT_A_SETTING_KEYS, WhitelistRow as SharedWhitelistRow } from '@/lib/aiParameters';
+import { applyParameterValue, latestOpenDecisionIds, WhitelistRow as SharedWhitelistRow } from '@/lib/aiParameters';
 
 type AutonomyLevel = 'shadow' | 'suggest' | 'auto';
 
@@ -102,7 +102,7 @@ export function AIShadowDecisions() {
   const load = async () => {
     setLoading(true);
     const [{ data: dec }, { data: rs }, { data: wl }] = await Promise.all([
-      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(50),
+      supabase.from('ai_parameter_decisions').select('*').order('created_at', { ascending: false }).limit(300),
       supabase.from('rooms').select('id, name'),
       supabase.from('ai_parameter_whitelist').select('*').eq('enabled', true),
     ]);
@@ -205,11 +205,13 @@ export function AIShadowDecisions() {
     load();
   };
 
-  const isOpenDecision = (d: Decision) => {
-    const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
-    return !!wl && wl.autonomy_level === 'suggest' && !d.applied_at && !d.auto_applied && d.decision_mode !== 'rejected'
-      && !NOT_A_SETTING_KEYS.has(d.parameter_key);
-  };
+  // Offen = neuester Vorschlag je Parameter + Raum im Modus "Vorschlag"; ältere Wiederholungen
+  // desselben Vorschlags (der Advisor legt ihn stündlich neu an) gelten als überholt.
+  const openIds = useMemo(() => {
+    const suggest = new Set(whitelist.filter((w) => w.autonomy_level === 'suggest').map((w) => `${w.scope}:${w.parameter_key}`));
+    return latestOpenDecisionIds(decisions, suggest);
+  }, [decisions, whitelist]);
+  const isOpenDecision = (d: Decision) => openIds.has(d.id);
 
   const setAutonomy = async (wl: WhitelistRow, level: AutonomyLevel) => {
     const { error } = await supabase
@@ -277,6 +279,9 @@ export function AIShadowDecisions() {
       return <Badge className="bg-emerald-600 gap-1"><Check className="h-3 w-3" />Auto</Badge>;
     }
     if (d.decision_mode === 'rejected') return <Badge variant="secondary">Abgelehnt</Badge>;
+    if (!d.applied_at && !openIds.has(d.id) && wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`)?.autonomy_level === 'suggest') {
+      return <Badge variant="outline" className="text-muted-foreground">überholt</Badge>;
+    }
     const wl = wlByKey.get(`${d.parameter_scope}:${d.parameter_key}`);
     if (!wl) return <Badge variant="outline">unbekannt</Badge>;
     if (wl.autonomy_level === 'shadow') return <Badge variant="secondary">Schatten</Badge>;
@@ -298,7 +303,7 @@ export function AIShadowDecisions() {
               die KI zeigt dir, was sie tun würde, ohne es sofort auszuführen — du kannst Vorschläge mit einem
               Klick übernehmen. Im Auto-Modus wendet sie sie selbst an und rollt bei schlechtem Ergebnis zurück.
               Analyse läuft alle 15 Minuten.
-              <span className="block mt-1 text-[11px] opacity-70">Anzeige: letzte 50 · Aufbewahrung: 7 Tage offen, 30 Tage bewertet</span>
+              <span className="block mt-1 text-[11px] opacity-70">Anzeige: letzte 300 · „Zu entscheiden“ zeigt je Parameter nur den neuesten Vorschlag · Aufbewahrung: 7 Tage offen, 30 Tage bewertet</span>
             </CardDescription>
             <details className="mt-2 text-xs">
               <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none text-sm font-bold">
