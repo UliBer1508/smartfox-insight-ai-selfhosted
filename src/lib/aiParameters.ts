@@ -171,3 +171,27 @@ export async function applyAndLogProposal(args: {
   if (error) return { ok: false, error: `Wert übernommen, aber nicht protokolliert: ${error.message}` };
   return { ok: true };
 }
+
+/**
+ * Der ai-parameter-advisor legt einen noch nicht übernommenen Vorschlag bei jedem Lauf (stündlich)
+ * erneut an. Als "offen" zählt daher nur der NEUESTE Vorschlag je Parameter + Raum, und nur, wenn
+ * dieser weder übernommen, automatisch angewendet noch abgelehnt ist. Ältere Wiederholungen gelten
+ * als überholt. Erwartet die Liste absteigend nach created_at sortiert.
+ */
+export function latestOpenDecisionIds<T extends {
+  id: string; parameter_key: string; parameter_scope: string; room_id: string | null;
+  applied_at: string | null; auto_applied?: boolean | null; decision_mode: string;
+}>(rowsNewestFirst: T[], suggestKeys: Set<string>): Set<string> {
+  const seen = new Set<string>();
+  const open = new Set<string>();
+  for (const d of rowsNewestFirst) {
+    const k = `${d.parameter_scope}:${d.parameter_key}:${d.room_id ?? ''}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    if (d.applied_at || d.auto_applied || d.decision_mode === 'rejected') continue;
+    if (!suggestKeys.has(`${d.parameter_scope}:${d.parameter_key}`)) continue;
+    if (SOC_LOCKED_KEYS.has(d.parameter_key) || NOT_A_SETTING_KEYS.has(d.parameter_key)) continue;
+    open.add(d.id);
+  }
+  return open;
+}
