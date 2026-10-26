@@ -6,6 +6,9 @@ Stand: 2026-06-10
 
 ## 🔴 Hohe Priorität
 
+### ai-parameter-advisor wiederholt offene Vorschläge stündlich
+- [ ] Vor dem Insert prüfen, ob für Parameter + Raum schon ein offener Vorschlag existiert → aktualisieren statt neu anlegen (Frontend zählt seit 26.10. nur den neuesten)
+
 ### Analyse-Vorschläge (seit 26.10.)
 - [ ] Nach einigen Tagen echter Heizdaten prüfen, ob die Regeln zu oft/zu selten auslösen
 - [ ] Optional: Whitelist-Eintrag `parallel_heating_capacity` abschalten (SQL in `doc/NEUE-TAB-STRUKTUR-2026-10-26.md` §4)
