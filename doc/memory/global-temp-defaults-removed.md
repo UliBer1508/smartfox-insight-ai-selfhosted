@@ -6,16 +6,16 @@ type: feature
 
 ## Regel
 Die Felder `comfort_temp`, `eco_temp`, `night_temp` in `heating_settings` haben **keine UI mehr**.
-Pflege ausschließlich pro Raum (`rooms.comfort_temp/eco_temp/night_temp`) im RoomManager.
+Pflege ausschließlich pro Raum (`rooms.comfort_temp/eco_temp/night_temp`) in Einstellungen › Räume (`settings/RoomsSection.tsx`; RoomManager entfernt 26.10.2026).
 
 ## Hintergrund
 Die globalen Defaults waren irreführend: jede Automatisierungs-Logik in `pv-automation/index.ts` greift bevorzugt auf den Raumwert zu (`room.eco_temp || settings?.eco_temp || 19`). Die globale Einstellung war damit ein totes Feld im UI.
 
 ## Wirkung
-- UI-Sektion „Standard-Temperaturen" in `HeatingSettingsForm.tsx` entfernt.
+- UI-Sektion „Standard-Temperaturen" entfernt (`HeatingSettingsForm.tsx` ist seit 26.10.2026 ganz gelöscht).
 - DB-Spalten bleiben (Defaults 21/19/18 °C) — dienen nur noch als Code-Fallback, falls ein Raum keinen Wert gesetzt hat.
 - Keine Migration, keine Logik-Änderung in Edge Functions.
 
 ## How to apply
-- Neue Temperatur-Sollwerte immer pro Raum im RoomManager setzen.
+- Neue Temperatur-Sollwerte immer pro Raum in Einstellungen › Räume setzen.
 - Globale Felder nicht wieder ins UI aufnehmen.

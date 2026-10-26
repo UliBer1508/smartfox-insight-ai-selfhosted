@@ -32,9 +32,9 @@ Bei vollem Akku + großem Echt-Export wird die Sättigungs-Sperre überstimmt:
 - Ergebnis: ~50% weniger Komfort-Up/Down-Calls bei wechselhaftem Wetter
 
 ## UI
-ThermostatCard zeigt Badge "🧱 Estrich-Speicher" wenn `comfort_saturated_at` gesetzt ist.
+Raumkarte der Übersicht zeigt "🧱 Estrich-Speicher", wenn `comfort_saturated_at` von heute (Wiener Datum) ist (bis 26.10.2026: ThermostatCard).
 
 ## Code-Stellen
 - `supabase/functions/pv-automation/index.ts` — Phase 2 Sättigungs-Pre-Pass + isComfortSaturated() Helper
 - `supabase/functions/pv-automation/index.ts` — Nacht-Block setzt `comfort_saturated_at = null`
-- `src/components/heating/ThermostatCard.tsx` — Badge
+- `src/components/overview/HouseOverview.tsx` — Hinweis in der Raumkarte

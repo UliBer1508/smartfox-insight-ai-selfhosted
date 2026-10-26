@@ -12,7 +12,6 @@ import { toast } from 'sonner';
 import { useActiveHeatingRooms } from '@/hooks/useActiveHeatingRooms';
 import { useParallelHeatingCapacity } from '@/hooks/useParallelHeatingCapacity';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
-import { usePushAllTemps } from '@/hooks/usePushAllTemps';
 
 interface RoomStatusTableProps {
   rooms: Room[];
@@ -88,20 +87,6 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
   const [secondsAgo, setSecondsAgo] = useState(0);
   const isMobile = useIsMobile();
   const { activeRooms, totalHeatingPower, sourceLevel, lastSyncAgeSec, activatedRoomIds, activationReasons, refetch: refetchActive } = useActiveHeatingRooms();
-  const { pushAllTemps, isPushing } = usePushAllTemps();
-
-  const handleSyncNow = async () => {
-    const result = await pushAllTemps();
-    if (result?.success) setTimeout(refetchActive, 3000);
-  };
-
-  const formatSyncAge = (sec: number | null) => {
-    if (sec === null) return '—';
-    if (sec < 60) return `${sec}s`;
-    const min = Math.round(sec / 60);
-    if (min < 60) return `${min} min`;
-    return `${Math.round(min / 60)} h`;
-  };
   const { data: capacity, updatedAt: capacityUpdatedAt } = useParallelHeatingCapacity();
   const { settings: heatingSettings } = useHeatingSettings();
 

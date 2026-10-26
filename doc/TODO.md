@@ -6,6 +6,15 @@ Stand: 2026-06-10
 
 ## 🔴 Hohe Priorität
 
+### RLS: Heizzyklen werden nicht gespeichert (seit 30.09.)
+- [ ] Lokaler Dienst (anon) darf nicht in `room_heating_logs` schreiben → `heating_start/stop` fehlen
+- [ ] Lösung: Trigger auf `rooms.is_heating` analog `trg_capture_room_temperature_sample`
+- **Details:** `doc/FIX-SPEICHER-UND-LOGS-2026-09-30.md` §3, `doc/THERMOSTAT-STEUERUNG-AUFGELOEST-2026-10-26.md` §8
+
+### pv-automation: falscher Erreichbarkeits-Zeitstempel im Lokal-Modus
+- [ ] Nach erfolgreichem Setzen schreibt pv-automation `last_thermostat_sync = now` und schließt `api_errors` des Raums – im Lokal-Modus heißt „erfolgreich“ nur „eingereiht“
+- [ ] Kommentar „automation_enabled controls ONLY ML“ korrigieren (Hauptschalter)
+
 ### Collector auf Fronius-Only umstellen
 - [ ] Smartfox-Funktion aus `collector-node/index.js` entfernen
 - [ ] `saveReading()` vereinfachen (nur Fronius-Daten)

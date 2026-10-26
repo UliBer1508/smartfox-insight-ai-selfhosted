@@ -153,7 +153,15 @@ export function useTuyaControl() {
     }
   }, [mode]);
 
-  const syncAllStatus = useCallback(async (): Promise<RoomStatus[]> => {
+  /**
+   * Thermostat-Werte lesen.
+   * - Lokal: Der Thermostat-Dienst liest die Geräte selbst laufend und schreibt in `rooms`.
+   *   Hier wird nur die Datenbank gelesen (kein Gerätekontakt); mit `silent` ohne Meldung.
+   * - Cloud: `tuya-control/sync-all` (Batch, 2 Tuya-Aufrufe, Kontingent-geprüft).
+   *   Ohne `force` gilt die 60-Minuten-Sperre der Edge Function; `force` umgeht nur diese
+   *   Sperre, nie die Kontingent-Prüfung. Einziger Weg zu Ist-Werten, wenn der PC aus ist.
+   */
+  const syncAllStatus = useCallback(async (opts?: { force?: boolean; silent?: boolean }): Promise<RoomStatus[]> => {
     setIsSyncing(true);
     try {
       if (mode === 'local') {
@@ -165,7 +173,7 @@ export function useTuyaControl() {
 
         if (error) throw error;
 
-        toast.success('Status aus Datenbank geladen (lokaler Modus)');
+        if (!opts?.silent) toast.success('Werte neu geladen – im Lokal-Modus liest der Dienst die Thermostate selbst');
         return (rooms || []).map(r => ({
           roomId: r.id,
           name: r.name,
@@ -176,14 +184,21 @@ export function useTuyaControl() {
       }
 
       // CLOUD-MODUS: Edge Function aufrufen
-      const { data, error } = await supabase.functions.invoke('tuya-control/sync-all', {
+      const fn = opts?.force ? 'tuya-control/sync-all?force=1' : 'tuya-control/sync-all';
+      const { data, error } = await supabase.functions.invoke(fn, {
         body: {},
       });
 
       if (error) throw error;
       if (!data.success) throw new Error(data.error);
 
-      toast.success('Thermostat-Status synchronisiert');
+      if (data.quotaExhausted) {
+        toast.warning('Tuya-Kontingent erschöpft – nur gespeicherte Werte geladen');
+      } else if (data.gated) {
+        toast.info(`Letzte Cloud-Lesung vor ${data.minutesSinceSync} min – gespeicherte Werte geladen`);
+      } else if (!opts?.silent) {
+        toast.success('Thermostat-Werte aus der Tuya Cloud gelesen');
+      }
       return data.results || [];
     } catch (error) {
       console.error('Error syncing thermostats:', error);

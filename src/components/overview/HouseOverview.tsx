@@ -355,6 +355,11 @@ function RoomCard({ room, night, onChanged }: { room: Room; night: boolean; onCh
   const overrideOn = state.label === 'Manuell';
   const syncAge = minutesAgo(room.last_thermostat_sync);
   const stale = syncAge != null && syncAge > 10;
+  // Estrich-Speicher: comfort_saturated_at wird von pv-automation gesetzt und beim Nachtbeginn
+  // geleert; nur Sättigungen von heute (Wiener Datum) zählen.
+  const saturatedAt = (room as Room & { comfort_saturated_at?: string | null }).comfort_saturated_at;
+  const estrich = !!saturatedAt && getLocalDateString(new Date(saturatedAt)) === getLocalDateString(new Date());
+  const solarLimit = !!room.pv_auto_active && room.solar_limit_temp != null;
 
   const start = async () => {
     if (!room.id || !room.tuya_device_id) return;
@@ -438,6 +443,24 @@ function RoomCard({ room, night, onChanged }: { room: Room; night: boolean; onCh
             </div>
           )}
         </div>
+
+        {/* Hinweise der Automatik (übernommen aus der früheren Thermostat-Karte, 26.10.2026) */}
+        {(estrich || solarLimit) && (
+          <div className="flex flex-wrap gap-1.5 text-xs">
+            {estrich && (
+              <span className="px-2 py-0.5 rounded-full border border-orange-400/40 bg-orange-500/10 text-orange-600 dark:text-orange-400"
+                title="Komfort heute erreicht. Sollwert zurück auf Eco – der aufgeheizte Estrich gibt die Wärme weiter ab.">
+                🧱 Estrich-Speicher
+              </span>
+            )}
+            {solarLimit && (
+              <span className="px-2 py-0.5 rounded-full border border-amber-400/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                title="Der Raum darf sich durch Sonneneinstrahlung bis zu dieser Temperatur erwärmen – ohne aktives Heizen.">
+                ☀️ Solar bis {fmtT(room.solar_limit_temp)}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
           {room.automation_enabled === false && <PauseCircle className="w-3.5 h-3.5" />}

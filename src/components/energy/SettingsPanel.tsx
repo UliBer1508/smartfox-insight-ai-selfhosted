@@ -1,5 +1,5 @@
 // Einstellungsseite der Heizung Venediger – Aufbau wie in der Heizung München (Stand 23.10.2026):
-//   1. Betrieb   – Steuerungsmodus
+//   1. Betrieb   – Steuerungsmodus + Thermostat-Wartung (alle senden / Cloud lesen, seit 26.10.2026)
 //   2. Haus      – Werte für alle Räume, in Gruppen, ein Speichern-Knopf
 //   3. Räume     – eine Karte pro Raum, Solltemperaturen direkt editierbar
 //   4. System    – Datensammler, Tuya Cloud, Datenspeicherung, Datensicherung, Tarife
@@ -21,6 +21,7 @@ import { useControlMode } from '@/hooks/useControlMode';
 import { BackupSettingsSection } from '@/components/settings/BackupSettingsSection';
 import { HouseSettingsCard } from '@/components/settings/HouseSettingsCard';
 import { RoomsSection } from '@/components/settings/RoomsSection';
+import { ThermostatMaintenance } from '@/components/settings/ThermostatMaintenance';
 import { SectionCard } from '@/components/settings/SettingsBits';
 
 interface SettingsPanelProps {
@@ -64,7 +65,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
         title="Betrieb"
         badge={<span className={`ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border ${mode === 'local' ? 'bg-primary/10 text-primary border-primary/30' : 'bg-muted text-muted-foreground border-border'}`}>{mode === 'local' ? 'Lokal aktiv' : 'Cloud aktiv'}</span>}
         icon={<Power className="w-5 h-5 text-primary" />}
-        description="Wie die Befehle zu den 12 Thermostaten kommen."
+        description="Wie die Befehle zu den 12 Thermostaten kommen – und Wartung für alle Thermostate."
       >
         <div className="grid sm:grid-cols-2 gap-3">
           <ModeButton
@@ -82,6 +83,7 @@ export function SettingsPanel({ isConnected, lastUpdate }: SettingsPanelProps) {
             text="Nur mit gültigem Tuya-IoT-Abo. Die Lizenzen sind derzeit nicht verlängert."
           />
         </div>
+        <ThermostatMaintenance mode={mode} onDone={loadRooms} />
         <AlertDialog open={confirmCloud} onOpenChange={setConfirmCloud}>
           <AlertDialogContent>
             <AlertDialogHeader>

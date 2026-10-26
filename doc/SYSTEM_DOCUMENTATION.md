@@ -10,7 +10,7 @@
 > 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
 > 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
 >
-> **Letzte Aktualisierung:** 2026-06-10 · **Version:** 3.1 · **Projekt:** tvqmhdpcixkfsudxughs
+> **Letzte Aktualisierung:** 2026-10-26 · **Version:** 3.2 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -87,7 +87,7 @@ Frontend (30-60s Polling, KEIN Realtime)
 - `event_type`: `heating_start`, `heating_stop`, `pv_activate`, `pv_deactivate`, `manual_set`
 - Aktive Räume = `heating_start` ohne nachfolgendes `heating_stop`
 
-**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (ML), `pv_auto_enabled` (PV-Logik), `manual_override_until`, `tuya_device_id`, `local_key`.
+**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (**Hauptschalter**: nur Räume mit `true` werden von pv-automation überhaupt geladen und gesteuert – aus = keine Befehle, auch kein Nacht-/Frostschutz), `pv_auto_enabled` (PV-Logik), `manual_override_until`, `tuya_device_id`, `local_key`.
 
 **Heating Settings (Auszug):**
 - `night_start_time`, `night_end_time` (default 22:00–06:00, real genutzt 20:00–09:00)
@@ -308,7 +308,23 @@ const tolerate =
 
 
 ### Push-All Funktion
-Manueller Sync aller 12 Thermostate (Settings) — überschreibt physische Werte mit DB-Targets.
+„Alle Sollwerte erneut senden“ (Einstellungen › Betrieb, mit Rückfrage) — überschreibt physische
+Werte mit DB-Targets. Lokal: je Raum ein `set_temp` in `thermostat_commands`; Cloud:
+`tuya-control/push-all-temps` (Kontingent-Gate). Setzt im Lokal-Modus **kein**
+`last_thermostat_sync` (das schreibt nur der Dienst nach echter Lesung, Fix 26.10.2026).
+
+### Bedienung im Frontend (Stand 26.10.2026)
+| Aufgabe | Ort | Lokal | Cloud |
+|---|---|---|---|
+| Ansehen + kurz übersteuern (1–24 h) | Übersicht | `thermostat_commands` | `tuya-control/set-temp` |
+| Grundwerte, PV-Automatik, **Automatik je Raum** | Einstellungen › Räume | – | – |
+| Alle Sollwerte erneut senden | Einstellungen › Betrieb | `thermostat_commands` | `push-all-temps` |
+| Werte aus der Cloud lesen (nur Cloud sichtbar) | Einstellungen › Betrieb | – | `sync-all?force=1` |
+| Modus, Verbindungstest, Region, Abo | Einstellungen › Betrieb / Tuya Cloud | – | `/test`, `/set-region` |
+| Fehlerbanner „Erneut versuchen“ | Heizung & KI | pv-automation + DB | + `sync-all` |
+
+Die frühere Karte „Thermostat-Steuerung“ (Tab Heizung & KI) ist entfallen. Details:
+`doc/THERMOSTAT-STEUERUNG-AUFGELOEST-2026-10-26.md`.
 
 ### API-Error-Logging
 - `api_errors`-Tabelle (mit `device_id`, `error_code`, `retry_count`, `is_acknowledged`)
@@ -418,7 +434,8 @@ Speichert in `pv_forecasts`:
 | `useBatteryHistory` | Dynamic limits (heute 2k, Woche 5k, Monat 10k) |
 | `useControlMode` | Cloud vs. Local Toggle |
 | `useTuyaConnectionTest` | 3-Step Diagnostic |
-| `usePushAllTemps` | Sync aller 12 Thermostate |
+| `usePushAllTemps` | Alle Sollwerte erneut senden (Lokal: Befehle, Cloud: push-all-temps) |
+| `useTuyaControl` | `setTemperature` (Übersteuern, modusabhängig), `syncAllStatus({force, silent})` (Cloud-Lesung) |
 | `useServiceWorkerUpdate` | Update-Banner alle 5 Min |
 
 ### UI-Standards
@@ -510,6 +527,14 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-26 — Thermostat-Steuerung aufgelöst
+- Karte „Thermostat-Steuerung“ (Heizung & KI) entfernt; Funktionen umgezogen: Übersteuern → Übersicht, Automatik-Schalter → Einstellungen › Räume, Alle senden / Cloud lesen → Einstellungen › Betrieb (`settings/ThermostatMaintenance.tsx`). Cloud- und Lokal-Weg vollständig erhalten.
+- `automation_enabled` ist der Hauptschalter (pv-automation lädt nur `true`) – vorher als „Auto-Empfehlung (KI)“ falsch beschriftet. Neue Räume werden mit Automatik an angelegt.
+- `usePushAllTemps` (Lokal) setzt kein `last_thermostat_sync` mehr – verdeckte sonst Offline-Fehler in `auto-resolve-api-errors`.
+- Übersicht zeigt „Estrich-Speicher“ und „Solar bis …“.
+- Entfernt: `ThermostatCard`, `StatusLegend`, `useAutomation`, `RoomManager`, `HeatingSettingsForm`.
+- Details: `doc/THERMOSTAT-STEUERUNG-AUFGELOEST-2026-10-26.md`
 
 ### 2026-10-23 — Übersicht & Einstellungen im München-Aufbau, Wetter-Job, Battery-Full-Grenzen
 - App heißt „Heizung Venediger“. Neue Startseite `overview/HouseOverview.tsx` (Modus, Energie, Wetter/Prognose, Raumkarten).

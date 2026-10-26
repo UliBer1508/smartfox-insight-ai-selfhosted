@@ -6,6 +6,9 @@
 //   is_heating, pv_auto_active, berechnete Lernwerte …). Konfliktprüfung im Hook.
 // - Löschen nur nach Eingabe des Raumnamens: per Datenbank-Kaskade verschwinden sonst auch
 //   Heizprotokolle, Temperaturverlauf, ML-Features und gelernte Regeln des Raums.
+// - "Automatik" (automation_enabled) ist der Hauptschalter des Raums: pv-automation lädt nur
+//   Räume mit automation_enabled = true. Aus = Raum wird gar nicht gesteuert (auch kein
+//   Nacht-/Frostschutz-Befehl). Seit 26.10.2026 hier statt in der alten Thermostat-Karte.
 // - "Batterie voll" (pv_boost_max_temp) ist KEIN Sollwert, sondern die Grenze für den
 //   Battery-Full-Override – daher nur als Info (siehe doc/memory/comfort-saturation-estrich-storage.md).
 import { useRef, useState } from 'react';
@@ -23,7 +26,7 @@ import {
 import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
 import { sameValue } from '@/lib/safeSave';
 import { useSolarGainAnalysis } from '@/hooks/useSolarGainAnalysis';
-import { Home, Thermometer, Plus, BarChart3, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench } from 'lucide-react';
+import { Home, Thermometer, Plus, BarChart3, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench, AlertTriangle } from 'lucide-react';
 import { SectionCard, Eyebrow, LabeledInput } from './SettingsBits';
 
 const TEMP_MIN = 5;
@@ -150,6 +153,7 @@ function RoomCard({ room, onSave, onDelete }: {
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
           <Badge variant="outline" title="Heiz-Priorität (änderst du im Tab Heizung & KI)">P{room.priority}</Badge>
+          {room.automation_enabled !== true && <Badge variant="outline" className="text-warning border-warning/50">Automatik aus</Badge>}
           {room.pv_auto_enabled && <Badge className="bg-energy-export/15 text-energy-export border-energy-export/30 hover:bg-energy-export/15">PV-Auto</Badge>}
         </div>
       </div>
@@ -172,12 +176,35 @@ function RoomCard({ room, onSave, onDelete }: {
         </div>
       </div>
 
-      <div className="flex items-center justify-between gap-3 rounded-lg border p-3">
-        <div>
-          <div className="text-sm font-medium">PV-Überschuss-Automatik</div>
-          <div className="text-xs text-muted-foreground">Raum heizt mit Überschuss auf Eco/Komfort</div>
+      <div className="rounded-lg border divide-y">
+        <div className="flex items-center justify-between gap-3 p-3">
+          <div>
+            <div className="text-sm font-medium">Automatik</div>
+            <div className="text-xs text-muted-foreground">Raum wird von der Heizungsautomatik gesteuert (Nacht, Eco, Komfort)</div>
+          </div>
+          <Switch
+            checked={value('automation_enabled') === true}
+            onCheckedChange={(v) => set('automation_enabled', v)}
+            aria-label={`Automatik ${room.name}`}
+          />
         </div>
-        <Switch checked={value('pv_auto_enabled') === true} onCheckedChange={(v) => set('pv_auto_enabled', v)} />
+        <div className="flex items-center justify-between gap-3 p-3">
+          <div>
+            <div className="text-sm font-medium">PV-Überschuss-Automatik</div>
+            <div className="text-xs text-muted-foreground">Raum heizt mit Überschuss auf Eco/Komfort</div>
+          </div>
+          <Switch
+            checked={value('pv_auto_enabled') === true}
+            onCheckedChange={(v) => set('pv_auto_enabled', v)}
+            aria-label={`PV-Überschuss-Automatik ${room.name}`}
+          />
+        </div>
+        {value('automation_enabled') !== true && (
+          <div className="flex items-start gap-2 p-3 text-xs text-warning">
+            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>Automatik aus: Dieser Raum bekommt keine Befehle mehr – auch nicht abends für Nacht oder Frostschutz. Das Thermostat behält seinen letzten Sollwert.</span>
+          </div>
+        )}
       </div>
 
       <div className="flex items-start gap-2 text-xs text-muted-foreground">
@@ -325,7 +352,8 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
     if (e.length) { setErrs(e); return; }
     const room: Draft = {
       name: String(d.name).trim(), thermostat_type: toDb('thermostat_type', d.thermostat_type) ?? 'TGP508',
-      priority: Number(d.priority ?? free[0]), has_solar_gain: false, pv_auto_enabled: false,
+      // Automatik an: ohne sie würde ein neuer Raum nie gesteuert (DB-Standard ist false).
+      priority: Number(d.priority ?? free[0]), has_solar_gain: false, pv_auto_enabled: false, automation_enabled: true,
     };
     for (const k of ['night_temp', 'eco_temp', 'comfort_temp', 'floor_area_m2', 'heating_power_w', 'thermostat_ip', 'tuya_device_id', 'local_key']) {
       room[k] = toDb(k, d[k]);

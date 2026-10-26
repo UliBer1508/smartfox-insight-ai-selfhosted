@@ -5,6 +5,25 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.7.0] - 2026-10-26
+
+### Changed (Thermostat-Steuerung aufgelöst)
+- Karte „Thermostat-Steuerung“ im Tab Heizung & KI entfernt. Übersteuern in der **Übersicht**, Grundwerte und neuer Schalter **Automatik** in **Einstellungen › Räume**, „Alle Sollwerte erneut senden“ und „Werte aus der Tuya Cloud lesen“ (nur Cloud-Modus) in **Einstellungen › Betrieb**.
+- Übersicht zeigt die Hinweise „Estrich-Speicher“ und „Solar bis …“.
+- Neue Räume werden mit `automation_enabled = true` angelegt.
+
+### Fixed
+- `automation_enabled` war als „Auto-Empfehlung (KI)“ beschriftet, ist aber der Hauptschalter des Raums (pv-automation steuert nur Räume mit `true`).
+- „Alle pushen“ im Lokal-Modus setzte `last_thermostat_sync` ohne echte Lesung → konnte Offline-Fehler verdecken.
+- `syncAllStatus` meldet ehrlich, ob gelesen, gesperrt (60 Min) oder Kontingent erschöpft.
+
+### Removed
+- `ThermostatCard.tsx`, `StatusLegend.tsx`, `useAutomation.ts`, `RoomManager.tsx`, `HeatingSettingsForm.tsx`, toter Sync-Code in `RoomStatusTable`.
+
+Details: `doc/THERMOSTAT-STEUERUNG-AUFGELOEST-2026-10-26.md`
+
+---
+
 ## [2.6.0] - 2026-06-10
 
 ### Fixed (Thermostat-Sync: 2 Geräte dauerhaft offline)

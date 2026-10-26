@@ -24,7 +24,7 @@
 |---|---|
 | [`ai-shadow-decisions.md`](ai-shadow-decisions.md) | **AI Shadow Decisions System** — Schatten-Modus für KI-Parameter-Vorschläge mit Whitelist, Decision-Log, Outcome-Tracking |
 | [`comfort-saturation-estrich-storage.md`](comfort-saturation-estrich-storage.md) | **Comfort Saturation Estrich Storage** — Räume wechseln nach Erreichen der Komforttemperatur zurück auf Eco-Setpoint, Estrich speichert Wärme weiter |
-| [`global-temp-defaults-removed.md`](global-temp-defaults-removed.md) | **Globale Temperatur-Defaults entfernt** — Komfort-/Eco-/Nacht-Temperatur werden ausschließlich pro Raum im RoomManager gepflegt; globale Werte sind reine Code-Fallbacks ohne UI. |
+| [`global-temp-defaults-removed.md`](global-temp-defaults-removed.md) | **Globale Temperatur-Defaults entfernt** — Komfort-/Eco-/Nacht-Temperatur werden ausschließlich pro Raum (Einstellungen › Räume) gepflegt; globale Werte sind reine Code-Fallbacks ohne UI. |
 | [`hotwater-smartfox-autonomous.md`](hotwater-smartfox-autonomous.md) | **Warmwasser autonom via Smartfox** — WW wird ausschließlich von Smartfox gesteuert. pv-automation zieht KEINE WW-Momentan-Reserve vom Heizbudget ab. |
 | [`night-frost-protection-mode.md`](night-frost-protection-mode.md) | **Night Frost Protection Mode** — Nacht-Stille-Modus 20:00-08:00 — pro Nacht EIN einziger Tuya-Push beim Übergang, danach 0 Calls bis Eco-Start. Gate via system_settings.night_frost_last_pushed. |
 | [`parallel-heating-allocation.md`](parallel-heating-allocation.md) | **Parallel Heating Allocation (Budget-basiert)** — Multi-Raum parallele Aktivierung — Budget = gridExport + currentlyHeatingPower + Boni. Sortierung nach Priorität 1→12. 1 Tuya-Call pro Aktivierung, kein Polling, Nachschub via 2-min Heartbeat. |

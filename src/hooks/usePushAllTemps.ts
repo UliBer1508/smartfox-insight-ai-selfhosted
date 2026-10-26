@@ -34,7 +34,6 @@ export function usePushAllTemps() {
           return { success: true, successCount: 0, totalCount: 0 };
         }
 
-        const now = new Date().toISOString();
         const commands = targetRooms.map((r) => ({
           room_id: r.id,
           command: 'set_temp',
@@ -47,13 +46,14 @@ export function usePushAllTemps() {
           .insert(commands);
         if (insertError) throw insertError;
 
-        // last_thermostat_sync markieren, damit die UI den Push-Zeitpunkt zeigt
-        await supabase
-          .from('rooms')
-          .update({ last_thermostat_sync: now })
-          .in('id', targetRooms.map((r) => r.id));
+        // KEIN last_thermostat_sync setzen (Fix 26.10.2026): Die Befehle sind hier nur
+        // eingereiht, noch kein Thermostat hat geantwortet. last_thermostat_sync schreibt allein
+        // der lokale Dienst nach einer echten Lesung. auto-resolve-api-errors wertet das Feld
+        // als "Gerät erreichbar" – ein Zeitstempel von hier würde Offline-Fehler verdecken.
 
-        toast.success(`${targetRooms.length} Sollwerte an lokalen Service gesendet`);
+        toast.success(`${targetRooms.length} Sollwerte an den lokalen Dienst übergeben`, {
+          description: 'Der Dienst führt sie innerhalb von etwa einer Minute aus.',
+        });
         return { success: true, successCount: targetRooms.length, totalCount: targetRooms.length };
       }
 
