@@ -83,7 +83,7 @@ Frontend (30-60s Polling, KEIN Realtime)
 
 ## 3. Datenbank-Schema (Kernkonzepte)
 
-**Quelle der Wahrheit für Heiz-Status:** `room_heating_logs` (NICHT `rooms.is_heating` — letzteres kann veralten).
+**Quelle der Wahrheit für Heiz-Status:** `room_heating_logs` (NICHT `rooms.is_heating` — letzteres kann veralten). Seit 26.10.2026 schreibt der Trigger `trg_log_room_heating_transition` jeden Wechsel von `rooms.is_heating` als `heating_start`/`heating_stop` (lokal und Cloud).
 - `event_type`: `heating_start`, `heating_stop`, `pv_activate`, `pv_deactivate`, `manual_set`
 - Aktive Räume = `heating_start` ohne nachfolgendes `heating_stop`
 
@@ -527,6 +527,10 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-26 — Heizzyklen per Datenbank-Trigger
+- Trigger `trg_log_room_heating_transition` auf `rooms.is_heating` schreibt `heating_start`/`heating_stop` (mit Dauer, Energie, Überschuss) – unabhängig von RLS und vom Steuermodus; Duplikat-Schutz über offenen Start. Vorher fehlten alle Zyklen (falsches DP bis 24.10., danach RLS).
+- Details: `doc/FIX-HEIZZYKLEN-TRIGGER-2026-10-26.md`
 
 ### 2026-10-26 — Thermostat-Steuerung aufgelöst
 - Karte „Thermostat-Steuerung“ (Heizung & KI) entfernt; Funktionen umgezogen: Übersteuern → Übersicht, Automatik-Schalter → Einstellungen › Räume, Alle senden / Cloud lesen → Einstellungen › Betrieb (`settings/ThermostatMaintenance.tsx`). Cloud- und Lokal-Weg vollständig erhalten.

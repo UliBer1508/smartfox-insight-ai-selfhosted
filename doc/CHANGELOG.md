@@ -5,6 +5,13 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.7.1] - 2026-10-26
+
+### Fixed (Heizzyklen)
+- Seit Wochen kein `heating_start`/`heating_stop`: bis 24.10. war `is_heating` immer false (falsches DP), danach scheiterte der Insert des lokalen Dienstes an RLS. Neuer Datenbank-Trigger `trg_log_room_heating_transition` (SECURITY DEFINER) protokolliert jeden Wechsel von `rooms.is_heating` mit Dauer und Energie, ohne Duplikate zum Cloud-Sync. SQL: `supabase/SQL/04_heizzyklen_trigger.sql`, Details: `doc/FIX-HEIZZYKLEN-TRIGGER-2026-10-26.md`
+
+---
+
 ## [2.7.0] - 2026-10-26
 
 ### Changed (Thermostat-Steuerung aufgelöst)

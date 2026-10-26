@@ -6,10 +6,10 @@ Stand: 2026-06-10
 
 ## 🔴 Hohe Priorität
 
-### RLS: Heizzyklen werden nicht gespeichert (seit 30.09.)
-- [ ] Lokaler Dienst (anon) darf nicht in `room_heating_logs` schreiben → `heating_start/stop` fehlen
-- [ ] Lösung: Trigger auf `rooms.is_heating` analog `trg_capture_room_temperature_sample`
-- **Details:** `doc/FIX-SPEICHER-UND-LOGS-2026-09-30.md` §3, `doc/THERMOSTAT-STEUERUNG-AUFGELOEST-2026-10-26.md` §8
+### Heizzyklen (Trigger seit 26.10.)
+- [x] Trigger `trg_log_room_heating_transition` schreibt `heating_start/stop` (`doc/FIX-HEIZZYKLEN-TRIGGER-2026-10-26.md`)
+- [ ] Nach 1–2 Tagen: Zyklen prüfen, dann entscheiden, ob `solar_limit_stop` weiter als Heizenergie zählt (Doppelzählung)
+- [ ] Block A2 (direkter Insert) im lokalen Dienst entfernen; Dienst-Ordner auf v1.3 bringen
 
 ### pv-automation: falscher Erreichbarkeits-Zeitstempel im Lokal-Modus
 - [ ] Nach erfolgreichem Setzen schreibt pv-automation `last_thermostat_sync = now` und schließt `api_errors` des Raums – im Lokal-Modus heißt „erfolgreich“ nur „eingereiht“
