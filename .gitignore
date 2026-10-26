@@ -29,3 +29,5 @@ _alt/
 # WICHTIG: config.json wird bewusst NICHT ignoriert (privates Repo, Keys gewollt)
 
 supabase/.temp/
+
+local-collector/**/config.json
