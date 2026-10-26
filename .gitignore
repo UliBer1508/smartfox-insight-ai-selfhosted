@@ -27,3 +27,5 @@ snapshot.json
 _alt/
 
 # WICHTIG: config.json wird bewusst NICHT ignoriert (privates Repo, Keys gewollt)
+
+supabase/.temp/
