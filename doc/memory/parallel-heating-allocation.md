@@ -1,6 +1,6 @@
 ---
 name: Parallel Heating Allocation (Budget-basiert)
-description: Multi-Raum parallele Aktivierung — Budget = gridExport + currentlyHeatingPower + Boni. Sortierung nach Priorität 1→12. 1 Tuya-Call pro Aktivierung, kein Polling, Nachschub via 2-min Heartbeat.
+description: Multi-Raum parallele Aktivierung — Budget = gridExport + currentlyHeatingPower + Boni. Sortierung nach Priorität 1→12. 1 Tuya-Call pro Aktivierung, kein Polling, Nachschub via 5-min Heartbeat.
 type: feature
 ---
 
@@ -27,12 +27,12 @@ Wichtig: `currentlyHeatingPower` ist additiv im Budget — Räume die schon heiz
 
 1. **Bereits korrekt** (`shouldSkip`): `tempAlreadyCorrect && stateAlreadyCorrect` → **kein Tuya-Call**, nur Log `SKIP - already at X°C`.
 2. **Budget passt**: `usedBudget + roomPower <= availableBudget` → 1 Tuya-Call (`set_target_temp`), `usedBudget += roomPower`, Log `[ACTIVATE]`.
-3. **Budget zu klein**: Log `[QUEUE] wartet auf Budget` — kein Call, wird beim nächsten 2-min Heartbeat erneut geprüft.
+3. **Budget zu klein**: Log `[QUEUE] wartet auf Budget` — kein Call, wird beim nächsten Lauf (alle 5 Min) erneut geprüft. Bis dahin bekommt der Raum das Tagesmodus-Ziel (Konzept 27.10.2026): „Ohne PV“ oder – im Modus ohne PV – Eco innerhalb der Netzgrenze.
 4. **Hysterese-Block**: Export < `pv_surplus_threshold_on` → kein Start.
 
 ## Nachschub-Mechanik
 
-`pg_cron` triggert `pv-automation` alle 2 Minuten. Sobald ein Raum fertig ist (Hysterese-Off greift) oder mehr Sonne kommt, wird beim nächsten Tick automatisch der nächste wartende Raum aktiviert. Kein Sondertimer nötig.
+`pg_cron` triggert `pv-automation` alle 5 Minuten (seit 30.09.2026), zusätzlich nach jedem Sync des Thermostat-Dienstes. Sobald ein Raum fertig ist (Hysterese-Off greift) oder mehr Sonne kommt, wird beim nächsten Tick automatisch der nächste wartende Raum aktiviert. Kein Sondertimer nötig.
 
 ## Garantien
 

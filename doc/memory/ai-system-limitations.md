@@ -18,6 +18,9 @@ ML-Outputs werden aktiv konsumiert, aber die deterministische Budget-Logik bleib
 - Hard-Locks (SOC-Gate, harter PV-Gate, Manual-Override) bleiben unberührt.
 - Pre-Heat-Override: Räume unter eco-0.2 werden auf activate forciert wenn SOC ok und nicht komfort-gesättigt.
 
+**Tagesmodus (seit 27.10.2026):**
+- `best_match_today` × `pattern_recall_strength` verschiebt die Schwelle Wartetag ↔ „ohne PV“ um max. ±0,3 (siehe `tagesmodus-konzept.md`).
+
 **Tracking:**
 - `learning_events.action.ml_recommendation = { action, temp, confidence, sample_count }` und `ml_followed: boolean` werden bei jeder Entscheidung mit Policy gespeichert.
 - RPC `get_ml_follow_rate(days_back)` aggregiert Follow-Rate und Avg-Reward (gefolgt vs. überstimmt) für Dashboard-Widget `MLFollowRateWidget`.

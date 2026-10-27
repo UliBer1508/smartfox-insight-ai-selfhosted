@@ -125,6 +125,25 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   const manual = auto.filter(r => r.manual_override_until && new Date(r.manual_override_until) > new Date()).length;
   const thresholdOn = settings.pv_surplus_threshold_on ?? 500;
 
+  // Tagesmodus der pv-automation (system_settings.heating_day_mode, seit 27.10.2026)
+  const [dayMode, setDayMode] = useState<{ mode?: string; computed_at?: string; grid_used_w?: number; grid_cap_w?: number; ki_info?: string } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const { data } = await supabase.from('system_settings').select('value').eq('key', 'heating_day_mode').maybeSingle();
+      if (alive) setDayMode((data?.value as typeof dayMode) ?? null);
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  const dayModeFresh = dayMode?.computed_at && Date.now() - new Date(dayMode.computed_at).getTime() < 20 * 60_000;
+  const dayModeText = !dayModeFresh || night ? null
+    : dayMode?.mode === 'wait' ? 'Tagesmodus: Wartetag – Räume halten „Ohne PV“, bis Überschuss kommt'
+    : dayMode?.mode === 'battery_gate' ? 'Tagesmodus: Batterie-Schutz – Räume halten „Ohne PV“'
+    : dayMode?.mode === 'grid' ? `Tagesmodus: ohne PV – Eco nach Priorität, ${fmtW(dayMode.grid_used_w ?? 0)} von ${fmtW(dayMode.grid_cap_w ?? 0)}`
+    : null;
+
   const socGate = settings.heating_min_battery_soc ?? 80;
   const soc = reading?.battery_soc ?? null;
   const charging = (reading?.battery_power ?? 0) < -50;
@@ -161,6 +180,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
           {label}
         </div>
         <div className="text-sm">{reason}</div>
+        {dayModeText && <div className="text-sm text-muted-foreground" title={dayMode?.ki_info ? `KI: ${dayMode.ki_info}` : undefined}>{dayModeText}</div>}
         <div className="text-xs text-muted-foreground">
           {heating} von {auto.length} Räumen heizen
           {manual > 0 && <> · {manual} manuell</>} · Stand {fmtTime(energyTs)}

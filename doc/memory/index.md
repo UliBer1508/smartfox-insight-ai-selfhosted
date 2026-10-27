@@ -1,7 +1,8 @@
 # Detail-Specs (Index)
 
 > Verschoben aus `.lovable/memory/` am 30.09.2026 (flach abgelegt, Thema in der
-> Überschrift). Master-Dokument ist `doc/SYSTEM_DOCUMENTATION.md`.
+> Überschrift). Master-Dokument ist `doc/SYSTEM_DOCUMENTATION.md`, Grundkonzept
+> `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`.
 
 ## arch
 
@@ -26,9 +27,10 @@
 | [`comfort-saturation-estrich-storage.md`](comfort-saturation-estrich-storage.md) | **Comfort Saturation Estrich Storage** — Räume wechseln nach Erreichen der Komforttemperatur zurück auf Eco-Setpoint, Estrich speichert Wärme weiter |
 | [`global-temp-defaults-removed.md`](global-temp-defaults-removed.md) | **Globale Temperatur-Defaults entfernt** — Komfort-/Eco-/Nacht-Temperatur werden ausschließlich pro Raum (Einstellungen › Räume) gepflegt; globale Werte sind reine Code-Fallbacks ohne UI. |
 | [`hotwater-smartfox-autonomous.md`](hotwater-smartfox-autonomous.md) | **Warmwasser autonom via Smartfox** — WW wird ausschließlich von Smartfox gesteuert. pv-automation zieht KEINE WW-Momentan-Reserve vom Heizbudget ab. |
-| [`night-frost-protection-mode.md`](night-frost-protection-mode.md) | **Night Frost Protection Mode** — Nacht-Stille-Modus 20:00-08:00 — pro Nacht EIN einziger Tuya-Push beim Übergang, danach 0 Calls bis Eco-Start. Gate via system_settings.night_frost_last_pushed. |
+| [`night-frost-protection-mode.md`](night-frost-protection-mode.md) | **Night Frost Protection Mode** — Nacht-Stille-Modus night_start_time–night_end_time (eingestellt 22:00–08:00) — pro Nacht EIN einziger Push beim Übergang, danach 0 Calls bis Tagesstart. Gate via system_settings.night_frost_last_pushed. |
 | [`parallel-heating-allocation.md`](parallel-heating-allocation.md) | **Parallel Heating Allocation (Budget-basiert)** — Multi-Raum parallele Aktivierung — Budget = gridExport + currentlyHeatingPower + Boni. Sortierung nach Priorität 1→12. 1 Tuya-Call pro Aktivierung, kein Polling, Nachschub via 2-min Heartbeat. |
 | [`parameter-usage-audit-c.md`](parameter-usage-audit-c.md) | **Parameter-Usage-Audit C** — Welche UI-Settings real wirken (PV-Hysterese, consumer_priority, Pre-Heat, Grundgebühr) nach Plan C |
+| [`tagesmodus-konzept.md`](tagesmodus-konzept.md) | **Tagesmodus und Mindesttemperatur ohne PV** — Räume ohne Budget: battery_gate / wait → „Ohne PV“, grid → Eco nach Priorität bis max. Netzleistung (Konzept 27.10.2026) |
 | [`soc-thresholds-consolidated.md`](soc-thresholds-consolidated.md) | **SOC-Schwellwerte konsolidiert** — Nur heating_min_battery_soc ist wirksam; min_battery_soc und target_battery_soc sind deprecated DB-Reste ohne UI/Logik |
 
 ## integration/tuya

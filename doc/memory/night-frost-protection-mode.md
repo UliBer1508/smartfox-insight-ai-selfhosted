@@ -1,12 +1,12 @@
 ---
 name: Night Frost Protection Mode
-description: Nacht-Stille-Modus 20:00-08:00 — pro Nacht EIN einziger Tuya-Push beim Übergang, danach 0 Calls bis Eco-Start. Gate via system_settings.night_frost_last_pushed.
+description: Nacht-Stille-Modus night_start_time–night_end_time (eingestellt 22:00–08:00) — pro Nacht EIN einziger Push beim Übergang, danach 0 Calls bis Tagesstart. Gate via system_settings.night_frost_last_pushed.
 type: feature
 ---
 
 **Nacht-Stille-Modus (gehärtet):**
 
-Ab `night_start_time` (Default 20:00 Wien) bis `night_end_time` (Default 08:00 Wien) führt `pv-automation` pro Nacht **genau EINEN** Tuya-Cloud-Push aus, danach werden alle weiteren Iterationen durch ein Gate sofort beendet (Quiet Mode, kein Cloud-Call, kein API-Error-Spam).
+Ab `night_start_time` (Code-Default 22:00 Wien, eingestellt 22:00) bis `night_end_time` (Code-Default 08:00, eingestellt 08:00) führt `pv-automation` pro Nacht **genau EINEN** Tuya-Cloud-Push aus, danach werden alle weiteren Iterationen durch ein Gate sofort beendet (Quiet Mode, kein Cloud-Call, kein API-Error-Spam).
 
 **Gate-Mechanik:**
 - Settings-Key: `system_settings.night_frost_last_pushed`
@@ -17,7 +17,7 @@ Ab `night_start_time` (Default 20:00 Wien) bis `night_end_time` (Default 08:00 W
 **Modus `frost_only` (Default):**
 - Einmalig: alle Räume mit `target_temp > 6°C` werden auf `5°C` (FROST_TEMP) gesetzt.
 - Sind beim Start alle bereits ≤ 6°C → Gate wird trotzdem gesetzt, kein Push.
-- **KEIN periodischer 30-Min-Resync mehr** (alte Logik verbrannte ~360 Calls/Nacht). TGP508 halten den Sollwert; etwaige Drift wird morgens beim Eco-Start korrigiert.
+- **KEIN periodischer 30-Min-Resync mehr** (alte Logik verbrannte ~360 Calls/Nacht). TGP508 halten den Sollwert; etwaige Drift wird morgens beim Tagesstart korrigiert. Ab `night_end_time` entscheidet der Tagesmodus (Konzept 27.10.2026), ob Räume auf „Ohne PV“ warten oder Eco bekommen – es gibt keinen pauschalen „Eco-Start“ mehr.
 - Bei Fehlschlag (Quota/no_control_channel): API-Error wird nur 1× pro Nacht geloggt, Gate trotzdem gesetzt.
 
 **Modus `maintain`:**

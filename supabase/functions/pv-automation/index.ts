@@ -70,6 +70,71 @@ function formatDayStart(settings: any): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+// Mindesttemperatur ohne PV je Raum (rooms.wait_min_temp, Konzept 27.10.2026 §3.1).
+// Ziel am Wartetag, beim Batterie-Gate und für Räume ohne Budget. Fallback: Eco − 1,5 °C.
+function getWaitMinTemp(room: any, settings: any): number {
+  const w = Number(room?.wait_min_temp);
+  if (Number.isFinite(w) && w > 0) return w;
+  const eco = Number(room?.eco_temp) || Number(settings?.eco_temp) || 19;
+  return Math.max(5, eco - 1.5);
+}
+
+// Tagesmodus-Zuteilung (Konzept 27.10.2026 §2/§3). Reine Funktion, testbar.
+// rooms: Räume OHNE Budget, nach Priorität sortiert.
+// Pass 1: Räume unter Mindesttemperatur → bis Mindesttemperatur heizen, nach Priorität,
+//         Summe der Raumleistungen ≤ maxGridW; wer nicht mehr passt, wartet knapp unter Ist.
+// Pass 2 (nur 'grid'): Eco nach Priorität innerhalb derselben Netzgrenze; warme Räume halten Eco.
+function allocateDayTargets(
+  rooms: Array<{ room: any; heatingPower: number }>,
+  settings: any,
+  dayMode: 'wait' | 'grid' | 'battery_gate',
+  maxGridW: number,
+  modeText: string,
+): { targets: Map<string, { temp: number; why: string }>; gridUsedW: number } {
+  const targets = new Map<string, { temp: number; why: string }>();
+  let gridUsedW = 0;
+  const granted = new Set<string>();
+  const holdBelow = (cur: number, waitT: number) =>
+    Math.min(waitT, Math.max(5, Math.floor((cur - 0.5) * 2) / 2));
+
+  for (const rp of rooms) {
+    const waitT = getWaitMinTemp(rp.room, settings);
+    const cur = Number(rp.room.current_temp) || 0;
+    if (cur > 0 && cur < waitT) {
+      if (gridUsedW + rp.heatingPower <= maxGridW) {
+        gridUsedW += rp.heatingPower;
+        granted.add(rp.room.id);
+        targets.set(rp.room.id, { temp: waitT, why: `unter Mindesttemperatur (${cur.toFixed(1)} < ${waitT}°C), Netz ${gridUsedW}/${maxGridW}W` });
+      } else {
+        targets.set(rp.room.id, { temp: holdBelow(cur, waitT), why: `unter Mindesttemperatur, Netzgrenze ${maxGridW}W erreicht → wartet` });
+      }
+    } else {
+      targets.set(rp.room.id, { temp: waitT, why: `${modeText} → Mindesttemperatur` });
+    }
+  }
+
+  if (dayMode === 'grid') {
+    for (const rp of rooms) {
+      const ecoT = Number(rp.room.eco_temp) || Number(settings?.eco_temp) || 19;
+      const waitT = getWaitMinTemp(rp.room, settings);
+      if (ecoT <= waitT) continue;
+      const cur = Number(rp.room.current_temp) || 0;
+      if (cur <= 0) continue;
+      if (cur >= ecoT) {
+        targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco halten (Raum warm)` });
+      } else if (granted.has(rp.room.id)) {
+        targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco aus Netz (${gridUsedW}/${maxGridW}W)` });
+      } else if (gridUsedW + rp.heatingPower <= maxGridW) {
+        gridUsedW += rp.heatingPower;
+        granted.add(rp.room.id);
+        targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco aus Netz (${gridUsedW}/${maxGridW}W)` });
+      }
+      // sonst bleibt das Ziel aus Pass 1 – Raum wartet auf Netz-Kapazität
+    }
+  }
+  return { targets, gridUsedW };
+}
+
 // (isMorningWaitPeriod entfernt — Thermostate regeln passiven Solargewinn selbst, alle Räume gleich behandelt)
 
 // (isOptimalHeatingTime entfernt — normale Tag-Logik übernimmt)
@@ -441,26 +506,9 @@ Deno.serve(async (req) => {
           return { queued: true, alreadyQueued: true };
         }
 
-        // Mode-Guard: Sicherstellen, dass Thermostat im 'manual'-Modus ist.
-        // Sonst überschreibt der interne Tuya-Schedule (mode=auto/temporary) unsere Setpoints.
-        // Dedup: Nur einreihen, wenn nicht bereits ein pending set_mode für diesen Raum existiert.
-        const { data: pendingMode } = await supabase
-          .from('thermostat_commands')
-          .select('id')
-          .eq('room_id', roomId)
-          .eq('command', 'set_mode')
-          .eq('status', 'pending')
-          .limit(1)
-          .maybeSingle();
-
-        if (!pendingMode?.id) {
-          await supabase.from('thermostat_commands').insert({
-            room_id: roomId,
-            command: 'set_mode',
-            value_text: 'manual',
-            status: 'pending',
-          });
-        }
+        // (27.10.2026) Kein separates set_mode mehr: Der lokale Dienst v1.3 setzt bei jedem
+        // set_temp Modus "home" + Sollwert atomar. Das frühere set_mode stand in value_text,
+        // der Dienst las value → scheiterte immer ("Unbekannter Modus null").
 
         const { error } = await supabase.from('thermostat_commands').insert({
           room_id: roomId,
@@ -1810,12 +1858,15 @@ Deno.serve(async (req) => {
           comfortBudget = 0;
 
           // ============= AKTIVE NOTFALL-STOPS =============
-          // Thermostate halten autonom ihre Komfort-Targets — wir MÜSSEN aktiv auf night_temp zurücksetzen.
+          // Thermostate halten autonom ihre Sollwerte — wir MÜSSEN aktiv zurücksetzen.
+          // Ziel seit 27.10.2026: Mindesttemperatur ohne PV (wait_min_temp), vorher night_temp.
+          // Die Raumschleife verwendet bei aktivem Gate dasselbe Ziel (Tagesmodus 'battery_gate'),
+          // dadurch kein Pingpong mehr zwischen Gate und Raumschleife.
           // Routet je nach controlMode: Cloud → Tuya-API (mit STOP-Reserve), Local → DB-Queue.
           try {
             const { data: stopRooms } = await supabase
               .from('rooms')
-              .select('id, name, target_temp, eco_temp, night_temp, is_heating, automation_enabled, tuya_device_id, manual_override_until')
+              .select('id, name, target_temp, eco_temp, night_temp, wait_min_temp, is_heating, automation_enabled, tuya_device_id, manual_override_until')
               .eq('automation_enabled', true);
 
             const nowMs = Date.now();
@@ -1823,20 +1874,19 @@ Deno.serve(async (req) => {
               const overrideActive = r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMs;
               if (overrideActive) return false;
               if (!r.tuya_device_id) return false;
-              const ecoT = Number(r.eco_temp) || 19;
-              const nightT = Number(r.night_temp) || 18;
+              const waitT = getWaitMinTemp(r, settings);
               const targetT = Number(r.target_temp) || 0;
-              return r.is_heating === true || targetT > Math.max(ecoT, nightT) + 0.1 || targetT > nightT + 0.1;
+              return targetT > waitT + 0.1;
             });
 
             if (candidates.length > 0) {
               const successIds: string[] = [];
               for (const r of candidates) {
-                const nightT = Number(r.night_temp) || 18;
-                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, nightT, 'stop');
+                const waitT = getWaitMinTemp(r, settings);
+                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop');
                 if (result.success) {
                   successIds.push(r.id);
-                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → night_temp ${nightT}°C (mode=${controlMode})`);
+                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → Mindesttemperatur ohne PV ${waitT}°C (mode=${controlMode})`);
                 } else {
                   console.error(`[SOC-GATE-STOP] ❌ ${r.name}: ${result.errorType} - ${result.errorMessage}`);
                 }
@@ -2043,6 +2093,9 @@ Deno.serve(async (req) => {
         reason: string; 
         shouldRotate: boolean;
         targetLevel: 'eco' | 'comfort' | 'super_comfort' | 'none';
+        // true = Raum hat echtes Heiz-Budget (PV/Mikro/Toleranz) bekommen.
+        // false/fehlt = kein Budget → Ziel kommt aus dem Tagesmodus (Konzept 27.10.2026)
+        budgeted?: boolean;
       }>();
       
       // ============= 2-PHASEN BUDGET-ZUWEISUNG =============
@@ -2158,10 +2211,10 @@ Deno.serve(async (req) => {
         const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
         const currentTemp = rp.room.current_temp || 0;
         
-        const nightTemp = rp.room.night_temp || settings?.night_temp || 17;
-        // Wenn eco == night, macht Phase 1 keinen Sinn → direkt zu Phase 2 (Komfort)
-        const ecoIsUseful = ecoTemp > nightTemp + 0.3;
-        if (ecoIsUseful && (currentTemp < ecoTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp <= nightTemp))) {
+        // (27.10.2026) Phase 1 nur für Räume, die wirklich unter Eco liegen. Warme Räume mit
+        // niedrigem Sollwert brauchen kein Budget – sie halten die Mindesttemperatur ohne PV
+        // (Tagesmodus). Vorher: Vergleich mit night_temp und Sprung „Eco=Nacht → Komfort“.
+        if (currentTemp < ecoTemp - 0.3) {
           // PV-Hysterese: Neue Aktivierungen erst ab pv_surplus_threshold_on; laufende Räume erst unter threshold_off stoppen.
           const hysteresisBlocksStart = !rp.isCurrentlyHeating && gridExport < pvThresholdOn;
           const hysteresisAllowsContinue = rp.isCurrentlyHeating && gridExport >= pvThresholdOff;
@@ -2183,7 +2236,8 @@ Deno.serve(async (req) => {
               allowedToHeat: true,
               reason: `Eco-Phase (${usedBudget}/${availableBudget}W)`,
               shouldRotate: false,
-              targetLevel: 'eco'
+              targetLevel: 'eco',
+              budgeted: true
             });
             console.log(`[ACTIVATE] Prio ${rp.priority} ${rp.room.name} → eco ${ecoTemp}°C (${currentTemp.toFixed(1)}°C, Bedarf ${rp.heatingPower}W, Budget-Rest ${remaining}W)${rp.isCurrentlyHeating ? ' [heizt bereits → kein neuer Call]' : ''}`);
           } else {
@@ -2205,7 +2259,8 @@ Deno.serve(async (req) => {
                 allowedToHeat: true,
                 reason: `Eco-Toleranz (Overshoot ${overshoot}W, Trend ${pvTrend}W, Prognose ok)`,
                 shouldRotate: false,
-                targetLevel: 'eco'
+                targetLevel: 'eco',
+                budgeted: true
               });
               console.log(`[TOLERANT-DEACTIVATION] ${rp.room.name}: Heizt weiter trotz Budget-Overshoot ${overshoot}W (Trend ${pvTrend}W ≥ -200, Prognose reicht, ${usedBudget}/${availableBudget}W)`);
             } else {
@@ -2227,11 +2282,11 @@ Deno.serve(async (req) => {
       for (const rp of roomsWithPriority) {
         if (roomBudgetStatus.has(rp.room.id)) continue;
         const ecoTemp = rp.room.eco_temp || settings?.eco_temp || 19;
-        const nightTemp = rp.room.night_temp || settings?.night_temp || 17;
         const currentTemp = rp.room.current_temp || 0;
         
-        // Raum ist warm genug für eco, aber target_temp ist noch auf night → eco-Aktivierung nötig
-        if (currentTemp >= ecoTemp - 0.3 && rp.room.target_temp != null && rp.room.target_temp <= nightTemp + 0.3) {
+        // Raum ist warm genug für eco, Sollwert liegt noch darunter (Nacht/Mindesttemperatur).
+        // (27.10.2026) Ohne Budget: Ziel kommt aus dem Tagesmodus (budgeted fehlt bewusst).
+        if (currentTemp >= ecoTemp - 0.3 && rp.room.target_temp != null && rp.room.target_temp < ecoTemp - 0.3) {
           // Kein Budget nötig — Raum ist bereits warm, nur target_temp muss aktualisiert werden
           roomBudgetStatus.set(rp.room.id, {
             allowedToHeat: true,
@@ -2273,7 +2328,8 @@ Deno.serve(async (req) => {
             const microRoom = rooms.find(r => r.id === activeMicroRoomId);
             const hasOverride = microRoom?.manual_override_until && new Date(microRoom.manual_override_until).getTime() > Date.now();
             if (microRoom && !hasOverride) {
-              const nightTemp = microRoom.night_temp || settings?.night_temp || 17;
+              // (27.10.2026) Ende der Mikro-Heizung: zurück auf Mindesttemperatur ohne PV (vorher night_temp)
+              const nightTemp = getWaitMinTemp(microRoom, settings);
               if (microRoom.tuya_device_id) {
                 const result = await setTemperatureForMode(microRoom.tuya_device_id, microRoom.id, nightTemp, 'stop');
                 if (!result.success) {
@@ -2370,7 +2426,8 @@ Deno.serve(async (req) => {
                 allowedToHeat: true,
                 reason: `Mikro-Budget (Budget ${availableBudget}W < min ${minRoomPower}W, SOC ${batterySoc}%, ${microHeatDuration}min)`,
                 shouldRotate: false,
-                targetLevel: 'eco'
+                targetLevel: 'eco',
+                budgeted: true
               });
               usedBudget += picked.heatingPower;
 
@@ -2540,7 +2597,9 @@ Deno.serve(async (req) => {
 
           // Raum ist >= eco aber < comfort → auf comfort upgraden
           if (currentTemp >= ecoTemp - 0.3 && (currentTemp < comfortTemp - 0.3 || (rp.room.target_temp != null && rp.room.target_temp < comfortTemp))) {
-            const alreadyBudgeted = roomBudgetStatus.has(rp.room.id) &&
+            // (27.10.2026) Nur Räume mit echtem Eco-Budget dürfen ohne Komfort-Budget upgraden.
+            // Vorher reichte targetLevel 'eco' – auch Räume ohne Budget (Phase 1b) sprangen auf Komfort.
+            const alreadyBudgeted = roomBudgetStatus.get(rp.room.id)?.budgeted === true &&
               roomBudgetStatus.get(rp.room.id)!.targetLevel === 'eco';
 
             // Komfort-Budget-Check: NUR echter Überschuss erlaubt
@@ -2550,7 +2609,8 @@ Deno.serve(async (req) => {
                 allowedToHeat: true,
                 reason: `Komfort-Phase${alreadyBudgeted ? ' (Eco→Komfort Upgrade)' : ''} (${usedComfortBudget}/${effectiveComfortBudget}W)`,
                 shouldRotate: false,
-                targetLevel: 'comfort'
+                targetLevel: 'comfort',
+                budgeted: true
               });
               console.log(`[PV-Automation] Phase 2: ${rp.room.name} → komfort${alreadyBudgeted ? ' (Upgrade von Eco)' : ''} (${currentTemp.toFixed(1)}°C < ${comfortTemp}°C, Budget ${usedComfortBudget}/${effectiveComfortBudget}W)`);
             } else {
@@ -2607,6 +2667,104 @@ Deno.serve(async (req) => {
         }
       }
       
+      // ============= TAGESMODUS (Konzept 27.10.2026, doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md) =============
+      // Räume OHNE Budget fallen nicht mehr pauschal auf Eco zurück (Thermostat heizte dann aus
+      // Batterie/Netz), sondern bekommen ihr Ziel aus dem Tagesmodus:
+      //   battery_gate – SOC unter heating_min_battery_soc (strict): Mindesttemperatur ohne PV
+      //   wait         – PV-Überschuss für den Eco-Bedarf ist heute noch absehbar: Mindesttemperatur
+      //   grid         – kein Überschuss zu erwarten / nach Sonnenuntergang: Eco nach Priorität,
+      //                  Summe der Raumleistungen ≤ max_grid_heating_power_w
+      // Räume unter ihrer Mindesttemperatur werden in jedem Modus zuerst bis zur Mindesttemperatur
+      // geheizt, ebenfalls nach Priorität innerhalb der Netzgrenze.
+      // KI (Mustergedächtnis best_match_today × pattern_recall_strength) verschiebt nur die Schwelle
+      // zwischen wait und grid, max. ±0,3.
+      const maxGridHeatingW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
+      let dayMode: 'wait' | 'grid' | 'battery_gate' = 'grid';
+      let dayRatio: number | null = null;
+      let dayThreshold = 1.0;
+      let kiAdjust = 0;
+      let kiInfo = 'kein Muster';
+      if (socGateBlocked && socGateMode === 'strict') {
+        dayMode = 'battery_gate';
+      } else if (afterSunset) {
+        dayMode = 'grid';
+      } else {
+        dayRatio = totalEcoEnergyNeededWh > 0
+          ? remainingPvForHeatingWh / totalEcoEnergyNeededWh
+          : (remainingPvForHeatingWh > 0 ? 99 : 0);
+        try {
+          const strength = Math.max(0, Math.min(100, Number((settings as any)?.pattern_recall_strength ?? 50)));
+          const { data: bmDayRow } = await supabase
+            .from('system_settings')
+            .select('value')
+            .eq('key', 'best_match_today')
+            .maybeSingle();
+          const bmDay = bmDayRow?.value as any;
+          if (strength > 0 && bmDay?.computed_at && Date.now() - new Date(bmDay.computed_at).getTime() < 24 * 60 * 60 * 1000) {
+            const quality = String(bmDay.match_quality || 'none');
+            const qFactor = quality === 'exact' ? 1.0 : quality === 'partial' ? 0.6 : 0;
+            const top = Array.isArray(bmDay.top_days) && bmDay.top_days.length > 0 ? bmDay.top_days[0] : null;
+            const cov = Number(top?.kpi_pv_heating_coverage);
+            if (qFactor > 0 && Number.isFinite(cov) && cov > 0) {
+              const delta = Math.round((strength / 100) * 0.3 * qFactor * 100) / 100;
+              if (cov >= 0.6) kiAdjust = -delta;       // ähnlicher Tag wurde gut aus PV gedeckt → eher warten
+              else if (cov < 0.3) kiAdjust = delta;    // ähnlicher Tag kaum PV-Deckung → eher Netz-Eco
+              kiInfo = `${quality} ${top?.date ?? ''} PV-Deckung ${Math.round(cov * 100)}% → Schwelle ${kiAdjust >= 0 ? '+' : ''}${kiAdjust}`;
+            }
+          }
+        } catch (e) {
+          console.warn('[TAGESMODUS] best_match_today nicht lesbar:', e);
+        }
+        dayThreshold = Math.max(0.5, Math.min(1.5, 1.0 + kiAdjust));
+        dayMode = dayRatio >= dayThreshold ? 'wait' : 'grid';
+      }
+
+      const nowMsDay = Date.now();
+      const unbudgetedRooms = roomsWithPriority.filter(rp => {
+        if (roomBudgetStatus.get(rp.room.id)?.budgeted) return false;
+        const ov = rp.room.manual_override_until && new Date(rp.room.manual_override_until).getTime() > nowMsDay;
+        return !ov;
+      });
+      const modeText = dayMode === 'battery_gate'
+        ? `Batterie-Gate (${batterySoc}% < ${heatingMinSoc}%)`
+        : dayMode === 'wait'
+          ? `Wartetag (PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh ≥ ${dayThreshold}× Eco-Bedarf)`
+          : 'kein PV-Überschuss erwartet';
+      const { targets: dayFallback, gridUsedW } = allocateDayTargets(
+        unbudgetedRooms.map(rp => ({ room: rp.room, heatingPower: rp.heatingPower })),
+        settings, dayMode, maxGridHeatingW, modeText,
+      );
+
+      console.log(`[TAGESMODUS] ${dayMode} | Ratio=${dayRatio === null ? '–' : dayRatio.toFixed(2)} Schwelle=${dayThreshold} | KI: ${kiInfo} | Netz ${gridUsedW}/${maxGridHeatingW}W | ${unbudgetedRooms.length} Räume ohne Budget`);
+      for (const rp of unbudgetedRooms) {
+        const fb = dayFallback.get(rp.room.id);
+        if (fb) console.log(`[TAGESMODUS] ${rp.room.name}: ${fb.temp}°C (${fb.why})`);
+      }
+      try {
+        await supabase.from('system_settings').upsert({
+          key: 'heating_day_mode',
+          value: {
+            computed_at: new Date().toISOString(),
+            mode: dayMode,
+            ratio: dayRatio,
+            threshold: dayThreshold,
+            ki_adjust: kiAdjust,
+            ki_info: kiInfo,
+            grid_cap_w: maxGridHeatingW,
+            grid_used_w: gridUsedW,
+            rooms: unbudgetedRooms.map(rp => ({
+              room_id: rp.room.id,
+              name: rp.room.name,
+              target: dayFallback.get(rp.room.id)?.temp ?? null,
+              why: dayFallback.get(rp.room.id)?.why ?? null,
+            })),
+          },
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' });
+      } catch (e) {
+        console.log(`[TAGESMODUS] Persist fehlgeschlagen: ${e}`);
+      }
+
       console.log(`[PV-Automation] Budget-Modus: ${budgetMode}, Budget: ${availableBudget}W (gridExport: ${gridExport}W), Verwendet: ${usedBudget}W`);
       console.log(`[PV-Automation] Surplus: ${surplus}W, GridExport: ${gridExport}W, SOC: ${batterySoc}%, PV: ${pvPower}W, Prognose: ${expectedPvKwh} kWh, Rooms: ${rooms.length}, ML-Features: ${latestMlFeatures.length}`);
 
@@ -2885,7 +3043,8 @@ Deno.serve(async (req) => {
       const mlExplorationUpdates: Record<string, string> = {};
 
       for (const room of rooms) {
-        // automation_enabled controls ONLY ML recommendations, not basic time-based logic
+        // automation_enabled ist der Hauptschalter: Räume mit false werden oben gar nicht geladen.
+        // Hier ist es daher immer true; die Variable steuert nur noch die ML-Zweige.
         const useMLDecisions = room.automation_enabled === true;
         
         if (!useMLDecisions) {
@@ -3301,15 +3460,8 @@ Deno.serve(async (req) => {
                   }
                 } else if (targetLevel === 'eco') {
                   // Phase 1: Auf Eco heizen
-                  const nightTempRoom = room.night_temp || settings?.night_temp || 17;
-                  const ecoEqualsNight = ecoTemp <= nightTempRoom + 0.3;
-                  
-                  if (ecoEqualsNight && currentTargetTemp < comfortTemp) {
-                    // eco == night → Eco setzen ist sinnlos, direkt auf Komfort
-                    action = 'activate';
-                    targetTemp = comfortTemp;
-                    reasoning = `☀️ Eco=Nacht → direkt Komfort ${comfortTemp}°C (Thermostat ${currentTargetTemp}°C, Raum ${currentRoomTemp.toFixed(1)}°C)`;
-                  } else if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
+                  // (27.10.2026) Sprung „Eco=Nacht → direkt Komfort“ entfernt: umging das Komfort-Budget.
+                  if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
                     action = 'activate';
                     targetTemp = ecoTemp;
                     reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Thermostat ${currentTargetTemp}°C, Budget OK: ${budgetStatus.reason})`;
@@ -3344,6 +3496,22 @@ Deno.serve(async (req) => {
                 .eq('id', room.id);
             }
           }
+        }
+
+        // ============= TAGESMODUS-ZIEL für Räume ohne Budget (27.10.2026) =============
+        // Ersetzt für Räume ohne echtes Budget das bisherige „Tag → eco_temp halten“ (Budget-Stopp,
+        // Rotation, Phase-2-wartet, Standard). Raum-Ziel kommt aus dem Tagesmodus (siehe oben).
+        let dayModeApplied = false;
+        const dayFb = dayFallback.get(room.id);
+        if (!isNight && powerBudgetEnabled && dayFb && !roomBudgetStatus.get(room.id)?.budgeted) {
+          dayModeApplied = true;
+          targetTemp = dayFb.temp;
+          solarLimitTemp = null;
+          if (dayFb.temp < currentTargetTemp - 0.05) action = 'deactivate';
+          else if (dayFb.temp > currentTargetTemp + 0.05) action = 'activate';
+          else action = 'keep';
+          reasoning = `🗓️ Tagesmodus ${dayMode}: ${dayFb.why} → ${dayFb.temp}°C`;
+          console.log(`[PV-Automation] ${room.name}: ${reasoning} (Sollwert bisher ${currentTargetTemp}°C, Aktion ${action})`);
         }
 
         // ============= TEMPERATUR-DECKELUNG =============
@@ -3565,7 +3733,8 @@ Deno.serve(async (req) => {
               .is('resolved_at', null);
 
             await supabase.from('rooms').update({
-              pv_auto_active: true,
+              // Tagesmodus-Ziel ist kein PV-Heizen → pv_auto_active bleibt aus
+              pv_auto_active: !dayModeApplied,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
               last_thermostat_sync: now.toISOString(),
@@ -3573,14 +3742,16 @@ Deno.serve(async (req) => {
               solar_limit_temp: solarLimitTemp
             }).eq('id', room.id);
 
-            await supabase.from('room_heating_logs').insert({
-              room_id: room.id,
-              event_type: 'solar_limit_start',
-              current_temp: room.current_temp,
-              target_temp: targetTemp,
-              pv_surplus_w: surplus,
-              consumption_at_start_w: reading.consumption
-            });
+            if (!dayModeApplied) {
+              await supabase.from('room_heating_logs').insert({
+                room_id: room.id,
+                event_type: 'solar_limit_start',
+                current_temp: room.current_temp,
+                target_temp: targetTemp,
+                pv_surplus_w: surplus,
+                consumption_at_start_w: reading.consumption
+              });
+            }
 
             success = true;
           } else if (tuyaError) {
@@ -3638,6 +3809,12 @@ Deno.serve(async (req) => {
               target_temp: finalTemp,
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);
+
+            // Tagesmodus-Ziel: kein PV-Steuerereignis, keine geschätzte Heizenergie protokollieren
+            if (dayModeApplied) {
+              results.push({ roomId: room.id, roomName: room.name, action, targetTemp, reasoning, mlBased: false, success: true, dayMode });
+              continue;
+            }
 
             // Calculate duration and energy for solar_limit_stop event
             let durationMinutes = 2; // Default fallback

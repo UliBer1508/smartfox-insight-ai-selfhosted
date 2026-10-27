@@ -1,10 +1,20 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-06-10
+Stand: 2026-10-27
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Tagesmodus testen (seit 27.10.)
+- [ ] SQL `06_tagesmodus_mindesttemperatur.sql` ausführen, `pv-automation` deployen, App-Update abwarten
+- [ ] „Ohne PV“ je Raum prüfen/anpassen (Startwert Eco − 1,5 °C)
+- [ ] Eco > Komfort korrigieren: Flur (22/20), Wohnzimmer (22/21), Haustür (22/21)
+- [ ] Einige Tage beobachten: Morgenverbrauch, Batterie-Minimum, Raumtemperaturen, `heating_day_mode` (Abfragen im Konzept §8)
+- [ ] Fronius: Kann die zeitabhängige Batteriesteuerung das Entladen tagsüber sperren? (Konzept §6.1)
+- [ ] Feste Werte aus Konzept §4.3 schrittweise einstellbar machen
+- [ ] `rooms.pv_auto_enabled` wird nicht ausgewertet → auswerten oder Schalter entfernen
+- [ ] Anzeige „heizt“ (DP 5) prüfen: am 27.10. zeigten alle Räume „nein“ bei 8–10 kW
 
 ### api_errors doppelt (Trigger seit 26.10.)
 - [x] Trigger `trg_api_errors_dedupe` fasst offene Fehler je Gerät + Typ zusammen (`doc/FIX-API-ERRORS-DOPPELT-2026-10-26.md`)
@@ -24,7 +34,7 @@ Stand: 2026-06-10
 
 ### pv-automation: falscher Erreichbarkeits-Zeitstempel im Lokal-Modus
 - [ ] Nach erfolgreichem Setzen schreibt pv-automation `last_thermostat_sync = now` und schließt `api_errors` des Raums – im Lokal-Modus heißt „erfolgreich“ nur „eingereiht“
-- [ ] Kommentar „automation_enabled controls ONLY ML“ korrigieren (Hauptschalter)
+- [x] Kommentar „automation_enabled controls ONLY ML“ korrigieren (27.10.)
 
 ### Collector auf Fronius-Only umstellen
 - [ ] Smartfox-Funktion aus `collector-node/index.js` entfernen
