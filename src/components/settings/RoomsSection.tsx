@@ -11,6 +11,8 @@
 //   Nacht-/Frostschutz-Befehl). Seit 26.10.2026 hier statt in der alten Thermostat-Karte.
 // - "Batterie voll" (pv_boost_max_temp) ist KEIN Sollwert, sondern die Grenze für den
 //   Battery-Full-Override – daher nur als Info (siehe doc/memory/comfort-saturation-estrich-storage.md).
+// - "Ohne PV" (wait_min_temp, seit 27.10.2026): Mindesttemperatur ohne PV-Überschuss. Ziel am
+//   Wartetag, beim Batterie-Gate und für Räume ohne Budget (doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md).
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,6 +42,7 @@ const fmt = (t: number | null | undefined) =>
 // Editierbare Felder je Raum (alles andere wird nie geschrieben)
 const NUM_FIELDS: { k: keyof Room; l: string; unit?: string; step?: number; min?: number; max?: number; temp?: boolean }[] = [
   { k: 'night_temp', l: 'Nacht', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
+  { k: 'wait_min_temp', l: 'Ohne PV', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'eco_temp', l: 'Eco', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'comfort_temp', l: 'Komfort', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'floor_area_m2', l: 'Fläche', unit: 'm²', step: 1, min: 0, max: 500 },
@@ -67,6 +70,7 @@ function validate(values: Draft): string[] {
   }
   const n = (k: string) => Number(String(values[k] ?? '').replace(',', '.'));
   if (n('night_temp') > n('eco_temp')) errs.push('Nacht darf nicht wärmer sein als Eco');
+  if (n('wait_min_temp') > n('eco_temp')) errs.push('„Ohne PV“ darf nicht wärmer sein als Eco');
   if (n('eco_temp') > n('comfort_temp')) errs.push('Eco darf nicht wärmer sein als Komfort');
   if (!String(values.name ?? '').trim()) errs.push('Name fehlt');
   return errs;
@@ -160,10 +164,14 @@ function RoomCard({ room, onSave, onDelete }: {
 
       <div className="space-y-2">
         <Eyebrow>Solltemperatur je Modus</Eyebrow>
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="space-y-1">
             <div className="flex items-center gap-1 text-xs text-indigo-500"><Moon className="w-3.5 h-3.5" />Nacht</div>
             {tempInput('night_temp', 'Nacht')}
+          </div>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 text-xs text-muted-foreground" title="Mindesttemperatur ohne PV-Überschuss: Unter diesen Wert fällt der Raum tagsüber nicht, solange auf Sonne gewartet wird oder die Batterie geschützt wird."><Battery className="w-3.5 h-3.5" />Ohne PV</div>
+            {tempInput('wait_min_temp', 'Ohne PV')}
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-1 text-xs text-success"><Leaf className="w-3.5 h-3.5" />Eco</div>
@@ -191,7 +199,7 @@ function RoomCard({ room, onSave, onDelete }: {
         <div className="flex items-center justify-between gap-3 p-3">
           <div>
             <div className="text-sm font-medium">PV-Überschuss-Automatik</div>
-            <div className="text-xs text-muted-foreground">Raum heizt mit Überschuss auf Eco/Komfort</div>
+            <div className="text-xs text-muted-foreground">Hinweis (27.10.2026): wird von der Heizungsautomatik derzeit nicht ausgewertet – Überschuss-Heizen gilt für alle Räume mit Automatik</div>
           </div>
           <Switch
             checked={value('pv_auto_enabled') === true}
@@ -341,7 +349,7 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
 }) {
   const used = new Set(rooms.map((r) => r.priority));
   const free = Array.from({ length: 12 }, (_, i) => i + 1).filter((p) => !used.has(p));
-  const [d, setD] = useState<Draft>({ name: '', night_temp: 18, eco_temp: 19, comfort_temp: 21, thermostat_type: 'TGP508' });
+  const [d, setD] = useState<Draft>({ name: '', night_temp: 18, wait_min_temp: 17.5, eco_temp: 19, comfort_temp: 21, thermostat_type: 'TGP508' });
   const [errs, setErrs] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => { setD((x) => ({ ...x, [k]: v })); setErrs([]); };
@@ -355,7 +363,7 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
       // Automatik an: ohne sie würde ein neuer Raum nie gesteuert (DB-Standard ist false).
       priority: Number(d.priority ?? free[0]), has_solar_gain: false, pv_auto_enabled: false, automation_enabled: true,
     };
-    for (const k of ['night_temp', 'eco_temp', 'comfort_temp', 'floor_area_m2', 'heating_power_w', 'thermostat_ip', 'tuya_device_id', 'local_key']) {
+    for (const k of ['night_temp', 'wait_min_temp', 'eco_temp', 'comfort_temp', 'floor_area_m2', 'heating_power_w', 'thermostat_ip', 'tuya_device_id', 'local_key']) {
       room[k] = toDb(k, d[k]);
     }
     setBusy(true);
@@ -380,9 +388,9 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
                 <SelectContent>{free.map((p) => <SelectItem key={p} value={String(p)}>P{p}</SelectItem>)}</SelectContent>
               </Select>
             </label>
-            <div className="grid grid-cols-3 gap-2">
-              {(['night_temp', 'eco_temp', 'comfort_temp'] as const).map((k, i) => (
-                <LabeledInput key={k} label={['Nacht', 'Eco', 'Komfort'][i]} unit="°C" type="number" step={0.5}
+            <div className="grid grid-cols-2 gap-2">
+              {(['night_temp', 'wait_min_temp', 'eco_temp', 'comfort_temp'] as const).map((k, i) => (
+                <LabeledInput key={k} label={['Nacht', 'Ohne PV', 'Eco', 'Komfort'][i]} unit="°C" type="number" step={0.5}
                   value={String(d[k] ?? '')} onChange={(e) => set(k, e.target.value)} />
               ))}
             </div>

@@ -10,7 +10,7 @@
 > 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
 > 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
 >
-> **Letzte Aktualisierung:** 2026-10-26 · **Version:** 3.2 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> **Letzte Aktualisierung:** 2026-10-27 · **Version:** 3.3 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -18,7 +18,7 @@
 1. [Hardware & Topologie](#1-hardware--topologie)
 2. [Datenpipeline & Polling](#2-datenpipeline--polling)
 3. [Datenbank-Schema (Kernkonzepte)](#3-datenbank-schema-kernkonzepte)
-4. [PV-Automation: 4-Stufen-Logik](#4-pv-automation-4-stufen-logik)
+4. [PV-Automation: 4-Stufen-Logik + Tagesmodus](#4-pv-automation-4-stufen-logik)
 5. [Eco- vs. Komfort-Budget](#5-eco--vs-komfort-budget)
 6. [Batterie-Reserve & Puffer](#6-batterie-reserve--puffer)
 7. [Mikro-Budget & Soft-Rotation](#7-mikro-budget--soft-rotation)
@@ -56,17 +56,17 @@
 ## 2. Datenpipeline & Polling
 
 ```
-Smartfox + Fronius
-    ↓ (60s Polling)
+Fronius (Smartfox liefert keine Daten mehr)
+    ↓ (Polling alle 300 s, seit Sept. 2026)
 Local Collector (Node.js, im LAN)
     ↓ (HTTP zu Supabase)
-energy_readings (1-Min-Granularität)
+energy_readings (5-Min-Granularität)
     ↓
-Frontend (30-60s Polling, KEIN Realtime)
+Frontend (15–60 s Polling, KEIN Realtime)
 ```
 
 **Wichtige Regeln:**
-- **Polling-Intervall:** 60s (kein Supabase-Realtime — verursachte PGRST002-Fehler)
+- **Polling-Intervall:** Collector 300 s, `pv-automation` per pg_cron alle 5 Min + Anstoß durch den Thermostat-Dienst nach jedem Sync (kein Supabase-Realtime — verursachte PGRST002-Fehler)
 - **Lokaler Collector** ist erforderlich (CORS verhindert direktes Browser-Polling von LAN-Geräten)
 - **Zwei separate Prozesse:** Fronius-Collector (Daten) und Tuya-Local-Service (Thermostat-Steuerung) sind strikt getrennt
 - **Smartfox-Inversion:** `power_io` ist invertiert (negativ = Bezug). Battery-Konvention: positiv = Laden
@@ -87,14 +87,15 @@ Frontend (30-60s Polling, KEIN Realtime)
 - `event_type`: `heating_start`, `heating_stop`, `pv_activate`, `pv_deactivate`, `manual_set`
 - Aktive Räume = `heating_start` ohne nachfolgendes `heating_stop`
 
-**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (**Hauptschalter**: nur Räume mit `true` werden von pv-automation überhaupt geladen und gesteuert – aus = keine Befehle, auch kein Nacht-/Frostschutz), `pv_auto_enabled` (PV-Logik), `manual_override_until`, `tuya_device_id`, `local_key`.
+**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (**Hauptschalter**: nur Räume mit `true` werden von pv-automation überhaupt geladen und gesteuert – aus = keine Befehle, auch kein Nacht-/Frostschutz), `night_temp`, **`wait_min_temp`** („Ohne PV“, Mindesttemperatur ohne PV-Überschuss, seit 27.10.2026; leer = Eco − 1,5 °C), `eco_temp`, `comfort_temp`, `manual_override_until`, `tuya_device_id`, `local_key`. `pv_auto_enabled` wird von pv-automation **nicht ausgewertet** (Befund 27.10.2026).
 
-**Heating Settings (Auszug):**
-- `night_start_time`, `night_end_time` (default 22:00–06:00, real genutzt 20:00–09:00)
-- `night_heating_mode`: `frost_only` (5°C) | `maintain` (night_temp)
-- `target_battery_soc` (40%): Trigger für Heizstart morgens
-- `min_battery_soc` (20%): absolute Untergrenze
-- `battery_reserve_for_night_soc` (60%): Schutz für Abendverbrauch
+**Heating Settings (Auszug, Werte Stand 27.10.2026):**
+- `night_start_time`, `night_end_time` (Code-Standard 22:00–08:00; eingestellt 22:00–08:00, am 01.07.2026 über die App gesetzt). `night_end_time` = Tagesstart / Morgenbewertung
+- `night_heating_mode`: `frost_only` (5°C, eingestellt) | `maintain` (night_temp)
+- `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
+- `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Tagesmodus, seit 27.10.2026 wieder wirksam)
+- `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
+- `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze
 - `battery_buffer_enabled`, `battery_buffer_bonus_w` (500W)
 - `tolerant_deactivation_enabled` (true)
 - `micro_budget_enabled`, `micro_budget_min_battery_soc` (80%), `micro_heat_duration_min` (5)
@@ -110,33 +111,47 @@ Frontend (30-60s Polling, KEIN Realtime)
 
 ## 4. PV-Automation: 4-Stufen-Logik
 
-`pv-automation` läuft alle 2 Minuten (pg_cron Heartbeat). Kumulatives Budget — keine Momentaufnahme.
+`pv-automation` läuft alle 5 Minuten (pg_cron `pv-automation-check`) und zusätzlich nach jedem Sync des Thermostat-Dienstes. Kumulatives Budget — keine Momentaufnahme.
+
+> **Grundkonzept (verbindlich):** `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md` – Batterie gehört der Nacht, Eco ist Tagesstandard, ist Überschuss absehbar wird gewartet, Überschuss wird nach Priorität verteilt (erst Eco, dann Komfort).
 
 ### Stufe 1: Sicherheits-Gates (sequentiell, jeder kann blockieren)
-1. **Übertemperatur:** `currentRoomTemp >= target + 0.3` → Hysterese-Stop
-2. **Solar-Limit:** `currentRoomTemp >= solar_limit_temp` (passiver Solargewinn)
-3. **Manual Override:** `manual_override_until > now()` → unbedingt respektieren
-4. **Hard PV Gate:** `pv_power < 500W` UND `forecast_kwh < 5` → ALLE Heizungen blockiert
-5. **Battery Reserve Hard-Stop:** SOC < `min_battery_soc` (20%) → Stop
-6. **Quota Exhausted:** Tuya-Quota erreicht → keine Schreib-Operationen
+1. **Übertemperatur:** `currentRoomTemp >= target + 0.4` bei `is_heating` → Stop auf Eco
+2. **Manual Override:** `manual_override_until > now()` → unbedingt respektieren
+3. **Hard PV Gate:** `pv_power < 300W` UND `forecast_kwh < 8` → kein PV-Heizen (fest im Code)
+4. **Batterie-Gate:** SOC < `heating_min_battery_soc` und Batterie lädt nicht / Netzbezug → (strict) Budgets 0, aktive Stopps auf **„Ohne PV“** (`wait_min_temp`, seit 27.10.2026; vorher night_temp)
+5. **Quota Exhausted** (nur Cloud-Modus): keine Schreib-Operationen
 
-### Stufe 2: Phase 1 — Eco für alle Prio-Räume
+### Stufe 2: Phase 1 — Eco für Räume unter Eco, nach Priorität
 - Sortiert nach Priorität (1 → 12)
-- Pro Raum: `usedBudget + heatingPower <= availableBudget` → aktivieren mit `eco_temp`
+- Nur Räume mit `current_temp < eco_temp − 0.3` (seit 27.10.2026; vorher auch „Sollwert ≤ Nacht“)
+- Pro Raum: `usedBudget + heatingPower <= availableBudget` → aktivieren mit `eco_temp`, Kennzeichen `budgeted`
 - Wenn überschritten: prüfe **Tolerante Deaktivierung** (siehe §8) für bereits heizende Räume
 
 ### Stufe 3: Phase 2 — Komfort-Upgrades
-- NUR für Räume die schon in Phase 1 aktiv sind
+- Nur wenn Phase 1 vollständig
 - Strikt: `comfortBudget = gridExport` (kein Batterie-Bonus, kein Trend-Bonus)
-- Upgrade von `eco_temp` → `comfort_temp` nur wenn Komfort-Budget reicht
+- Ohne zusätzliches Komfort-Budget dürfen nur Räume upgraden, die in Phase 1 echtes Eco-Budget hatten (seit 27.10.2026)
+
+### Stufe 3b: Tagesmodus für Räume ohne Budget (seit 27.10.2026)
+Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation, warm, Phase 2 wartet), fallen nicht mehr pauschal auf Eco zurück. Ihr Ziel kommt aus dem Tagesmodus:
+
+| Modus | Bedingung | Ziel |
+|---|---|---|
+| `battery_gate` | Batterie-Gate aktiv (strict) | „Ohne PV“ |
+| `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Ohne PV“ |
+| `grid` (ohne PV) | sonst, und immer nach Sonnenuntergang | Eco nach Priorität, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
+
+- In jedem Modus werden Räume **unter** „Ohne PV“ zuerst bis „Ohne PV“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
+- KI-Schwelle aus `best_match_today` × `pattern_recall_strength` (siehe §12).
+- Funktion `allocateDayTargets`, Protokoll je Lauf in `system_settings.heating_day_mode`, Anzeige in der Übersicht.
+- Tagesmodus-Ziele erzeugen keine `solar_limit_start/stop`-Einträge und setzen `pv_auto_active = false`.
 
 ### Stufe 4: Physische Soll-Korrektur
-- Vergleicht DB-`target_temp` mit physischem Tuya-Wert
-- Bei Abweichung: Push via Tuya → verhindert Ghost-Heating
+- Der lokale Dienst schreibt den tatsächlichen Thermostat-Sollwert in `rooms.target_temp`
+- Weicht er vom gewünschten Ziel ab, sendet pv-automation beim nächsten Lauf neu (`tempAlreadyCorrect`)
 
-**Reihenfolge zwingend:** 1 → 2 → 3 → 4. Phase 2 darf NIE vor Phase 1 für andere Räume laufen.
-
----
+**Reihenfolge zwingend:** 1 → 2 → 3 → 3b → 4.
 
 ## 5. Eco- vs. Komfort-Budget
 
@@ -213,7 +228,7 @@ Schreibt nach `system_settings.battery_reserve_validation`:
 **Aktivierung:** `target_temp = eco_temp` + `system_settings.last_micro_rotation_at = {ts, room_id, ended:false}`
 
 **Soft-Beendigung:** Nach `micro_heat_duration_min` (5) aktiv beenden:
-- `target_temp = night_temp`
+- `target_temp = wait_min_temp` („Ohne PV“, seit 27.10.2026; vorher night_temp)
 - Status: `ended:true`, `ended_at: now()`
 
 **Cooldown** (`room_rotation_minutes`, 30): zählt ab `ended_at`, nicht ab Aktivierung. Kein neuer Mikro-Raum solange `ended === false`.
@@ -249,27 +264,23 @@ const tolerate =
 
 ## 9. Nacht- vs. Tagbetrieb
 
-**Nachtfenster:** 20:00–09:00 (Europe/Vienna)
+**Nachtfenster:** `night_start_time` → `night_end_time` (Europe/Vienna), eingestellt 22:00–08:00. Keine festen Uhrzeiten im Code mehr außer Rückfallwerten (22:00 / 08:00). Zeitzone geprüft 27.10.2026: Befehle kommen exakt zu `night_end_time` Wiener Zeit, auch über die Zeitumstellung.
 
-**Heizstart strikt um 09:00** — vorher KEIN aktives Heizen (Frostschutz ausgenommen).
+### Nacht
+- `frost_only` (eingestellt): einmaliger Befehl je Nacht, alle Räume auf 5 °C (fest im Code), danach Ruhe (Gate `night_frost_last_pushed`)
+- `maintain`: einmalig auf `night_temp`
 
-### Nacht-Heizmodi (`night_heating_mode`)
-- `frost_only` (default): Thermostate auf 5°C → nur Frostschutz
-- `maintain`: Thermostate auf `night_temp` → Wärme halten
-
-### Morgenstart-Trigger
-- Bei `batterySoc >= target_battery_soc` (40%) UND Zeit ≥ 09:00 → Heizen erlaubt
-- Bei Batterie < 40%: warten bis PV-Produktion ausreichend
+### Tag (ab `night_end_time`)
+Morgenbewertung bei jedem Lauf neu: Tagesmodus `battery_gate` / `wait` / `grid` (§4 Stufe 3b). Räume mit Budget heizen nach Phase 1/2, Räume ohne Budget bekommen das Tagesmodus-Ziel. Die Prognose-Boni dürfen schon `floor_heating_response_hours` (eingestellt 2 h, Untergrenze 06:00) vor dem Tagesstart greifen.
 
 ### Suppression
 - ML-Empfehlungen (`analyze-patterns`) sind im Nachtfenster komplett unterdrückt
-- Bei Übergang Nacht→Tag: Einmalige Sync-Aktion am Thermostat
 
 ### Hysterese (Anti-Flapping)
-- Heizung **OFF**: bei `currentTemp >= targetTemp + 0.3°C`
-- Heizung **ON**: bei `currentTemp <= targetTemp - 0.2°C`
+- Thermostat-intern; pv-automation stoppt hart bei `currentTemp >= target + 0.4 °C` (Übertemperatur) und plant mit 0,3 °C Abstand zu Eco/Komfort
 
----
+### Thermostat-Modus (wichtig)
+Seit Dienst v1.3 (24.10.2026) schaltet jeder Sollwert das TGP508 auf **„home“** (manuell). Vorher blieben die Thermostate auf **„auto“** (eigenes Wochenprogramm) und überschrieben die Sollwerte von pv-automation – die Steuerlogik hat bis 23.10.2026 praktisch nie gewirkt. Analyse: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md` §5.1.
 
 ## 10. Tuya-Steuerung & Quota-Schutz
 
@@ -290,8 +301,9 @@ const tolerate =
 4. **Quota-Check:** Bei Erschöpfung → alle Schreib-Ops blockiert
 5. **Tolerante Deaktivierung:** Spart Cycling-Calls bei wechselhaftem Wetter
 
-### TGP508 DPS-Mapping (alphanumerisch erforderlich)
-- `mode`, `temp_set`, `temp_current`, `switch`, `work_state`
+### TGP508 DPS-Mapping
+- Cloud: `mode`, `temp_set`, `temp_current`, `switch`, `work_state`
+- Lokal (verifiziert 24.10.2026, Dienst v1.3): DP 1 Ein/Aus · DP 2 Soll ×10 · DP 3 Ist ×10 · DP 4 Modus `auto`/`home` · DP 5 heizt `"1"`/`"0"`
 
 ### Lokaler Service – Robustheit (Hybrid v4)
 `local-collector/collector-node/tuya-thermostat.js` implementiert:
@@ -300,8 +312,8 @@ const tolerate =
 3. **Connect-Timeout 5s** + **Operation-Timeout 3s** (`withTimeout`) — bricht ewig hängende Aufrufe bei toter IP/Handshake ab
 4. **Garantiertes Force-Disconnect** im Fehlerpfad + **2 Retries mit Backoff** (1s, 2s) innerhalb der Queue
 5. **Auto-Protokoll-Versions-Erkennung** (v4): Scheitert der Connect (typisch „connection timed out" trotz offenem Port 6668), werden automatisch **3.3 → 3.4 → 3.5** durchprobiert. Die erste funktionierende Version wird pro `device_id` in der `versions`-Map gemerkt und künftig direkt genutzt. Fängt Firmware-OTA-bedingte Versionswechsel einzelner TGP508 selbstheilend ab. `ensureConnected` gibt die (ggf. neu erstellte) aktive Instanz zurück; Aufrufer nutzen diese. Optionales `version`-Feld pro Gerät in `config.json` (Default `3.3`).
-6. **DPS-Mapping:** `MODE='1'` (string auto/manual/off), `TARGET_TEMP='2'` (×10), `CURRENT_TEMP='3'` (×10), `HEATING='4'` (read-only)
-7. **setTemperature atomar:** `{multiple:true}` setzt `mode='manual'` + `target_temp` in 1 Roundtrip
+6. **DPS-Mapping:** siehe oben (v1.3). Das frühere Mapping `MODE='1'`, `HEATING='4'` war falsch.
+7. **setTemperature atomar:** setzt Modus `home` + Soll in 1 Roundtrip. pv-automation schickt deshalb seit 27.10.2026 kein separates `set_mode` mehr (scheiterte immer: Wert stand in `value_text`, Dienst las `value`).
 8. **TCP-Preflight** (`tcpProbe`, Port 6668, <1s) im Collector vor jedem Sync — unerreichbare Geräte werden sofort als `device_offline` geloggt, erreichbare in Batches á 3 verarbeitet.
 
 > **Wichtig:** Bleibt ein Gerät trotz Versions-Sweep im Timeout, ist der `local_key` veraltet (Gerät in Tuya/Smart-Life-App neu gekoppelt → Key rotiert). Key neu holen (API Explorer/TinyTuya) und in `config.json` eintragen.
@@ -364,8 +376,11 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 - 10% Penalty pro Wh Netzbezug
 - Korrigiert Negativ-Bias gegen "Ausschalten"
 
+### Mustergedächtnis im Tagesmodus (seit 27.10.2026)
+`best_match_today` (ähnlichster vergangener Tag) verschiebt die Schwelle zwischen Wartetag und „ohne PV“: PV-Heizdeckung des ähnlichen Tages ≥ 60 % → Schwelle sinkt (eher warten), < 30 % → steigt. Stärke = `pattern_recall_strength`/100 × 0,3 × Qualität (exact 1,0 / partial 0,6), max. ±0,3. Achtung: Tage vor dem 24.10.2026 zeigen das Verhalten der Thermostat-Wochenprogramme, Heizzyklen werden erst seit 26.10.2026 erfasst.
+
 ### Architektur-Grenze
-**AI empfiehlt Setpoints — Kern-Budget-Logik (§4–8) ist die finale Filter.** AI kann Reward-Funktion nicht selbst korrigieren.
+**AI empfiehlt Setpoints und verschiebt Schwellen — Kern-Budget-Logik (§4–8) ist die finale Filter.** AI kann Reward-Funktion nicht selbst korrigieren.
 
 ### Whitelist-Schutz
 `generate-settings-suggestions` nutzt strikte Tool-Schemas mit Enums → verhindert Halluzinationen.
@@ -394,7 +409,7 @@ Speichert in `pv_forecasts`:
 
 | Function | Zweck | Trigger | Auth |
 |---|---|---|---|
-| `pv-automation` | Heizungssteuerung 4-Stufen | pg_cron 2-Min Heartbeat | hybrid (anon/service_role JWT-decode) |
+| `pv-automation` | Heizungssteuerung 4-Stufen + Tagesmodus | pg_cron 5-Min + Anstoß durch Thermostat-Dienst | hybrid (anon/service_role JWT-decode) |
 | `validate-battery-reserve` | Reserve-Tagesvalidierung | pg_cron 09:05 | service_role |
 | `tuya-control` | Cloud API Wrapper | manuell + automation | hybrid |
 | `fetch-pv-forecast` | Forecast.Solar | pg_cron 06:00 | service_role |
@@ -503,6 +518,8 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Browser → LAN | CORS-Block | Lokaler Collector-Service |
 | Realtime | PGRST002-Fehler | 30–60s Polling stattdessen |
 | AI Reward Self-Correction | Nicht möglich | Manuelle Reward-Updates |
+| Batterie-Entladung | Fronius entlädt bei jeder Hauslast zuerst die Batterie; Software kann nur die Heizlast begrenzen | Tagesmodus + Netzgrenze + Batterie-Gate; Fronius-Zeitsteuerung offen |
+| Außentemperatur-Historie | `weather_data` erst ab 23.10.2026 | — |
 
 ---
 
@@ -523,12 +540,25 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Komfort strikt = nur gridExport | Verhindert Netzbezug für Komfort-Heizen | — |
 | Mikro-Budget mit Soft-Rotation | Verhindert Cooldown-Kollision | — |
 | Hysterese 0.3/0.2°C | Anti-Flapping ohne Komfort-Verlust | — |
+| Thermostate im Modus „home“ statt „auto“ | Nur so wirken die Sollwerte der Automatik; Wochenprogramm mit falscher Uhr | 2026-10-24 |
+| Tagesmodus statt „Tag → Eco halten“ | Räume ohne Budget heizten sonst sofort aus Batterie/Netz (9,6 kW am 27.10. 08:00) | 2026-10-27 |
+| Mindesttemperatur „Ohne PV“ je Raum | Eigener Einstellwert statt Nachtwert als Tagesuntergrenze | 2026-10-27 |
+| Max. Heizleistung ohne PV | Netzheizen nur nach Priorität und begrenzt | 2026-10-27 |
+| KI verschiebt Wartetag-Schwelle | Mustergedächtnis entscheidet mit, Grundregeln bleiben ohne KI funktionsfähig | 2026-10-27 |
 
 ---
 
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-27 — Grundkonzept Tagesablauf, Tagesmodus, drei Steuerfehler behoben
+- Anlass: seit 24.10. jeden Morgen um 08:00 bis 9,6 kW Heizlast, Batterie täglich 57 → 5 %, Auto und Warmwasser ohne Überschuss. Ursache: Thermostate folgen seit Dienst v1.3 („home“) erstmals den Sollwerten; die Logik setzte tagsüber jeden Raum ohne Budget auf Eco.
+- Grundkonzept festgeschrieben: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`.
+- Neu: Tagesmodus `battery_gate` / `wait` / `grid` (§4 Stufe 3b), `rooms.wait_min_temp` („Ohne PV“), `max_grid_heating_power_w` wieder wirksam, KI-Schwelle über Mustergedächtnis.
+- Behoben: Batterie-Gate und Raumschleife schrieben gegeneinander (Pingpong Nacht/Eco alle 5 Min); „Eco=Nacht → direkt Komfort“ umging das Komfort-Budget; Komfort-Upgrade ohne Eco-Budget; `set_mode` scheiterte immer.
+- SQL: `supabase/SQL/06_tagesmodus_mindesttemperatur.sql`. Deploy: `supabase functions deploy pv-automation`.
+- Doku bereinigt: Nachtzeiten, SOC-Schwellen, Hard-PV-Gate-Werte, DP-Mapping, Takt 5 Min.
 
 ### 2026-10-26 — Neue Tab-Struktur, Analyse mit Einstellungs-Vorschlägen
 - 4 Tabs nach Zweck: Übersicht · Analyse · KI · Einstellungen. Energie, Heizung & KI, Verlauf & Muster aufgelöst; jede der 30 Karten hat einen Platz (Umzugsliste).

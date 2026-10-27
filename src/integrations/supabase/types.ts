@@ -1439,6 +1439,7 @@ export type Database = {
           created_at: string | null
           current_temp: number | null
           eco_temp: number | null
+          wait_min_temp: number | null
           estimated_kwh_per_degree: number | null
           floor_area_m2: number | null
           has_solar_gain: boolean | null
@@ -1488,6 +1489,7 @@ export type Database = {
           created_at?: string | null
           current_temp?: number | null
           eco_temp?: number | null
+          wait_min_temp?: number | null
           estimated_kwh_per_degree?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null
@@ -1537,6 +1539,7 @@ export type Database = {
           created_at?: string | null
           current_temp?: number | null
           eco_temp?: number | null
+          wait_min_temp?: number | null
           estimated_kwh_per_degree?: number | null
           floor_area_m2?: number | null
           has_solar_gain?: boolean | null

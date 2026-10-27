@@ -5,6 +5,30 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.9.0] - 2026-10-27
+
+### Changed (Grundkonzept Tagesablauf)
+- Neues verbindliches Konzept `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`: Batterie gehört der Nacht, Eco ist Tagesstandard, ist PV-Überschuss absehbar wird gewartet, Überschuss nach Priorität (erst Eco, dann Komfort), KI entscheidet innerhalb der Regeln mit.
+- `pv-automation`: Räume ohne Budget bekommen ihr Ziel aus dem **Tagesmodus** (`battery_gate` / `wait` / `grid`) statt pauschal Eco. Im Modus „ohne PV“ Eco nach Priorität bis zur **Max. Heizleistung ohne PV**. Mustergedächtnis verschiebt die Wartetag-Schwelle (max. ±0,3).
+- Batterie-Gate und Mikro-Budget-Ende setzen auf **„Ohne PV“** (`rooms.wait_min_temp`) statt Nachtwert.
+
+### Added
+- Spalte `rooms.wait_min_temp` („Ohne PV“) – SQL `supabase/SQL/06_tagesmodus_mindesttemperatur.sql`, Feld in Einstellungen › Räume.
+- „Max. Heizleistung ohne PV“ (`max_grid_heating_power_w`) wieder in Einstellungen › Haus.
+- Übersicht zeigt den Tagesmodus; Protokoll je Lauf in `system_settings.heating_day_mode`.
+
+### Fixed
+- Pingpong Batterie-Gate ↔ Raumschleife (Nachtwert/Eco alle 5 Min, bis 269 Entscheidungen je Morgen).
+- „Eco=Nacht → direkt Komfort“ umging das Komfort-Budget (Büro, Zimmer Uli).
+- Komfort-Upgrade ohne echtes Eco-Budget.
+- `set_mode` scheiterte bei jedem Befehl (`value_text` vs. `value`) – entfällt, v1.3 setzt den Modus beim Sollwert.
+- Tagesmodus-Ziele erzeugen keine geschätzten `solar_limit_*`-Heizenergien mehr.
+
+### Documentation
+- Master-Doku §2–§4, §7, §9, §10, §12, §14, §18–§20, Memory-Specs, ARCHITECTURE, TODO nachgezogen (Nachtzeiten, SOC-Schwellen, Hard-PV-Gate 300 W/8 kWh, DP-Mapping v1.3, Takt 5 Min).
+
+---
+
 ## [2.8.0] - 2026-10-26
 
 ### Changed (Tab-Struktur nach Zweck)

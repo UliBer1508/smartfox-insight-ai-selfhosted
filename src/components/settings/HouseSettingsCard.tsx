@@ -4,7 +4,9 @@
 // Regeln (Stand 23.10.2026):
 // - Angezeigter Ersatzwert (wenn die DB leer ist) = Ersatzwert im Code der pv-automation.
 // - Leere oder ungültige Eingaben werden nicht gespeichert, sondern angemahnt.
-// - Ausgeblendet, weil ohne Wirkung: max_grid_heating_power_w, pv_boost_temp_delta.
+// - Ausgeblendet, weil ohne Wirkung: pv_boost_temp_delta.
+// - max_grid_heating_power_w ist seit 27.10.2026 wieder sichtbar und wirksam (Tagesmodus,
+//   doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md).
 //   Strompreise werden im Bereich "Tarife & Preisverlauf" gepflegt (Quelle der Wahrheit).
 //   Die DB-Werte dieser Felder bleiben unverändert stehen.
 import { ReactNode, useMemo, useState } from 'react';
@@ -43,7 +45,7 @@ const GROUPS: Group[] = [
     title: 'Zeiten', icon: <Moon className="w-3.5 h-3.5 text-indigo-500" />,
     fields: [
       { k: 'night_start_time', l: 'Nacht ab', kind: 'time', def: '22:00' },
-      { k: 'night_end_time', l: 'Nacht bis', kind: 'time', def: '08:00', hint: 'Heizstart am Morgen' },
+      { k: 'night_end_time', l: 'Nacht bis', kind: 'time', def: '08:00', hint: 'Tagesstart: Räume werden neu bewertet' },
       {
         k: 'night_heating_mode', l: 'Nachts', kind: 'select', def: 'frost_only',
         options: [{ v: 'frost_only', l: 'Frostschutz 5 °C' }, { v: 'maintain', l: 'Nacht-Temperatur halten' }],
@@ -77,6 +79,7 @@ const GROUPS: Group[] = [
     title: 'Verteilung auf die Räume', icon: <Shuffle className="w-3.5 h-3.5 text-orange-500" />,
     fields: [
       { k: 'power_budget_enabled', l: 'Leistungsbudget', kind: 'switch', def: true, hint: 'Räume nacheinander nach Priorität einschalten, solange das Budget reicht.' },
+      { k: 'max_grid_heating_power_w', l: 'Max. Heizleistung ohne PV', kind: 'number', def: 2000, unit: 'W', step: 100, min: 0, max: 20000, hint: 'Summe der Räume, die ohne Überschuss gleichzeitig heizen dürfen (nach Priorität), auch bis zur Mindesttemperatur „Ohne PV“. 0 = ohne PV gar nicht heizen.' },
       { k: 'power_budget_tolerance_w', l: 'Toleranz', kind: 'number', def: 200, unit: 'W', step: 50, min: 0, max: 2000, hint: 'erlaubter kurzer Netzbezug', showIf: (v) => v.power_budget_enabled !== false },
       { k: 'micro_budget_enabled', l: 'Mikro-Budget', kind: 'switch', def: true, hint: 'Bei kleinem Überschuss heizt reihum ein Raum kurz (Batterie als Puffer).' },
       { k: 'micro_heat_duration_min', l: 'Heizdauer je Runde', kind: 'number', def: 5, unit: 'min', step: 1, min: 3, max: 15, showIf: (v) => v.micro_budget_enabled !== false },

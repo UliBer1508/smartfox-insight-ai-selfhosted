@@ -29,10 +29,12 @@ Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehre
    - `strict` (default): `availableBudget = 0`, `comfortBudget = 0` UND aktive Notfall-Stops.
    - `soft`: nur `comfortBudget = 0`, Eco bleibt für laufende Räume nutzbar.
 
-4. **Aktive Notfall-Stops `[SOC-GATE-STOP]` (strict):** Da TGP508-Thermostate ihre Sollwerte autonom halten, reicht Budget=0 nicht. Bei Gate-Aktivierung iteriert die Function alle automatisierten Räume und schreibt für alle Räume mit `target_temp > night_temp` oder `is_heating === true` (außer bei aktivem manual_override) je einen `set_temperature`-Befehl mit `value = night_temp` in `thermostat_commands`. Der lokale Service (oder tuya-control) führt diese Befehle aus — unabhängig von der Tuya-Cloud-Quota. `heating_paused_reason` wird gesetzt (`SOC-Gate (X% < 80%)`).
+4. **Aktive Notfall-Stops `[SOC-GATE-STOP]` (strict):** Da TGP508-Thermostate ihre Sollwerte autonom halten, reicht Budget=0 nicht. Bei Gate-Aktivierung erhalten alle automatisierten Räume mit `target_temp > wait_min_temp` (außer bei aktivem manual_override) einen Befehl auf **„Ohne PV“** (`rooms.wait_min_temp`, seit 27.10.2026; vorher `night_temp`). Die Raumschleife verwendet im selben Lauf dasselbe Ziel (Tagesmodus `battery_gate`) – das frühere Pingpong Gate→Nacht / Raumschleife→Eco ist behoben. `heating_paused_reason` wird gesetzt (`SOC-Gate (X% < Y%)`).
 
-**Critical-Eco-Transition Fix (v3):** Der Quota-Override für die Eco-Transition feuert jetzt nur noch im Morgenfenster `wienHour === 9 && wienMinute < 30` (statt `wienHour >= 9`). Verhindert das fälschliche Auslösen abends/nachts und spart Quota.
+**Critical-Eco-Transition Fix (v3):** Der Quota-Override für die Eco-Transition (nur Cloud-Modus) feuert nur im Morgenfenster `night_end_time` … +29 min (vorher fest 09:00). Verhindert das fälschliche Auslösen abends/nachts und spart Quota.
 
 **ML-Exploration-Throttle (v3):** LLM-Exploration für Räume mit unzureichender `learned_policy` läuft pro Raum max. 1× / 30 Min. Persistiert in `system_settings.ml_exploration_throttle` als `{room_id: ts}`. Verhindert Gemini-429-Rate-Limits und reduziert Tuya-Folgecalls bei wiederholten ML-Aktivierungen.
 
 **Batterie-Reserve für Nachverbrauch** (`battery_reserve_for_night_soc`, default 60%) und **Mikro-Budget Modus mit Soft-Rotation** sowie **Tolerante Deaktivierung** bleiben unverändert — letztere greift NICHT mehr wenn Gate aktiv (`!socGateBlocked`).
+
+**Tagesmodus (seit 27.10.2026):** Räume ohne Budget fallen nicht mehr auf Eco zurück, sondern bekommen das Ziel aus `allocateDayTargets` (Wartetag / Batterie-Gate → „Ohne PV“; ohne PV → Eco nach Priorität bis `max_grid_heating_power_w`). Siehe `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md` und `tagesmodus-konzept.md`.

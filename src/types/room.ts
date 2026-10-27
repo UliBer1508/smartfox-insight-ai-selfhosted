@@ -8,6 +8,8 @@ export interface Room {
   comfort_temp: number;
   eco_temp: number;
   night_temp: number;
+  // Mindesttemperatur ohne PV (Konzept 27.10.2026); leer = Eco − 1,5 °C
+  wait_min_temp?: number | null;
   priority: number;
   heating_power_w?: number | null;
   // Tuya thermostat fields

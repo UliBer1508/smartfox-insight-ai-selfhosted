@@ -19,7 +19,7 @@ comfortBudget = gridExport − baseloadBuffer + symTrendBonus + lookaheadBonus
 
 - Raum erreicht Komfort → zurück auf Eco-Setpoint → Estrich speichert
 - Frei werdendes Budget wird **nicht im selben Run** umverteilt
-- Erst der **nächste Run** (2 Min später) sieht den realen Export am Zähler und aktiviert ggf. den nächsten Raum
+- Erst der **nächste Run** (5 Min später) sieht den realen Export am Zähler und aktiviert ggf. den nächsten Raum
 
 ### Mindest-Heizdauer / Cooldown
 - `DEFAULT_MIN_SWITCH_INTERVAL_MIN = 25` Minuten (vorher 5)

@@ -64,29 +64,24 @@ sequenceDiagram
 
 ## Heizungs-Automatik Ablauf
 
+Konzept: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`
+
 ```mermaid
 flowchart TD
-    START[⏰ pv-automation<br/>Cron Trigger] --> FETCH[Aktuelle Daten laden]
-    FETCH --> CHECK{PV-Überschuss<br/>vorhanden?}
-    
-    CHECK -->|Ja| ROOMS[Räume mit<br/>pv_auto_enabled laden]
-    CHECK -->|Nein| REDUCE[Temperatur auf<br/>eco_temp reduzieren]
-    
-    ROOMS --> PRIO[Nach Priorität<br/>sortieren]
-    PRIO --> LOOP[Für jeden Raum]
-    
-    LOOP --> SURPLUS{Überschuss ><br/>threshold_on?}
-    SURPLUS -->|Ja| HEAT[Temperatur auf<br/>comfort_temp erhöhen]
-    SURPLUS -->|Nein| SKIP[Raum überspringen]
-    
-    HEAT --> TUYA[tuya-control<br/>aufrufen]
-    TUYA --> LOG[Learning Event<br/>speichern]
-    
-    REDUCE --> TUYA
-    SKIP --> NEXT{Weitere<br/>Räume?}
-    LOG --> NEXT
-    NEXT -->|Ja| LOOP
-    NEXT -->|Nein| END[✅ Fertig]
+    START[⏰ pv-automation<br/>alle 5 Min] --> NIGHT{Nacht?}
+    NIGHT -->|Ja| FROST[einmal je Nacht<br/>Frostschutz 5 °C]
+    NIGHT -->|Nein| BUDGET[PV-Budget nach Priorität<br/>Phase 1 Eco · Phase 2 Komfort]
+    BUDGET --> REST{Raum ohne Budget?}
+    REST -->|Nein| SET[Sollwert Eco/Komfort]
+    REST -->|Ja| MODE{Tagesmodus}
+    MODE -->|Batterie-Gate| WAIT[„Ohne PV“ halten]
+    MODE -->|Wartetag:<br/>Überschuss absehbar| WAIT
+    MODE -->|ohne PV| GRID[Eco nach Priorität<br/>bis max. Netzleistung]
+    WAIT --> CMD[thermostat_commands<br/>→ lokaler Dienst]
+    GRID --> CMD
+    SET --> CMD
+    FROST --> CMD
+    CMD --> END[✅ Fertig]
 ```
 
 ---
