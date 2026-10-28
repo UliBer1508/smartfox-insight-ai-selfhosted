@@ -6,6 +6,10 @@ Stand: 2026-10-28
 
 ## 🔴 Hohe Priorität
 
+### KI-Batterie-Vorschlag beobachten (seit 28.10.)
+- [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
+- [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
+
 ### Anwesenheit einspielen und testen (seit 28.10.)
 - [ ] SQL `07_anwesenheit.sql` ausführen – **danach gilt das Haus ohne Eintrag als leer**; ggf. sofort „Ich bin da bis …“
 - [ ] `pv-automation` deployen, App-Update abwarten

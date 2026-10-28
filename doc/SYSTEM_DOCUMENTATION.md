@@ -96,7 +96,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Tagesmodus, seit 27.10.2026 wieder wirksam)
 - `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026) – Kalender `presence_periods` (Zeiträume, in denen jemand da ist); außerhalb gilt abwesend, Vorlauf vor jedem Eintrag. Aus = immer anwesend
 - `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
-- `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze
+- `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze. Wird vom KI-Batterie-Vorschlag **nicht** geändert (seit 28.10.2026; vorher beim Übernehmen mit überschrieben)
 - `battery_buffer_enabled`, `battery_buffer_bonus_w` (500W)
 - `tolerant_deactivation_enabled` (true)
 - `micro_budget_enabled`, `micro_budget_min_battery_soc` (80%), `micro_heat_duration_min` (5)
@@ -557,6 +557,11 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-28 — Batterie-Vorschlag ändert nur noch den Mindest-Ladestand
+- Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
+- Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
+- Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
 
 ### 2026-10-28 — Anwesenheit (Kalender + Schnellschalter)
 - Neu: Tabelle `presence_periods`, `heating_settings.presence_control_enabled` / `presence_lead_hours` (SQL `07_anwesenheit.sql`).

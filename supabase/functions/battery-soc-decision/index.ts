@@ -69,8 +69,11 @@ Deno.serve(async (req) => {
 
   if (action === 'accept') {
     // Authorisiertes Update auf heating_min_battery_soc — einziger erlaubter Pfad.
+    // Seit 28.10.2026 NUR der Mindest-Ladestand. Die Nacht-Reserve (battery_reserve_for_night_soc)
+    // ist ein eigener Wert (Batterie-Puffer, Mikro-Budget, Reserve-Validierung) und wurde vorher
+    // still mit überschrieben – bei 90 % waren Puffer und Mikro-Budget dadurch praktisch aus.
     const { error: hsErr } = await sb.from('heating_settings')
-      .update({ heating_min_battery_soc: sug.new_value, battery_reserve_for_night_soc: sug.new_value })
+      .update({ heating_min_battery_soc: sug.new_value })
       .gte('heating_min_battery_soc', 0); // matches all rows (single-row table)
     if (hsErr) {
       console.error('[battery-soc-decision] heating_settings update failed', hsErr);
