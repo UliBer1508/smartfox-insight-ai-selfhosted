@@ -10,7 +10,7 @@
 > 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
 > 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
 >
-> **Letzte Aktualisierung:** 2026-10-27 · **Version:** 3.3 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> **Letzte Aktualisierung:** 2026-10-28 · **Version:** 3.4 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -94,6 +94,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `night_heating_mode`: `frost_only` (5°C, eingestellt) | `maintain` (night_temp)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
 - `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Tagesmodus, seit 27.10.2026 wieder wirksam)
+- `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026) – Kalender `presence_periods` (Zeiträume, in denen jemand da ist); außerhalb gilt abwesend, Vorlauf vor jedem Eintrag. Aus = immer anwesend
 - `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
 - `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze
 - `battery_buffer_enabled`, `battery_buffer_bonus_w` (500W)
@@ -140,6 +141,7 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 |---|---|---|
 | `battery_gate` | Batterie-Gate aktiv (strict) | „Ohne PV“ |
 | `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Ohne PV“ |
+| `wait` (abwesend) | kein Eintrag in `presence_periods` (inkl. Vorlauf), seit 28.10.2026 – auch nach Sonnenuntergang | „Ohne PV“ |
 | `grid` (ohne PV) | sonst, und immer nach Sonnenuntergang | Eco nach Priorität, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
 
 - In jedem Modus werden Räume **unter** „Ohne PV“ zuerst bis „Ohne PV“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
@@ -150,6 +152,9 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 ### Stufe 4: Physische Soll-Korrektur
 - Der lokale Dienst schreibt den tatsächlichen Thermostat-Sollwert in `rooms.target_temp`
 - Weicht er vom gewünschten Ziel ab, sendet pv-automation beim nächsten Lauf neu (`tempAlreadyCorrect`)
+
+### Anwesenheit (seit 28.10.2026)
+Konzept: `doc/KONZEPT-ANWESENHEIT-2026-10-28.md`. `getPresence()` liest `presence_periods`: Eintrag läuft oder beginnt innerhalb von `presence_lead_hours` → anwesend, sonst **abwesend**. Abwesend heißt: Tagesmodus `wait` (Batterie-Gate hat Vorrang), Phase 2 (Komfort) übersprungen, alle Ziele höchstens Eco (Temperatur-Deckelung). PV-Überschuss heizt weiter bis Eco (Phase 1, Mikro-Budget). Nacht unverändert. Fail-safe: Kalender nicht lesbar oder Steuerung aus → anwesend. Protokoll: `heating_day_mode.away`, `presence_reason`, `presence_next_start`.
 
 **Reihenfolge zwingend:** 1 → 2 → 3 → 3b → 4.
 
@@ -545,12 +550,19 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Mindesttemperatur „Ohne PV“ je Raum | Eigener Einstellwert statt Nachtwert als Tagesuntergrenze | 2026-10-27 |
 | Max. Heizleistung ohne PV | Netzheizen nur nach Priorität und begrenzt | 2026-10-27 |
 | KI verschiebt Wartetag-Schwelle | Mustergedächtnis entscheidet mit, Grundregeln bleiben ohne KI funktionsfähig | 2026-10-27 |
+| Abwesend = jeder Tag ein Wartetag, keine eigene Absenk-Temperatur | Haus sehr träge (Zeitkonstante ~250–400 h): tiefere Temperatur spart nur 3–11 %; Hebel ist, ohne Bewohner kein Netz-Eco zu heizen | 2026-10-28 |
 
 ---
 
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-10-28 — Anwesenheit (Kalender + Schnellschalter)
+- Neu: Tabelle `presence_periods`, `heating_settings.presence_control_enabled` / `presence_lead_hours` (SQL `07_anwesenheit.sql`).
+- `pv-automation`: abwesend → Tagesmodus `wait`, kein Komfort, höchstens Eco (§4 Anwesenheit). Fail-safe anwesend.
+- App: Karte „Anwesenheit“ in der Übersicht (Ich bin da bis … / Ich bin weg), Einstellungen › Anwesenheit (Kalender), Haus › Anwesenheit (an/aus, Vorlauf).
+- Messung Auskühlung und Ersparnis: `doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §2.
 
 ### 2026-10-27 — Grundkonzept Tagesablauf, Tagesmodus, drei Steuerfehler behoben
 - Anlass: seit 24.10. jeden Morgen um 08:00 bis 9,6 kW Heizlast, Batterie täglich 57 → 5 %, Auto und Warmwasser ohne Überschuss. Ursache: Thermostate folgen seit Dienst v1.3 („home“) erstmals den Sollwerten; die Logik setzte tagsüber jeden Raum ohne Budget auf Eco.

@@ -64,7 +64,7 @@ sequenceDiagram
 
 ## Heizungs-Automatik Ablauf
 
-Konzept: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`
+Konzept: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`, Anwesenheit: `doc/KONZEPT-ANWESENHEIT-2026-10-28.md` (abwesend: kein Komfort, höchstens Eco)
 
 ```mermaid
 flowchart TD
@@ -76,6 +76,7 @@ flowchart TD
     REST -->|Ja| MODE{Tagesmodus}
     MODE -->|Batterie-Gate| WAIT[„Ohne PV“ halten]
     MODE -->|Wartetag:<br/>Überschuss absehbar| WAIT
+    MODE -->|Abwesend:<br/>kein Kalender-Eintrag| WAIT
     MODE -->|ohne PV| GRID[Eco nach Priorität<br/>bis max. Netzleistung]
     WAIT --> CMD[thermostat_commands<br/>→ lokaler Dienst]
     GRID --> CMD

@@ -27,6 +27,7 @@ import { useControlMode } from '@/hooks/useControlMode';
 import { BackupSettingsSection } from '@/components/settings/BackupSettingsSection';
 import { HouseSettingsCard } from '@/components/settings/HouseSettingsCard';
 import { RoomsSection } from '@/components/settings/RoomsSection';
+import { PresenceCalendar } from '@/components/presence/Presence';
 import { ThermostatMaintenance } from '@/components/settings/ThermostatMaintenance';
 import { SectionCard } from '@/components/settings/SettingsBits';
 
@@ -111,6 +112,9 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
 
       {/* 2. Haus */}
       <HouseSettingsCard settings={settings} onSave={saveSettings} isLoading={isHeatingLoading} />
+
+      {/* Anwesenheit (28.10.2026): Kalender, wann jemand im Haus ist */}
+      <PresenceCalendar settings={settings} />
 
       {/* 3. Räume */}
       <RoomsSection

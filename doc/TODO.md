@@ -1,10 +1,17 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-10-27
+Stand: 2026-10-28
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Anwesenheit einspielen und testen (seit 28.10.)
+- [ ] SQL `07_anwesenheit.sql` ausführen – **danach gilt das Haus ohne Eintrag als leer**; ggf. sofort „Ich bin da bis …“
+- [ ] `pv-automation` deployen, App-Update abwarten
+- [ ] Einige Tage beobachten: `heating_day_mode.away`, Netzbezug an Abwesenheitstagen, Raumtemperaturen bei Ankunft (Vorlauf 6 h reicht?)
+- [ ] Abwesenheitstage im Mustergedächtnis und in der Analyse kennzeichnen/ausklammern (Konzept Anwesenheit §6)
+- [ ] Ersparnis in 2–3 Wochen mit kälteren Tagen nachrechnen (Abfragen im Anhang des Konzepts)
 
 ### Tagesmodus testen (seit 27.10.)
 - [ ] SQL `06_tagesmodus_mindesttemperatur.sql` ausführen, `pv-automation` deployen, App-Update abwarten

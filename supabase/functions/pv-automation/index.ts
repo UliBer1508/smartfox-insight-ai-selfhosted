@@ -79,6 +79,39 @@ function getWaitMinTemp(room: any, settings: any): number {
   return Math.max(5, eco - 1.5);
 }
 
+// Anwesenheit (Konzept 28.10.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md).
+// Kalender presence_periods = Zeiträume, in denen jemand da ist. Außerhalb gilt abwesend.
+// "Anwesend" beginnt schon presence_lead_hours vor start_at (Vorlauf).
+// Fail-safe: Ausgeschaltet, Tabelle fehlt oder Lesefehler → anwesend (Verhalten wie vor 28.10.2026).
+type PresenceInfo = { away: boolean; reason: string; until: string | null; nextStart: string | null };
+async function getPresence(supabase: any, settings: any): Promise<PresenceInfo> {
+  if (settings?.presence_control_enabled === false) {
+    return { away: false, reason: 'Anwesenheit-Steuerung aus', until: null, nextStart: null };
+  }
+  const leadH = Math.max(0, Math.min(72, Number(settings?.presence_lead_hours ?? 6) || 0));
+  const now = Date.now();
+  try {
+    const { data, error } = await supabase
+      .from('presence_periods')
+      .select('start_at, end_at')
+      .gt('end_at', new Date(now).toISOString())
+      .order('start_at', { ascending: true })
+      .limit(50);
+    if (error) throw error;
+    const rows = (data || []) as Array<{ start_at: string; end_at: string }>;
+    const active = rows.filter(r => new Date(r.start_at).getTime() - leadH * 3600_000 <= now);
+    if (active.length > 0) {
+      const until = active.map(r => r.end_at).sort().slice(-1)[0];
+      const inLead = active.every(r => new Date(r.start_at).getTime() > now);
+      return { away: false, reason: inLead ? `Vorlauf (Ankunft ${rows[0].start_at})` : 'anwesend laut Kalender', until, nextStart: null };
+    }
+    return { away: true, reason: 'abwesend (kein Kalender-Eintrag)', until: rows[0]?.start_at ?? null, nextStart: rows[0]?.start_at ?? null };
+  } catch (e) {
+    console.warn('[ANWESENHEIT] presence_periods nicht lesbar → anwesend (fail-safe):', e);
+    return { away: false, reason: 'Kalender nicht lesbar → anwesend', until: null, nextStart: null };
+  }
+}
+
 // Tagesmodus-Zuteilung (Konzept 27.10.2026 §2/§3). Reine Funktion, testbar.
 // rooms: Räume OHNE Budget, nach Priorität sortiert.
 // Pass 1: Räume unter Mindesttemperatur → bis Mindesttemperatur heizen, nach Priorität,
@@ -734,6 +767,11 @@ Deno.serve(async (req) => {
         .select('*')
         .limit(1)
         .single();
+
+      // Anwesenheit (28.10.2026): abwesend → jeder Tag wie ein Wartetag, kein Komfort. Nacht unverändert.
+      const presence = await getPresence(supabase, settings);
+      const isAway = presence.away;
+      console.log(`[ANWESENHEIT] ${isAway ? 'ABWESEND' : 'anwesend'} – ${presence.reason}${presence.nextStart ? `, nächster Eintrag ${presence.nextStart}` : ''}`);
 
       // NIGHT PAUSE: Skip Tuya cloud calls during night hours to save API quota
       const nightStartTime = settings?.night_start_time || '22:00';
@@ -2554,7 +2592,10 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (phase1Complete) {
+      if (phase1Complete && isAway) {
+        console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Abwesend – kein Komfort (Konzept Anwesenheit 28.10.2026)`);
+      }
+      if (phase1Complete && !isAway) {
         console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
         for (const rp of roomsWithPriority) {
           // Robustheit 2: Stale Räume (Thermostat offline) bekommen keinen Komfort-Push (Quota schonen)
@@ -2637,7 +2678,7 @@ Deno.serve(async (req) => {
           }
         }
       } else {
-        console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Eco-Phase noch nicht abgeschlossen — Komfort wartet bis alle Räume auf Eco`);
+        if (!isAway) console.log(`[PV-Automation] === PHASE 2: ÜBERSPRUNGEN === Eco-Phase noch nicht abgeschlossen — Komfort wartet bis alle Räume auf Eco`);
         // Räume die noch keinen Status haben: Eco anstreben (kein Komfort-Upgrade)
         for (const rp of roomsWithPriority) {
           if (roomBudgetStatus.has(rp.room.id)) continue;
@@ -2686,6 +2727,9 @@ Deno.serve(async (req) => {
       let kiInfo = 'kein Muster';
       if (socGateBlocked && socGateMode === 'strict') {
         dayMode = 'battery_gate';
+      } else if (isAway) {
+        // Abwesend (28.10.2026): jeder Tag wie ein Wartetag – Netz nur bis „Ohne PV“, PV lädt weiter bis Eco.
+        dayMode = 'wait';
       } else if (afterSunset) {
         dayMode = 'grid';
       } else {
@@ -2727,6 +2771,8 @@ Deno.serve(async (req) => {
       });
       const modeText = dayMode === 'battery_gate'
         ? `Batterie-Gate (${batterySoc}% < ${heatingMinSoc}%)`
+        : isAway
+          ? 'Abwesend (Kalender)'
         : dayMode === 'wait'
           ? `Wartetag (PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh ≥ ${dayThreshold}× Eco-Bedarf)`
           : 'kein PV-Überschuss erwartet';
@@ -2752,6 +2798,9 @@ Deno.serve(async (req) => {
             ki_info: kiInfo,
             grid_cap_w: maxGridHeatingW,
             grid_used_w: gridUsedW,
+            away: isAway,
+            presence_reason: presence.reason,
+            presence_next_start: presence.nextStart,
             rooms: unbudgetedRooms.map(rp => ({
               room_id: rp.room.id,
               name: rp.room.name,
@@ -3516,12 +3565,19 @@ Deno.serve(async (req) => {
 
         // ============= TEMPERATUR-DECKELUNG =============
         // Super-Comfort (comfort+1) nur erlaubt wenn: Batterie voll, kein WW, alle Räume auf comfort, Export reicht
-        const superComfortAllowed = allRoomsAtComfort && batterySoc >= 95 && !hotwaterActive;
-        const maxAllowedTemp = superComfortAllowed ? comfortTemp + 1 : comfortTemp;
+        // Abwesend (28.10.2026): höchstens Eco – deckelt alle Komfort-Wege (Phase 2, Batterie voll, KI/Policies).
+        const superComfortAllowed = !isAway && allRoomsAtComfort && batterySoc >= 95 && !hotwaterActive;
+        const maxAllowedTemp = isAway ? Math.min(ecoTemp, comfortTemp) : (superComfortAllowed ? comfortTemp + 1 : comfortTemp);
         
         if (targetTemp > maxAllowedTemp) {
-          console.log(`[PV-Automation] ${room.name}: Zieltemp ${targetTemp}°C auf ${maxAllowedTemp}°C gedeckelt (SuperComfort=${superComfortAllowed})`);
+          console.log(`[PV-Automation] ${room.name}: Zieltemp ${targetTemp}°C auf ${maxAllowedTemp}°C gedeckelt (SuperComfort=${superComfortAllowed}, abwesend=${isAway})`);
           targetTemp = maxAllowedTemp;
+          if (isAway) {
+            solarLimitTemp = null;
+            if (targetTemp < currentTargetTemp - 0.05) action = 'deactivate';
+            else if (Math.abs(targetTemp - currentTargetTemp) <= 0.05) action = 'keep';
+            reasoning = `🏠 Abwesend → höchstens Eco ${targetTemp}°C · ${reasoning || ''}`;
+          }
         }
 
         // NACHT-HARDGUARD: Im Raum-Loop niemals 'activate' während Nacht — nur deactivate/keep.

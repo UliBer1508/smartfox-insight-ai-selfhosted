@@ -19,6 +19,7 @@ import { ApiErrorBanner } from '@/components/heating/ApiErrorBanner';
 import { EnergyFlowDiagram } from '@/components/energy/EnergyFlowDiagram';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 import { useKiPending } from '@/hooks/useKiPending';
+import { PresenceQuick } from '@/components/presence/Presence';
 
 const TZ = 'Europe/Vienna';
 
@@ -126,7 +127,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   const thresholdOn = settings.pv_surplus_threshold_on ?? 500;
 
   // Tagesmodus der pv-automation (system_settings.heating_day_mode, seit 27.10.2026)
-  const [dayMode, setDayMode] = useState<{ mode?: string; computed_at?: string; grid_used_w?: number; grid_cap_w?: number; ki_info?: string } | null>(null);
+  const [dayMode, setDayMode] = useState<{ mode?: string; computed_at?: string; grid_used_w?: number; grid_cap_w?: number; ki_info?: string; away?: boolean } | null>(null);
   useEffect(() => {
     let alive = true;
     const load = async () => {
@@ -139,6 +140,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   }, []);
   const dayModeFresh = dayMode?.computed_at && Date.now() - new Date(dayMode.computed_at).getTime() < 20 * 60_000;
   const dayModeText = !dayModeFresh || night ? null
+    : dayMode?.away && dayMode?.mode === 'wait' ? 'Abwesend – Räume halten „Ohne PV“, Sonne lädt bis Eco, kein Komfort'
     : dayMode?.mode === 'wait' ? 'Tagesmodus: Wartetag – Räume halten „Ohne PV“, bis Überschuss kommt'
     : dayMode?.mode === 'battery_gate' ? 'Tagesmodus: Batterie-Schutz – Räume halten „Ohne PV“'
     : dayMode?.mode === 'grid' ? `Tagesmodus: ohne PV – Eco nach Priorität, ${fmtW(dayMode.grid_used_w ?? 0)} von ${fmtW(dayMode.grid_cap_w ?? 0)}`
@@ -545,6 +547,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
           <span className="ml-auto text-sm text-violet-700 dark:text-violet-300 font-medium">Zu KI →</span>
         </button>
       )}
+      <PresenceQuick settings={settings} />
       <div className="grid md:grid-cols-2 gap-4">
         <ModeHero rooms={rooms} settings={settings} surplus={surplus} reading={currentReading} />
         <EnergyTiles r={currentReading} surplus={surplus} />

@@ -54,6 +54,13 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: 'Anwesenheit', icon: <Home className="w-3.5 h-3.5 text-primary" />,
+    fields: [
+      { k: 'presence_control_enabled', l: 'Anwesenheit steuern', kind: 'switch', def: true, hint: 'An: Außerhalb der Einträge im Kalender (Einstellungen › Anwesenheit) gilt das Haus als leer – Räume halten „Ohne PV“, Sonne lädt bis Eco, kein Komfort. Aus: immer wie bewohnt.' },
+      { k: 'presence_lead_hours', l: 'Vorlauf vor Ankunft', kind: 'number', def: 6, unit: 'h', step: 1, min: 0, max: 72, hint: 'so lange vor einem Eintrag wird wieder normal geheizt', showIf: (v) => v.presence_control_enabled !== false },
+    ],
+  },
+  {
     title: 'PV-Überschuss', icon: <Sun className="w-3.5 h-3.5 text-energy-export" />,
     fields: [
       { k: 'pv_surplus_threshold_on', l: 'Heizen ab', kind: 'number', def: 500, unit: 'W', step: 100, min: 0, max: 10000, hint: 'Einspeisung für neuen Raum' },
