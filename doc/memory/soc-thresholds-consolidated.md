@@ -16,4 +16,4 @@ Spalten bleiben in der DB (Defaults 20/80) zur Vermeidung einer Migration. Das M
 
 Nicht zu verwechseln mit:
 - `micro_budget_min_battery_soc` (default 80%) — eigener Schwellwert für Mikro-Budget-Modus.
-- `battery_reserve_for_night_soc` (default 60%) — Reserve für Nachverbrauch.
+- `battery_reserve_for_night_soc` (default 60%) — Reserve für Nachverbrauch. Eigener Wert: `battery-soc-decision` ändert ihn seit 28.10.2026 nicht mehr mit (vorher = Gate-Wert, legte Puffer/Mikro-Budget lahm).
