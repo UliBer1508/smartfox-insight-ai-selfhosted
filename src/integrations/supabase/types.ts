@@ -745,6 +745,8 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           max_grid_heating_power_w: number | null
+          presence_control_enabled: boolean
+          presence_lead_hours: number
           micro_budget_enabled: boolean | null
           micro_budget_min_battery_soc: number | null
           micro_heat_duration_min: number | null
@@ -812,6 +814,8 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          presence_control_enabled?: boolean
+          presence_lead_hours?: number
           micro_budget_enabled?: boolean | null
           micro_budget_min_battery_soc?: number | null
           micro_heat_duration_min?: number | null
@@ -879,6 +883,8 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          presence_control_enabled?: boolean
+          presence_lead_hours?: number
           micro_budget_enabled?: boolean | null
           micro_budget_min_battery_soc?: number | null
           micro_heat_duration_min?: number | null
@@ -1069,6 +1075,36 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      presence_periods: {
+        Row: {
+          created_at: string
+          end_at: string
+          id: string
+          note: string | null
+          source: string
+          start_at: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          end_at: string
+          id?: string
+          note?: string | null
+          source?: string
+          start_at: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          end_at?: string
+          id?: string
+          note?: string | null
+          source?: string
+          start_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
       price_suggestions: {
         Row: {

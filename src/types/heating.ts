@@ -60,6 +60,9 @@ export interface HeatingSettings {
   // Leistungsbudget-Management
   power_budget_enabled?: boolean;
   max_grid_heating_power_w?: number;
+  // Anwesenheit (28.10.2026): aus = immer anwesend; Vorlauf vor Kalender-Eintrag
+  presence_control_enabled?: boolean;
+  presence_lead_hours?: number;
   power_budget_tolerance_w?: number;
   room_rotation_minutes?: number;
   // PV-Boost
