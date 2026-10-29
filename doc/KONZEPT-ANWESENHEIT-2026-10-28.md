@@ -1,6 +1,6 @@
 # Konzept: Anwesenheit – „Ich bin da / Ich bin weg“
 
-**Stand:** 28. Oktober 2026 · **Status:** FREIGEGEBEN (Uli, 28.10.2026) – umgesetzt, Testphase
+**Stand:** 29. Oktober 2026 · **Status:** FREIGEGEBEN (Uli, 28.10.2026) – umgesetzt, Testphase; Kalender-Ansicht 29.10.2026 (Abschnitt 7)
 **Supabase:** `pflnniklvqbwjwrjswaz` · **Betrifft:** `pv-automation`, `heating_settings`, neue Tabelle
 `presence_periods`, App (Übersicht, Einstellungen)
 **Baut auf:** `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`
@@ -61,8 +61,8 @@ in 2–3 Wochen mit kälteren Tagen nachrechnen.
 | Was | Wo |
 |---|---|
 | Zustand, „Ich bin da bis …“ (Standard: kommender Sonntag 18:00), „Ich bin weg“ | Übersicht, Karte „Anwesenheit“ |
-| Kalender: Von – Bis – Notiz, laufende Einträge „Jetzt beenden“, künftige löschen | Einstellungen › Anwesenheit |
-| Anwesenheit steuern an/aus, Vorlauf | Einstellungen › Haus › Anwesenheit |
+| Kalender mit Monat / Woche / Tag (seit 29.10.2026, Abschnitt 7): Tage antippen oder Von – Bis – Notiz, Einträge bearbeiten, laufende „Jetzt beenden“, künftige löschen | Einstellungen › Anwesenheit |
+| Anwesenheit steuern an/aus, Vorlauf, Standard-Anreise/-Abreise | Einstellungen › Haus › Anwesenheit |
 | Tagesmodus „Abwesend – Räume halten ‚Ohne PV‘ …“ | Übersicht › Betriebsmodus |
 
 „Ich bin weg“ beendet laufende Einträge sofort; künftige bleiben stehen.
@@ -105,6 +105,32 @@ from presence_periods order by start_at desc limit 10;
    Analyse („Eingespeist, während Räume unter Komfort“) kennzeichnen bzw. ausklammern.
 2. Nachrechnen der Ersparnis mit kälteren Tagen (Abfragen im Anhang).
 3. Später möglich: Handy im WLAN (FritzBox) setzt „anwesend“ automatisch – nie automatisch „weg“.
+
+## 7. Kalender mit Monat / Woche / Tag (29.10.2026)
+
+Freigegeben von Uli am 29.10.2026 nach Mockup. Vorbild: Belegungskalender der Hausverwaltung.
+
+| Ansicht | Inhalt |
+|---|---|
+| **Monat** | drei Monate als Tagesstreifen. Volle Tage kräftig, An-/Abreisetage hell, leere Tage grau, Sonntage fett, heute umrandet. Leeren Tag antippen = Anreise, zweiten Tag antippen = Abreise; Tag mit Aufenthalt antippen markiert ihn in der Liste. |
+| **Woche** | 7 Spalten 0–24 Uhr: Vorlauf (schraffiert), Anwesenheit, Nacht (halbtransparent), rote Linie = jetzt. Kopf einer Spalte antippen öffnet den Tag. |
+| **Tag** | 24-h-Leiste und „Ablauf an diesem Tag“ (Nacht-Ende, Vorlauf, Anreise, Abreise, Nacht-Beginn). |
+
+- Uhrzeiten beim Antippen: **Standard-Anreise** `presence_arrival_time` (14:00) und **Standard-Abreise**
+  `presence_departure_time` (11:00), einstellbar in Einstellungen › Haus › Anwesenheit (SQL
+  `08_anwesenheit_uhrzeiten.sql`). Pro Aufenthalt im Formular frei änderbar.
+- Nachtzeiten in Woche/Tag aus `night_start_time` / `night_end_time`, Vorlauf aus `presence_lead_hours`.
+- Einträge lassen sich jetzt auch **bearbeiten** (laufende: Ende verschieben oder „Jetzt beenden“).
+- Nur App: gespeichert wird wie bisher in `presence_periods`; **`pv-automation` unverändert**.
+- Dateien: `src/components/presence/PresenceCalendar.tsx` (neu), `Presence.tsx` (verweist darauf),
+  `settings/HouseSettingsCard.tsx`, `hooks/useHeatingSettings.ts`, `types/heating.ts`,
+  `integrations/supabase/types.ts`.
+- Geprüft: `tsc` nur die 3 bekannten Altfehler, ESLint ohne Befund, `vite build` ok; alle drei
+  Ansichten mit Beispieldaten im Browser gerendert, Antippen (20.11. → 22.11.) füllt 14:00 / 11:00.
+
+**Einspielen:** erst `08_anwesenheit_uhrzeiten.sql` im SQL-Editor, dann die App-Dateien (Vercel).
+Ohne SQL 08 zeigt der Kalender die Standardwerte 14:00 / 11:00, nur das Speichern der beiden neuen
+Felder in Haus › Anwesenheit schlägt fehl.
 
 ## Anhang: Mess-Abfragen
 

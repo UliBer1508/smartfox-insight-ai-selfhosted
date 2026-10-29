@@ -63,6 +63,9 @@ export interface HeatingSettings {
   // Anwesenheit (28.10.2026): aus = immer anwesend; Vorlauf vor Kalender-Eintrag
   presence_control_enabled?: boolean;
   presence_lead_hours?: number;
+  // Anwesenheits-Kalender (29.10.2026): Standard-Uhrzeiten beim Antippen eines Tages (nur App)
+  presence_arrival_time?: string;
+  presence_departure_time?: string;
   power_budget_tolerance_w?: number;
   room_rotation_minutes?: number;
   // PV-Boost

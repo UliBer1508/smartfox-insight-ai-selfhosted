@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.10.0] - 2026-10-29
+
+### Added (Anwesenheit)
+- Anwesenheit (28.10.2026, `doc/KONZEPT-ANWESENHEIT-2026-10-28.md`): Kalender `presence_periods`, außerhalb gilt das Haus als leer (jeder Tag ein Wartetag, kein Komfort), Vorlauf, Schnellschalter in der Übersicht – SQL `07_anwesenheit.sql`.
+- Kalender in Einstellungen › Anwesenheit mit **Monat / Woche / Tag** (29.10.2026): Tage antippen, An-/Abreisetage hell, Vorlauf und Nacht in Woche und Tag, Einträge bearbeiten.
+- Standard-Anreise/-Abreise (`presence_arrival_time`, `presence_departure_time`) in Einstellungen › Haus › Anwesenheit – SQL `08_anwesenheit_uhrzeiten.sql`.
+
+---
+
 ## [2.9.0] - 2026-10-27
 
 ### Changed (Grundkonzept Tagesablauf)

@@ -41,6 +41,9 @@ const defaultSettings: HeatingSettings = {
   // Nacht-Zeiten
   night_start_time: '22:00',
   night_end_time: '08:00', // = Code-Default in pv-automation
+  // Anwesenheits-Kalender (nur App, SQL 08)
+  presence_arrival_time: '14:00',
+  presence_departure_time: '11:00',
   // Leistungsbudget-Management
   power_budget_enabled: true,
   max_grid_heating_power_w: 2000,

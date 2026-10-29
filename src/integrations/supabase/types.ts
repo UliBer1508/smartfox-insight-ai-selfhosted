@@ -745,7 +745,9 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           max_grid_heating_power_w: number | null
+          presence_arrival_time: string
           presence_control_enabled: boolean
+          presence_departure_time: string
           presence_lead_hours: number
           micro_budget_enabled: boolean | null
           micro_budget_min_battery_soc: number | null
@@ -814,7 +816,9 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          presence_arrival_time?: string
           presence_control_enabled?: boolean
+          presence_departure_time?: string
           presence_lead_hours?: number
           micro_budget_enabled?: boolean | null
           micro_budget_min_battery_soc?: number | null
@@ -883,7 +887,9 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          presence_arrival_time?: string
           presence_control_enabled?: boolean
+          presence_departure_time?: string
           presence_lead_hours?: number
           micro_budget_enabled?: boolean | null
           micro_budget_min_battery_soc?: number | null
