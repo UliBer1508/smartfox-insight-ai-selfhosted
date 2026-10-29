@@ -7,6 +7,9 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [2.10.0] - 2026-10-29
 
+### Added (Alexa)
+- Sprachsteuerung über den Alexa-Skill „Meine Heizung“ (gemeinsam mit München, Code im Repo `heizung-muenchen`): Eigenverbrauch/Autarkie, Raumtemperatur, Status, Raum stellen und wieder automatisch, Anwesenheit „Ich bin da bis …“ / „Ich bin weg“. Schreibt auf denselben Wegen wie die App – Beschreibung und Schnittstellen in `doc/ALEXA.md`.
+
 ### Added (Anwesenheit)
 - Anwesenheit (28.10.2026, `doc/KONZEPT-ANWESENHEIT-2026-10-28.md`): Kalender `presence_periods`, außerhalb gilt das Haus als leer (jeder Tag ein Wartetag, kein Komfort), Vorlauf, Schnellschalter in der Übersicht – SQL `07_anwesenheit.sql`.
 - Kalender in Einstellungen › Anwesenheit mit **Monat / Woche / Tag** (29.10.2026): Tage antippen, An-/Abreisetage hell, Vorlauf und Nacht in Woche und Tag, Einträge bearbeiten.
