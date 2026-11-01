@@ -133,20 +133,30 @@ function allocateDayTargets(
   const granted = new Set<string>();
   const holdBelow = (cur: number, waitT: number) =>
     Math.min(waitT, Math.max(5, Math.floor((cur - 0.5) * 2) / 2));
+  // Batterie-Schutz (01.11.2026, Konzept Tagesablauf §3.4): nur Notfall-Heizen. Ziel ist
+  // „Untergrenze − battery_gate_floor_delta“, Leistung höchstens battery_gate_max_power_w.
+  // Vorher: Untergrenze mit bis zu max_grid_heating_power_w – das zog die Batterie leer (01.11.).
+  const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 1.0));
 
   for (const rp of rooms) {
-    const waitT = getWaitMinTemp(rp.room, settings);
+    const waitT = dayMode === 'battery_gate'
+      ? Math.max(5, getWaitMinTemp(rp.room, settings) - gateDelta)
+      : getWaitMinTemp(rp.room, settings);
     const cur = Number(rp.room.current_temp) || 0;
     if (cur > 0 && cur < waitT) {
       if (gridUsedW + rp.heatingPower <= maxGridW) {
         gridUsedW += rp.heatingPower;
         granted.add(rp.room.id);
-        targets.set(rp.room.id, { temp: waitT, why: `unter Mindesttemperatur (${cur.toFixed(1)} < ${waitT}°C), Netz ${gridUsedW}/${maxGridW}W` });
+        targets.set(rp.room.id, { temp: waitT, why: dayMode === 'battery_gate'
+          ? `Notfall: unter Untergrenze − ${gateDelta}°C (${cur.toFixed(1)} < ${waitT}°C), ${gridUsedW}/${maxGridW}W`
+          : `unter Mindesttemperatur (${cur.toFixed(1)} < ${waitT}°C), Netz ${gridUsedW}/${maxGridW}W` });
       } else {
-        targets.set(rp.room.id, { temp: holdBelow(cur, waitT), why: `unter Mindesttemperatur, Netzgrenze ${maxGridW}W erreicht → wartet` });
+        targets.set(rp.room.id, { temp: holdBelow(cur, waitT), why: `unter ${dayMode === 'battery_gate' ? 'Notfall-Grenze' : 'Mindesttemperatur'}, Grenze ${maxGridW}W erreicht → wartet` });
       }
     } else {
-      targets.set(rp.room.id, { temp: waitT, why: `${modeText} → Mindesttemperatur` });
+      targets.set(rp.room.id, { temp: waitT, why: dayMode === 'battery_gate'
+        ? `${modeText} → Untergrenze − ${gateDelta}°C (kein Heizen)`
+        : `${modeText} → Mindesttemperatur` });
     }
   }
 
@@ -1894,15 +1904,17 @@ Deno.serve(async (req) => {
         comfortBudget = 0;
       }
 
-      // Hartes Gate: Wenn SOC < heatingMinSoc UND (Batterie nicht aktiv lädt ODER Netzbezug stattfindet) → Heiz-Budgets auf 0.
-      // Schließt Lücke bei batteryPower≈0 (idle/leer) und bei Mess-Jitter (+1W "Laden"). Greift auch bei Netzbezug.
-      const _gridImportNow = (reading.power_io ?? 0) > 50;
-      const _batteryNotCharging = batteryPower <= 50;
-      const socGateBlocked = batterySoc < heatingMinSoc && (_batteryNotCharging || _gridImportNow);
+      // Ladestand-Grenze (seit 01.11.2026 ohne Ausnahme, Konzept Tagesablauf §3.4):
+      // SOC < heatingMinSoc → Batterie-Schutz, AUCH wenn die Batterie gerade lädt. Die Sonne gehört
+      // zuerst der Batterie. Vorher galt das Gate nur bei „lädt nicht oder Netzbezug“ und öffnete
+      // genau dann, wenn PV die Batterie lud – die Heizung nahm ihr die Sonne weg (01.11.2026).
+      const socGateBlocked = batterySoc < heatingMinSoc;
       if (socGateBlocked) {
         if (socGateMode === 'strict') {
-          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W, power_io=${Math.round(reading.power_io ?? 0)}W → Eco-Budget ${availableBudget}W → 0W, Komfort 0W`);
-          availableBudget = 0;
+          // Geheizt wird nur noch aus echter Einspeisung: Sonne, die die Batterie nicht mehr aufnimmt.
+          const exportBudget = gridExport >= pvThresholdOn ? gridExport + currentlyHeatingPower : 0;
+          console.log(`[SOC-GATE] 🚫 STRICT: SOC ${batterySoc}% < ${heatingMinSoc}%, batteryPower=${Math.round(batteryPower)}W, Export=${Math.round(gridExport)}W → Eco-Budget ${availableBudget}W → ${exportBudget}W (nur echte Einspeisung), Komfort 0W`);
+          availableBudget = exportBudget;
           comfortBudget = 0;
 
           // ============= AKTIVE NOTFALL-STOPS =============
@@ -1922,19 +1934,19 @@ Deno.serve(async (req) => {
               const overrideActive = r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMs;
               if (overrideActive) return false;
               if (!r.tuya_device_id) return false;
-              const waitT = getWaitMinTemp(r, settings);
+              const floorT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 1.0)));
               const targetT = Number(r.target_temp) || 0;
-              return targetT > waitT + 0.1;
+              return targetT > floorT + 0.1;
             });
 
             if (candidates.length > 0) {
               const successIds: string[] = [];
               for (const r of candidates) {
-                const waitT = getWaitMinTemp(r, settings);
-                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop', `Batterie-Schutz (SOC ${batterySoc}%) → Untergrenze ${waitT}°C`);
+                const waitT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 1.0)));
+                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop', `Batterie-Schutz (SOC ${batterySoc}%) → Untergrenze − Abstand = ${waitT}°C`);
                 if (result.success) {
                   successIds.push(r.id);
-                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → Mindesttemperatur ohne PV ${waitT}°C (mode=${controlMode})`);
+                  console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → Notfall-Grenze ${waitT}°C (mode=${controlMode})`);
                 } else {
                   console.error(`[SOC-GATE-STOP] ❌ ${r.name}: ${result.errorType} - ${result.errorMessage}`);
                 }
@@ -1963,8 +1975,6 @@ Deno.serve(async (req) => {
             console.log(`[SOC-GATE] ⚠️ SOFT: SOC ${batterySoc}% < ${heatingMinSoc}%, Batterie lädt (${Math.round(batteryPower)}W) → Komfort=0W, Eco erlaubt`);
           }
         }
-      } else if (batterySoc < heatingMinSoc) {
-        console.log(`[SOC-GATE] ✅ SOC ${batterySoc}% < ${heatingMinSoc}%, aber Batterie lädt aktiv (${Math.round(batteryPower)}W > 50W) und kein Netzbezug → Heizung erlaubt`);
       }
 
       // ============= PRE-HEAT-SIGNAL aus analyze-patterns =============
@@ -2784,12 +2794,16 @@ Deno.serve(async (req) => {
         : dayMode === 'wait'
           ? `Wartetag (PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh ≥ ${dayThreshold}× Eco-Bedarf)`
           : 'kein PV-Überschuss erwartet';
+      // Batterie-Schutz: eigene, kleinere Grenze nur für Notfall-Heizen (01.11.2026)
+      const dayCapW = dayMode === 'battery_gate'
+        ? Math.max(0, Number(settings?.battery_gate_max_power_w ?? 1000))
+        : maxGridHeatingW;
       const { targets: dayFallback, gridUsedW } = allocateDayTargets(
         unbudgetedRooms.map(rp => ({ room: rp.room, heatingPower: rp.heatingPower })),
-        settings, dayMode, maxGridHeatingW, modeText,
+        settings, dayMode, dayCapW, modeText,
       );
 
-      console.log(`[TAGESMODUS] ${dayMode} | Ratio=${dayRatio === null ? '–' : dayRatio.toFixed(2)} Schwelle=${dayThreshold} | KI: ${kiInfo} | Netz ${gridUsedW}/${maxGridHeatingW}W | ${unbudgetedRooms.length} Räume ohne Budget`);
+      console.log(`[TAGESMODUS] ${dayMode} | Ratio=${dayRatio === null ? '–' : dayRatio.toFixed(2)} Schwelle=${dayThreshold} | KI: ${kiInfo} | Netz ${gridUsedW}/${dayCapW}W | ${unbudgetedRooms.length} Räume ohne Budget`);
       for (const rp of unbudgetedRooms) {
         const fb = dayFallback.get(rp.room.id);
         if (fb) console.log(`[TAGESMODUS] ${rp.room.name}: ${fb.temp}°C (${fb.why})`);
@@ -2804,7 +2818,7 @@ Deno.serve(async (req) => {
             threshold: dayThreshold,
             ki_adjust: kiAdjust,
             ki_info: kiInfo,
-            grid_cap_w: maxGridHeatingW,
+            grid_cap_w: dayCapW,
             grid_used_w: gridUsedW,
             away: isAway,
             presence_reason: presence.reason,

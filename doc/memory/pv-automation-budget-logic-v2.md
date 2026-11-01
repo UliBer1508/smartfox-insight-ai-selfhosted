@@ -16,7 +16,9 @@ Das Heizbudget der `pv-automation` arbeitet mit zwei separaten Budgets und mehre
 
 **Komfort-Budget** (`comfortBudget`): IMMER strikt — nur echter `gridExport`, niemals Batterie, niemals Prognose-/Trend-/Reserve-Bonus.
 
-**SOC-GATE (gehärtet, v3)** — schützt definierten Schwellwert `heating_min_battery_soc` (default 80%):
+**SOC-GATE / Batterie-Schutz (v4, 01.11.2026):** Bedingung nur noch `batterySoc < heatingMinSoc` (keine Ausnahme bei Laden). strict: `availableBudget = gridExport ≥ pvThresholdOn ? gridExport + currentlyHeatingPower : 0`, Komfort 0. Notfall-Stops und Tagesmodus-Ziel = `wait_min_temp − battery_gate_floor_delta`, Notfall-Heizen bis `battery_gate_max_power_w`. Die v3-Beschreibung unten (Punkt 2, Ziel „Ohne PV“) ist überholt.
+
+**SOC-GATE (gehärtet, v3, überholt)** — schützt definierten Schwellwert `heating_min_battery_soc` (default 80%):
 
 1. **Komfort-Hard-Lock (immer aktiv):** Sobald `batterySoc < heatingMinSoc` → `comfortBudget = 0`, unabhängig davon ob die Batterie gerade lädt oder entlädt. Verhindert dass Komfort-Targets vormittags „durchlaufen", wenn der SOC später fällt.
 

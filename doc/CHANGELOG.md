@@ -5,6 +5,13 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.13.0] - 2026-11-01
+
+### Fixed (Batterie-Schutz)
+- Ladestand-Grenze gilt ohne Ausnahme unter `heating_min_battery_soc`, auch wenn die Batterie lädt (Sonne zuerst in die Batterie); geheizt wird dann nur mit echter Einspeisung.
+- Im Batterie-Schutz nur Notfall-Heizen: unter Untergrenze − Abstand (1,0 °C), höchstens 1000 W – neue Werte unter Einstellungen › Haus. SQL `12_batterie_schutz.sql`.
+- Protokoll › Energie rechnet Räume ohne eingetragene Leistung mit 800 W (wie die Steuerung).
+
 ## [2.12.0] - 2026-11-01
 
 ### Added (Test- und Protokoll-Modul, `doc/PROTOKOLL-MODUL-2026-11-01.md`)

@@ -60,6 +60,9 @@ export interface HeatingSettings {
   // Leistungsbudget-Management
   power_budget_enabled?: boolean;
   max_grid_heating_power_w?: number;
+  // Batterie-Schutz (01.11.2026): Notfall-Heizen erst unter Untergrenze − Abstand, eigene Leistungsgrenze
+  battery_gate_floor_delta?: number;
+  battery_gate_max_power_w?: number;
   // Anwesenheit (28.10.2026): aus = immer anwesend; Vorlauf vor Kalender-Eintrag
   presence_control_enabled?: boolean;
   presence_lead_hours?: number;

@@ -115,7 +115,8 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `night_start_time`, `night_end_time` (Code-Standard 22:00–08:00; eingestellt 22:00–08:00, am 01.07.2026 über die App gesetzt). `night_end_time` = Tagesstart / Morgenbewertung
 - `night_heating_mode`: `frost_only` (5°C, eingestellt) | `maintain` (night_temp)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
-- `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Tagesmodus, seit 27.10.2026 wieder wirksam)
+- `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Wartetag / ohne PV; **nicht** im Batterie-Schutz)
+- `battery_gate_floor_delta` (1,0 °C), `battery_gate_max_power_w` (1000 W): Notfall-Heizen im Batterie-Schutz (seit 01.11.2026)
 - `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026, umgedreht 01.11.2026) – Grundzustand anwesend; Kalender `presence_periods` = Zeiträume, in denen das Haus **leer** ist; Vorlauf vor dem Ende (Rückkehr). Aus = immer anwesend
 - `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
 - `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze. Wird vom KI-Batterie-Vorschlag **nicht** geändert (seit 28.10.2026; vorher beim Übernehmen mit überschrieben)
@@ -142,7 +143,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 1. **Übertemperatur:** `currentRoomTemp >= target + 0.4` bei `is_heating` → Stop auf Eco
 2. **Manual Override:** `manual_override_until > now()` → unbedingt respektieren
 3. **Hard PV Gate:** `pv_power < 300W` UND `forecast_kwh < 8` → kein PV-Heizen (fest im Code)
-4. **Batterie-Gate:** SOC < `heating_min_battery_soc` und Batterie lädt nicht / Netzbezug → (strict) Budgets 0, aktive Stopps auf **„Untergrenze“** (`wait_min_temp`, seit 27.10.2026; vorher night_temp)
+4. **Batterie-Schutz (Ladestand-Grenze):** SOC < `heating_min_battery_soc` – **ohne Ausnahme, auch wenn die Batterie lädt** (seit 01.11.2026). strict: Eco-Budget nur aus echter Einspeisung (≥ `pv_surplus_threshold_on`), Komfort 0; aktive Stopps auf **Untergrenze − `battery_gate_floor_delta`**; Notfall-Heizen darunter bis `battery_gate_max_power_w` (Konzept Tagesablauf §3.4)
 5. **Quota Exhausted** (nur Cloud-Modus): keine Schreib-Operationen
 
 ### Stufe 2: Phase 1 — Eco für Räume unter Eco, nach Priorität
@@ -161,7 +162,7 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 
 | Modus | Bedingung | Ziel |
 |---|---|---|
-| `battery_gate` | Batterie-Gate aktiv (strict) | „Untergrenze“ |
+| `battery_gate` | Batterie-Schutz aktiv (strict) | „Untergrenze − Abstand“ (1,0 °C); Notfall darunter bis `battery_gate_max_power_w` (1000 W) |
 | `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Untergrenze“ |
 | `wait` (abwesend) | laufender Eintrag in `presence_periods` (Abwesenheit, ohne Vorlauf vor Rückkehr), seit 01.11.2026 – auch nach Sonnenuntergang | „Untergrenze“; PV-Überschuss trotzdem Eco → Komfort |
 | `grid` (ohne PV) | sonst, und immer nach Sonnenuntergang | Eco nach Priorität, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
@@ -577,7 +578,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Browser → LAN | CORS-Block | Lokaler Collector-Service |
 | Realtime | PGRST002-Fehler | 30–60s Polling stattdessen |
 | AI Reward Self-Correction | Nicht möglich | Manuelle Reward-Updates |
-| Batterie-Entladung | Smartfox/Fronius decken jede Hauslast zuerst aus der Batterie (bis Mindest-SOC); wir stellen dort nichts ein (Grundsatz §1) | nur über die Heizlast: Tagesmodus + Netzgrenze + Ladestand-Grenze (`battery_gate`) |
+| Batterie-Entladung | Smartfox/Fronius decken jede Hauslast zuerst aus der Batterie (bis Mindest-SOC); wir stellen dort nichts ein (Grundsatz §1) | nur über die Heizlast: Tagesmodus + Ladestand-Grenze ohne Ausnahme (`battery_gate`, Sonne zuerst in die Batterie) |
 | Außentemperatur-Historie | `weather_data` erst ab 23.10.2026 | — |
 
 ---
@@ -617,6 +618,10 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
 - Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
+
+### 2026-11-01 — Batterie-Schutz ohne Lücken
+- Befund: Batterie mittags nur bis ~14 %, nachmittags wieder auf 5 %. Lücke 1: Gate öffnete, sobald PV die Batterie lud. Lücke 2: im Batterie-Schutz bis 2000 W für Räume unter Untergrenze (kam aus PV/Batterie).
+- `pv-automation`: Gate = `SOC < heating_min_battery_soc`; strict-Budget nur echte Einspeisung; Ziel Untergrenze − `battery_gate_floor_delta`, Notfall bis `battery_gate_max_power_w`. SQL `12_batterie_schutz.sql` (zwei neue Werte, Protokoll-Energie mit Leistungs-Ersatzwert 800 W). Konzept Tagesablauf §3.4 + §9.
 
 ### 2026-11-01 — Doku bereinigt
 - Grundsatz „Steuerung nur über Thermostate“ (§1, §19); Smartfox bleibt Energiemanager (Batterie, Warmwasser, Auto), nur seine Daten werden nicht genutzt.
