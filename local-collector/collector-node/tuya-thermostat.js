@@ -26,11 +26,14 @@
 
 const TuyAPI = require('tuyapi');
 
-// Datenpunkte, die aus der App geändert werden dürfen (Ganzzahl, Grenzen inkl.).
-// Bedeutung beim TGP508 nicht dokumentiert – Werte am 01.11.2026 an allen Geräten: DP 19 = -10, DP 101 = 10.
+// Datenpunkte, die aus der App geändert werden dürfen.
+// Bedeutung laut Tuya-Datenmodell baugleicher BEOK-Thermostate (TCC31/TOL47, Recherche 01.11.2026,
+// doc/THERMOSTAT-DATENPUNKTE.md). Werte am 01.11.2026 an allen Geräten: DP 19 = -10, DP 101 = 10.
 const DP_WHITELIST = {
-  '19': { min: -50, max: 50, label: 'Temperatur-Korrektur (x10)' },
-  '101': { min: 1, max: 50, label: 'DP 101 (x10, Schaltdifferenz?)' }
+  '19':  { type: 'int', min: -99, max: 99, label: 'temp_correction – Temperatur-Korrektur (x10 °C)' },
+  '101': { type: 'int', min: 5, max: 100, label: 'qidongwencha – Einschalt-Differenz (x10 °C)' },
+  '103': { type: 'bool', label: 'frost – Frostschutz' },
+  '111': { type: 'bool', label: 'dormant_switch – Nachtmodus des Geräts' }
 };
 
 // TGP508 Thermostat DPS-Mapping (verifiziert 24.10.2026)
@@ -281,10 +284,17 @@ class ThermostatController {
   async setDp(deviceConfig, dp, value, retryCount = 0, version = null) {
     const ver = version || deviceConfig.protocol_version || '3.5';
     const rule = DP_WHITELIST[String(dp)];
-    const num = Math.round(Number(value));
     if (!rule) return { success: false, error: `Datenpunkt ${dp} ist nicht freigegeben (erlaubt: ${Object.keys(DP_WHITELIST).join(', ')})` };
-    if (!Number.isFinite(num) || num < rule.min || num > rule.max) {
-      return { success: false, error: `Wert ${value} für DP ${dp} außerhalb ${rule.min}…${rule.max}` };
+    let num;
+    if (rule.type === 'bool') {
+      // Aus der Datenbank kommt 0/1 (Spalte value ist numerisch)
+      if (Number(value) !== 0 && Number(value) !== 1) return { success: false, error: `DP ${dp} erwartet 0 (aus) oder 1 (an)` };
+      num = Number(value) === 1;
+    } else {
+      num = Math.round(Number(value));
+      if (!Number.isFinite(num) || num < rule.min || num > rule.max) {
+        return { success: false, error: `Wert ${value} für DP ${dp} außerhalb ${rule.min}…${rule.max}` };
+      }
     }
     const device = this.createDevice(deviceConfig, ver);
     try {
