@@ -151,9 +151,12 @@ function EventsView({ rooms }: { rooms: Room[] }) {
 // ================================================================ Thermostate
 type Schalt = { room_id: string; raum: string; leistung_w: number | null; einschaltungen: number; ein_bei: number | null; aus_bei: number | null; nachlauf: number | null; heiz_min: number | null; zyklus_min: number | null };
 
+// Bedeutung laut Tuya-Datenmodell baugleicher BEOK-Thermostate (doc/THERMOSTAT-DATENPUNKTE.md)
 const DP_OPTIONS: { dp: string; label: string; min: number; max: number; hint: string }[] = [
-  { dp: '19', label: 'DP 19 – Temperatur-Korrektur', min: -50, max: 50, hint: 'Wert in Zehntel-Grad, heute überall −10 (= −1,0 °C)' },
-  { dp: '101', label: 'DP 101 – Bedeutung offen (Schaltdifferenz?)', min: 1, max: 50, hint: 'Wert in Zehntel, heute überall 10' },
+  { dp: '19', label: 'DP 19 – Temperatur-Korrektur', min: -99, max: 99, hint: 'Zehntel-Grad: −10 = −1,0 °C (heute überall), 0 = keine Korrektur' },
+  { dp: '101', label: 'DP 101 – Einschalt-Differenz', min: 5, max: 100, hint: 'Zehntel-Grad, in 5er-Schritten: 10 = 1,0 °C (heute überall)' },
+  { dp: '111', label: 'DP 111 – Nachtmodus des Geräts', min: 0, max: 1, hint: '0 = aus, 1 = an. Eigenes Nachtprogramm im Thermostat (läuft mit dessen falscher Uhr)' },
+  { dp: '103', label: 'DP 103 – Frostschutz des Geräts', min: 0, max: 1, hint: '0 = aus, 1 = an' },
 ];
 
 function ThermostatsView({ rooms }: { rooms: Room[] }) {
@@ -232,8 +235,9 @@ function ThermostatsView({ rooms }: { rooms: Room[] }) {
                   <th className="py-2 px-2 font-medium text-right">Ist</th>
                   <th className="py-2 px-2 font-medium">Heizt</th>
                   <th className="py-2 px-2 font-medium">Modus</th>
-                  <th className="py-2 px-2 font-medium text-right">Korr.</th>
-                  <th className="py-2 px-2 font-medium text-right">DP 101</th>
+                  <th className="py-2 px-2 font-medium text-right" title="DP 19 Temperatur-Korrektur">Korr.</th>
+                  <th className="py-2 px-2 font-medium text-right" title="DP 101 Einschalt-Differenz">Diff.</th>
+                  <th className="py-2 px-2 font-medium" title="DP 111 Nachtmodus des Geräts">Nacht</th>
                   <th className="py-2 px-2 font-medium text-right" title="Abstand zum Soll beim Einschalten, letzte 3 Tage">Ein bei</th>
                   <th className="py-2 px-2 font-medium text-right" title="Abstand zum Soll beim Ausschalten, letzte 3 Tage">Aus bei</th>
                   <th className="py-2 px-2 font-medium text-right" title="höchster Wert nach dem Ausschalten">Nachlauf</th>
@@ -253,7 +257,10 @@ function ThermostatsView({ rooms }: { rooms: Room[] }) {
                       <td className={`py-2 px-2 ${s?.heizt ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>{s ? (s.heizt ? 'ja' : 'nein') : '–'}</td>
                       <td className={`py-2 px-2 ${s?.mode && s.mode !== 'home' ? 'text-destructive font-semibold' : ''}`}>{s?.mode ?? '–'}</td>
                       <td className="py-2 px-2 text-right">{signed(s?.korrektur)}</td>
-                      <td className="py-2 px-2 text-right">{s?.dp101 ?? '–'}</td>
+                      <td className="py-2 px-2 text-right">{s?.dp101 != null ? num(Number(s.dp101) / 10) : '–'}</td>
+                      <td className={`py-2 px-2 ${(s?.dps as Record<string, unknown> | undefined)?.['111'] === true ? 'text-destructive font-semibold' : 'text-muted-foreground'}`}>
+                        {s ? ((s.dps as Record<string, unknown>)?.['111'] === true ? 'an' : 'aus') : '–'}
+                      </td>
                       <td className="py-2 px-2 text-right">{signed(p?.ein_bei, 2)}</td>
                       <td className="py-2 px-2 text-right">{signed(p?.aus_bei, 2)}</td>
                       <td className="py-2 px-2 text-right">{signed(p?.nachlauf, 2)}</td>
@@ -305,7 +312,7 @@ function ThermostatsView({ rooms }: { rooms: Room[] }) {
         <CardContent className="p-4 space-y-3">
           <h3 className="font-semibold">Thermostat-Einstellung testen</h3>
           <Hint>
-            Schreibt einen Datenpunkt direkt ins Thermostat. Freigegeben sind nur DP 19 und DP 101. Erst an einem Raum testen,
+            Schreibt einen Datenpunkt direkt ins Thermostat. Freigegeben sind DP 19, 101, 103 und 111. Erst an einem Raum testen,
             dann einen halben Tag die Schaltpunkte oben beobachten. Jede Änderung steht mit altem und neuem Wert im Protokoll.
           </Hint>
           <div className="grid gap-2 sm:grid-cols-[1fr_1.4fr_120px_auto] items-end">

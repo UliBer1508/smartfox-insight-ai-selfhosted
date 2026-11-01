@@ -53,7 +53,7 @@ Schreibvorgang nie ab (Fehler → WARNING).
 
 ## Offen
 
-- Bedeutung von DP 15, 101, 102, 103, 104, 106–111 (TGP508 nicht dokumentiert).
+- Bedeutung der Datenpunkte: `doc/THERMOSTAT-DATENPUNKTE.md` (Recherche 01.11.2026).
 - Haustür und Toilette Eingang haben keine Heizleistung (`heating_power_w` leer) → zählen in Energie-
   abgleich und Netzgrenze mit 0 W. In Einstellungen › Räume eintragen.
 - `pv-automation` schickt teils alle 5 min denselben Sollwert (z. B. Kinder Bad am 31.10.). Im Protokoll
