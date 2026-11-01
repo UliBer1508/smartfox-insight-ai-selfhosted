@@ -87,7 +87,7 @@ der Fronius: Heizt ein Raum ohne Überschuss, entlädt er zuerst die Batterie, e
 Netzstrom. „Eco aus dem Netz“ heißt in der Praxis also „Eco aus Batterie, dann Netz“. Die
 Batterie wird nur geschützt, indem die Heizlast selbst begrenzt wird (Netzgrenze 3.2, Batterie-Gate
 3.4). Ob der Fronius tagsüber das Entladen sperren kann (zeitabhängige Batteriesteuerung), ist
-**offen** (siehe 6).
+**geklärt 01.11.2026:** Wir stellen an Smartfox/Fronius nichts ein (Grundsatz: Steuerung nur über die Thermostate). Die Batterie deckt jeden Verbrauch, den die PV nicht deckt, bis zum Mindest-SOC – Schutz nur über die Heizlast (siehe `SYSTEM_DOCUMENTATION.md` §1 „Wer steuert was“).
 
 ### 3.6 KI und Muster
 - **Mustergedächtnis entscheidet über den Tagesmodus mit:** Ist der ähnlichste vergangene Tag

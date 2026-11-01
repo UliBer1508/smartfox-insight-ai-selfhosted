@@ -44,10 +44,32 @@
 |---|---|---|
 | **PV-Anlage** | 15.8 kWp, Süd, 35° Neigung | Forecast.Solar API |
 | **Batterie** | 13.8 kWh (Fronius-verwaltet) | Fronius API (P_Akku, SOC) |
-| **Smartfox Energy Manager** | 192.168.188.45 | `/all` HTTP-Endpoint |
+| **Smartfox Pro Energiemanager** | 192.168.188.45 | `/all` HTTP-Endpoint (Daten nicht mehr genutzt); regelt Batterie, Warmwasser, Auto selbst |
 | **Fronius Wechselrichter** | 192.168.188.64 | `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` |
 | **Tuya Thermostate** | 12 × TGP508 (MAC 3C:0B:59) | Tuya Cloud (Cloud-Modus) ODER Port 6668 (Lokal-Modus) |
 | **Standort** | 47.24983°N, 12.25415°E (Österreich), Europe/Vienna | — |
+
+### Wer steuert was (Grundsatz, Uli 01.11.2026)
+
+**Unser System steuert ausschließlich über die Thermostate.** An Smartfox und Fronius wird nichts eingestellt –
+keine Regeln, die sich mit unserer Steuerung überkreuzen.
+
+| Gerät | Rolle | von uns gesteuert? |
+|---|---|---|
+| **Smartfox Pro** (Energiemanager) | regelt Batterie und Verbraucher: PV-Überschuss lädt **zuerst die Batterie**, danach Warmwasser und Auto | nein |
+| **Fronius** (Wechselrichter + Batterie) | liefert die Messwerte (PV, Verbrauch, Netz, Batterie, SOC) | nein |
+| **TGP508-Thermostate** | Heizung je Raum | **ja** – einziger Steuerweg |
+
+**Batterie-Verhalten (Recherche Smartfox-/Fronius-Doku, 01.11.2026):** Der Smartfox regelt die Batterie auf
+„0 W Netzbezug“ (Smartfox-Batteriemodell „Fronius Control“: Zielwert 0 W, max. Entladeleistung, Mindest-SOC)
+bzw. der Fronius selbst bei Batteriemodell „Fronius“. In beiden Fällen gilt: **Reicht die PV nicht, deckt die
+Batterie jeden Verbrauch im Haus – tags wie nachts – bis zum Mindest-Ladestand (bei uns ~4–5 %).** Erst darunter
+kommt Netzstrom. Belegt am 31.10.2026: 15–17 Uhr Entladung mit 3,4–5,6 kW für die Heizung, Batterie 85 → 5 %.
+
+Folge: „Die Batterie gehört der Nacht“ lässt sich **nur über die Heizlast** erreichen, also über unsere
+Thermostat-Sollwerte. Das macht die Regel **Ladestand-Grenze** in `pv-automation` (Tagesmodus `battery_gate`,
+in der App „Batterie-Schutz“; Wert `heating_min_battery_soc`, 75 %). Sie ist **nicht** der Batterieschutz des
+Wechselrichters (Mindest-SOC), den wir weder steuern noch ändern.
 
 **Thermostat-Inventar:** 11 statische IPs (192.168.188.42, .43, .61–.69, .79). 10 Local Keys verfügbar.
 
