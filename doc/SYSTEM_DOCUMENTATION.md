@@ -10,7 +10,7 @@
 > 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
 > 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
 >
-> **Letzte Aktualisierung:** 2026-10-28 · **Version:** 3.4 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> **Letzte Aktualisierung:** 2026-11-01 · **Version:** 3.5 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -91,8 +91,8 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - **Polling-Intervall:** Collector 300 s, `pv-automation` per pg_cron alle 5 Min + Anstoß durch den Thermostat-Dienst nach jedem Sync (kein Supabase-Realtime — verursachte PGRST002-Fehler)
 - **Lokaler Collector** ist erforderlich (CORS verhindert direktes Browser-Polling von LAN-Geräten)
 - **Zwei separate Prozesse:** Fronius-Collector (Daten) und Tuya-Local-Service (Thermostat-Steuerung) sind strikt getrennt
-- **Smartfox-Inversion:** `power_io` ist invertiert (negativ = Bezug). Battery-Konvention: positiv = Laden
-- **Smartfox Relay-Daten:** `power_smartfox` und `relay_status` (jsonb) erfassen versteckte Boiler-Lasten
+- **Vorzeichen (Fronius, verifiziert):** `power_io` positiv = Netzbezug, negativ = Einspeisung; `battery_power` positiv = Entladen, negativ = Laden (pv-automation dreht intern auf positiv = Laden). Die frühere „Smartfox-Inversion“ gilt nicht mehr.
+- `power_smartfox` und `relay_status`: Altspalten aus der Zeit, als der Smartfox Daten lieferte – werden nicht mehr gefüllt.
 
 **Aufbewahrung (`cleanup_old_data` täglich):**
 - Rohdaten `energy_readings`: 7 Tage
@@ -362,16 +362,18 @@ Tab **Protokoll** und Tabelle `protokoll_events` (Trigger, SQL 11): jede Sollwer
 
   Ändern über Tab Protokoll › Thermostate (freigegeben: 19, 101, 103, 111).
 
-### Lokaler Service – Robustheit (Hybrid v4)
-`local-collector/collector-node/tuya-thermostat.js` implementiert:
-1. **Per-Device Command-Queue** (`enqueue`) — serialisiert alle Operationen pro `device_id`, verhindert hängende Promises bei parallelem Zugriff (Sync + PV-Automation)
-2. **Persistente Verbindungen** (kein Connect/Disconnect pro Befehl), `issueRefreshOnConnect: false` verhindert Session-Drops
-3. **Connect-Timeout 5s** + **Operation-Timeout 3s** (`withTimeout`) — bricht ewig hängende Aufrufe bei toter IP/Handshake ab
-4. **Garantiertes Force-Disconnect** im Fehlerpfad + **2 Retries mit Backoff** (1s, 2s) innerhalb der Queue
-5. **Auto-Protokoll-Versions-Erkennung** (v4): Scheitert der Connect (typisch „connection timed out" trotz offenem Port 6668), werden automatisch **3.3 → 3.4 → 3.5** durchprobiert. Die erste funktionierende Version wird pro `device_id` in der `versions`-Map gemerkt und künftig direkt genutzt. Fängt Firmware-OTA-bedingte Versionswechsel einzelner TGP508 selbstheilend ab. `ensureConnected` gibt die (ggf. neu erstellte) aktive Instanz zurück; Aufrufer nutzen diese. Optionales `version`-Feld pro Gerät in `config.json` (Default `3.3`).
-6. **DPS-Mapping:** siehe oben (v1.3). Das frühere Mapping `MODE='1'`, `HEATING='4'` war falsch.
-7. **setTemperature atomar:** setzt Modus `home` + Soll in 1 Roundtrip. pv-automation schickt deshalb seit 27.10.2026 kein separates `set_mode` mehr (scheiterte immer: Wert stand in `value_text`, Dienst las `value`).
-8. **TCP-Preflight** (`tcpProbe`, Port 6668, <1s) im Collector vor jedem Sync — unerreichbare Geräte werden sofort als `device_offline` geloggt, erreichbare in Batches á 3 verarbeitet.
+### Lokaler Thermostat-Dienst (v1.4, Stand 01.11.2026)
+Läuft auf dem Österreich-PC als NSSM-Dienst **SmartfoxTuya** im Ordner `C:\Users\ulibe\tuya-thermostat`
+(`index.js` = Collector v3.1, `tuya-thermostat.js` = Treiber v1.4, `config.json` mit Geräten und Local Keys –
+**nicht** im Repo). Quelle im Repo: `local-collector/collector-node/`. Eingespielt wird per Kopieren +
+`nssm restart SmartfoxTuya`.
+1. **Frische Verbindung je Aufruf** (`createDevice` → find → connect → get/set → disconnect), Timeout 10 s, `issueRefreshOnConnect: true`.
+2. **Protokoll-Version:** `protocol_version` je Gerät in `config.json`, Standard 3.5; scheitert 3.5, einmal 3.3 versuchen; danach 2 Wiederholungen mit Wartezeit (2 s, 4 s).
+3. **DPS-Mapping:** siehe oben. Das frühere Mapping `MODE='1'`, `HEATING='4'` war falsch.
+4. **setTemperature atomar:** Modus `home` + Soll in einem Befehl. pv-automation schickt deshalb seit 27.10.2026 kein separates `set_mode` mehr.
+5. **TCP-Preflight** (`tcpProbe`, Port 6668, <1 s) vor jedem Sync – unerreichbare Geräte sofort als `device_offline`, erreichbare in Gruppen zu 3.
+6. **Seit v1.4:** alle Datenpunkte nach jedem Auslesen per RPC `thermostat_state_upsert` in die Datenbank; Befehle `read_now` und `set_dp` (nur DP 19, 101, 103, 111) – siehe `doc/PROTOKOLL-MODUL-2026-11-01.md`.
+7. Der frühere eigenständige „Dienst v2.0“ (`tuya-thermostat-v2/`, `.env`) und die Variante mit Befehls-Warteschlange und dauerhaften Verbindungen („Hybrid v4“) sind **nicht** im Einsatz.
 
 > **Wichtig:** Bleibt ein Gerät trotz Versions-Sweep im Timeout, ist der `local_key` veraltet (Gerät in Tuya/Smart-Life-App neu gekoppelt → Key rotiert). Key neu holen (API Explorer/TinyTuya) und in `config.json` eintragen.
 
@@ -575,7 +577,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Browser → LAN | CORS-Block | Lokaler Collector-Service |
 | Realtime | PGRST002-Fehler | 30–60s Polling stattdessen |
 | AI Reward Self-Correction | Nicht möglich | Manuelle Reward-Updates |
-| Batterie-Entladung | Fronius entlädt bei jeder Hauslast zuerst die Batterie; Software kann nur die Heizlast begrenzen | Tagesmodus + Netzgrenze + Batterie-Gate; Fronius-Zeitsteuerung offen |
+| Batterie-Entladung | Smartfox/Fronius decken jede Hauslast zuerst aus der Batterie (bis Mindest-SOC); wir stellen dort nichts ein (Grundsatz §1) | nur über die Heizlast: Tagesmodus + Netzgrenze + Ladestand-Grenze (`battery_gate`) |
 | Außentemperatur-Historie | `weather_data` erst ab 23.10.2026 | — |
 
 ---
@@ -593,7 +595,8 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Batterie-Reserve 60% | Schutz Abendverbrauch, validiert via Cron | 2026-04 |
 | `room_heating_logs` als Heiz-Wahrheit | `rooms.is_heating` veraltet manchmal | — |
 | Solar-Gain-Logik entfernt | Thermostate handhaben passiv autom. | — |
-| Battery-Protection-Modus entfernt | Heizen darf Netz nutzen wenn nötig | — |
+| Battery-Protection-Modus entfernt (alt) – ersetzt durch Ladestand-Grenze `battery_gate` | Heizen darf Netz nutzen; seit 27.10.2026 begrenzt die Ladestand-Grenze die Heizlast, damit die Batterie für die Nacht bleibt | — / 2026-10-27 |
+| Steuerung nur über die Thermostate | Keine Einstellungen an Smartfox/Fronius, die sich mit unserer Steuerung überkreuzen | 2026-11-01 |
 | Komfort strikt = nur gridExport | Verhindert Netzbezug für Komfort-Heizen | — |
 | Mikro-Budget mit Soft-Rotation | Verhindert Cooldown-Kollision | — |
 | Hysterese 0.3/0.2°C | Anti-Flapping ohne Komfort-Verlust | — |
@@ -614,6 +617,11 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
 - Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
+
+### 2026-11-01 — Doku bereinigt
+- Grundsatz „Steuerung nur über Thermostate“ (§1, §19); Smartfox bleibt Energiemanager (Batterie, Warmwasser, Auto), nur seine Daten werden nicht genutzt.
+- §2 Vorzeichen auf Fronius korrigiert; §10 Thermostat-Dienst auf den echten Stand v1.4; §18 Fronius-Zeitsteuerung gestrichen.
+- `doc/memory/anwesenheit.md` und `tuya-local-service-implementation.md` an den Ist-Stand angepasst; TODO bereinigt.
 
 ### 2026-11-01 — Anwesenheit umgedreht: Kalender = Abwesenheit
 - Befund (Uli): Räume kühlen bei „abwesend“ zu stark aus; vergessene Einträge machen das Haus „leer“.

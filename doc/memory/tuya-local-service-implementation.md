@@ -1,8 +1,14 @@
 ---
-name: Tuya Local Thermostat Service v2.0
+name: Tuya Local Thermostat Service (historisch v2.0)
 description: Eigenständiger Node.js Service (`tuya-thermostat-v2/`) für lokale TGP508-Steuerung über LAN Port 6668, parallel zum collector-node
 type: feature
 ---
+
+> **Stand 01.11.2026 – nicht im Einsatz.** Der hier beschriebene eigenständige Dienst `tuya-thermostat-v2/` mit `.env`
+> wurde nicht eingeführt. Tatsächlich läuft der Collector `index.js` (v3.1) mit Treiber `tuya-thermostat.js` (v1.4)
+> als NSSM-Dienst **SmartfoxTuya** in `C:\Users\ulibe\tuya-thermostat` mit `config.json`
+> (Quelle: `local-collector/collector-node/`, siehe `SYSTEM_DOCUMENTATION.md` §10). Text unten nur als Historie.
+
 
 Standalone-Prozess auf dem Windows-PC, läuft **parallel** zum bestehenden `local-collector/collector-node/` (das unverändert bleibt).
 
