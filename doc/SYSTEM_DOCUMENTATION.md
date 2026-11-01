@@ -287,6 +287,12 @@ Morgenbewertung bei jedem Lauf neu: Tagesmodus `battery_gate` / `wait` / `grid` 
 ### Thermostat-Modus (wichtig)
 Seit Dienst v1.3 (24.10.2026) schaltet jeder Sollwert das TGP508 auf **„home“** (manuell). Vorher blieben die Thermostate auf **„auto“** (eigenes Wochenprogramm) und überschrieben die Sollwerte von pv-automation – die Steuerlogik hat bis 23.10.2026 praktisch nie gewirkt. Analyse: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md` §5.1.
 
+### Regelpunkt der Thermostate (Befund 01.11.2026)
+Gemessen über 3 Tage (Schaltpunkte je Raum): Die TGP508 schalten nicht um den Sollwert, sondern um **Soll +0,6 bis +1,0 °C** (Wohnzimmer 40 Zyklen: ein +0,65, aus +0,69 °C); die eigentliche Schaltdifferenz ist klein (0,2–0,4 °C). Verdacht: DP 19 = −10 (Temperatur-Korrektur −1,0 °C) wirkt auf die Regelung, nicht auf die gemeldete Temperatur. Test mit DP 19 = 0 am Büro über den Tab Protokoll (`doc/PROTOKOLL-MODUL-2026-11-01.md`). Alle Datenpunkte je Gerät: Tabelle `thermostat_state`.
+
+### Protokoll (seit 01.11.2026)
+Tab **Protokoll** und Tabelle `protokoll_events` (Trigger, SQL 11): jede Sollwert-Änderung mit Begründung (`thermostat_commands.reason`), heizt an/aus, Tagesmodus, Einstellungen alt → neu, Abwesenheit, Thermostat-Auffälligkeiten, Fehler. Details: `doc/PROTOKOLL-MODUL-2026-11-01.md`.
+
 ## 10. Tuya-Steuerung & Quota-Schutz
 
 **Quota-Limit:** 30 Calls/Tag (Minimal-Subscription).

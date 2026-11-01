@@ -10,6 +10,11 @@ Stand: 2026-10-28
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
 
+### Protokoll-Modul einspielen (01.11.)
+- [ ] SQL `11_protokoll_modul.sql`, `pv-automation` deployen, Thermostat-Dienst v1.4 kopieren + `nssm restart SmartfoxTuya`
+- [ ] Test DP 19 = 0 am Büro, nach einem halben Tag Schaltpunkte prüfen (Doku Abschnitt „Erster Test“)
+- [ ] Heizleistung Haustür und Toilette Eingang eintragen
+
 ### Test Nachtwert statt Frostschutz (ab 01.11.)
 - [ ] SQL `10_nacht_protokoll.sql` ausführen (Protokoll + Basis 26.–31.10.)
 - [ ] Haus › Nacht auf „Nachtwert halten“, Nachtwert je Raum = Untergrenze

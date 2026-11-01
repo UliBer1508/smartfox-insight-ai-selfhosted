@@ -2,6 +2,7 @@
 //   Übersicht      – ansehen, jetzt (Status, Fehler, Energiefluss, Räume, kurz übersteuern)
 //   Analyse        – Rückblick Tag/Woche/Monat/Jahr, mit Einstellungs-Vorschlägen nach Bestätigung
 //   KI             – prüfen und entscheiden (Vorschläge, Tagesplan, Lernstatus, Auswertungen)
+//   Protokoll      – was Steuerung und Thermostate tun (seit 01.11.2026, doc/PROTOKOLL-MODUL-2026-11-01.md)
 //   Einstellungen  – wie das System arbeiten soll (inkl. Abschnitt KI)
 // Die früheren Tabs Energie, Heizung & KI und Verlauf & Muster sind darin aufgegangen
 // (Umzugsliste: doc/NEUE-TAB-STRUKTUR-2026-10-26.md).
@@ -12,6 +13,7 @@ import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { HouseOverview } from '@/components/overview/HouseOverview';
 import { AnalysisTab } from '@/components/analysis/AnalysisTab';
 import { KiTab } from '@/components/ki/KiTab';
+import { ProtokollTab } from '@/components/protokoll/ProtokollTab';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
 import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
@@ -44,6 +46,10 @@ const Index = () => {
     ki: {
       title: 'KI — Heizung Venediger',
       description: 'KI-Vorschläge prüfen und entscheiden, Tagesplan, Lernstatus und Musteranalyse.',
+    },
+    protokoll: {
+      title: 'Protokoll — Heizung Venediger',
+      description: 'Was Steuerung und Thermostate tun: Ereignisse, Thermostat-Werte, Energieabgleich, Nächte.',
     },
     settings: {
       title: 'Einstellungen — Heizung Venediger',
@@ -91,6 +97,8 @@ const Index = () => {
             onNavigate={navigate}
           />
         )}
+
+        {activeTab === 'protokoll' && <ProtokollTab rooms={rooms} />}
 
         {activeTab === 'settings' && (
           <SettingsPanel
