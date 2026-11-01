@@ -10,10 +10,11 @@ Stand: 2026-10-28
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
 
-### Anwesenheit einspielen und testen (seit 28.10.)
-- [ ] SQL `07_anwesenheit.sql` ausführen – **danach gilt das Haus ohne Eintrag als leer**; ggf. sofort „Ich bin da bis …“
-- [ ] `pv-automation` deployen, App-Update abwarten
-- [ ] Einige Tage beobachten: `heating_day_mode.away`, Netzbezug an Abwesenheitstagen, Raumtemperaturen bei Ankunft (Vorlauf 6 h reicht?)
+### Anwesenheit umgedreht einspielen (01.11.)
+- [ ] SQL `09_abwesenheit_umdrehen.sql` ausführen, direkt danach `pv-automation` deployen, App-Update abwarten
+- [ ] Alexa-Function `alexa-heizung` (Repo `heizung-muenchen`) umstellen: „ich bin weg bis …“ / „ich bin zurück“ – bis dahin Alexa-Anwesenheit in Venediger nicht benutzen
+- [ ] Nächster Sonnentag: Komfort-Runde im Log (`=== PHASE 2: KOMFORT-RUNDE ===`), auch während einer Abwesenheit
+- [ ] Bei der ersten längeren Abwesenheit beobachten: `heating_day_mode.away`, Netzbezug, Raumtemperaturen bei Rückkehr (Vorlauf 6 h reicht?)
 - [ ] Abwesenheitstage im Mustergedächtnis und in der Analyse kennzeichnen/ausklammern (Konzept Anwesenheit §6)
 - [ ] Ersparnis in 2–3 Wochen mit kälteren Tagen nachrechnen (Abfragen im Anhang des Konzepts)
 

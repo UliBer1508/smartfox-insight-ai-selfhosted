@@ -1,6 +1,8 @@
 # Konzept: Anwesenheit – „Ich bin da / Ich bin weg“
 
-**Stand:** 29. Oktober 2026 · **Status:** FREIGEGEBEN (Uli, 28.10.2026) – umgesetzt, Testphase; Kalender-Ansicht 29.10.2026 (Abschnitt 7)
+**Stand:** 1. November 2026 · **Status:** FREIGEGEBEN (Uli, 28.10.2026) – Kalender 29.10. (§7), Komfort bei Abwesenheit 30.10. (§8), **umgedreht 01.11.2026: Grundzustand anwesend, Kalender = Abwesenheiten (§9)**
+
+> **Ab 01.11.2026 gilt Abschnitt 9.** Abschnitte 3–7 beschreiben die erste Fassung (Kalender = Aufenthalte); wo sie §9 widersprechen, gilt §9.
 **Supabase:** `pflnniklvqbwjwrjswaz` · **Betrifft:** `pv-automation`, `heating_settings`, neue Tabelle
 `presence_periods`, App (Übersicht, Einstellungen)
 **Baut auf:** `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`
@@ -45,7 +47,7 @@ in 2–3 Wochen mit kälteren Tagen nachrechnen.
 | Zustand | Wann | Steuerung |
 |---|---|---|
 | **Anwesend** | Kalender-Eintrag läuft, oder Vorlauf davor | unverändert (Tagesablauf 27.10.) |
-| **Abwesend** | sonst | **jeder Tag ist ein Wartetag**: Räume halten „Ohne PV“ (`wait_min_temp`), aus dem Netz nur darunter (nach Priorität, `max_grid_heating_power_w`); PV-Überschuss lädt weiter bis **Eco**; **kein Komfort** (Phase 2 aus, alle Ziele höchstens Eco) |
+| **Abwesend** | sonst | **jeder Tag ist ein Wartetag**: Räume halten „Ohne PV“ (`wait_min_temp`), aus dem Netz nur darunter (nach Priorität, `max_grid_heating_power_w`); PV-Überschuss heizt wie bei Anwesenheit: erst alle Räume auf **Eco**, dann mit weiterer Einspeisung nach Priorität auf **Komfort** (seit 30.10.2026, Abschnitt 8) |
 | Nacht | `night_start_time`–`night_end_time` | unverändert (Frostschutz), anwesend wie abwesend |
 
 - Kein neuer Temperaturwert: Die Absenkung ist „Ohne PV“, also an Eco gekoppelt (Standard Eco − 1,5 °C)
@@ -72,7 +74,7 @@ in 2–3 Wochen mit kälteren Tagen nachrechnen.
 | Teil | Datei | Änderung |
 |---|---|---|
 | Datenbank | `supabase/SQL/07_anwesenheit.sql` | Tabelle `presence_periods` (mit RLS-Policy), `heating_settings.presence_control_enabled` (true), `presence_lead_hours` (6) |
-| Steuerung | `supabase/functions/pv-automation/index.ts` | `getPresence()`; abwesend → Tagesmodus `wait` (nach `battery_gate`, vor „nach Sonnenuntergang → grid“), Phase 2 übersprungen, Deckel höchstens Eco; Protokoll in `heating_day_mode` (`away`, `presence_reason`, `presence_next_start`) |
+| Steuerung | `supabase/functions/pv-automation/index.ts` | `getPresence()`; abwesend → Tagesmodus `wait` (nach `battery_gate`, vor „nach Sonnenuntergang → grid“); ~~Phase 2 übersprungen, Deckel höchstens Eco~~ (aufgehoben 30.10.2026); Protokoll in `heating_day_mode` (`away`, `presence_reason`, `presence_next_start`) |
 | App | `src/hooks/usePresence.ts`, `src/components/presence/Presence.tsx` | Zustand (gleiche Regel wie Backend), Schnellschalter, Kalender |
 | App | `overview/HouseOverview.tsx`, `energy/SettingsPanel.tsx`, `settings/HouseSettingsCard.tsx` | Karte Anwesenheit, Abschnitt Anwesenheit, Gruppe Haus › Anwesenheit |
 | Typen | `src/types/heating.ts`, `src/integrations/supabase/types.ts` | neue Felder und Tabelle |
@@ -131,6 +133,82 @@ Freigegeben von Uli am 29.10.2026 nach Mockup. Vorbild: Belegungskalender der Ha
 **Einspielen:** erst `08_anwesenheit_uhrzeiten.sql` im SQL-Editor, dann die App-Dateien (Vercel).
 Ohne SQL 08 zeigt der Kalender die Standardwerte 14:00 / 11:00, nur das Speichern der beiden neuen
 Felder in Haus › Anwesenheit schlägt fehl.
+
+## 8. Komfort bei Abwesenheit (30.10.2026)
+
+Entschieden von Uli am 30.10.2026: „Bei sonnigem Tag soll auf Komfort geheizt werden – wo soll der
+PV-Überschuss sonst hin.“ Komfort mit echtem PV-Überschuss war immer Phase 2 des Überschuss-Heizens;
+die Sperre bei Abwesenheit (28.10.) hat den Überschuss nach Eco ins Netz bzw. an Smartfox geschickt,
+statt ihn im Estrich zu speichern. Wärme aus Sonnentagen trägt das leere Haus durch trübe Tage.
+
+| Zustand | Ohne PV-Überschuss | Mit PV-Überschuss | Nacht |
+|---|---|---|---|
+| Anwesend | Tagesmodus (Wartetag / Schlechter Tag) | Eco → Komfort nach Priorität | Frostschutz |
+| Abwesend | immer Wartetag: „Ohne PV“ halten | **Eco → Komfort nach Priorität** (wie anwesend) | Frostschutz |
+
+- Code `pv-automation`: Phase 2 (Komfort-Runde) läuft unabhängig von `isAway`; der Deckel „höchstens
+  Eco bei Abwesenheit“ ist entfernt, es gilt die normale Temperatur-Deckelung (Komfort, Super-Komfort
+  nur bei voller Batterie und allen Räumen auf Komfort). Kein neuer Einstellwert.
+- Unverändert: Wartetag ohne Netz-Eco, Batterie-Gate, Nacht-Frostschutz, Komfort nur mit echter Einspeisung.
+- Mindesttemperatur bei Abwesenheit tagsüber = „Ohne PV“ je Raum (Einstellungen › Räume).
+
+**Einspielen:** `index.ts` nach `supabase/functions/pv-automation/` hochladen, dann auf dem
+Österreich-PC `git pull` und `supabase functions deploy pv-automation`. Keine SQL-Änderung, keine App-Änderung.
+
+**Prüfen (nächster Sonnentag bei Abwesenheit):** im Log `=== PHASE 2: KOMFORT-RUNDE ===` und
+Räume mit Komfort-Sollwert, `heating_day_mode.away = true`.
+
+## 9. Umgedreht: Grundzustand anwesend, Kalender = Abwesenheit (01.11.2026)
+
+Entschieden von Uli am 01.11.2026: „Die Räume kühlen zu stark aus. Wir stellen immer auf anwesend und
+ich gebe an, wenn ich einen längeren Zeitraum nicht da bin.“ Dazu: PV-Überschuss muss die Räume auch
+bei Abwesenheit wieder bis Komfort laden (§8).
+
+### Regeln
+
+| Zustand | Wann | Steuerung |
+|---|---|---|
+| **Anwesend** (Grundzustand) | kein laufender Eintrag, oder Vorlauf vor der Rückkehr | Tagesablauf 27.10. unverändert: Wartetag / Schlechter Tag, Eco aus dem Netz nach Priorität, PV Eco → Komfort |
+| **Abwesend** | Kalender-Eintrag läuft (`start_at` ≤ jetzt < `end_at` − Vorlauf) | jeder Tag ein Wartetag: „Ohne PV“ halten, Netz nur darunter; **PV-Überschuss Eco → Komfort wie anwesend** |
+| Nacht | `night_start_time`–`night_end_time` | Frostschutz, anwesend wie abwesend |
+
+- **Vorlauf** `presence_lead_hours` (6 h) liegt jetzt **vor dem Ende** der Abwesenheit (Rückkehr), damit das Haus warm ist.
+- Fail-safe unverändert: Steuerung aus, Tabelle fehlt oder Lesefehler → anwesend.
+- Leerer Kalender = anwesend. Es kann nichts mehr „aus Versehen“ auskühlen, weil ein Eintrag vergessen wurde.
+
+### Bedienung
+
+| Was | Wo |
+|---|---|
+| „Ich bin weg bis …“ (Vorschlag: in 7 Tagen 14:00) / „Ich bin zurück“ (beendet laufende Abwesenheit sofort) | Übersicht, Karte „Anwesenheit“ |
+| Kalender Monat / Woche / Tag: Abreisetag, dann Rückkehrtag antippen; anwesend grün hell, abwesend dunkelgrau, Vorlauf schraffiert vor der Rückkehr | Einstellungen › Anwesenheit |
+| An/aus, „Vorlauf vor Rückkehr“, „Standard-Abreise“ (11:00), „Standard-Rückkehr“ (14:00) | Einstellungen › Haus › Anwesenheit |
+
+### Umsetzung
+
+| Teil | Datei | Änderung |
+|---|---|---|
+| Datenbank | `supabase/SQL/09_abwesenheit_umdrehen.sql` | alte Einträge (Aufenthalte) löschen, Kommentare neu, `presence_control_enabled` = true. Tabelle `presence_periods` bleibt, Einträge bedeuten jetzt Abwesenheit |
+| Steuerung | `pv-automation/index.ts` | `getPresence()` umgedreht; zusätzlich §8 (Phase 2 und Komfort-Deckel unabhängig von Abwesenheit) |
+| App | `hooks/usePresence.ts` | `computePresence` umgedreht; Schnellschalter `awayUntil` / `backNow` (statt `arriveUntil` / `leaveNow`) |
+| App | `presence/Presence.tsx`, `presence/PresenceCalendar.tsx`, `settings/HouseSettingsCard.tsx`, `overview/HouseOverview.tsx`, `energy/SettingsPanel.tsx` | Texte, Farben, Vorlauf vor Rückkehr, Standard-Uhrzeiten getauscht (erster Tag = Abreise 11:00, zweiter = Rückkehr 14:00) |
+
+**Geprüft:** `getPresence`-Regel mit 5 Fällen (leer, läuft, Vorlauf, künftig, kürzer als Vorlauf) – alle richtig.
+`tsc` nur die 3 bekannten Altfehler, ESLint ohne Befund, `vite build` ok, `pv-automation` Syntax ok.
+
+**Alexa (Repo `heizung-muenchen`, Function `alexa-heizung`) muss nachgezogen werden:** Sie schreibt
+„Ich bin da bis …“ als Eintrag in `presence_periods` – nach der Umstellung wäre das eine **Abwesenheit**.
+Bis zur Anpassung die Alexa-Befehle „ich bin da / ich bin weg“ in Venediger nicht benutzen.
+Neu: „ich bin weg bis …“ = Eintrag ab jetzt, „ich bin zurück“ = laufende Einträge enden jetzt.
+
+**Einspielen (direkt nacheinander):**
+1. `09_abwesenheit_umdrehen.sql` im SQL-Editor ausführen.
+2. Österreich-PC: `git pull`, `supabase functions deploy pv-automation`.
+3. App kommt über Vercel nach dem Merge.
+
+Zwischen 1 und 2 liest die alte Funktion den leeren Kalender als „abwesend“ – deshalb zügig deployen.
+
+**Prüfen:** `heating_day_mode.away` = false, `presence_reason` = „anwesend (keine Abwesenheit eingetragen)“.
 
 ## Anhang: Mess-Abfragen
 

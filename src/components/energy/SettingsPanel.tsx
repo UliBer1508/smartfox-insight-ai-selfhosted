@@ -113,7 +113,7 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
       {/* 2. Haus */}
       <HouseSettingsCard settings={settings} onSave={saveSettings} isLoading={isHeatingLoading} />
 
-      {/* Anwesenheit (28.10.2026): Kalender, wann jemand im Haus ist */}
+      {/* Anwesenheit (28.10.2026, umgedreht 01.11.2026): Kalender der Abwesenheiten */}
       <PresenceCalendar settings={settings} />
 
       {/* 3. Räume */}

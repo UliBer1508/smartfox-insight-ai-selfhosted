@@ -11,6 +11,12 @@ Venediger ist an den Alexa-Skill **„Meine Heizung“** angebunden. Skill und E
 | Sprachmodell | `heizung-muenchen/alexa/interaction-model-de-DE.json` |
 | Vollständige Doku | `heizung-muenchen/doc/ALEXA.md` (Einrichtung, alle Befehle, Fehlersuche) |
 
+> **Achtung (01.11.2026):** In Venediger bedeuten Einträge in `presence_periods` jetzt **Abwesenheit**
+> (`doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §9). Die Befehle „ich bin da bis …“ / „ich bin weg“ unten sind
+> noch der alte Stand und müssen in `alexa-heizung` umgestellt werden (neu: „ich bin weg bis …“ = Eintrag ab
+> jetzt, „ich bin zurück“ = laufende Einträge enden jetzt; App: `usePresence.awayUntil` / `backNow`).
+> Bis dahin nicht benutzen.
+
 ## Was Alexa in Venediger kann
 
 Fragen: „Alexa, **frag** meine Heizung, …“ · Befehle: „Alexa, **sag** meine Heizung, …“.
