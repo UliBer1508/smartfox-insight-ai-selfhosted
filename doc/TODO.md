@@ -10,6 +10,11 @@ Stand: 2026-10-28
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
 
+### Test Nachtwert statt Frostschutz (ab 01.11.)
+- [ ] SQL `10_nacht_protokoll.sql` ausführen (Protokoll + Basis 26.–31.10.)
+- [ ] Haus › Nacht auf „Nachtwert halten“, Nachtwert je Raum = Untergrenze
+- [ ] Nach 1–2 Wochen auswerten und Tabelle in `doc/TEST-NACHTWERT-2026-11-01.md` füllen
+
 ### Anwesenheit umgedreht einspielen (01.11.)
 - [ ] SQL `09_abwesenheit_umdrehen.sql` ausführen, direkt danach `pv-automation` deployen, App-Update abwarten
 - [ ] Alexa-Function `alexa-heizung` (Repo `heizung-muenchen`) umstellen: „ich bin weg bis …“ / „ich bin zurück“ – bis dahin Alexa-Anwesenheit in Venediger nicht benutzen
