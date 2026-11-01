@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Fronius + Tuya Local Collector v3.0 (Stand 30.09.2026)
+ * Fronius + Tuya Local Collector v3.1 (Stand 01.11.2026)
+ *
+ * v3.1 (Protokoll-Modul, doc/PROTOKOLL-MODUL-2026-11-01.md):
+ * - Nach jedem Auslesen eines Thermostats werden ALLE Datenpunkte per RPC
+ *   thermostat_state_upsert gespeichert (SQL 11). Die Datenbank protokolliert Änderungen
+ *   und Auffälligkeiten (Modus auto, Sollwert weicht ab, heizt über Soll).
+ * - Neue Befehle aus der App: read_now (Thermostat sofort auslesen), set_dp (Geräte-Einstellung).
  * 
  * Sammelt Energiedaten von Fronius und steuert Thermostate lokal über TuyAPI
  */
@@ -241,6 +247,35 @@ async function logDeviceError(device, errorType, message) {
   }
 }
 
+// Rohdaten eines Thermostats an die Datenbank (SQL 11). Fehlt die Funktion noch, nur einmal melden.
+let stateRpcWarned = false;
+async function saveThermostatState(deviceConfig, status) {
+  if (!deviceConfig.room_id || !status?.raw_dps) return;
+  try {
+    const { error } = await supabase.rpc('thermostat_state_upsert', { p_room_id: deviceConfig.room_id, p_dps: status.raw_dps });
+    if (error && !stateRpcWarned) {
+      stateRpcWarned = true;
+      console.error('[Protokoll] thermostat_state_upsert fehlgeschlagen (SQL 11 ausgeführt?):', error.message);
+    }
+  } catch (e) {
+    if (!stateRpcWarned) { stateRpcWarned = true; console.error('[Protokoll] thermostat_state_upsert:', e.message); }
+  }
+}
+
+// Ein Thermostat auslesen und in rooms + thermostat_state schreiben (für read_now und nach set_dp)
+async function readOneThermostat(deviceConfig) {
+  const status = await thermostatCtrl.getStatus(deviceConfig);
+  if (!status.success) return { success: false, error: status.error };
+  await supabase.from('rooms').update({
+    current_temp: status.current_temp,
+    target_temp: status.target_temp,
+    is_heating: status.is_heating,
+    last_thermostat_sync: new Date().toISOString()
+  }).eq('id', deviceConfig.room_id);
+  await saveThermostatState(deviceConfig, status);
+  return { success: true };
+}
+
 // Sync all thermostats and update database
 async function syncThermostats() {
   if (!thermostatCtrl || !config.tuya?.devices?.length) return;
@@ -280,6 +315,7 @@ async function syncThermostats() {
 
       if (!error) {
         console.log(`[Tuya] ${deviceConfig.name}: ${status.current_temp}°C -> ${status.target_temp}°C (Heizen: ${status.is_heating ? 'Ja' : 'Nein'})`);
+        await saveThermostatState(deviceConfig, status);
 
         // === ML-Datenverdichtung: NUR im Lokalmodus ===
         if (currentMode === 'local' && deviceConfig.room_id) {
@@ -428,6 +464,14 @@ async function processCommands() {
       case 'set_mode':
         result = await thermostatCtrl.setMode(targetDevice, cmd.value);
         break;
+      case 'read_now':
+        result = await readOneThermostat(targetDevice);
+        break;
+      case 'set_dp':
+        // value_text = Datenpunkt, value = neuer Wert. Danach sofort zurücklesen → Protokoll zeigt alt → neu.
+        result = await thermostatCtrl.setDp(targetDevice, cmd.value_text, cmd.value);
+        if (result.success) await readOneThermostat(targetDevice);
+        break;
       default:
         result = { success: false, error: `Unbekannter Befehl: ${cmd.command}` };
     }
@@ -570,7 +614,7 @@ process.on('SIGTERM', shutdown);
 // Startup
 async function main() {
   console.log('========================================');
-  console.log('   Fronius + Tuya Collector v3.0       ');
+  console.log('   Fronius + Tuya Collector v3.1       ');
   console.log('========================================');
   console.log('');
   console.log(`Fronius: ${config.fronius?.ip || 'nicht konfiguriert (nur Tuya)'}`);

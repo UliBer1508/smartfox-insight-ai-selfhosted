@@ -1,5 +1,5 @@
 /**
- * TuyAPI-basierte lokale Thermostat-Steuerung v1.3
+ * TuyAPI-basierte lokale Thermostat-Steuerung v1.4
  * Kommuniziert direkt mit TGP508 Thermostaten über LAN (Port 6668)
  *
  * Verbesserungen v1.1:
@@ -17,7 +17,21 @@
  *   überschreibt die Vorgaben von pv-automation.
  */
 
+/*
+ * Änderungen v1.4 (01.11.2026, Protokoll-Modul):
+ * - setDp(): einzelne Geräte-Einstellung schreiben (nur freigegebene Datenpunkte, siehe DP_WHITELIST).
+ *   Zweck: Thermostat-Einstellungen aus der App testen (Tab Protokoll › Thermostate),
+ *   z. B. DP 19 (Temperatur-Korrektur) oder DP 101. Jede Änderung landet im Protokoll.
+ */
+
 const TuyAPI = require('tuyapi');
+
+// Datenpunkte, die aus der App geändert werden dürfen (Ganzzahl, Grenzen inkl.).
+// Bedeutung beim TGP508 nicht dokumentiert – Werte am 01.11.2026 an allen Geräten: DP 19 = -10, DP 101 = 10.
+const DP_WHITELIST = {
+  '19': { min: -50, max: 50, label: 'Temperatur-Korrektur (x10)' },
+  '101': { min: 1, max: 50, label: 'DP 101 (x10, Schaltdifferenz?)' }
+};
 
 // TGP508 Thermostat DPS-Mapping (verifiziert 24.10.2026)
 const DPS_CODES = {
@@ -257,6 +271,36 @@ class ThermostatController {
         return this.setMode(deviceConfig, mode, retryCount + 1, ver);
       }
 
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Schreibt einen einzelnen freigegebenen Datenpunkt (v1.4).
+   */
+  async setDp(deviceConfig, dp, value, retryCount = 0, version = null) {
+    const ver = version || deviceConfig.protocol_version || '3.5';
+    const rule = DP_WHITELIST[String(dp)];
+    const num = Math.round(Number(value));
+    if (!rule) return { success: false, error: `Datenpunkt ${dp} ist nicht freigegeben (erlaubt: ${Object.keys(DP_WHITELIST).join(', ')})` };
+    if (!Number.isFinite(num) || num < rule.min || num > rule.max) {
+      return { success: false, error: `Wert ${value} für DP ${dp} außerhalb ${rule.min}…${rule.max}` };
+    }
+    const device = this.createDevice(deviceConfig, ver);
+    try {
+      await this.withTimeout(device.find(), CONNECTION_TIMEOUT, `${deviceConfig.name} find`);
+      await this.withTimeout(device.connect(), CONNECTION_TIMEOUT, `${deviceConfig.name} connect`);
+      await this.withTimeout(device.set({ dps: String(dp), set: num }), CONNECTION_TIMEOUT, `${deviceConfig.name} setDp`);
+      await this.safeDisconnect(device);
+      console.log(`  [OK] ${deviceConfig.name}: DP ${dp} = ${num}`);
+      return { success: true };
+    } catch (error) {
+      await this.safeDisconnect(device);
+      if (ver === '3.5' && retryCount === 0) return this.setDp(deviceConfig, dp, value, 0, '3.3');
+      if (retryCount < this.maxRetries) {
+        await this.sleep(2000 * (retryCount + 1));
+        return this.setDp(deviceConfig, dp, value, retryCount + 1, ver);
+      }
       return { success: false, error: error.message };
     }
   }

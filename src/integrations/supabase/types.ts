@@ -1082,6 +1082,165 @@ export type Database = {
           },
         ]
       }
+      protokoll_events: {
+        Row: {
+          id: number
+          ts: string
+          kind: string
+          room_id: string | null
+          raum: string | null
+          title: string
+          detail: string | null
+          data: Json | null
+        }
+        Insert: {
+          id?: number
+          ts?: string
+          kind?: string
+          room_id?: string | null
+          raum?: string | null
+          title?: string
+          detail?: string | null
+          data?: Json | null
+        }
+        Update: {
+          id?: number
+          ts?: string
+          kind?: string
+          room_id?: string | null
+          raum?: string | null
+          title?: string
+          detail?: string | null
+          data?: Json | null
+        }
+        Relationships: []
+      }
+      thermostat_state: {
+        Row: {
+          room_id: string
+          raum: string | null
+          read_at: string
+          dps: Json
+          power_on: boolean | null
+          mode: string | null
+          soll: number | null
+          ist: number | null
+          heizt: boolean | null
+          dp101: number | null
+          korrektur: number | null
+          fuehler: string | null
+          befund: string | null
+        }
+        Insert: {
+          room_id?: string
+          raum?: string | null
+          read_at?: string
+          dps?: Json
+          power_on?: boolean | null
+          mode?: string | null
+          soll?: number | null
+          ist?: number | null
+          heizt?: boolean | null
+          dp101?: number | null
+          korrektur?: number | null
+          fuehler?: string | null
+          befund?: string | null
+        }
+        Update: {
+          room_id?: string
+          raum?: string | null
+          read_at?: string
+          dps?: Json
+          power_on?: boolean | null
+          mode?: string | null
+          soll?: number | null
+          ist?: number | null
+          heizt?: boolean | null
+          dp101?: number | null
+          korrektur?: number | null
+          fuehler?: string | null
+          befund?: string | null
+        }
+        Relationships: []
+      }
+      nacht_protokoll: {
+        Row: {
+          nacht: string
+          room_id: string
+          raum: string | null
+          modus: string | null
+          nacht_soll: number | null
+          untergrenze: number | null
+          eco: number | null
+          komfort: number | null
+          nacht_von: string | null
+          nacht_bis: string | null
+          quelle: string
+          temp_abends: number | null
+          temp_morgens: number | null
+          temp_min: number | null
+          heiz_min: number | null
+          heiz_kwh: number | null
+          aussen_avg: number | null
+          aussen_min: number | null
+          soc_abends: number | null
+          soc_morgens: number | null
+          netz_kwh: number | null
+          ausgewertet_at: string | null
+          created_at: string
+        }
+        Insert: {
+          nacht?: string
+          room_id?: string
+          raum?: string | null
+          modus?: string | null
+          nacht_soll?: number | null
+          untergrenze?: number | null
+          eco?: number | null
+          komfort?: number | null
+          nacht_von?: string | null
+          nacht_bis?: string | null
+          quelle?: string
+          temp_abends?: number | null
+          temp_morgens?: number | null
+          temp_min?: number | null
+          heiz_min?: number | null
+          heiz_kwh?: number | null
+          aussen_avg?: number | null
+          aussen_min?: number | null
+          soc_abends?: number | null
+          soc_morgens?: number | null
+          netz_kwh?: number | null
+          ausgewertet_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          nacht?: string
+          room_id?: string
+          raum?: string | null
+          modus?: string | null
+          nacht_soll?: number | null
+          untergrenze?: number | null
+          eco?: number | null
+          komfort?: number | null
+          nacht_von?: string | null
+          nacht_bis?: string | null
+          quelle?: string
+          temp_abends?: number | null
+          temp_morgens?: number | null
+          temp_min?: number | null
+          heiz_min?: number | null
+          heiz_kwh?: number | null
+          aussen_avg?: number | null
+          aussen_min?: number | null
+          soc_abends?: number | null
+          soc_morgens?: number | null
+          netz_kwh?: number | null
+          ausgewertet_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       presence_periods: {
         Row: {
           created_at: string
@@ -1774,6 +1933,7 @@ export type Database = {
           executed_at: string | null
           id: string
           room_id: string
+          reason: string | null
           status: string | null
           value: number | null
           value_text: string | null
@@ -1785,6 +1945,7 @@ export type Database = {
           executed_at?: string | null
           id?: string
           room_id: string
+          reason?: string | null
           status?: string | null
           value?: number | null
           value_text?: string | null
@@ -1796,6 +1957,7 @@ export type Database = {
           executed_at?: string | null
           id?: string
           room_id?: string
+          reason?: string | null
           status?: string | null
           value?: number | null
           value_text?: string | null
@@ -2001,6 +2163,18 @@ export type Database = {
       }
     }
     Functions: {
+      protokoll_schaltpunkte: {
+        Args: { p_tage?: number }
+        Returns: { room_id: string; raum: string; leistung_w: number | null; einschaltungen: number; ein_bei: number | null; aus_bei: number | null; nachlauf: number | null; heiz_min: number | null; zyklus_min: number | null }[]
+      }
+      protokoll_energie_stunden: {
+        Args: { p_tag?: string }
+        Returns: { stunde: string; verbrauch_w: number | null; heizung_w: number | null; rest_w: number | null; pv_w: number | null; batt_w: number | null; netz_w: number | null; soc: number | null }[]
+      }
+      protokoll_energie_raeume: {
+        Args: { p_tag?: string }
+        Returns: { room_id: string; raum: string; heiz_min: number | null; kwh: number | null; pv_kwh: number | null; batt_kwh: number | null; netz_kwh: number | null }[]
+      }
       cleanup_ai_parameter_decisions: { Args: never; Returns: number }
       cleanup_old_data: { Args: never; Returns: undefined }
       expire_stale_thermostat_commands: { Args: never; Returns: number }

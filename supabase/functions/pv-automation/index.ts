@@ -526,7 +526,8 @@ Deno.serve(async (req) => {
 
       const queueLocalTemperatureCommand = async (
         roomId: string,
-        temperature: number
+        temperature: number,
+        reason?: string
       ): Promise<{ queued: boolean; alreadyQueued: boolean; error?: string }> => {
         const { data: pendingCommand } = await supabase
           .from('thermostat_commands')
@@ -552,6 +553,8 @@ Deno.serve(async (req) => {
           command: 'set_temp',
           value: temperature,
           status: 'pending',
+          // Protokoll-Modul (01.11.2026, SQL 11): Begründung erscheint im Protokoll-Tab
+          reason: reason ? String(reason).slice(0, 300) : null,
         });
 
         if (error) {
@@ -693,10 +696,11 @@ Deno.serve(async (req) => {
         deviceId: string,
         roomId: string,
         temperature: number,
-        priority: 'normal' | 'stop' = 'normal'
+        priority: 'normal' | 'stop' = 'normal',
+        reason?: string
       ): Promise<TuyaResult> {
         if (controlMode === 'local') {
-          const queued = await queueLocalTemperatureCommand(roomId, temperature);
+          const queued = await queueLocalTemperatureCommand(roomId, temperature, reason);
           if (!queued.queued) {
             return { success: false, errorType: 'db_error', errorMessage: queued.error || 'Lokales Queueing fehlgeschlagen' };
           }
@@ -933,7 +937,8 @@ Deno.serve(async (req) => {
               room.tuya_device_id!,
               room.id,
               FROST_TEMP,
-              'stop'
+              'stop',
+              `Nacht: Frostschutz ${FROST_TEMP}°C`
             );
 
             if (result.success) {
@@ -1034,7 +1039,8 @@ Deno.serve(async (req) => {
               room.tuya_device_id!,
               room.id,
               nightTarget,
-              'stop'
+              'stop',
+              `Nacht: Nachtwert halten ${nightTarget}°C`
             );
 
             if (result.success) {
@@ -1925,7 +1931,7 @@ Deno.serve(async (req) => {
               const successIds: string[] = [];
               for (const r of candidates) {
                 const waitT = getWaitMinTemp(r, settings);
-                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop');
+                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop', `Batterie-Schutz (SOC ${batterySoc}%) → Untergrenze ${waitT}°C`);
                 if (result.success) {
                   successIds.push(r.id);
                   console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → Mindesttemperatur ohne PV ${waitT}°C (mode=${controlMode})`);
@@ -2373,7 +2379,7 @@ Deno.serve(async (req) => {
               // (27.10.2026) Ende der Mikro-Heizung: zurück auf Mindesttemperatur ohne PV (vorher night_temp)
               const nightTemp = getWaitMinTemp(microRoom, settings);
               if (microRoom.tuya_device_id) {
-                const result = await setTemperatureForMode(microRoom.tuya_device_id, microRoom.id, nightTemp, 'stop');
+                const result = await setTemperatureForMode(microRoom.tuya_device_id, microRoom.id, nightTemp, 'stop', `Mikro-Heizen beendet → Untergrenze ${nightTemp}°C`);
                 if (!result.success) {
                   console.error(`[MICRO-ROTATION] ❌ ${microRoom.name}: setTemperatureForMode failed - ${result.errorType}: ${result.errorMessage}`);
                 }
@@ -3164,7 +3170,7 @@ Deno.serve(async (req) => {
           const safeTemp = ecoTempForGuard;
 
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop');
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop', `Über-Temperatur (Ist ${currentRoomTempSafety}°C) → Eco ${safeTemp}°C`);
             if (result.success) {
               await supabase.from('rooms').update({
                 is_heating: false,
@@ -3757,7 +3763,7 @@ Deno.serve(async (req) => {
 
         if (action === 'activate') {
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, targetTemp);
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, targetTemp, 'normal', reasoning || undefined);
             success = result.success;
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };
@@ -3827,7 +3833,7 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name} deactivate: Setze ${finalTemp}°C (targetTemp=${targetTemp}, nightTemp=${room.night_temp || settings?.night_temp})`);
 
           if (room.tuya_device_id) {
-            const result = await setTemperatureForMode(room.tuya_device_id, room.id, finalTemp, 'stop');
+            const result = await setTemperatureForMode(room.tuya_device_id, room.id, finalTemp, 'stop', reasoning || undefined);
             success = result.success;
             if (!result.success) {
               tuyaError = { errorType: result.errorType, errorMessage: result.errorMessage };

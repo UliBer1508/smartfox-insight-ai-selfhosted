@@ -5,6 +5,17 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.12.0] - 2026-11-01
+
+### Added (Test- und Protokoll-Modul, `doc/PROTOKOLL-MODUL-2026-11-01.md`)
+- Neuer Tab **Protokoll**: Ereignisse (Sollwerte mit Begründung, heizt an/aus, Tagesmodus, Einstellungen alt → neu, Abwesenheit, Thermostat-Auffälligkeiten, Fehler), Thermostate (alle Datenpunkte, gemessene Schaltpunkte, Auslesen und Datenpunkt testen per Knopf), Energieabgleich je Stunde und Raum, Nächte.
+- SQL `11_protokoll_modul.sql`: `protokoll_events` mit Triggern, `thermostat_state`, `thermostat_dp_log`, RPCs für Auswertungen, `thermostat_commands.reason`.
+- Thermostat-Dienst v1.4 / Collector v3.1: speichert alle Datenpunkte je Auslesen, Befehle `read_now` und `set_dp` (nur DP 19, 101).
+- `pv-automation`: Begründung je Sollwert-Befehl.
+
+### Fixed (Repo)
+- Thermostat-Dienst v1.3 vom Österreich-PC ins Repo übernommen (vorher lag v1.1 im Repo).
+
 ## [2.11.2] - 2026-11-01
 
 ### Added

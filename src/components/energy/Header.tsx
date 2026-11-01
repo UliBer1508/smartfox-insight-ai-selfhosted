@@ -1,4 +1,4 @@
-import { Home, Zap, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut } from 'lucide-react';
+import { Home, Zap, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut, ScrollText } from 'lucide-react';
 import { useKiPending } from '@/hooks/useKiPending';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -9,7 +9,8 @@ import { useIsMobile } from '@/hooks/use-mobile';
 import { ControlModeBadge } from '@/components/layout/ControlModeBadge';
 
 // Tabs nach Zweck (seit 26.10.2026): ansehen · rückblicken · prüfen/entscheiden · einstellen
-export type AppTab = 'overview' | 'analysis' | 'ki' | 'settings';
+// + Protokoll (01.11.2026): was die Steuerung und die Thermostate tun – Test- und Protokoll-Modul
+export type AppTab = 'overview' | 'analysis' | 'ki' | 'protokoll' | 'settings';
 
 interface HeaderProps {
   activeTab: AppTab;
@@ -20,6 +21,7 @@ const tabs = [
   { key: 'overview' as const, icon: Home, label: 'Übersicht' },
   { key: 'analysis' as const, icon: BarChart3, label: 'Analyse' },
   { key: 'ki' as const, icon: Brain, label: 'KI' },
+  { key: 'protokoll' as const, icon: ScrollText, label: 'Protokoll' },
   { key: 'settings' as const, icon: Settings, label: 'Einstellungen' },
 ];
 
