@@ -10,11 +10,12 @@ type: constraint
 
 | Modus | Bedingung | Ziel |
 |---|---|---|
-| `battery_gate` | Batterie-Gate aktiv (strict) | `wait_min_temp` |
+| `battery_gate` | Batterie-Schutz aktiv (strict, seit 01.11. ohne Lade-Ausnahme) | `wait_min_temp − battery_gate_floor_delta`; Notfall darunter bis `battery_gate_max_power_w` |
 | `wait` | PV-Rest / Eco-Bedarf ≥ Schwelle (1,0 ± KI) | `wait_min_temp` |
 | `grid` | sonst, nach Sonnenuntergang immer | Eco nach Priorität, Summe Raumleistungen ≤ `max_grid_heating_power_w` |
 
-- Räume unter `wait_min_temp` werden in jedem Modus zuerst bis dorthin geheizt (Priorität, Netzgrenze).
+- Räume unter `wait_min_temp` werden im Wartetag / ohne PV zuerst bis dorthin geheizt (Priorität, Netzgrenze); im Batterie-Schutz nur unter `wait_min_temp − battery_gate_floor_delta` (eigene Grenze).
+- **Nicht wieder einführen:** Gate-Ausnahme „Batterie lädt“ und Netzgrenze 2000 W im Batterie-Schutz (zog am 01.11.2026 die Batterie leer).
 - `budgeted: true` setzen nur: Phase-1-Aktivierung, Tolerante Deaktivierung, Mikro-Budget, Phase-2-Komfort.
 - KI: `best_match_today` × `pattern_recall_strength` verschiebt die Schwelle um max. ±0,3 (Grenzen 0,5–1,5).
 - Protokoll: `system_settings.heating_day_mode`; Anzeige in der Übersicht.

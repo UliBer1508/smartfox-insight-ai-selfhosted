@@ -1,6 +1,6 @@
 # Konzept: Tagesablauf und Regeln der Heizungssteuerung Venediger
 
-**Stand:** 27. Oktober 2026 · **Status:** FREIGEGEBEN (Uli, 27.10.2026) – umgesetzt, Testphase einige Tage
+**Stand:** 1. November 2026 · **Status:** FREIGEGEBEN (Uli, 27.10.2026) – umgesetzt; Batterie-Schutz ohne Lücken 01.11.2026 (§3.4, §9)
 **Supabase:** `pflnniklvqbwjwrjswaz` · **Betrifft:** `pv-automation`, `heating_settings`, `rooms`, Thermostat-Dienst
 
 > Dieses Dokument legt fest, **wie die Heizung arbeiten soll**. Der Code folgt ihm seit 27.10.2026
@@ -59,7 +59,8 @@ aus dem Wartetag ein Schlechter Tag.
   Leeres Feld = Eco − 1,5 °C.
 - Gilt am Wartetag und als Ziel des Batterie-Gates (3.4).
 - Validierung in der App: 5 °C ≤ „Ohne PV“ ≤ Eco ≤ Komfort.
-- Räume unter ihrer Mindesttemperatur werden **in jedem Modus zuerst** bis zur Mindesttemperatur
+- Räume unter ihrer Mindesttemperatur werden im Wartetag und ohne PV **zuerst** bis zur Mindesttemperatur
+  (im Batterie-Schutz nur als Notfall unter Untergrenze − Abstand, siehe 3.4)
   geheizt, nach Priorität und innerhalb der Netzgrenze (3.2). Passt ein Raum nicht mehr hinein,
   wartet er: Sollwert knapp unter Ist (heizt nicht an), bis Kapazität frei wird.
 - Löst den bisherigen Missbrauch des Nachtwerts als „Tagesuntergrenze“ ab.
@@ -75,11 +76,17 @@ aus dem Wartetag ein Schlechter Tag.
 - **Neu:** Ein Raum ohne Budget fällt **nicht** automatisch auf Eco zurück, sondern auf das, was die
   Tagesbewertung vorgibt (Wartetag → Mindesttemperatur, Schlechter Tag → Eco innerhalb der Netzgrenze).
 
-### 3.4 Batterie-Gate
+### 3.4 Batterie-Schutz (Ladestand-Grenze) – Stand 01.11.2026
 - `heating_min_battery_soc` (aktuell 75 %), Modus `heating_soc_gate_mode` (aktuell `strict`).
-- Fällt der Ladestand unter die Grenze, werden alle Räume auf die **Mindesttemperatur ohne PV**
-  zurückgesetzt (bisher: Nachtwert). **Keine andere Regel darf das im selben Lauf überschreiben.**
-- Komfort ist unterhalb der Grenze immer gesperrt.
+- **Gilt ohne Ausnahme**, sobald der Ladestand unter der Grenze liegt – **auch wenn die Batterie gerade lädt**.
+  Grundsatz: **Die Sonne gehört zuerst der Batterie** (wie in München).
+- Im Batterie-Schutz wird nur noch geheizt
+  1. mit **echter Einspeisung** (Sonne, die die Batterie nicht mehr aufnimmt): Budget = Einspeisung + bereits
+     heizende Räume, erst ab `pv_surplus_threshold_on`; nur Eco, Komfort bleibt gesperrt;
+  2. als **Notfall**: Räume unter **Untergrenze − `battery_gate_floor_delta`** (1,0 °C), nach Priorität bis
+     **`battery_gate_max_power_w`** (1000 W). `max_grid_heating_power_w` gilt hier nicht.
+- Alle anderen Räume bekommen „Untergrenze − Abstand“ als Sollwert (heizen nicht).
+- **Keine andere Regel darf das im selben Lauf überschreiben.**
 
 ### 3.5 Wichtige physikalische Einschränkung (zur Kenntnis)
 Die Software entscheidet nur, **ob** ein Thermostat heizt. **Woher** der Strom kommt, entscheidet
@@ -260,3 +267,24 @@ from energy_readings where timestamp > now() - interval '7 days' group by 1 orde
 
 Erwartung: morgens kein Sprung auf 4–9 kW mehr, Batterie fällt vormittags nicht mehr auf 5 %,
 Befehle je Raum deutlich weniger (kein Pingpong).
+
+
+---
+
+## 9. Korrektur 01.11.2026: Batterie-Schutz hatte zwei Lücken
+
+Befund 01.11.2026: Batterie mittags nur bis ~14 %, ab 14 Uhr wieder auf 5 %, Heizung ~9 kWh.
+
+| Lücke | Ursache | Folge am 01.11. |
+|---|---|---|
+| 1 | Gate galt nur bei „Batterie lädt nicht oder Netzbezug“ | 8× für je 5 min aus, sobald PV die Batterie lud → „ohne PV-Überschuss“, Eco bis 2000 W |
+| 2 | Im Batterie-Schutz durften Räume unter Untergrenze mit bis zu `max_grid_heating_power_w` (2000 W) heizen – „aus dem Netz“ hieß physikalisch PV bzw. Batterie | 1600–2000 W den ganzen Tag freigegeben |
+
+Korrektur (freigegeben Uli 01.11.2026): §3.4 neu; `pv-automation` Gate-Bedingung `SOC < Grenze`, Budget nur
+echte Einspeisung, Notfall-Ziel Untergrenze − Abstand mit eigener Leistungsgrenze; SQL `12_batterie_schutz.sql`
+(`battery_gate_floor_delta`, `battery_gate_max_power_w`); Einstellungen › Haus › Batterie.
+
+Durchgespielt mit den Raumwerten vom 01.11. 08:50: alt 1600 W freigegeben (Bad Uli, Zimmer Luis, Haustür), neu
+1000 W nur für Zimmer Luca (Untergrenze 22 = Eco, liegt 1,2 °C darunter) – alle anderen heizen nicht. Mit den
+Stundenwerten 11–15 Uhr: Gate neu durchgehend zu, Budget 0 W (keine Einspeisung).
+Prüfen künftig mit Protokoll › Ereignisse (Modus) und Protokoll › Energie.

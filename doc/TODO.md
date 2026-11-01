@@ -10,6 +10,11 @@ Stand: 2026-11-01
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
 
+### Batterie-Schutz ohne Lücken einspielen (01.11.)
+- [ ] SQL `12_batterie_schutz.sql`, dann `supabase functions deploy pv-automation`
+- [ ] Nächster Tag: Protokoll › Ereignisse (Modus) – kein Wechsel mehr weg von „Batterie-Schutz“, solange SOC < 75 %; Protokoll › Energie – mittags lädt die Batterie statt der Heizung
+- [ ] Untergrenzen prüfen: Zimmer Luca steht auf 22 = Eco
+
 ### Protokoll-Modul einspielen (01.11.)
 - [ ] SQL `11_protokoll_modul.sql`, `pv-automation` deployen, Thermostat-Dienst v1.4 kopieren + `nssm restart SmartfoxTuya`
 - [ ] Test DP 19 = 0 am Büro, nach einem halben Tag Schaltpunkte prüfen (Doku Abschnitt „Erster Test“)
