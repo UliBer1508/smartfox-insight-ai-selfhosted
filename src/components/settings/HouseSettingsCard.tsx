@@ -83,7 +83,8 @@ const GROUPS: Group[] = [
       { k: 'battery_buffer_enabled', l: 'Batterie-Puffer', kind: 'switch', def: true, hint: 'Zusätzliches Budget aus der Batterie, wenn sie weit über dem Mindest-Ladestand ist und die Prognose reicht.' },
       { k: 'battery_buffer_bonus_w', l: 'Max. Puffer', kind: 'number', def: 500, unit: 'W', step: 100, min: 200, max: 1500, showIf: (v) => v.battery_buffer_enabled !== false },
       { k: 'tolerant_deactivation_enabled', l: 'Tolerant bei Wolken', kind: 'switch', def: true, hint: 'Laufende Räume heizen bei kurzen PV-Einbrüchen weiter.' },
-      { k: 'battery_soc_suggestion_enabled', l: 'KI-Vorschläge für Mindest-Ladestand', kind: 'switch', def: true, hint: 'Die KI schlägt nur vor – übernehmen musst du im Dashboard.' },
+      { k: 'battery_soc_suggestion_enabled', l: 'KI-Vorschläge für Mindest-Ladestand', kind: 'switch', def: true, hint: 'Täglich 21:00: gemessener Nachtbedarf + Abend/Morgen ohne PV + Reserve, mit Mustergedächtnis. Nur Vorschlag – übernehmen im Tab KI.' },
+      { k: 'battery_night_reserve_pct', l: 'Reserve über Nachtbedarf', kind: 'number', def: 10, unit: '%', step: 5, min: 0, max: 40, hint: 'enthält den Mindest-Ladestand des Wechselrichters (~5 %)', showIf: (v) => v.battery_soc_suggestion_enabled !== false },
     ],
   },
   {

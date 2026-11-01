@@ -10,6 +10,11 @@ Stand: 2026-11-01
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
 
+### Batterie-Vorschlag v2 einspielen und prüfen (01.11.)
+- [ ] SQL `13_batterie_vorschlag.sql`, `supabase functions deploy ai-parameter-advisor` (vor 21:00)
+- [ ] 21:00 Vorschlag im Tab KI prüfen (Begründung lesen) und übernehmen
+- [ ] 02.11.: Protokoll › Energie/Ereignisse, 03.11. Nacht-Protokoll – reicht die Batterie bis morgens?
+
 ### Batterie-Schutz ohne Lücken einspielen (01.11.)
 - [ ] SQL `12_batterie_schutz.sql`, dann `supabase functions deploy pv-automation`
 - [ ] Nächster Tag: Protokoll › Ereignisse (Modus) – kein Wechsel mehr weg von „Batterie-Schutz“, solange SOC < 75 %; Protokoll › Energie – mittags lädt die Batterie statt der Heizung

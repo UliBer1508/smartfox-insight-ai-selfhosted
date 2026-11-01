@@ -5,6 +5,11 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.14.0] - 2026-11-01
+
+### Changed (Batterie-Vorschlag)
+- KI-Vorschlag für den Mindest-Ladestand rechnet jetzt mit dem gemessenen Nachtbedarf (Nacht-Protokoll), den Stunden ohne PV am Abend/Morgen und einer einstellbaren Reserve; das Mustergedächtnis (ähnliche Tage) korrigiert die PV-Prognose und zeigt, welche Räume morgen mit der übrigen Sonne heizen können. Alte Regel „trüber Tag → Grenze hoch“ entfernt. SQL `13_batterie_vorschlag.sql`, Konzept Tagesablauf §10.
+
 ## [2.13.0] - 2026-11-01
 
 ### Fixed (Batterie-Schutz)

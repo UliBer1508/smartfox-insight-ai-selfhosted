@@ -72,96 +72,143 @@ interface ValidationInput {
   suggestionText?: string | null;
 }
 
-async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>, validation?: ValidationInput) {
+// ---------------------------------------------------------------------------
+// Batterie-Vorschlag v2 (01.11.2026, Konzept Tagesablauf §10):
+// Mindest-Ladestand = was die Nacht braucht – gemessen, nicht geschätzt.
+//   Nachtbedarf   = größter Ladestand-Verlust der letzten sauberen Nächte (nacht_protokoll, ab 26.10.,
+//                   nur Nächte mit Ladestand abends ≥ 20 %, sonst war die Batterie schon leer)
+//   + Abend/Morgen = Grundlast (aus denselben Nächten) × Stunden ohne PV vor night_start bzw. nach night_end
+//                   (aus der Stundenprognose von morgen)
+//   + Reserve      = battery_night_reserve_pct (Mindest-SOC des Wechselrichters + Puffer)
+// Mustergedächtnis: daily_pattern_scores – ähnliche Tage (Prognose ±30 %) → wie viel PV kam wirklich
+// (Korrekturfaktor). Daraus: was morgen nach Batterie-Ladung für die Heizung frei bleibt und für welche
+// Räume (Priorität) es reicht. Die alte Wenn-dann-Regel (Prognose < 10 kWh → Grenze hoch) ist entfernt:
+// Sie hob die Grenze gerade an trüben Tagen, an denen die Batterie sie ohnehin nicht erreicht.
+// Heizungsdaten vor dem 24.10.2026 werden nicht verwendet (Thermostate liefen im Modus „auto“).
+// ---------------------------------------------------------------------------
+async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>, _validation?: ValidationInput) {
   const { data: hs } = await sb.from('heating_settings')
-    .select('heating_min_battery_soc, battery_soc_suggestion_enabled')
+    .select('heating_min_battery_soc, battery_soc_suggestion_enabled, battery_capacity_kwh, night_start_time, night_end_time, battery_night_reserve_pct')
     .limit(1).maybeSingle();
   if (!hs) return { ok: false, skipped: 'no_heating_settings' };
 
   const oldValue = Number(hs.heating_min_battery_soc ?? 80);
   const enabled = hs.battery_soc_suggestion_enabled !== false;
   if (!enabled) return { ok: true, skipped: 'suggestion_disabled' };
+  const cap = Number(hs.battery_capacity_kwh) || 13.8;
+  const reservePct = Number(hs.battery_night_reserve_pct ?? 10);
+  const hm = (v: unknown, def: number) => { const m = /^(\d{1,2})/.exec(String(v ?? '')); return m ? Number(m[1]) : def; };
+  const nightStartH = hm(hs.night_start_time, 22);
+  const nightEndH = hm(hs.night_end_time, 8);
+  const nightHours = (24 - nightStartH) + nightEndH;
 
   const { data: existingRows } = await sb.from('battery_soc_suggestions')
     .select('id, new_value, reason_text').eq('status', 'pending')
     .order('created_at', { ascending: false }).limit(1);
   const existing = existingRows?.[0] ?? null;
 
-  const todayStr = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }))
-    .toISOString().slice(0, 10);
-  const tomorrow = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Vienna' }));
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+  const vienna = (d: Date) => d.toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+  const todayStr = vienna(new Date());
+  const tomorrowStr = vienna(new Date(Date.now() + 86400000));
 
-  const { data: pvTomorrow } = await sb.from('pv_forecasts')
-    .select('expected_kwh').eq('date', tomorrowStr).maybeSingle();
-  const pvForecastKwh = pvTomorrow?.expected_kwh != null ? Number(pvTomorrow.expected_kwh) : null;
+  // 1) Nachtbedarf aus dem Nacht-Protokoll (Haus-Werte stehen je Raum wiederholt → je Nacht eine Zeile)
+  const { data: nightRows } = await sb.from('nacht_protokoll')
+    .select('nacht, soc_abends, soc_morgens, aussen_avg, ausgewertet_at')
+    .gte('nacht', '2026-10-26').not('ausgewertet_at', 'is', null)
+    .order('nacht', { ascending: false }).limit(12 * 14);
+  const perNight = new Map<string, { drop: number; aussen: number | null }>();
+  for (const r of (nightRows ?? []) as any[]) {
+    if (perNight.has(r.nacht) || r.soc_abends == null || r.soc_morgens == null) continue;
+    if (Number(r.soc_abends) < 20) continue; // Batterie war schon leer – Verlust nicht messbar
+    perNight.set(r.nacht, { drop: Number(r.soc_abends) - Number(r.soc_morgens), aussen: r.aussen_avg != null ? Number(r.aussen_avg) : null });
+  }
+  const nights = [...perNight.entries()].slice(0, 7);
+  const nightDropPct = nights.length >= 2 ? Math.max(...nights.map(([, v]) => v.drop)) : 21; // Startwert 26.–30.10.
+  const baseW = (nightDropPct / 100) * cap * 1000 / nightHours;
 
-  const { data: pv7d } = await sb.from('pv_forecasts')
-    .select('expected_kwh').lte('date', todayStr)
-    .gte('date', new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10))
-    .order('date', { ascending: false }).limit(7);
-  const avg7d = (pv7d && pv7d.length > 0)
-    ? pv7d.reduce((s: number, r: any) => s + Number(r.expected_kwh || 0), 0) / pv7d.length
-    : null;
+  // 2) Stundenprognose morgen → Stunden ohne nennenswerte PV am Abend und Morgen
+  const { data: fc } = await sb.from('pv_forecasts')
+    .select('expected_kwh, hourly_watts').eq('date', tomorrowStr).maybeSingle();
+  const pvForecastKwh = fc?.expected_kwh != null ? Number(fc.expected_kwh) : null;
+  const hw = (fc?.hourly_watts ?? {}) as Record<string, number>;
+  const hoursWithPv = Object.entries(hw)
+    .filter(([, w]) => Number(w) >= 500)
+    .map(([k]) => Number(/\s(\d{2}):/.exec(k)?.[1] ?? NaN))
+    .filter((h) => Number.isFinite(h));
+  const firstPvH = hoursWithPv.length ? Math.min(...hoursWithPv) : 10;
+  const lastPvH = hoursWithPv.length ? Math.max(...hoursWithPv) : 15;
+  const morningH = Math.max(0, firstPvH - nightEndH);
+  const eveningH = Math.max(0, nightStartH - (lastPvH + 1));
+  const edgePct = ((morningH + eveningH) * baseW / 1000) / cap * 100;
 
-  const { data: tracking } = await sb.from('battery_daily_tracking')
-    .select('soc_at_heating_end, date').order('date', { ascending: false }).limit(1);
-  const socEnd = tracking?.[0]?.soc_at_heating_end != null
-    ? Number(tracking[0].soc_at_heating_end) : null;
+  // 3) Vorschlag
+  const raw = nightDropPct + edgePct + reservePct;
+  let newValue = Math.min(90, Math.max(30, Math.ceil(raw / 5) * 5));
+  if (Math.abs(newValue - oldValue) < 5) newValue = oldValue;
 
-  let newValue = oldValue;
-  let reasonCore = '';
-
-  // 1) PV-Forecast-Regel (Hauptauslöser)
-  if (pvForecastKwh != null && socEnd != null) {
-    if (pvForecastKwh > 20 && socEnd > 80) {
-      newValue = Math.max(oldValue - 10, 50);
-      reasonCore = 'Sehr starke PV-Prognose und die Batterie war gestern Abend gut gefüllt — Gate kann deutlich gesenkt werden, um morgen mehr PV-Überschuss zum Heizen zu nutzen.';
-    } else if (pvForecastKwh > 20 && socEnd >= 70) {
-      newValue = Math.max(oldValue - 5, 50);
-      reasonCore = 'Starke PV-Prognose und Batterie gestern Abend solide gefüllt — Gate leicht senken, um mehr PV-Wärme freizugeben.';
-    } else if (pvForecastKwh < 10 && socEnd < 60) {
-      newValue = Math.min(oldValue + 10, 90);
-      reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend bereits niedrig — Gate deutlich anheben, um die Nacht-Reserve zu schützen.';
-    } else if (pvForecastKwh < 10 && socEnd < 70) {
-      newValue = Math.min(oldValue + 5, 90);
-      reasonCore = 'Schwache PV-Prognose und Batterie gestern Abend knapp — Gate leicht anheben, um den Nacht-Puffer zu sichern.';
+  // 4) Mustergedächtnis: wie viel PV kam an ähnlichen Tagen wirklich?
+  let pvReal: number | null = pvForecastKwh;
+  let patternLine = 'Keine ähnlichen Tage im Mustergedächtnis.';
+  if (pvForecastKwh != null && pvForecastKwh > 0) {
+    const { data: sim } = await sb.from('daily_pattern_scores')
+      .select('date, expected_pv_kwh, pv_kwh')
+      .gte('expected_pv_kwh', pvForecastKwh * 0.7).lte('expected_pv_kwh', pvForecastKwh * 1.3)
+      .not('pv_kwh', 'is', null).lt('date', todayStr)
+      .order('date', { ascending: false }).limit(30);
+    const ratios = ((sim ?? []) as any[])
+      .filter((d) => Number(d.expected_pv_kwh) > 0)
+      .map((d) => Number(d.pv_kwh) / Number(d.expected_pv_kwh))
+      .filter((x) => Number.isFinite(x) && x > 0 && x < 3)
+      .sort((a, b) => a - b);
+    if (ratios.length >= 3) {
+      const median = ratios[Math.floor(ratios.length / 2)];
+      pvReal = pvForecastKwh * median;
+      patternLine = `Mustergedächtnis: ${ratios.length} ähnliche Tage (Prognose ${(pvForecastKwh * 0.7).toFixed(0)}–${(pvForecastKwh * 1.3).toFixed(0)} kWh) brachten im Mittel ${Math.round(median * 100)} % der Prognose → realistisch ${pvReal.toFixed(1)} kWh.`;
     }
   }
 
-  // 2) Reserve-Validierungs-Signal (Verstärker oder eigenständiger Auslöser)
-  let reserveLine = '';
-  if (validation) {
-    const morn = validation.morningSoc;
-    const target = validation.reserveTarget;
-    const held = validation.reserveHeld;
-    if (morn != null && target != null) {
-      if (held === false && morn < target - 5) {
-        // Reserve gerissen → Gate anheben
-        const bump = morn < target - 15 ? 10 : 5;
-        const proposed = Math.min(oldValue + bump, 90);
-        if (proposed > newValue) newValue = proposed;
-        reserveLine = `Reserve gestern unterschritten (Morgen-SOC ${morn}% bei Ziel ${target}%, Heizung Batterie ${validation.heatingBatteryUsedKwh ?? '–'} kWh) — Gate anheben empfohlen.`;
-      } else if (held === true && morn > target + 20) {
-        // Reserve klar überschritten → Gate könnte gesenkt werden
-        const proposed = Math.max(oldValue - 5, 50);
-        if (proposed < newValue || newValue === oldValue) newValue = proposed;
-        reserveLine = `Reserve gestern deutlich übererfüllt (Morgen-SOC ${morn}% bei Ziel ${target}%) — Gate kann gesenkt werden.`;
-      } else {
-        reserveLine = `Reserve gestern ${held ? 'gehalten' : 'leicht unterschritten'} (Morgen-SOC ${morn}%, Ziel ${target}%).`;
-      }
+  // 5) Was bleibt morgen für die Heizung (nach Grundlast und Laden bis zur Grenze)?
+  const { data: nowE } = await sb.from('energy_readings').select('battery_soc').order('timestamp', { ascending: false }).limit(1).maybeSingle();
+  const socNow = nowE?.battery_soc != null ? Number(nowE.battery_soc) : null;
+  let heatLine = '';
+  if (pvReal != null && socNow != null) {
+    const socMorning = Math.max(5, socNow - nightDropPct);
+    const dayHours = Math.max(0, lastPvH + 1 - firstPvH);
+    const dayLoadKwh = baseW * dayHours / 1000;
+    const toBatteryKwh = Math.max(0, (newValue - socMorning) / 100 * cap);
+    const freeKwh = Math.max(0, pvReal - dayLoadKwh - toBatteryKwh);
+    const { data: rooms } = await sb.from('rooms')
+      .select('name, priority, heating_power_w, calculated_power_w, automation_enabled')
+      .eq('automation_enabled', true).order('priority', { ascending: true });
+    const parts: string[] = [];
+    let left = freeKwh;
+    for (const r of (rooms ?? []) as any[]) {
+      if (left < 0.3) break;
+      const w = Number(r.calculated_power_w || r.heating_power_w || 800);
+      const h = Math.min(3, left / (w / 1000));
+      parts.push(`${r.name} ~${h.toFixed(1)} h`);
+      left -= h * w / 1000;
     }
+    heatLine = `Morgen: Batterie früh ~${Math.round(socMorning)} %, Laden bis ${newValue} % braucht ${toBatteryKwh.toFixed(1)} kWh, Grundlast ${dayLoadKwh.toFixed(1)} kWh → für die Heizung frei ≈ ${freeKwh.toFixed(1)} kWh`
+      + (parts.length ? ` (nach Priorität: ${parts.join(', ')}).` : ' – reicht für keinen Raum.');
   }
+
+  const reasonCore = `Nachtbedarf gemessen: ${nightDropPct.toFixed(0)} % (${nights.length >= 2 ? `größter Verlust aus ${nights.length} Nächten` : 'Startwert, noch zu wenige saubere Nächte'}, Grundlast ≈ ${Math.round(baseW)} W)`
+    + ` + Abend/Morgen ohne PV ${morningH + eveningH} h ≈ ${edgePct.toFixed(0)} % + Reserve ${reservePct} % = ${raw.toFixed(0)} % → ${newValue} %.`;
+  const pvForecastLine = pvForecastKwh != null ? `PV-Prognose morgen ${pvForecastKwh.toFixed(1)} kWh.` : 'Keine PV-Prognose für morgen.';
+  const reasonText = [reasonCore, pvForecastLine, patternLine, heatLine].filter(Boolean).join(' ');
+  const avg7d = null;
+  const socEnd = socNow != null ? Math.round(socNow) : null;
 
   if (newValue === oldValue) {
-    return { ok: true, skipped: 'no_change_needed', oldValue, pvForecastKwh, socEnd, reserveLine };
+    // Kein neuer Vorschlag – Begründung trotzdem festhalten (Protokoll), offenen Vorschlag zurückziehen
+    if (existing) await sb.from('battery_soc_suggestions').update({ status: 'dismissed', decided_at: new Date().toISOString(), decided_by: 'system: neue Berechnung, keine Änderung' }).eq('id', existing.id);
+    await sb.from('system_settings').upsert({ key: 'battery_soc_suggestion_last', value: { at: new Date().toISOString(), old: oldValue, proposed: newValue, reason: reasonText }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    return { ok: true, skipped: 'no_change_needed', oldValue, reasonText };
   }
+  await sb.from('system_settings').upsert({ key: 'battery_soc_suggestion_last', value: { at: new Date().toISOString(), old: oldValue, proposed: newValue, reason: reasonText }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
 
-  const pvLine = pvForecastKwh != null
-    ? `PV-Prognose morgen: ${pvForecastKwh.toFixed(1)} kWh (Ø 7 Tage: ${avg7d?.toFixed(1) ?? '–'} kWh), Batterie-SOC gestern Abend: ${socEnd ?? '–'}%.`
-    : 'Keine PV-Prognose verfügbar — Vorschlag basiert auf Reserve-Validierung.';
-  const reasonText = [pvLine, reasonCore, reserveLine].filter(Boolean).join(' ');
+
 
   // Upsert: existierenden pending-Eintrag updaten, wenn sich Wert ändert
   if (existing) {
@@ -200,7 +247,7 @@ async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>, vali
     return { ok: false, error: insErr.message };
   }
 
-  console.log(`[suggest-battery-soc] proposed ${oldValue}% → ${newValue}% (PV ${pvForecastKwh} kWh, SOC ${socEnd}%, validation=${!!validation})`);
+  console.log(`[suggest-battery-soc] proposed ${oldValue}% → ${newValue}% (PV ${pvForecastKwh} kWh, SOC ${socEnd}%)`);
   return { ok: true, created: true, suggestion: inserted };
 }
 
