@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Fronius + Tuya Local Collector v3.0
+ * Fronius + Tuya Local Collector v3.0 (Stand 30.09.2026)
  * 
  * Sammelt Energiedaten von Fronius und steuert Thermostate lokal über TuyAPI
  */
@@ -131,6 +131,9 @@ function httpGet(url, timeout = 5000) {
 
 // Fetch data from Fronius
 async function fetchFroniusData() {
+  if (!config.fronius?.ip) {
+    return null; // Kein Fronius konfiguriert – nur Tuya-Betrieb
+  }
   try {
     const url = `http://${config.fronius.ip}/solar_api/v1/GetPowerFlowRealtimeData.fcgi`;
     const data = await httpGet(url);
@@ -196,6 +199,48 @@ async function saveReading(froniusData) {
   }
 }
 
+// Legt einen Fehler in api_errors an - aber nur EINMAL pro Geraet und Fehlertyp.
+// Existiert bereits ein offener Eintrag, wird stattdessen retry_count hochgezaehlt.
+// Verhindert, dass ein dauerhaft offline stehendes Geraet die Tabelle zumuellt
+// (frueher: ein neuer Datensatz alle 5 Minuten, ~300 pro Tag und Geraet).
+// Schreibt zusaetzlich room_id mit - auto-resolve-api-errors braucht das Feld.
+async function logDeviceError(device, errorType, message) {
+  try {
+    const { data: open, error: selErr } = await supabase
+      .from('api_errors')
+      .select('id, retry_count')
+      .eq('device_id', device.device_id)
+      .eq('error_type', errorType)
+      .is('resolved_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (selErr) {
+      console.error('[api_errors] Abfrage fehlgeschlagen:', selErr.message);
+      return;
+    }
+
+    if (open && open.length > 0) {
+      await supabase.from('api_errors').update({
+        retry_count: (open[0].retry_count || 0) + 1,
+        error_message: message
+      }).eq('id', open[0].id);
+      return;
+    }
+
+    await supabase.from('api_errors').insert({
+      source: 'tuya-local',
+      error_type: errorType,
+      error_message: message,
+      device_id: device.device_id,
+      room_id: device.room_id || null,
+      room_name: device.name
+    });
+  } catch (e) {
+    console.error('[api_errors] Logging fehlgeschlagen:', e.message);
+  }
+}
+
 // Sync all thermostats and update database
 async function syncThermostats() {
   if (!thermostatCtrl || !config.tuya?.devices?.length) return;
@@ -215,47 +260,10 @@ async function syncThermostats() {
   const online = reachability.filter(r => r.online);
   const offline = reachability.filter(r => !r.online);
 
-  // Online-Geräte heilen sich selbst: offene device_offline-Fehler auflösen,
-  // sobald der TCP-Preflight wieder besteht. Im Lokal-Modus quota-frei, daher
-  // ist der Preflight (läuft ohnehin jeden Zyklus) die verlässlichste Signal-
-  // quelle — Fehler entsteht und verschwindet an derselben Stelle (symmetrisch).
-  const onlineDeviceIds = online.map(r => r.device.device_id);
-  if (onlineDeviceIds.length > 0) {
-    const { data: healed, error: healErr } = await supabase
-      .from('api_errors')
-      .update({ resolved_at: new Date().toISOString() })
-      .eq('error_type', 'device_offline')
-      .is('resolved_at', null)
-      .in('device_id', onlineDeviceIds)
-      .select('id');
-    if (healErr) {
-      console.error('[Tuya] Auto-Heal device_offline Fehler:', healErr.message);
-    } else if (healed && healed.length > 0) {
-      console.log(`[Tuya] ${healed.length} device_offline-Fehler aufgelöst (Geräte wieder erreichbar)`);
-    }
-  }
-
-  // Offline-Geräte als Fehler loggen — aber nur EINEN offenen Eintrag pro Gerät
-  // (kein neuer Insert, solange schon ein unaufgelöster device_offline existiert).
-  // Verhindert Duplikat-Ansammlung, die im Frontend fälschlich als "persistent"
-  // (PERSIST_MIN_COUNT) zählt.
+  // Offline-Geräte sofort als Fehler loggen
   for (const { device } of offline) {
     console.error(`[Tuya] ${device.name}: offline (TCP 6668 unerreichbar)`);
-    const { data: existingOpen } = await supabase
-      .from('api_errors')
-      .select('id')
-      .eq('error_type', 'device_offline')
-      .eq('device_id', device.device_id)
-      .is('resolved_at', null)
-      .limit(1);
-    if (existingOpen && existingOpen.length > 0) continue;
-    await supabase.from('api_errors').insert({
-      source: 'tuya-local',
-      error_type: 'device_offline',
-      error_message: 'TCP 6668 unerreichbar (Preflight)',
-      device_id: device.device_id,
-      room_name: device.name
-    });
+    await logDeviceError(device, 'device_offline', 'TCP 6668 unerreichbar (Preflight)');
   }
 
   // 2. Online-Geräte in Batches á 3 parallel verarbeiten
@@ -277,16 +285,11 @@ async function syncThermostats() {
         if (currentMode === 'local' && deviceConfig.room_id) {
           const nowIso = new Date().toISOString();
 
-          // A1: hochfrequentes Temperatur-Sample
-          supabase.from('room_temperature_samples').insert({
-            room_id: deviceConfig.room_id,
-            temperature: status.current_temp,
-            is_heating: !!status.is_heating,
-            pv_power_w: lastPvPower != null ? Math.round(lastPvPower) : null,
-            timestamp: nowIso
-          }).then(({ error: sErr }) => {
-            if (sErr) console.error(`[ML-Sample] ${deviceConfig.name}:`, sErr.message);
-          });
+          // A1 (Temperatur-Sample) entfernt 30.09.2026: Das Sample legt der
+          // Datenbank-Trigger trg_capture_room_temperature_sample bei jedem
+          // rooms-Update oben selbst an (inkl. pv_power_w). Der direkte Insert war
+          // doppelt und scheiterte mit dem anon-Schluessel an RLS (HTTP 401,
+          // ~3.500 Fehl-Aufrufe pro Tag im Supabase-Log).
 
           // A2: Heating-Event bei Statuswechsel
           const prev = lastHeatingState.get(deviceConfig.room_id);
@@ -322,27 +325,7 @@ async function syncThermostats() {
     }
 
     console.error(`[Tuya] ${deviceConfig.name}: ${status.error}`);
-    // Nur EINEN offenen connection_error pro Gerät (kein Duplikat-Stapel).
-    // Analog zum device_offline-Schutz oben: verhindert, dass ein Gerät, das
-    // den Preflight besteht aber beim Status-Auslesen zickt, bei jedem Zyklus
-    // einen neuen Fehler anhäuft und so fälschlich die "persistent"-Schwelle
-    // (PERSIST_MIN_COUNT) im Frontend-Banner auslöst.
-    const { data: existingConnErr } = await supabase
-      .from('api_errors')
-      .select('id')
-      .eq('error_type', 'connection_error')
-      .eq('device_id', deviceConfig.device_id)
-      .is('resolved_at', null)
-      .limit(1);
-    if (!existingConnErr || existingConnErr.length === 0) {
-      await supabase.from('api_errors').insert({
-        source: 'tuya-local',
-        error_type: 'connection_error',
-        error_message: status.error,
-        device_id: deviceConfig.device_id,
-        room_name: deviceConfig.name
-      });
-    }
+    await logDeviceError(deviceConfig, 'connection_error', status.error);
     return { name: deviceConfig.name, ok: false, error: status.error };
   });
 
@@ -590,7 +573,7 @@ async function main() {
   console.log('   Fronius + Tuya Collector v3.0       ');
   console.log('========================================');
   console.log('');
-  console.log(`Fronius: ${config.fronius.ip}`);
+  console.log(`Fronius: ${config.fronius?.ip || 'nicht konfiguriert (nur Tuya)'}`);
   
   if (config.tuya?.enabled && thermostatCtrl) {
     console.log(`Tuya: ${config.tuya.devices?.length || 0} Thermostate konfiguriert (lokal)`);

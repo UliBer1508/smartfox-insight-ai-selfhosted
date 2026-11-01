@@ -1,325 +1,278 @@
 /**
- * TuyAPI-basierte lokale Thermostat-Steuerung (Hybrid v3)
+ * TuyAPI-basierte lokale Thermostat-Steuerung v1.3
  * Kommuniziert direkt mit TGP508 Thermostaten über LAN (Port 6668)
  *
- * Robustheits-Features v3:
- * - Persistente Verbindungen (kein Connect/Disconnect pro Befehl)
- * - Kein UDP find() — IP wird direkt aus Config genutzt
- * - issueRefreshOnConnect: false (verhindert Session-Drops)
- * - Operation-Timeout (3s) per Promise.race
- * - Atomic SET via {multiple: true} (mode + temp in 1 Roundtrip)
- * - Per-Device Command-Queue (serialisiert parallele Zugriffe)
- * - 2 Retries mit Backoff (1s, 2s) und Force-Reconnect bei Fehler
+ * Verbesserungen v1.1:
+ * - Timeout pro Verbindung (10s) verhindert Hänger
+ * - Frische Device-Instanz pro Aufruf (vermeidet Socket-Leichen)
+ * - Fehler werden gefangen statt den Prozess zu crashen
+ *
+ * Änderungen v1.2 (24.10.2026):
+ * - DP-Belegung korrigiert (per dump-dps.js am Gerät "Wohnzimmer" verifiziert):
+ *     DP 1 = Ein/Aus (boolean)   – NICHT der Modus
+ *     DP 4 = Modus (string)      – "auto" = Wochenprogramm, "home" = manuell
+ * - setTemperature setzt Modus "home" + Solltemperatur in EINEM Befehl.
+ *   Grund: Steht ein Thermostat auf "auto", schaltet es nach seinem eigenen
+ *   Wochenprogramm – mit seiner (falschen, nicht synchronisierten) Uhr – und
+ *   überschreibt die Vorgaben von pv-automation.
  */
 
 const TuyAPI = require('tuyapi');
 
-// TGP508 Thermostat DPS-Mapping
-const DPS = {
-  MODE: '1',           // auto/manual/off
-  TARGET_TEMP: '2',    // x10
-  CURRENT_TEMP: '3',   // x10
-  HEATING: '4'         // boolean read-only
+// TGP508 Thermostat DPS-Mapping (verifiziert 24.10.2026)
+const DPS_CODES = {
+  power: '1',          // boolean: Gerät ein/aus
+  temp_set: '2',       // number: Solltemperatur x10
+  temp_current: '3',   // number: Ist-Temperatur x10
+  heat_state: '5',
+  mode: '4'            // string: "auto" (Programm) | "home" (manuell)
 };
 
-const CONNECT_TIMEOUT_MS = 5000;
-const OP_TIMEOUT_MS = 3000;
-const MAX_RETRIES = 2;
+// Wert für "manuell" beim TGP508 im LAN-Modus.
+// Test 24.10.2026: gesendetes "manual" wurde vom Gerät als "home" gespeichert.
+const MANUAL_MODE = 'home';
 
-// Protokoll-Versionen, die bei Connect-Fehler automatisch durchprobiert werden.
-// Firmware-OTAs heben TGP508 teils von 3.3 auf 3.4/3.5 — dann scheitert der
-// Handshake mit fester Version als "connection timed out", obwohl Port 6668 offen ist.
-const VERSION_CANDIDATES = ['3.3', '3.4', '3.5'];
-const DEFAULT_VERSION = '3.3';
-
+const CONNECTION_TIMEOUT = 10000; // 10 Sekunden
 
 class ThermostatController {
   constructor() {
-    this.devices = new Map();    // device_id -> TuyAPI instance
-    this.connected = new Map();  // device_id -> boolean
-    this.queues = new Map();     // device_id -> Promise chain
-    this.versions = new Map();   // device_id -> aktuell genutzte Protokoll-Version
+    this.maxRetries = 2;
   }
 
   /**
-   * Liefert die aktuell für ein Gerät genutzte Protokoll-Version.
-   * Priorität: bereits funktionierende (gemerkte) > config > Default.
+   * Erstellt eine FRISCHE TuyAPI Device-Instanz pro Aufruf
+   * Verhindert Socket-Leichen und ECONNRESET-Crashes
    */
-  currentVersion(deviceConfig) {
-    return (
-      this.versions.get(deviceConfig.device_id) ||
-      deviceConfig.version ||
-      DEFAULT_VERSION
-    );
+  createDevice(deviceConfig, version) {
+    // Protokollversion: pro Gerät aus config (protocol_version) oder Default 3.5.
+    // Moderne TGP508-Firmware spricht 3.5; aeltere Geraete ggf. 3.3 (Auto-Fallback).
+    const ver = version || deviceConfig.protocol_version || '3.5';
+    const device = new TuyAPI({
+      id: deviceConfig.device_id,
+      key: deviceConfig.local_key,
+      ip: deviceConfig.ip,
+      version: ver,
+      issueRefreshOnConnect: true
+    });
+
+    // Fehler abfangen statt Prozess crashen
+    device.on('error', () => {});
+    device.on('disconnected', () => {});
+
+    return device;
   }
 
   /**
-   * Holt oder erstellt persistente TuyAPI Device-Instanz.
-   * Optional mit erzwungener Protokoll-Version (für Auto-Detection).
-   */
-  getDevice(deviceConfig, forceVersion = null) {
-    const key = deviceConfig.device_id;
-    const version = forceVersion || this.currentVersion(deviceConfig);
-
-    // Bei Versionswechsel: alte Instanz verwerfen und neu erstellen.
-    const existing = this.devices.get(key);
-    if (existing && forceVersion && this.versions.get(key) !== forceVersion) {
-      try { existing.disconnect(); } catch (_) {}
-      this.devices.delete(key);
-      this.connected.set(key, false);
-    }
-
-    if (!this.devices.has(key)) {
-      const device = new TuyAPI({
-        id: deviceConfig.device_id,
-        key: deviceConfig.local_key,
-        ip: deviceConfig.ip,
-        version,
-        issueGetOnConnect: false,
-        issueRefreshOnConnect: false  // verhindert Session-Drops
-      });
-
-      device.on('error', (error) => {
-        console.error(`[TuyAPI] ${deviceConfig.name} Fehler:`, error.message);
-        this.connected.set(key, false);
-      });
-
-      device.on('disconnected', () => {
-        console.log(`[TuyAPI] ${deviceConfig.name} getrennt`);
-        this.connected.set(key, false);
-      });
-
-      device.on('connected', () => {
-        this.connected.set(key, true);
-      });
-
-      this.devices.set(key, device);
-      this.connected.set(key, false);
-      this.versions.set(key, version);
-    }
-
-    return this.devices.get(key);
-  }
-
-
-  /**
-   * Serialisiert Operationen pro Gerät.
-   */
-  enqueue(deviceId, fn) {
-    const last = this.queues.get(deviceId) || Promise.resolve();
-    const next = last.then(fn, fn);
-    this.queues.set(deviceId, next);
-    return next;
-  }
-
-  /**
-   * Promise.race mit Timeout.
+   * Timeout-Wrapper: Bricht Operation nach X ms ab
    */
   withTimeout(promise, ms, label) {
-    return new Promise((resolve, reject) => {
-      const t = setTimeout(() => reject(new Error(`Timeout nach ${ms}ms: ${label}`)), ms);
-      promise.then(
-        (v) => { clearTimeout(t); resolve(v); },
-        (e) => { clearTimeout(t); reject(e); }
+    return Promise.race([
+      promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout nach ${ms / 1000}s: ${label}`)), ms)
+      )
+    ]);
+  }
+
+  /**
+   * Sicheres Disconnect - ignoriert alle Fehler
+   */
+  async safeDisconnect(device) {
+    try {
+      device.disconnect();
+    } catch (e) {
+      // Ignorieren
+    }
+  }
+
+  /**
+   * Liest Status eines Thermostats
+   */
+  async getStatus(deviceConfig, retryCount = 0, version = null) {
+    const ver = version || deviceConfig.protocol_version || '3.5';
+    const device = this.createDevice(deviceConfig, ver);
+
+    try {
+      await this.withTimeout(
+        device.find(),
+        CONNECTION_TIMEOUT,
+        `${deviceConfig.name} find`
       );
-    });
-  }
 
-  /**
-   * Stellt sicher, dass das Gerät verbunden ist (persistente Connection).
-   * Reconnect nur, wenn nicht verbunden.
-   *
-   * Auto-Versions-Erkennung: scheitert der Handshake mit der aktuellen
-   * Protokoll-Version (typisch "connection timed out" trotz offenem Port),
-   * werden die übrigen Versionen (3.3/3.4/3.5) durchprobiert. Die erste,
-   * die verbindet, wird gemerkt und künftig direkt genutzt.
-   */
-  async ensureConnected(device, deviceConfig) {
-    const key = deviceConfig.device_id;
-    if (this.connected.get(key) && device.isConnected && device.isConnected()) {
-      return device;
-    }
+      await this.withTimeout(
+        device.connect(),
+        CONNECTION_TIMEOUT,
+        `${deviceConfig.name} connect`
+      );
 
+      const status = await this.withTimeout(
+        device.get({ schema: true }),
+        CONNECTION_TIMEOUT,
+        `${deviceConfig.name} get`
+      );
 
-    // Versionsreihenfolge: aktuelle zuerst, dann die restlichen Kandidaten.
-    const current = this.currentVersion(deviceConfig);
-    const order = [current, ...VERSION_CANDIDATES.filter(v => v !== current)];
+      await this.safeDisconnect(device);
 
-    let lastErr;
-    for (let i = 0; i < order.length; i++) {
-      const version = order[i];
-      const dev = this.getDevice(deviceConfig, version);
-      try {
-        await this.withTimeout(dev.connect(), CONNECT_TIMEOUT_MS, `${deviceConfig.name} connect (v${version})`);
-        this.connected.set(key, true);
-        if (version !== current) {
-          console.log(`[TuyAPI] ${deviceConfig.name}: Protokoll-Version automatisch auf v${version} umgestellt`);
-        }
-        this.versions.set(key, version);
-        return dev;
+      const dps = status.dps || {};
 
-      } catch (err) {
-        lastErr = err;
-        try { await dev.disconnect(); } catch (_) {}
-        this.connected.set(key, false);
-        if (i < order.length - 1) {
-          console.log(`[TuyAPI] ${deviceConfig.name}: Connect v${version} fehlgeschlagen (${err.message}) → versuche v${order[i + 1]}`);
-        }
+      const currentTemp = dps[DPS_CODES.temp_current];
+      const targetTemp = dps[DPS_CODES.temp_set];
+      const powerOn = dps[DPS_CODES.power];
+      const mode = dps[DPS_CODES.mode];
+      const heatState = dps[DPS_CODES.heat_state];
+
+      return {
+        success: true,
+        current_temp: (currentTemp || 0) / 10,
+        target_temp: (targetTemp || 0) / 10,
+        // HINWEIS: Der DP für "Relais heizt gerade" ist noch nicht ermittelt.
+        // Bisher wurde DP 4 (Modus-String) als boolean gelesen und ergab daher
+        // IMMER false. Dieses Verhalten bleibt bewusst unverändert, bis der
+        // richtige DP an einem gerade heizenden Raum per dump-dps.js bestimmt ist.
+        is_heating: String(heatState) === '1',
+        power_on: powerOn === true,
+        mode: mode || 'unknown',
+        protocol_version: ver,
+        raw_dps: dps
+      };
+    } catch (error) {
+      await this.safeDisconnect(device);
+
+      // Auto-Fallback: beim ersten Fehlschlag mit 3.5 einmal 3.3 versuchen
+      if (ver === '3.5' && retryCount === 0) {
+        console.log(`  [Version] ${deviceConfig.name}: 3.5 fehlgeschlagen, versuche 3.3...`);
+        return this.getStatus(deviceConfig, 0, '3.3');
       }
+
+      if (retryCount < this.maxRetries) {
+        console.log(`  [Retry] ${deviceConfig.name} ${retryCount + 1}/${this.maxRetries}...`);
+        await this.sleep(2000 * (retryCount + 1));
+        return this.getStatus(deviceConfig, retryCount + 1, ver);
+      }
+
+      return {
+        success: false,
+        error: error.message
+      };
     }
-    throw lastErr || new Error(`${deviceConfig.name}: Connect mit allen Protokoll-Versionen fehlgeschlagen`);
   }
 
+  /**
+   * Setzt Zieltemperatur eines Thermostats
+   */
+  async setTemperature(deviceConfig, temperature, retryCount = 0, version = null) {
+    const ver = version || deviceConfig.protocol_version || '3.5';
+    const device = this.createDevice(deviceConfig, ver);
+
+    try {
+      const tempValue = Math.round(temperature * 10);
+
+      if (tempValue < 50 || tempValue > 350) {
+        return { success: false, error: `Temperatur ${temperature}°C außerhalb 5-35°C` };
+      }
+
+      await this.withTimeout(device.find(), CONNECTION_TIMEOUT, `${deviceConfig.name} find`);
+      await this.withTimeout(device.connect(), CONNECTION_TIMEOUT, `${deviceConfig.name} connect`);
+
+      // Modus "home" (manuell) + Solltemperatur in EINEM Befehl.
+      // Verhindert, dass ein Thermostat im Wochenprogramm ("auto") mit seiner
+      // falschen Uhr die Vorgaben von pv-automation überschreibt.
+      await this.withTimeout(
+        device.set({
+          multiple: true,
+          data: {
+            [DPS_CODES.mode]: MANUAL_MODE,
+            [DPS_CODES.temp_set]: tempValue
+          }
+        }),
+        CONNECTION_TIMEOUT,
+        `${deviceConfig.name} set`
+      );
+
+      await this.safeDisconnect(device);
+
+      console.log(`  [OK] ${deviceConfig.name}: ${temperature}°C gesetzt (Modus ${MANUAL_MODE})`);
+      return { success: true };
+    } catch (error) {
+      await this.safeDisconnect(device);
+
+      if (ver === '3.5' && retryCount === 0) {
+        console.log(`  [Version] ${deviceConfig.name} set: 3.5 fehlgeschlagen, versuche 3.3...`);
+        return this.setTemperature(deviceConfig, temperature, 0, '3.3');
+      }
+
+      if (retryCount < this.maxRetries) {
+        console.log(`  [Retry] ${deviceConfig.name} set ${retryCount + 1}/${this.maxRetries}...`);
+        await this.sleep(2000 * (retryCount + 1));
+        return this.setTemperature(deviceConfig, temperature, retryCount + 1, ver);
+      }
+
+      return { success: false, error: error.message };
+    }
+  }
 
   /**
-   * Forciert Disconnect (z.B. nach Fehler, vor Retry).
+   * Setzt Modus (DP 4): "auto" = Wochenprogramm, "home" = manuell.
+   * "manual" aus App/DB wird auf "home" übersetzt.
+   * "off" schaltet über DP 1 aus (DP 4 kennt kein "off").
    */
-  async forceDisconnect(device, deviceConfig) {
-    try { await device.disconnect(); } catch (_) {}
-    this.connected.set(deviceConfig.device_id, false);
+  async setMode(deviceConfig, mode, retryCount = 0, version = null) {
+    const ver = version || deviceConfig.protocol_version || '3.5';
+    const device = this.createDevice(deviceConfig, ver);
+
+    try {
+      if (mode === 'manual') mode = MANUAL_MODE;
+      if (mode !== 'auto' && mode !== MANUAL_MODE && mode !== 'off') {
+        return { success: false, error: `Unbekannter Modus "${mode}" (erlaubt: auto, manual/home, off)` };
+      }
+
+      await this.withTimeout(device.find(), CONNECTION_TIMEOUT, `${deviceConfig.name} find`);
+      await this.withTimeout(device.connect(), CONNECTION_TIMEOUT, `${deviceConfig.name} connect`);
+
+      await this.withTimeout(
+        mode === 'off'
+          ? device.set({ dps: DPS_CODES.power, set: false })
+          : device.set({
+              multiple: true,
+              data: { [DPS_CODES.power]: true, [DPS_CODES.mode]: mode }
+            }),
+        CONNECTION_TIMEOUT,
+        `${deviceConfig.name} setMode`
+      );
+
+      await this.safeDisconnect(device);
+
+      console.log(`  [OK] ${deviceConfig.name}: Modus ${mode}`);
+      return { success: true };
+    } catch (error) {
+      await this.safeDisconnect(device);
+
+      if (ver === '3.5' && retryCount === 0) {
+        console.log(`  [Version] ${deviceConfig.name} setMode: 3.5 fehlgeschlagen, versuche 3.3...`);
+        return this.setMode(deviceConfig, mode, 0, '3.3');
+      }
+
+      if (retryCount < this.maxRetries) {
+        await this.sleep(2000 * (retryCount + 1));
+        return this.setMode(deviceConfig, mode, retryCount + 1, ver);
+      }
+
+      return { success: false, error: error.message };
+    }
   }
 
   sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
   }
 
-  // ---------------------------------------------------------------------------
-  // GET STATUS
-  // ---------------------------------------------------------------------------
-  async getStatus(deviceConfig) {
-    return this.enqueue(deviceConfig.device_id, () =>
-      this._getStatusWithRetry(deviceConfig, 0)
-    );
-  }
-
-  async _getStatusWithRetry(deviceConfig, retryCount) {
-    let device = this.getDevice(deviceConfig);
-
-    try {
-      device = await this.ensureConnected(device, deviceConfig);
-      const status = await this.withTimeout(
-        device.get({ schema: true }),
-        OP_TIMEOUT_MS,
-        `${deviceConfig.name} get`
-      );
-      const dps = status.dps || {};
-
-      return {
-        success: true,
-        current_temp: (dps[DPS.CURRENT_TEMP] || 0) / 10,
-        target_temp: (dps[DPS.TARGET_TEMP] || 0) / 10,
-        is_heating: dps[DPS.HEATING] === true,
-        mode: dps[DPS.MODE] || 'unknown',
-        raw_dps: dps
-      };
-    } catch (error) {
-      await this.forceDisconnect(device, deviceConfig);
-      if (retryCount < MAX_RETRIES) {
-        console.log(`[TuyAPI] ${deviceConfig.name} Status-Retry ${retryCount + 1}/${MAX_RETRIES} (${error.message})`);
-        await this.sleep(1000 * (retryCount + 1));
-        return this._getStatusWithRetry(deviceConfig, retryCount + 1);
-      }
-      console.error(`[TuyAPI] ${deviceConfig.name} Status-Fehler nach ${MAX_RETRIES} Retries:`, error.message);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // SET TEMPERATURE (Atomic: mode + target in 1 Roundtrip)
-  // ---------------------------------------------------------------------------
-  async setTemperature(deviceConfig, temperature) {
-    return this.enqueue(deviceConfig.device_id, () =>
-      this._setTemperatureWithRetry(deviceConfig, temperature, 0)
-    );
-  }
-
-  async _setTemperatureWithRetry(deviceConfig, temperature, retryCount) {
-    let device = this.getDevice(deviceConfig);
-
-    const tempValue = Math.round(temperature * 10);
-    if (tempValue < 50 || tempValue > 350) {
-      return {
-        success: false,
-        error: `Temperatur ${temperature}°C außerhalb Bereich (5–35°C)`
-      };
-    }
-
-    try {
-      device = await this.ensureConnected(device, deviceConfig);
-
-      // Atomic SET: mode=manual + target_temp in einem Roundtrip
-      await this.withTimeout(
-        device.set({
-          multiple: true,
-          data: {
-            [DPS.MODE]: 'manual',
-            [DPS.TARGET_TEMP]: tempValue
-          }
-        }),
-        OP_TIMEOUT_MS,
-        `${deviceConfig.name} set temp`
-      );
-
-      console.log(`[TuyAPI] ${deviceConfig.name}: manual + ${temperature}°C (atomic)`);
-      return { success: true };
-    } catch (error) {
-      await this.forceDisconnect(device, deviceConfig);
-      if (retryCount < MAX_RETRIES) {
-        console.log(`[TuyAPI] ${deviceConfig.name} Set-Retry ${retryCount + 1}/${MAX_RETRIES} (${error.message})`);
-        await this.sleep(1000 * (retryCount + 1));
-        return this._setTemperatureWithRetry(deviceConfig, temperature, retryCount + 1);
-      }
-      console.error(`[TuyAPI] ${deviceConfig.name} Set-Fehler nach ${MAX_RETRIES} Retries:`, error.message);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // SET MODE (auto/manual/off)
-  // ---------------------------------------------------------------------------
-  async setMode(deviceConfig, mode) {
-    return this.enqueue(deviceConfig.device_id, () =>
-      this._setModeWithRetry(deviceConfig, mode, 0)
-    );
-  }
-
-  async _setModeWithRetry(deviceConfig, mode, retryCount) {
-    let device = this.getDevice(deviceConfig);
-
-    try {
-      device = await this.ensureConnected(device, deviceConfig);
-      await this.withTimeout(
-        device.set({ dps: DPS.MODE, set: mode }),
-        OP_TIMEOUT_MS,
-        `${deviceConfig.name} set mode`
-      );
-
-      console.log(`[TuyAPI] ${deviceConfig.name}: Modus=${mode}`);
-      return { success: true };
-    } catch (error) {
-      await this.forceDisconnect(device, deviceConfig);
-      if (retryCount < MAX_RETRIES) {
-        console.log(`[TuyAPI] ${deviceConfig.name} Mode-Retry ${retryCount + 1}/${MAX_RETRIES} (${error.message})`);
-        await this.sleep(1000 * (retryCount + 1));
-        return this._setModeWithRetry(deviceConfig, mode, retryCount + 1);
-      }
-      console.error(`[TuyAPI] ${deviceConfig.name} Mode-Fehler:`, error.message);
-      return { success: false, error: error.message };
-    }
-  }
-
   /**
-   * Alle Verbindungen schließen (Shutdown).
+   * Shutdown-Hook: Diese Version hält keine persistenten Verbindungen
+   * (jede Operation trennt selbst via safeDisconnect). Daher hier nichts
+   * zu schließen – Methode existiert nur, damit der Collector beim Beenden
+   * nicht crasht.
    */
   async disconnectAll() {
-    for (const [key, device] of this.devices) {
-      try { await device.disconnect(); } catch (_) {}
-      this.connected.set(key, false);
-    }
-    this.devices.clear();
-    this.connected.clear();
-    this.queues.clear();
-    console.log('[TuyAPI] Alle Verbindungen geschlossen');
+    console.log('[TuyAPI] Keine persistenten Verbindungen – nichts zu trennen');
   }
 }
 
