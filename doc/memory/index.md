@@ -23,6 +23,7 @@
 
 | Datei | Inhalt |
 |---|---|
+| [`lernschleife.md`](lernschleife.md) | **Lernschleife** — nur Daten ab 26.10.2026, Tagesnote nach Ulis Zielen (`tages_bewertung`), Vorschläge aus bestbewerteten ähnlichen Tagen (01.11.2026) |
 | [`ai-shadow-decisions.md`](ai-shadow-decisions.md) | **AI Shadow Decisions System** — Schatten-Modus für KI-Parameter-Vorschläge mit Whitelist, Decision-Log, Outcome-Tracking |
 | [`comfort-saturation-estrich-storage.md`](comfort-saturation-estrich-storage.md) | **Comfort Saturation Estrich Storage** — Räume wechseln nach Erreichen der Komforttemperatur zurück auf Eco-Setpoint, Estrich speichert Wärme weiter |
 | [`global-temp-defaults-removed.md`](global-temp-defaults-removed.md) | **Globale Temperatur-Defaults entfernt** — Komfort-/Eco-/Nacht-Temperatur werden ausschließlich pro Raum (Einstellungen › Räume) gepflegt; globale Werte sind reine Code-Fallbacks ohne UI. |

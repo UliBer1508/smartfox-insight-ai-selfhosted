@@ -193,10 +193,30 @@ async function handleSuggestBatterySoc(sb: ReturnType<typeof createClient>, _val
       + (parts.length ? ` (nach Priorität: ${parts.join(', ')}).` : ' – reicht für keinen Raum.');
   }
 
+  // 6) Lernschleife Stufe 3 (Vorstufe): bewertete ähnliche Tage (tages_bewertung) – welche Grenze hatte die beste Note?
+  let learnLine = '';
+  try {
+    const { data: tb } = await sb.from('tages_bewertung')
+      .select('tag, note, pv_prognose_kwh, einstellungen').not('note', 'is', null).gte('tag', '2026-10-26')
+      .order('tag', { ascending: false }).limit(60);
+    const all = (tb ?? []) as any[];
+    const similar = pvForecastKwh != null
+      ? all.filter((d) => d.pv_prognose_kwh != null && Math.abs(Number(d.pv_prognose_kwh) - pvForecastKwh) <= Math.max(3, pvForecastKwh * 0.3))
+      : [];
+    if (similar.length >= 3) {
+      const best = [...similar].sort((a, b) => Number(b.note) - Number(a.note))[0];
+      const g = best.einstellungen?.heating_min_battery_soc;
+      learnLine = `Lernschleife: ${similar.length} bewertete ähnliche Tage, beste Note ${best.note}/100 am ${String(best.tag).slice(8, 10)}.${String(best.tag).slice(5, 7)}.`
+        + (g != null ? ` (Grenze damals ${g} %).` : '.');
+    } else {
+      learnLine = `Lernschleife: ${all.length} Tage bewertet, ${similar.length} ähnlich – Vorschläge aus Tagesnoten ab ~2 Wochen Daten.`;
+    }
+  } catch (_) { /* Tabelle fehlt (SQL 14) – ohne Lernzeile weiter */ }
+
   const reasonCore = `Nachtbedarf gemessen: ${nightDropPct.toFixed(0)} % (${nights.length >= 2 ? `größter Verlust aus ${nights.length} Nächten` : 'Startwert, noch zu wenige saubere Nächte'}, Grundlast ≈ ${Math.round(baseW)} W)`
     + ` + Abend/Morgen ohne PV ${morningH + eveningH} h ≈ ${edgePct.toFixed(0)} % + Reserve ${reservePct} % = ${raw.toFixed(0)} % → ${newValue} %.`;
   const pvForecastLine = pvForecastKwh != null ? `PV-Prognose morgen ${pvForecastKwh.toFixed(1)} kWh.` : 'Keine PV-Prognose für morgen.';
-  const reasonText = [reasonCore, pvForecastLine, patternLine, heatLine].filter(Boolean).join(' ');
+  const reasonText = [reasonCore, pvForecastLine, patternLine, heatLine, learnLine].filter(Boolean).join(' ');
   const avg7d = null;
   const socEnd = socNow != null ? Math.round(socNow) : null;
 

@@ -1250,6 +1250,87 @@ export type Database = {
         }
         Relationships: []
       }
+      tages_bewertung: {
+        Row: {
+          tag: string
+          einstellungen: Json | null
+          pv_kwh: number | null
+          verbrauch_kwh: number | null
+          einspeisung_kwh: number | null
+          netz_kwh: number | null
+          heizung_kwh: number | null
+          heiz_pv_kwh: number | null
+          heiz_batt_kwh: number | null
+          heiz_netz_kwh: number | null
+          soc_sonnenuntergang: number | null
+          soc_morgen: number | null
+          nachtbedarf_pct: number | null
+          raum_min_unter: number | null
+          aussen_avg: number | null
+          pv_prognose_kwh: number | null
+          n_nacht: number | null
+          n_sonne: number | null
+          n_komfort: number | null
+          n_netz: number | null
+          note: number | null
+          hinweis: string | null
+          bewertet_at: string | null
+          created_at: string
+        }
+        Insert: {
+          tag?: string
+          einstellungen?: Json | null
+          pv_kwh?: number | null
+          verbrauch_kwh?: number | null
+          einspeisung_kwh?: number | null
+          netz_kwh?: number | null
+          heizung_kwh?: number | null
+          heiz_pv_kwh?: number | null
+          heiz_batt_kwh?: number | null
+          heiz_netz_kwh?: number | null
+          soc_sonnenuntergang?: number | null
+          soc_morgen?: number | null
+          nachtbedarf_pct?: number | null
+          raum_min_unter?: number | null
+          aussen_avg?: number | null
+          pv_prognose_kwh?: number | null
+          n_nacht?: number | null
+          n_sonne?: number | null
+          n_komfort?: number | null
+          n_netz?: number | null
+          note?: number | null
+          hinweis?: string | null
+          bewertet_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          tag?: string
+          einstellungen?: Json | null
+          pv_kwh?: number | null
+          verbrauch_kwh?: number | null
+          einspeisung_kwh?: number | null
+          netz_kwh?: number | null
+          heizung_kwh?: number | null
+          heiz_pv_kwh?: number | null
+          heiz_batt_kwh?: number | null
+          heiz_netz_kwh?: number | null
+          soc_sonnenuntergang?: number | null
+          soc_morgen?: number | null
+          nachtbedarf_pct?: number | null
+          raum_min_unter?: number | null
+          aussen_avg?: number | null
+          pv_prognose_kwh?: number | null
+          n_nacht?: number | null
+          n_sonne?: number | null
+          n_komfort?: number | null
+          n_netz?: number | null
+          note?: number | null
+          hinweis?: string | null
+          bewertet_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       presence_periods: {
         Row: {
           created_at: string

@@ -58,3 +58,7 @@ Schreibvorgang nie ab (Fehler → WARNING).
   abgleich und Netzgrenze mit 0 W. In Einstellungen › Räume eintragen.
 - `pv-automation` schickt teils alle 5 min denselben Sollwert (z. B. Kinder Bad am 31.10.). Im Protokoll
   ausgeblendet; die Ursache ist noch zu suchen.
+
+## Nachtrag 01.11.2026: Tagesnoten
+
+Neuer Bereich **Protokoll › Tagesnoten** (Lernschleife Stufe 2, SQL 14): Note je Tag nach Ulis Zielen mit Einstellungen des Tages. Konzept: `KONZEPT-LERNSCHLEIFE-2026-11-01.md`.

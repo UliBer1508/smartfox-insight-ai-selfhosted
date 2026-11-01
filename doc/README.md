@@ -2,6 +2,7 @@
 
 ## Reihenfolge:
 1. **`KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`** — Grundkonzept (wie die Heizung arbeiten soll). Vor jeder Änderung an der Steuerung lesen.
+   Dazu: **`KONZEPT-LERNSCHLEIFE-2026-11-01.md`** (wie KI/Mustergedächtnis lernen dürfen), `KONZEPT-ANWESENHEIT-2026-10-28.md`, `PROTOKOLL-MODUL-2026-11-01.md`, `THERMOSTAT-DATENPUNKTE.md`
 2. **`SYSTEM_DOCUMENTATION.md`** — Master-Dokument (Konzept, Algorithmen, Budget-Logik, Tuya-Quota, Batterie-Reserve, ML, alle Edge-Functions). **IMMER zuerst lesen.**
 3. **`memory/index.md`** — Index aller Memory-Files (Detail-Specs)
 4. **`memory/<topic>.md`** — Bei Bedarf für tiefe Specs

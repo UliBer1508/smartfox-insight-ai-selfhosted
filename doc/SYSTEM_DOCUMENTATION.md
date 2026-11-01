@@ -423,13 +423,20 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 
 ## 12. Machine Learning & AI
 
+> **Lernschleife (seit 01.11.2026, verbindlich):** `doc/KONZEPT-LERNSCHLEIFE-2026-11-01.md`. Gelernt wird nur aus Daten ab
+> `system_settings.learning_data_since` (26.10.2026); jeder Tag bekommt eine Note nach Ulis Zielen (`tages_bewertung`:
+> Nacht · Sonne · Komfort · Netz); Vorschläge kommen aus den bestbewerteten ähnlichen Tagen und werden von Uli übernommen.
+> Die Grundregeln (Batterie gehört der Nacht, Sonne zuerst in die Batterie, Untergrenze) hebt die KI nie auf.
+> **Achtung Altdaten:** Heizungsbezogene Daten vor dem 24.10.2026 beschreiben das Wochenprogramm der Thermostate, nicht
+> unsere Entscheidungen – nicht zum Lernen verwenden.
+
 **AI-Provider:** **Direkte Google Gemini API** (`gemini-2.5-flash`). Keine Lovable AI Gateway. Secret: `GOOGLE_AI_API_KEY`.
 
 ### Komponenten
 - **`analyze-patterns`** — generiert Empfehlungen, im Nachtfenster suppressed
 - **`ml-feature-extraction`** (täglich) — rekonstruiert Heizzyklen aus `room_heating_logs`, schreibt `room_ml_features`
 - **`evaluate-decision`** — bewertet vergangene Entscheidungen (Reward-Funktion)
-- **`update-learned-policies`** (täglich 19:30 UTC) — aggregiert zu `learned_policies`
+- **`update-learned-policies`** (täglich 19:30 UTC) — aggregiert zu `learned_policies`, seit 01.11.2026 nur aus Ereignissen ab `learning_data_since`
 - **`generate-settings-suggestions`** — KI-Vorschläge für Heating-Settings (whitelisted)
 
 ### Reward-Funktion
@@ -483,7 +490,7 @@ Speichert in `pv_forecasts`:
 | `apply-recommendations` | Policy → Thermostat | nach analyze-patterns | hybrid |
 | `ml-feature-extraction` | Zyklus-Features | täglich | service_role |
 | `evaluate-decision` | Reward-Berechnung | pro Decision | service_role |
-| `update-learned-policies` | Policy-Aggregation | pg_cron 19:30 UTC | service_role |
+| `update-learned-policies` | Policy-Aggregation (nur Daten ab `learning_data_since`) | pg_cron 19:30 UTC | service_role |
 | `generate-settings-suggestions` | KI-Settings-Vorschläge | manuell | hybrid |
 | `monitor-solar-heating` | Solar-Event-Erkennung | regelmäßig | service_role |
 | `analyze-solar-gain` | Passiver Solargewinn | regelmäßig | service_role |
@@ -622,6 +629,9 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
 - Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
+
+### 2026-11-01 — Lernschleife Stufe 1 + 2
+- `learning_data_since` = 26.10.2026, `update-learned-policies` lernt nur ab dann, `learned_policies` geleert. Tagesnote `tages_bewertung` (21:55 Einstellungen, 09:55 Bewertung), Tab Protokoll › Tagesnoten, Batterie-Vorschlag nennt den bestbewerteten ähnlichen Tag. SQL `14_lernschleife.sql`. Konzept `doc/KONZEPT-LERNSCHLEIFE-2026-11-01.md`.
 
 ### 2026-11-01 — Batterie-Vorschlag mit Nachtbedarf und Mustergedächtnis
 - Alte Regel hätte am 01.11. 75 → 85 % vorgeschlagen (trüber Tag → Grenze hoch). Neu: gemessener Nachtbedarf + Abend/Morgen + Reserve, Mustergedächtnis für realistische PV und Heiz-Anteil. SQL `13_batterie_vorschlag.sql` (`battery_night_reserve_pct`). Konzept Tagesablauf §10.

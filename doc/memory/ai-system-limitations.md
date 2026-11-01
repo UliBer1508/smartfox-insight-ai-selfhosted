@@ -24,3 +24,5 @@ ML-Outputs werden aktiv konsumiert, aber die deterministische Budget-Logik bleib
 **Tracking:**
 - `learning_events.action.ml_recommendation = { action, temp, confidence, sample_count }` und `ml_followed: boolean` werden bei jeder Entscheidung mit Policy gespeichert.
 - RPC `get_ml_follow_rate(days_back)` aggregiert Follow-Rate und Avg-Reward (gefolgt vs. überstimmt) für Dashboard-Widget `MLFollowRateWidget`.
+
+**Lernschleife (seit 01.11.2026):** `learned_policies` wurden geleert und werden nur aus Ereignissen ab `learning_data_since` (26.10.2026) neu aufgebaut; bis genug Daten da sind, ist die Konfidenz niedrig. Bewertung der Tage über `tages_bewertung` – siehe `lernschleife.md`.

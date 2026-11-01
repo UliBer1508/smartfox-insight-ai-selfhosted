@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.15.0] - 2026-11-01
+
+### Added (Lernschleife, `doc/KONZEPT-LERNSCHLEIFE-2026-11-01.md`)
+- Tagesnote je Tag nach Ulis Zielen (Nacht · Sonne · Komfort · Netz, je 25 Punkte) mit den Einstellungen des Tages: Tabelle `tages_bewertung`, Bewertung 09:55, Tab Protokoll › Tagesnoten, Eintrag im Protokoll.
+- Batterie-Vorschlag nennt den bestbewerteten ähnlichen Tag und dessen Grenze (Vorstufe zu Vorschlägen aus Tagesnoten).
+
+### Changed
+- KI lernt nur noch aus Daten ab 26.10.2026 (`learning_data_since`); alte `learned_policies` geleert.
+
 ## [2.14.0] - 2026-11-01
 
 ### Changed (Batterie-Vorschlag)
