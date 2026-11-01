@@ -31,6 +31,16 @@ serve(async (req) => {
     // Load evaluated learning events from last 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    // Lernschleife Stufe 1 (01.11.2026): nur saubere Daten. Vor dem 26.10.2026 regelten die Thermostate
+    // nach ihrem eigenen Wochenprogramm (Modus „auto“) – diese Ereignisse beschreiben nicht unsere Entscheidungen.
+    try {
+      const { data: since } = await supabase.from('system_settings').select('value').eq('key', 'learning_data_since').maybeSingle();
+      const sinceDate = new Date(String(since?.value ?? '2026-10-26').replace(/"/g, '') + 'T00:00:00Z');
+      if (!Number.isNaN(sinceDate.getTime()) && sinceDate > thirtyDaysAgo) thirtyDaysAgo.setTime(sinceDate.getTime());
+    } catch (_) {
+      const fallback = new Date('2026-10-26T00:00:00Z');
+      if (fallback > thirtyDaysAgo) thirtyDaysAgo.setTime(fallback.getTime());
+    }
 
     // Paginated fetch to overcome 1000 row limit
     let allEvents: any[] = [];

@@ -6,7 +6,7 @@
 //   Energie      – Verbrauch je Stunde gegen heizende Räume, Heizenergie je Raum nach Quelle
 //   Nächte       – nacht_protokoll (SQL 10): Frostschutz gegen Nachtwert
 // Aufbau wie der Protokoll-Tab der Heizung München.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,10 +16,11 @@ import { toast } from '@/hooks/use-toast';
 import { Room } from '@/types/room';
 import { Tables } from '@/integrations/supabase/types';
 
-type View = 'ereignisse' | 'thermostate' | 'energie' | 'naechte';
+type View = 'ereignisse' | 'thermostate' | 'energie' | 'naechte' | 'tage';
 type Event = Tables<'protokoll_events'>;
 type TState = Tables<'thermostat_state'>;
 type Night = Tables<'nacht_protokoll'>;
+type Day = Tables<'tages_bewertung'>;
 
 const TZ = 'Europe/Vienna';
 const KINDS: { key: string; label: string; cls: string }[] = [
@@ -553,6 +554,102 @@ function NightsView() {
   );
 }
 
+// ================================================================ Tagesnoten (Lernschleife, 01.11.2026)
+const noteClass = (n: number | null) =>
+  n == null ? 'text-muted-foreground' : n >= 75 ? 'text-emerald-600 dark:text-emerald-400' : n >= 50 ? 'text-amber-600 dark:text-amber-300' : 'text-destructive';
+
+function DaysView() {
+  const [rows, setRows] = useState<Day[]>([]);
+  const [missing, setMissing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState<string | null>(null);
+
+  useEffect(() => {
+    supabase.from('tages_bewertung').select('*').order('tag', { ascending: false }).limit(60)
+      .then(({ data, error }) => { setMissing(!!error); setRows(data ?? []); setLoading(false); });
+  }, []);
+
+  const part = (v: number | null) => (v == null ? '–' : num(v, 0));
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h3 className="font-semibold">Tagesnoten · Lernschleife</h3>
+        <Hint>
+          Jeder Tag wird am nächsten Morgen (09:55) nach deinen Zielen bewertet, je 25 Punkte:
+          <b> Nacht</b> (Batterie hat bis morgens gereicht) · <b>Sonne</b> (PV im Haus genutzt statt eingespeist) ·
+          <b> Komfort</b> (keine Raum-Minuten unter der Untergrenze) · <b>Netz</b> (wenig Netzstrom für die Heizung).
+          Dazu die Einstellungen des Tages – daraus lernt das Mustergedächtnis, was an ähnlichen Tagen am besten war.
+        </Hint>
+        {missing && <p className="text-sm text-warning">Noch nicht eingerichtet – SQL <code>14_lernschleife.sql</code> ausführen.</p>}
+        {loading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : rows.length === 0 && !missing ? (
+          <p className="text-sm text-muted-foreground">Noch keine bewerteten Tage. Der erste erscheint morgen um 09:55.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm tabular-nums">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wide text-muted-foreground text-left">
+                  <th className="py-2 pr-3 font-medium">Tag</th>
+                  <th className="py-2 px-2 font-medium text-right">Note</th>
+                  <th className="py-2 px-2 font-medium text-right">Nacht</th>
+                  <th className="py-2 px-2 font-medium text-right">Sonne</th>
+                  <th className="py-2 px-2 font-medium text-right">Komfort</th>
+                  <th className="py-2 px-2 font-medium text-right">Netz</th>
+                  <th className="py-2 px-2 font-medium text-right">PV kWh</th>
+                  <th className="py-2 px-2 font-medium text-right">Heizung kWh</th>
+                  <th className="py-2 px-2 font-medium text-right">Batterie</th>
+                  <th className="py-2 px-2 font-medium text-right">Grenze</th>
+                  <th className="py-2 pl-2 font-medium">Hinweis</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((d) => {
+                  const e = (d.einstellungen ?? {}) as Record<string, unknown>;
+                  const raeume = (Array.isArray(e.raeume) ? e.raeume : []) as Record<string, unknown>[];
+                  const isOpen = open === d.tag;
+                  return (
+                    <Fragment key={d.tag}>
+                      <tr className="border-t cursor-pointer hover:bg-muted/40" onClick={() => setOpen(isOpen ? null : d.tag)}>
+                        <td className="py-2 pr-3 whitespace-nowrap">{new Date(`${d.tag}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
+                        <td className={`py-2 px-2 text-right font-bold ${noteClass(d.note)}`}>{d.note ?? '–'}</td>
+                        <td className="py-2 px-2 text-right">{part(d.n_nacht)}</td>
+                        <td className="py-2 px-2 text-right">{part(d.n_sonne)}</td>
+                        <td className="py-2 px-2 text-right">{part(d.n_komfort)}</td>
+                        <td className="py-2 px-2 text-right">{part(d.n_netz)}</td>
+                        <td className="py-2 px-2 text-right">{num(d.pv_kwh)}</td>
+                        <td className="py-2 px-2 text-right">{num(d.heizung_kwh)}</td>
+                        <td className="py-2 px-2 text-right whitespace-nowrap">{d.soc_sonnenuntergang != null ? `${num(d.soc_sonnenuntergang, 0)} → ${num(d.soc_morgen, 0)} %` : '–'}</td>
+                        <td className="py-2 px-2 text-right">{e.heating_min_battery_soc != null ? `${e.heating_min_battery_soc} %` : '–'}</td>
+                        <td className="py-2 pl-2 text-xs text-muted-foreground min-w-[220px]">{d.hinweis ?? ''}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="bg-muted/30">
+                          <td colSpan={11} className="p-3 text-xs">
+                            <div className="grid gap-1 sm:grid-cols-2">
+                              <div>Heizung aus PV / Batterie / Netz: {num(d.heiz_pv_kwh)} / {num(d.heiz_batt_kwh)} / {num(d.heiz_netz_kwh)} kWh</div>
+                              <div>Eingespeist {num(d.einspeisung_kwh)} kWh · Netz gesamt {num(d.netz_kwh)} kWh · Außen {num(d.aussen_avg)} °C</div>
+                              <div>Nachtbedarf (gemessen) {num(d.nachtbedarf_pct, 0)} % · Raum-Minuten unter Untergrenze {num(d.raum_min_unter, 0)}</div>
+                              <div>Prognose {num(d.pv_prognose_kwh)} kWh · Untergrenze-Abstand im Batterie-Schutz {String(e.battery_gate_floor_delta ?? '–')} °C · Nacht {String(e.night_heating_mode ?? '–')}</div>
+                            </div>
+                            {raeume.length > 0 && (
+                              <div className="mt-2 text-muted-foreground">
+                                Räume (Prio · Untergrenze/Eco/Komfort): {raeume.map((r) => `${r.prio} ${r.raum} ${r.untergrenze ?? '–'}/${r.eco ?? '–'}/${r.komfort ?? '–'}`).join(' · ')}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // ================================================================ Tab
 export function ProtokollTab({ rooms }: { rooms: Room[] }) {
   const [view, setView] = useState<View>(() => {
@@ -565,11 +662,12 @@ export function ProtokollTab({ rooms }: { rooms: Room[] }) {
   return (
     <div className="space-y-4">
       <Seg<View> value={view} onChange={change}
-        items={[['ereignisse', 'Ereignisse'], ['thermostate', 'Thermostate'], ['energie', 'Energie'], ['naechte', 'Nächte']]} />
+        items={[['ereignisse', 'Ereignisse'], ['thermostate', 'Thermostate'], ['energie', 'Energie'], ['naechte', 'Nächte'], ['tage', 'Tagesnoten']]} />
       {view === 'ereignisse' && <EventsView rooms={rooms} />}
       {view === 'thermostate' && <ThermostatsView rooms={rooms} />}
       {view === 'energie' && <EnergyView />}
       {view === 'naechte' && <NightsView />}
+      {view === 'tage' && <DaysView />}
     </div>
   );
 }

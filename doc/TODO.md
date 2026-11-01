@@ -10,6 +10,12 @@ Stand: 2026-11-01
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
 
+### Lernschleife einspielen und begleiten (01.11.)
+- [ ] SQL `14_lernschleife.sql`; `supabase functions deploy update-learned-policies` und `ai-parameter-advisor`
+- [ ] 02.11. 09:55: erste Tagesnote (01.11.) unter Protokoll › Tagesnoten prüfen
+- [ ] nach einer Woche: passen die Noten zu Ulis Einschätzung? sonst Gewichte im Konzept §4 anpassen
+- [ ] nach ~2 Wochen: Stufe 3 bauen (Vorschläge aus bestbewerteten ähnlichen Tagen), danach Stufe 4
+
 ### Batterie-Vorschlag v2 einspielen und prüfen (01.11.)
 - [ ] SQL `13_batterie_vorschlag.sql`, `supabase functions deploy ai-parameter-advisor` (vor 21:00)
 - [ ] 21:00 Vorschlag im Tab KI prüfen (Begründung lesen) und übernehmen
