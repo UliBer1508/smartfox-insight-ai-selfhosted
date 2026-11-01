@@ -1,6 +1,6 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-10-28
+Stand: 2026-11-01
 
 ---
 
@@ -33,10 +33,10 @@ Stand: 2026-10-28
 - [ ] „Ohne PV“ je Raum prüfen/anpassen (Startwert Eco − 1,5 °C)
 - [ ] Eco > Komfort korrigieren: Flur (22/20), Wohnzimmer (22/21), Haustür (22/21)
 - [ ] Einige Tage beobachten: Morgenverbrauch, Batterie-Minimum, Raumtemperaturen, `heating_day_mode` (Abfragen im Konzept §8)
-- [ ] Fronius: Kann die zeitabhängige Batteriesteuerung das Entladen tagsüber sperren? (Konzept §6.1)
+- [x] ~~Fronius: zeitabhängige Batteriesteuerung~~ – entfällt: an Smartfox/Fronius wird nichts eingestellt (Grundsatz 01.11.2026)
 - [ ] Feste Werte aus Konzept §4.3 schrittweise einstellbar machen
 - [ ] `rooms.pv_auto_enabled` wird nicht ausgewertet → auswerten oder Schalter entfernen
-- [ ] Anzeige „heizt“ (DP 5) prüfen: am 27.10. zeigten alle Räume „nein“ bei 8–10 kW
+- [x] Anzeige „heizt“ (DP 5) geprüft 01.11.: stimmt seit v1.3 (am Gerät gegengelesen)
 
 ### api_errors doppelt (Trigger seit 26.10.)
 - [x] Trigger `trg_api_errors_dedupe` fasst offene Fehler je Gerät + Typ zusammen (`doc/FIX-API-ERRORS-DOPPELT-2026-10-26.md`)
@@ -58,13 +58,9 @@ Stand: 2026-10-28
 - [ ] Nach erfolgreichem Setzen schreibt pv-automation `last_thermostat_sync = now` und schließt `api_errors` des Raums – im Lokal-Modus heißt „erfolgreich“ nur „eingereiht“
 - [x] Kommentar „automation_enabled controls ONLY ML“ korrigieren (27.10.)
 
-### Collector auf Fronius-Only umstellen
-- [ ] Smartfox-Funktion aus `collector-node/index.js` entfernen
-- [ ] `saveReading()` vereinfachen (nur Fronius-Daten)
-- [ ] `poll()` Funktion anpassen
-- [ ] `config.example.json` aktualisieren
-- **Details:** Siehe `doc/plan.md`
-- **Grund:** Smartfox wird nicht mehr verwendet
+### Collector: Smartfox-Datenabruf entfernen
+- [ ] Smartfox-Datenabruf aus `collector-node/index.js` entfernen (falls noch vorhanden), `config.example.json` anpassen
+- **Hinweis:** Nur die **Daten** des Smartfox werden nicht mehr genutzt. Der Smartfox bleibt als Energiemanager in Betrieb (regelt Batterie, Warmwasser, Auto) – nicht entfernen, nichts daran einstellen.
 
 ### Energy_in/Energy_out Werte
 - [ ] Klären ob diese Werte benötigt werden
@@ -136,7 +132,8 @@ Stand: 2026-10-28
 ## 📝 Notizen
 
 ### Architektur-Entscheidungen
-- Smartfox wird durch reine Fronius-Lösung ersetzt
+- Messdaten nur vom Fronius; der Smartfox bleibt Energiemanager (Batterie, Warmwasser, Auto)
+- Unser System steuert ausschließlich über die Thermostate (01.11.2026)
 - RLS ist aktiviert, aber ohne User-Isolation (Single-Tenant)
 - Collector läuft lokal, nicht als Edge Function (Netzwerk-Zugriff)
 

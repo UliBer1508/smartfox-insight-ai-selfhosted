@@ -17,7 +17,7 @@
 
 | Datei | Inhalt |
 |---|---|
-| [`tuya-local-service-implementation.md`](tuya-local-service-implementation.md) | **Tuya Local Thermostat Service v2.0** — Eigenständiger Node.js Service (`tuya-thermostat-v2/`) für lokale TGP508-Steuerung über LAN Port 6668, parallel zum collector-node |
+| [`tuya-local-service-implementation.md`](tuya-local-service-implementation.md) | **(historisch, nicht im Einsatz)** Tuya Local Thermostat Service v2.0 — Eigenständiger Node.js Service (`tuya-thermostat-v2/`) für lokale TGP508-Steuerung über LAN Port 6668, parallel zum collector-node |
 
 ## features/heating
 
@@ -30,7 +30,7 @@
 | [`night-frost-protection-mode.md`](night-frost-protection-mode.md) | **Night Frost Protection Mode** — Nacht-Stille-Modus night_start_time–night_end_time (eingestellt 22:00–08:00) — pro Nacht EIN einziger Push beim Übergang, danach 0 Calls bis Tagesstart. Gate via system_settings.night_frost_last_pushed. |
 | [`parallel-heating-allocation.md`](parallel-heating-allocation.md) | **Parallel Heating Allocation (Budget-basiert)** — Multi-Raum parallele Aktivierung — Budget = gridExport + currentlyHeatingPower + Boni. Sortierung nach Priorität 1→12. 1 Tuya-Call pro Aktivierung, kein Polling, Nachschub via 2-min Heartbeat. |
 | [`parameter-usage-audit-c.md`](parameter-usage-audit-c.md) | **Parameter-Usage-Audit C** — Welche UI-Settings real wirken (PV-Hysterese, consumer_priority, Pre-Heat, Grundgebühr) nach Plan C |
-| [`anwesenheit.md`](anwesenheit.md) | **Anwesenheit** — Kalender `presence_periods`; außerhalb (inkl. Vorlauf) abwesend = Tagesmodus `wait`, kein Komfort, höchstens Eco; fail-safe anwesend (28.10.2026) |
+| [`anwesenheit.md`](anwesenheit.md) | **Anwesenheit** — Grundzustand anwesend, Kalender `presence_periods` = Abwesenheiten → Tagesmodus `wait`, PV trotzdem Eco → Komfort; fail-safe anwesend (umgedreht 01.11.2026) |
 | [`tagesmodus-konzept.md`](tagesmodus-konzept.md) | **Tagesmodus und Mindesttemperatur ohne PV** — Räume ohne Budget: battery_gate / wait → „Ohne PV“, grid → Eco nach Priorität bis max. Netzleistung (Konzept 27.10.2026) |
 | [`soc-thresholds-consolidated.md`](soc-thresholds-consolidated.md) | **SOC-Schwellwerte konsolidiert** — Nur heating_min_battery_soc ist wirksam; min_battery_soc und target_battery_soc sind deprecated DB-Reste ohne UI/Logik |
 
