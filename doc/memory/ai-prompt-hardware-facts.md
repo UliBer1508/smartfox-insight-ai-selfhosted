@@ -15,3 +15,5 @@ Alle Edge-Function-Prompts, die KI-Empfehlungen zu Heizungs-/Energie-Settings ge
 Implementiert in `generate-settings-suggestions/index.ts` (System-Prompt) und `analyze-patterns/index.ts` (User-Prompt-Header). Bei neuen KI-Prompts diesen Block ebenfalls aufnehmen.
 
 **Why:** Ohne diesen Block hat Gemini-2.5-flash `heating_min_battery_soc` mehrfach als Lade-Cap fehlinterpretiert und unsinnige Empfehlungen abgegeben.
+
+**Batterie-Vorschlag (seit 01.11.2026):** keine Wenn-dann-Regel mehr. Vorschlag = gemessener Nachtbedarf (`nacht_protokoll`) + Abend/Morgen ohne PV + `battery_night_reserve_pct`; Mustergedächtnis korrigiert die Prognose. **Nicht wieder einführen:** „Prognose < 10 kWh → Grenze anheben“ (hält an trüben Tagen alle Sonne von der Heizung fern, obwohl die Batterie die Grenze nicht erreicht).

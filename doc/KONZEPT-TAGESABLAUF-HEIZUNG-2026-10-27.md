@@ -1,6 +1,6 @@
 # Konzept: Tagesablauf und Regeln der Heizungssteuerung Venediger
 
-**Stand:** 1. November 2026 · **Status:** FREIGEGEBEN (Uli, 27.10.2026) – umgesetzt; Batterie-Schutz ohne Lücken 01.11.2026 (§3.4, §9)
+**Stand:** 1. November 2026 · **Status:** FREIGEGEBEN (Uli, 27.10.2026) – umgesetzt; Batterie-Schutz ohne Lücken 01.11.2026 (§3.4, §9); Batterie-Vorschlag mit Nachtbedarf + Mustergedächtnis 01.11.2026 (§10)
 **Supabase:** `pflnniklvqbwjwrjswaz` · **Betrifft:** `pv-automation`, `heating_settings`, `rooms`, Thermostat-Dienst
 
 > Dieses Dokument legt fest, **wie die Heizung arbeiten soll**. Der Code folgt ihm seit 27.10.2026
@@ -288,3 +288,36 @@ Durchgespielt mit den Raumwerten vom 01.11. 08:50: alt 1600 W freigegeben (Bad U
 1000 W nur für Zimmer Luca (Untergrenze 22 = Eco, liegt 1,2 °C darunter) – alle anderen heizen nicht. Mit den
 Stundenwerten 11–15 Uhr: Gate neu durchgehend zu, Budget 0 W (keine Einspeisung).
 Prüfen künftig mit Protokoll › Ereignisse (Modus) und Protokoll › Energie.
+
+
+---
+
+## 10. Batterie-Vorschlag: Nachtbedarf + Mustergedächtnis (01.11.2026)
+
+Freigegeben von Uli am 01.11.2026 („sofort umsetzen, morgen anhand des Protokolls prüfen“).
+
+**Befund:** Der KI-Vorschlag für den Mindest-Ladestand war eine feste Regel (Prognose < 10 kWh und Batterie
+abends niedrig → Grenze +10 %). Am 01.11. hätte sie 75 → 85 % vorgeschlagen. Das ist an trüben Tagen falsch:
+Die Batterie erreicht die Grenze ohnehin nicht, also wird gar nicht mit Sonne geheizt. Das Mustergedächtnis
+wurde dafür nicht genutzt.
+
+**Neu (`ai-parameter-advisor` /suggest-battery-soc, täglich 21:00 über `analysis-scheduler`):**
+
+| Baustein | Quelle | Wert 01.11. |
+|---|---|---|
+| Nachtbedarf | `nacht_protokoll`: größter Ladestand-Verlust der letzten bis zu 7 Nächte mit Ladestand abends ≥ 20 % | ~21–23 % |
+| Abend/Morgen ohne PV | Grundlast (aus denselben Nächten) × Stunden zwischen letzter PV-Stunde (≥ 500 W) und `night_start_time` bzw. `night_end_time` und erster PV-Stunde (Stundenprognose morgen) | ~16 % |
+| Reserve | `battery_night_reserve_pct` (Standard 10 %, enthält Mindest-SOC des Wechselrichters) | 10 % |
+| **Vorschlag** | Summe, auf 5 % aufgerundet, 30–90 % | **≈ 50 %** |
+
+**Mustergedächtnis:** `daily_pattern_scores` – Tage mit Prognose ±30 % → Median „tatsächliche PV / Prognose“
+→ realistische PV für morgen. Daraus steht in der Begründung, wie viel nach Grundlast und Laden bis zur Grenze
+für die Heizung frei bleibt und für welche Räume nach Priorität es reicht. Heizungsdaten vor dem 24.10.2026
+werden nicht verwendet.
+
+**Entfernt:** die alte Wenn-dann-Regel und die Reserve-Validierung als Auslöser. Die KI schreibt den Wert weiterhin
+**nicht** selbst (gesperrter Parameter) – Übernehmen im Tab KI. Begründung jedes Laufs zusätzlich in
+`system_settings.battery_soc_suggestion_last`.
+
+**Prüfen am 02.11.2026:** Protokoll › Energie (lädt die Batterie mittags bis zur Grenze, danach Heizung nach
+Priorität?), Protokoll › Ereignisse (Modus), Nacht-Protokoll am 03.11. morgens (reicht die Batterie bis zum Morgen?).

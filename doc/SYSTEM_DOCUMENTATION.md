@@ -117,6 +117,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
 - `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Wartetag / ohne PV; **nicht** im Batterie-Schutz)
 - `battery_gate_floor_delta` (1,0 °C), `battery_gate_max_power_w` (1000 W): Notfall-Heizen im Batterie-Schutz (seit 01.11.2026)
+- `battery_night_reserve_pct` (10 %): Reserve des Batterie-Vorschlags über dem gemessenen Nachtbedarf (seit 01.11.2026)
 - `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026, umgedreht 01.11.2026) – Grundzustand anwesend; Kalender `presence_periods` = Zeiträume, in denen das Haus **leer** ist; Vorlauf vor dem Ende (Rückkehr). Aus = immer anwesend
 - `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
 - `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze. Wird vom KI-Batterie-Vorschlag **nicht** geändert (seit 28.10.2026; vorher beim Übernehmen mit überschrieben)
@@ -439,6 +440,9 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 ### Mustergedächtnis im Tagesmodus (seit 27.10.2026)
 `best_match_today` (ähnlichster vergangener Tag) verschiebt die Schwelle zwischen Wartetag und „ohne PV“: PV-Heizdeckung des ähnlichen Tages ≥ 60 % → Schwelle sinkt (eher warten), < 30 % → steigt. Stärke = `pattern_recall_strength`/100 × 0,3 × Qualität (exact 1,0 / partial 0,6), max. ±0,3. Achtung: Tage vor dem 24.10.2026 zeigen das Verhalten der Thermostat-Wochenprogramme, Heizzyklen werden erst seit 26.10.2026 erfasst.
 
+### Batterie-Vorschlag (seit 01.11.2026)
+`ai-parameter-advisor` /suggest-battery-soc (21:00): Mindest-Ladestand = gemessener Nachtbedarf (`nacht_protokoll`) + Abend/Morgen ohne PV (Stundenprognose × Grundlast) + `battery_night_reserve_pct`. Mustergedächtnis (`daily_pattern_scores`, Prognose ±30 %) korrigiert die PV-Prognose und rechnet aus, was nach dem Laden für die Heizung frei bleibt (Räume nach Priorität). Alte Regel „Prognose < 10 kWh → Grenze hoch“ entfernt. Nur Vorschlag, Übernehmen im Tab KI. Konzept Tagesablauf §10.
+
 ### Architektur-Grenze
 **AI empfiehlt Setpoints und verschiebt Schwellen — Kern-Budget-Logik (§4–8) ist die finale Filter.** AI kann Reward-Funktion nicht selbst korrigieren.
 
@@ -618,6 +622,9 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
 - Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
+
+### 2026-11-01 — Batterie-Vorschlag mit Nachtbedarf und Mustergedächtnis
+- Alte Regel hätte am 01.11. 75 → 85 % vorgeschlagen (trüber Tag → Grenze hoch). Neu: gemessener Nachtbedarf + Abend/Morgen + Reserve, Mustergedächtnis für realistische PV und Heiz-Anteil. SQL `13_batterie_vorschlag.sql` (`battery_night_reserve_pct`). Konzept Tagesablauf §10.
 
 ### 2026-11-01 — Batterie-Schutz ohne Lücken
 - Befund: Batterie mittags nur bis ~14 %, nachmittags wieder auf 5 %. Lücke 1: Gate öffnete, sobald PV die Batterie lud. Lücke 2: im Batterie-Schutz bis 2000 W für Räume unter Untergrenze (kam aus PV/Batterie).
