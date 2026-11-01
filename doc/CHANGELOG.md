@@ -5,6 +5,11 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.11.1] - 2026-11-01
+
+### Changed
+- Raumfeld „Ohne PV“ (`rooms.wait_min_temp`) heißt jetzt **„Untergrenze“** mit Erklärung „Untergrenze bis Sonne“ in Einstellungen › Räume; alle Texte in der App angepasst. Nur Anzeige, keine Logik-Änderung.
+
 ## [2.11.0] - 2026-11-01
 
 ### Changed (Anwesenheit umgedreht)

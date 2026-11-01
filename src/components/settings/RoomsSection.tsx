@@ -11,7 +11,8 @@
 //   Nacht-/Frostschutz-Befehl). Seit 26.10.2026 hier statt in der alten Thermostat-Karte.
 // - "Batterie voll" (pv_boost_max_temp) ist KEIN Sollwert, sondern die Grenze für den
 //   Battery-Full-Override – daher nur als Info (siehe doc/memory/comfort-saturation-estrich-storage.md).
-// - "Ohne PV" (wait_min_temp, seit 27.10.2026): Mindesttemperatur ohne PV-Überschuss. Ziel am
+// - "Untergrenze" (wait_min_temp, seit 27.10.2026, bis 01.11.2026 „Ohne PV“): so weit darf der Raum
+//   unter Eco fallen, solange auf PV-Überschuss gewartet wird. Ziel am
 //   Wartetag, beim Batterie-Gate und für Räume ohne Budget (doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md).
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -42,7 +43,7 @@ const fmt = (t: number | null | undefined) =>
 // Editierbare Felder je Raum (alles andere wird nie geschrieben)
 const NUM_FIELDS: { k: keyof Room; l: string; unit?: string; step?: number; min?: number; max?: number; temp?: boolean }[] = [
   { k: 'night_temp', l: 'Nacht', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
-  { k: 'wait_min_temp', l: 'Ohne PV', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
+  { k: 'wait_min_temp', l: 'Untergrenze', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'eco_temp', l: 'Eco', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'comfort_temp', l: 'Komfort', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'floor_area_m2', l: 'Fläche', unit: 'm²', step: 1, min: 0, max: 500 },
@@ -70,7 +71,7 @@ function validate(values: Draft): string[] {
   }
   const n = (k: string) => Number(String(values[k] ?? '').replace(',', '.'));
   if (n('night_temp') > n('eco_temp')) errs.push('Nacht darf nicht wärmer sein als Eco');
-  if (n('wait_min_temp') > n('eco_temp')) errs.push('„Ohne PV“ darf nicht wärmer sein als Eco');
+  if (n('wait_min_temp') > n('eco_temp')) errs.push('„Untergrenze“ darf nicht wärmer sein als Eco');
   if (n('eco_temp') > n('comfort_temp')) errs.push('Eco darf nicht wärmer sein als Komfort');
   if (!String(values.name ?? '').trim()) errs.push('Name fehlt');
   return errs;
@@ -170,8 +171,8 @@ function RoomCard({ room, onSave, onDelete }: {
             {tempInput('night_temp', 'Nacht')}
           </div>
           <div className="space-y-1">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground" title="Mindesttemperatur ohne PV-Überschuss: Unter diesen Wert fällt der Raum tagsüber nicht, solange auf Sonne gewartet wird oder die Batterie geschützt wird."><Battery className="w-3.5 h-3.5" />Ohne PV</div>
-            {tempInput('wait_min_temp', 'Ohne PV')}
+            <div className="flex items-center gap-1 text-xs text-muted-foreground" title="Untergrenze bis Sonne: Ist PV-Überschuss zu erwarten, darf der Raum bis hierhin unter Eco fallen, statt aus Batterie/Netz zu heizen. Gleich Eco = nie warten."><Battery className="w-3.5 h-3.5" />Untergrenze</div>
+            {tempInput('wait_min_temp', 'Untergrenze')}
           </div>
           <div className="space-y-1">
             <div className="flex items-center gap-1 text-xs text-success"><Leaf className="w-3.5 h-3.5" />Eco</div>
@@ -182,6 +183,10 @@ function RoomCard({ room, onSave, onDelete }: {
             {tempInput('comfort_temp', 'Komfort')}
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          <b>Untergrenze bis Sonne:</b> Ist PV-Überschuss zu erwarten, darf der Raum bis hierhin unter Eco fallen –
+          nachgeheizt wird dann mit Sonne statt aus Batterie/Netz. Gleich Eco = nie warten. Üblich: Eco − 1 °C.
+        </p>
       </div>
 
       <div className="rounded-lg border divide-y">
@@ -390,7 +395,7 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
             </label>
             <div className="grid grid-cols-2 gap-2">
               {(['night_temp', 'wait_min_temp', 'eco_temp', 'comfort_temp'] as const).map((k, i) => (
-                <LabeledInput key={k} label={['Nacht', 'Ohne PV', 'Eco', 'Komfort'][i]} unit="°C" type="number" step={0.5}
+                <LabeledInput key={k} label={['Nacht', 'Untergrenze', 'Eco', 'Komfort'][i]} unit="°C" type="number" step={0.5}
                   value={String(d[k] ?? '')} onChange={(e) => set(k, e.target.value)} />
               ))}
             </div>

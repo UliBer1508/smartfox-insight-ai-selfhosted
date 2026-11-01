@@ -56,7 +56,7 @@ const GROUPS: Group[] = [
   {
     title: 'Anwesenheit', icon: <Home className="w-3.5 h-3.5 text-primary" />,
     fields: [
-      { k: 'presence_control_enabled', l: 'Anwesenheit steuern', kind: 'switch', def: true, hint: 'An: Während einer Abwesenheit im Kalender (Einstellungen › Anwesenheit) halten die Räume „Ohne PV“, Sonne heizt bis Eco und dann Komfort. Sonst und bei Aus: immer wie bewohnt.' },
+      { k: 'presence_control_enabled', l: 'Anwesenheit steuern', kind: 'switch', def: true, hint: 'An: Während einer Abwesenheit im Kalender (Einstellungen › Anwesenheit) halten die Räume „Untergrenze“, Sonne heizt bis Eco und dann Komfort. Sonst und bei Aus: immer wie bewohnt.' },
       { k: 'presence_lead_hours', l: 'Vorlauf vor Rückkehr', kind: 'number', def: 6, unit: 'h', step: 1, min: 0, max: 72, hint: 'so lange vor dem Ende einer Abwesenheit wird wieder normal geheizt', showIf: (v) => v.presence_control_enabled !== false },
       { k: 'presence_arrival_time', l: 'Standard-Rückkehr', kind: 'time', def: '14:00', hint: 'setzt der Kalender beim Antippen eines Tages ein – pro Eintrag änderbar', showIf: (v) => v.presence_control_enabled !== false },
       { k: 'presence_departure_time', l: 'Standard-Abreise', kind: 'time', def: '11:00', showIf: (v) => v.presence_control_enabled !== false },
@@ -88,7 +88,7 @@ const GROUPS: Group[] = [
     title: 'Verteilung auf die Räume', icon: <Shuffle className="w-3.5 h-3.5 text-orange-500" />,
     fields: [
       { k: 'power_budget_enabled', l: 'Leistungsbudget', kind: 'switch', def: true, hint: 'Räume nacheinander nach Priorität einschalten, solange das Budget reicht.' },
-      { k: 'max_grid_heating_power_w', l: 'Max. Heizleistung ohne PV', kind: 'number', def: 2000, unit: 'W', step: 100, min: 0, max: 20000, hint: 'Summe der Räume, die ohne Überschuss gleichzeitig heizen dürfen (nach Priorität), auch bis zur Mindesttemperatur „Ohne PV“. 0 = ohne PV gar nicht heizen.' },
+      { k: 'max_grid_heating_power_w', l: 'Max. Heizleistung ohne PV', kind: 'number', def: 2000, unit: 'W', step: 100, min: 0, max: 20000, hint: 'Summe der Räume, die ohne Überschuss gleichzeitig heizen dürfen (nach Priorität), auch bis zur Mindesttemperatur „Untergrenze“. 0 = ohne PV gar nicht heizen.' },
       { k: 'power_budget_tolerance_w', l: 'Toleranz', kind: 'number', def: 200, unit: 'W', step: 50, min: 0, max: 2000, hint: 'erlaubter kurzer Netzbezug', showIf: (v) => v.power_budget_enabled !== false },
       { k: 'micro_budget_enabled', l: 'Mikro-Budget', kind: 'switch', def: true, hint: 'Bei kleinem Überschuss heizt reihum ein Raum kurz (Batterie als Puffer).' },
       { k: 'micro_heat_duration_min', l: 'Heizdauer je Runde', kind: 'number', def: 5, unit: 'min', step: 1, min: 3, max: 15, showIf: (v) => v.micro_budget_enabled !== false },

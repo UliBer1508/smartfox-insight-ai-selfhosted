@@ -52,7 +52,7 @@ export function PresenceQuick({ settings }: { settings: PresenceSettings }) {
     text = 'Das Haus wird immer wie bewohnt geheizt (Einstellungen › Haus › Anwesenheit).';
   } else if (state.away) {
     title = `Abwesend bis ${fmtWhen(state.until)}`;
-    text = `Räume halten „Ohne PV“, Sonne heizt bis Eco und dann Komfort. Normalbetrieb ab ${leadH} h vor der Rückkehr.`;
+    text = `Räume halten „Untergrenze“, Sonne heizt bis Eco und dann Komfort. Normalbetrieb ab ${leadH} h vor der Rückkehr.`;
   } else if (state.inLead) {
     title = 'Rückkehr vorbereiten';
     text = `Vorlauf läuft – normaler Heizbetrieb. Rückkehr ${fmtWhen(state.until)}.`;

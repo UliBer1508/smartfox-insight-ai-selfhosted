@@ -74,7 +74,7 @@ flowchart TD
     BUDGET --> REST{Raum ohne Budget?}
     REST -->|Nein| SET[Sollwert Eco/Komfort]
     REST -->|Ja| MODE{Tagesmodus}
-    MODE -->|Batterie-Gate| WAIT[„Ohne PV“ halten]
+    MODE -->|Batterie-Gate| WAIT[„Untergrenze“ halten]
     MODE -->|Wartetag:<br/>Überschuss absehbar| WAIT
     MODE -->|Abwesend:<br/>Abwesenheit im Kalender| WAIT
     MODE -->|ohne PV| GRID[Eco nach Priorität<br/>bis max. Netzleistung]
