@@ -29,7 +29,7 @@ nachprüfbare Begründung; übernommen wird er von Uli. Gesperrte Parameter (`LO
 
 | Stufe | Inhalt | Stand |
 |---|---|---|
-| **1. Saubere Daten** | `system_settings.learning_data_since = 2026-10-26`; `update-learned-policies` lernt nur ab diesem Tag; `learned_policies` geleert (Neuaufbau nachts). Test DP 19, Heizleistung Haustür/Toilette eintragen | umgesetzt 01.11. (DP 19 / Leistung: Uli) |
+| **1. Saubere Daten** | `system_settings.learning_data_since = 2026-10-26`; `update-learned-policies` lernt nur ab diesem Tag; `learned_policies` geleert (Neuaufbau nachts). **Altdaten gelöscht** (Uli 01.11.: „löschen, damit keine Falschberechnung erfolgt“, SQL `15_altdaten_loeschen.sql`): `learning_events`, `room_ml_features`, `room_heating_logs` vor 26.10., Heiz-Kennzahlen in `daily_pattern_scores` vor 26.10., berechnete Raumwerte (Leistung, Wärmeverlust, Solargewinn). Behalten: Energie, PV, Prognosen, Wetter, Temperaturen. Test DP 19, Heizleistung Haustür/Toilette eintragen | umgesetzt 01.11. (DP 19 / Leistung: Uli) |
 | **2. Tagesnote nach Ulis Zielen** | Tabelle `tages_bewertung`: je Tag Einstellungen (21:55) + Ergebnis (nächster Morgen 09:55), Note 0–100 | umgesetzt 01.11. |
 | **3. Vorschläge aus ähnlichen Tagen** | Mustergedächtnis sucht ähnliche Tage (Prognose, Außentemperatur, Batterie) und nimmt die Einstellungen des Tages mit der besten Note als Vorschlag – mit Begründung | Vorstufe: Batterie-Vorschlag nennt bereits den bestbewerteten ähnlichen Tag und seine Grenze; echte Vorschläge ab ~2 Wochen Tagesnoten |
 | **4. Ergebnis prüfen** | Am Tag danach automatisch Vorschlag gegen Note vergleichen, im Tab KI zeigen; erst nach Wochen guter Ergebnisse innerhalb fester Grenzen selbst wirken lassen | offen |
