@@ -11,7 +11,7 @@
 --      09:55 nach der Nacht-Auswertung): Note 0–100 aus vier Teilen à 25 Punkte
 --        ① Nacht:   hat die Batterie bis zum Morgen gereicht?
 --        ② Sonne:   Anteil der PV, der im Haus genutzt wurde (nicht eingespeist)
---        ③ Komfort: Raum-Minuten unter der Untergrenze (08–22 Uhr)
+--        ③ Komfort: Anteil Raum-Minuten unter der Untergrenze (08–22 Uhr, alle Räume)
 --        ④ Netz:    Netzstrom für die Heizung tagsüber
 --    * läuft im bestehenden Cron nacht-protokoll (stündlich, Wiener Ortszeit)
 --
@@ -92,7 +92,7 @@ declare
   v_soc_sun numeric; v_soc_morgen numeric; v_need numeric; v_unter numeric; v_aussen numeric; v_prog numeric;
   n1 numeric; n2 numeric; n3 numeric; n4 numeric;
   v_hint text[] := '{}';
-  v_end int; v_start int;
+  v_end int; v_start int; v_raeume int; v_fenster numeric;
 begin
   select coalesce(extract(hour from night_end_time::time), 8), coalesce(extract(hour from night_start_time::time), 22)
     into v_end, v_start from heating_settings limit 1;
@@ -146,6 +146,10 @@ begin
     where s.timestamp >= t_von and s.timestamp < t_bis and r.automation_enabled is not false) x
   where dt is not null and temperature < grenze - 0.05;
   v_unter := coalesce(v_unter, 0);
+  -- Bezug: alle Räume mit Messwerten × Minuten im Fenster (08–22 Uhr = 840) – v_unter ist die Summe über alle Räume
+  select count(distinct s.room_id) into v_raeume from room_temperature_samples s join rooms r on r.id = s.room_id
+   where s.timestamp >= t_von and s.timestamp < t_bis and r.automation_enabled is not false;
+  v_fenster := greatest(1, extract(epoch from t_bis - t_von) / 60.0) * greatest(1, coalesce(v_raeume, 1));
 
   -- weather_data speichert Wiener Ortszeit als UTC
   select round(avg(temperature_c)::numeric, 1) into v_aussen from weather_data
@@ -165,7 +169,7 @@ begin
   n2 := case when v_pv < 1 then 25 else round(25 * greatest(0, least(1, (v_pv - v_einsp) / v_pv)), 1) end;
   if v_einsp > 2 then v_hint := v_hint || (replace(v_einsp::text, '.', ',') || ' kWh eingespeist'); end if;
 
-  n3 := round(25 * greatest(0, 1 - v_unter / 720.0), 1);
+  n3 := round(25 * greatest(0, 1 - v_unter / v_fenster), 1);
   if v_unter > 120 then v_hint := v_hint || (round(v_unter / 60.0, 1)::text || ' Raum-Stunden unter Untergrenze'); end if;
 
   n4 := round(25 * greatest(0, 1 - coalesce(v_hz_netz, 0) / 5.0), 1);

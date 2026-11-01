@@ -12,6 +12,7 @@ Stand: 2026-11-01
 
 ### Lernschleife einspielen und begleiten (01.11.)
 - [ ] SQL `14_lernschleife.sql`; `supabase functions deploy update-learned-policies` und `ai-parameter-advisor`
+- [ ] SQL `16_tagesnote_komfort_fix.sql` ausführen (Komfort-Note korrigiert, Auswertung je Raum)
 - [ ] SQL `15_altdaten_loeschen.sql`: erst Vorschau, dann Löschen (Sicherung von heute Nacht prüfen)
 - [ ] 02.11. 09:55: erste Tagesnote (01.11.) unter Protokoll › Tagesnoten prüfen
 - [ ] nach einer Woche: passen die Noten zu Ulis Einschätzung? sonst Gewichte im Konzept §4 anpassen

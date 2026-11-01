@@ -632,6 +632,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
 
 ### 2026-11-01 — Altdaten gelöscht
+- Tagesnote Teil Komfort korrigiert (war immer 0: Summe aller Räume gegen 720 min eines Raums). Jetzt Anteil an Räume × Fensterminuten. SQL `16_tagesnote_komfort_fix.sql`.
 - Lerndaten vor dem 26.10.2026 gelöscht/geleert (learning_events, room_ml_features, room_heating_logs, Heiz-Kennzahlen im Mustergedächtnis, berechnete Raumwerte). SQL `15_altdaten_loeschen.sql`.
 
 ### 2026-11-01 — Lernschleife Stufe 1 + 2

@@ -42,7 +42,7 @@ Je Teil 0–25 Punkte, Summe = Note (Funktion `tag_bewerten`):
 |---|---|---|
 | ① **Nacht** | Hat die Batterie bis zum Morgen gereicht? | Ladestand morgens ≥ 8 % → 25; sonst 25 × (Ladestand bei Sonnenuntergang − 5) / (Nachtbedarf + 15), bei leerer Batterie am Morgen höchstens 12,5 |
 | ② **Sonne** | Wurde die PV im Haus genutzt? | 25 × (PV − Einspeisung) / PV; unter 1 kWh PV = 25 |
-| ③ **Komfort** | Lagen Räume unter ihrer Untergrenze? | 25 × (1 − Raum-Minuten unter Untergrenze 08–22 Uhr / 720) |
+| ③ **Komfort** | Lagen Räume unter ihrer Untergrenze? | 25 × (1 − Raum-Minuten unter Untergrenze / (Räume × Minuten 08–22 Uhr)) – Korrektur 01.11. (SQL 16): vorher gegen 720 Minuten eines einzigen Raums gerechnet, daher immer 0 |
 | ④ **Netz** | Wie viel Netzstrom ging in die Heizung? | 25 × (1 − Heizung aus Netz kWh / 5) |
 
 Weitere Spalten: PV, Verbrauch, Einspeisung, Netz, Heizung gesamt und nach Quelle (PV/Batterie/Netz),
