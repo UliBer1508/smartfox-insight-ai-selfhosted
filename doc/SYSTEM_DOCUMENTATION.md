@@ -315,6 +315,30 @@ Tab **Protokoll** und Tabelle `protokoll_events` (Trigger, SQL 11): jede Sollwer
 ### TGP508 DPS-Mapping
 - Cloud: `mode`, `temp_set`, `temp_current`, `switch`, `work_state`
 - Lokal (verifiziert 24.10.2026, Dienst v1.3): DP 1 Ein/Aus · DP 2 Soll ×10 · DP 3 Ist ×10 · DP 4 Modus `auto`/`home` · DP 5 heizt `"1"`/`"0"`
+- **Alle Datenpunkte des TGP508** (BEOK-Datenmodell, Recherche 01.11.2026) – vollständige Tabelle in `doc/THERMOSTAT-DATENPUNKTE.md`:
+
+  | DP | Bedeutung | Stand 01.11.2026 |
+  |---|---|---|
+  | 1 | Ein/Aus | true |
+  | 2 / 3 | Soll / Ist, ×0,1 °C | – |
+  | 4 | Modus `home` (manuell) / `auto` (Wochenprogramm) / `temporary` | home |
+  | 5 | heizt `"1"`/`"0"` | – |
+  | 9 | Kindersicherung | false |
+  | 11 | Fehler (E01 = Fühler) | 0 |
+  | 15 | höchster Sollwert, °C | 60 |
+  | **19** | **Temperatur-Korrektur, ×0,1 °C (−99…99)** | **−10 = −1,0 °C** |
+  | **101** | **Einschalt-Differenz, ×0,1 °C (5…100, Schritt 5)** | **10 = 1,0 °C** |
+  | 102 | Grenztemperatur Fühler, °C | 60 |
+  | 103 | Frostschutz des Geräts | gemischt |
+  | 104 | Werkseinstellung | false |
+  | 105 | Nachtprogramm (Zeiten, Rohdaten) | – |
+  | 106 / 107 | unklar (Hintergrundlicht? / Fenster?) | "3" / "1" |
+  | 108 | Ausgang umkehren | false |
+  | 109 | Tastenton | true |
+  | 110 | Fühlerwahl ("1" = Raumfühler im Gerät) | "1" |
+  | **111** | **Nachtmodus des Geräts** (eigenes Programm mit falscher Uhr) | an bei 6 Räumen – soll aus sein |
+
+  Ändern über Tab Protokoll › Thermostate (freigegeben: 19, 101, 103, 111).
 
 ### Lokaler Service – Robustheit (Hybrid v4)
 `local-collector/collector-node/tuya-thermostat.js` implementiert:
