@@ -13,6 +13,8 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 - KI lernt nur noch aus Daten ab 26.10.2026 (`learning_data_since`); alte `learned_policies` geleert.
+- Tagesnote: Teil Komfort war immer 0 (Rechenfehler), korrigiert und Noten 26.–31.10. neu gerechnet (SQL 16).
+- Altdaten vor dem 26.10.2026 gelöscht/geleert (SQL `15_altdaten_loeschen.sql`): Lern-Ereignisse, ML-Merkmale, alte Heizprotokolle, Heiz-Kennzahlen im Mustergedächtnis, berechnete Raumwerte.
 
 ## [2.14.0] - 2026-11-01
 

@@ -427,8 +427,9 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 > `system_settings.learning_data_since` (26.10.2026); jeder Tag bekommt eine Note nach Ulis Zielen (`tages_bewertung`:
 > Nacht · Sonne · Komfort · Netz); Vorschläge kommen aus den bestbewerteten ähnlichen Tagen und werden von Uli übernommen.
 > Die Grundregeln (Batterie gehört der Nacht, Sonne zuerst in die Batterie, Untergrenze) hebt die KI nie auf.
-> **Achtung Altdaten:** Heizungsbezogene Daten vor dem 24.10.2026 beschreiben das Wochenprogramm der Thermostate, nicht
-> unsere Entscheidungen – nicht zum Lernen verwenden.
+> **Altdaten:** Heizungsbezogene Daten vor dem 26.10.2026 beschrieben das Wochenprogramm der Thermostate und wurden am
+> 01.11.2026 gelöscht bzw. geleert (SQL `15_altdaten_loeschen.sql`); berechnete Raumleistungen werden aus sauberen
+> Heizzyklen neu berechnet, bis dahin gilt `heating_power_w`.
 
 **AI-Provider:** **Direkte Google Gemini API** (`gemini-2.5-flash`). Keine Lovable AI Gateway. Secret: `GOOGLE_AI_API_KEY`.
 
@@ -629,6 +630,10 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
 - Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
+
+### 2026-11-01 — Altdaten gelöscht
+- Tagesnote Teil Komfort korrigiert (war immer 0: Summe aller Räume gegen 720 min eines Raums). Jetzt Anteil an Räume × Fensterminuten. SQL `16_tagesnote_komfort_fix.sql`.
+- Lerndaten vor dem 26.10.2026 gelöscht/geleert (learning_events, room_ml_features, room_heating_logs, Heiz-Kennzahlen im Mustergedächtnis, berechnete Raumwerte). SQL `15_altdaten_loeschen.sql`.
 
 ### 2026-11-01 — Lernschleife Stufe 1 + 2
 - `learning_data_since` = 26.10.2026, `update-learned-policies` lernt nur ab dann, `learned_policies` geleert. Tagesnote `tages_bewertung` (21:55 Einstellungen, 09:55 Bewertung), Tab Protokoll › Tagesnoten, Batterie-Vorschlag nennt den bestbewerteten ähnlichen Tag. SQL `14_lernschleife.sql`. Konzept `doc/KONZEPT-LERNSCHLEIFE-2026-11-01.md`.

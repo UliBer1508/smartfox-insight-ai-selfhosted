@@ -33,6 +33,10 @@ eigenen Gerät geprüft.
 - **DP 19 = −1,0 °C** an allen Geräten. Gemessen regeln alle Räume um Soll **+0,6 bis +0,7 °C**
   (Protokoll › Thermostate, 3 Tage). Das passt zu einer Korrektur, die auf die Regelung anders wirkt als
   auf die gemeldete Temperatur. **Test:** Büro DP 19 = 0, dann Ist-Wert und „Ein/Aus bei“ beobachten.
+  **Ergebnis 01.11.2026, 17:52:** Büro DP 19 −10 → 0. Die gemeldete Ist-Temperatur blieb gleich (19,4 → 19,3 → 19,4).
+  DP 19 verschiebt also **nicht** die gemeldete Temperatur – die gemeldeten Werte sind echt, die Räume lagen
+  26.–31.10. wirklich unter ihrer Untergrenze. Offen: Wirkt DP 19 auf den Schaltpunkt? → „Ein/Aus bei“ im Büro ab 02.11.
+  beobachten (vorher +0,48 / +0,59).
 - **DP 101 = 1,0 °C Einschalt-Differenz.** Trotzdem takten manche Räume sehr kurz (Wohnzimmer alle 7 min).
   Zusammen mit DP 19 erst nach dem Test bewerten.
 - **DP 111 Nachtmodus** ist bei 6 Räumen an. Das Gerät hat damit ein eigenes Nachtprogramm (DP 105) – mit

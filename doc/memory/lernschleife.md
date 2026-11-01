@@ -7,7 +7,7 @@ type: constraint
 **Konzept:** `doc/KONZEPT-LERNSCHLEIFE-2026-11-01.md` (freigegeben 01.11.2026).
 
 - **Datenbeginn:** `system_settings.learning_data_since` = 2026-10-26. Heizungsdaten davor (Thermostate im Modus „auto“,
-  „heizt“ immer false, keine Heizzyklen) **nie** zum Lernen verwenden. `update-learned-policies` filtert danach.
+  „heizt“ immer false, keine Heizzyklen) **nie** zum Lernen verwenden. `update-learned-policies` filtert danach. Am 01.11.2026 gelöscht/geleert (SQL 15): learning_events, room_ml_features, room_heating_logs vor 26.10., Heiz-KPIs in daily_pattern_scores, berechnete Raumwerte (calculated_power_w usw.).
 - **Ziel = Ulis Ziele**, gemessen in `tages_bewertung` (Note 0–100): Nacht (Batterie reicht bis morgens), Sonne
   (PV im Haus genutzt), Komfort (keine Raum-Minuten unter Untergrenze), Netz (wenig Netzstrom für Heizung).
   Nicht mehr nur „wenig Netzbezug“.
