@@ -1,11 +1,12 @@
-// Anwesenheits-Kalender (29.10.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md, Abschnitt 7)
+// Abwesenheits-Kalender (29.10.2026, umgedreht 01.11.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md §7/§9)
+// Grundzustand anwesend – eingetragen werden nur längere Abwesenheiten.
 // Einstellungen › Anwesenheit: Monat / Woche / Tag wie in der Hausverwaltung.
-// - Monat: Tagesstreifen je Monat. Volle Tage kräftig, An-/Abreisetage hell, leer grau.
-//   Leeren Tag antippen = Anreise, zweiten Tag antippen = Abreise (Standard-Uhrzeiten aus
-//   Haus › Anwesenheit), Uhrzeit im Formular pro Aufenthalt änderbar.
-// - Woche: 7 Spalten 0–24 Uhr mit Vorlauf (schraffiert), Anwesenheit und Nacht.
+// - Monat: Tagesstreifen je Monat. Ganze Tage weg dunkel, Abreise-/Rückkehrtage hell, anwesend grün.
+//   Freien Tag antippen = Abreise, zweiten Tag antippen = Rückkehr (Standard-Uhrzeiten aus
+//   Haus › Anwesenheit), Uhrzeit im Formular pro Eintrag änderbar.
+// - Woche: 7 Spalten 0–24 Uhr mit Abwesenheit, Vorlauf vor der Rückkehr (schraffiert) und Nacht.
 // - Tag: 24-h-Leiste und Ablauf als Text.
-// Gespeichert wird wie bisher in presence_periods (usePresence) – pv-automation bleibt unverändert.
+// Gespeichert in presence_periods (usePresence) – jeder Eintrag ist eine Abwesenheit.
 // Rechnet in der Ortszeit des Geräts (wie die Eingabefelder), Haus und Geräte liegen in derselben Zeitzone.
 import { CSSProperties, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -29,13 +30,14 @@ const HOUR = 3600_000;
 const WEEK_PX = 480; // Höhe der Wochenspalten (24 h → 20 px je Stunde)
 
 const VORLAUF_BG = 'repeating-linear-gradient(45deg, rgb(245 192 78) 0 6px, rgb(251 225 166) 6px 12px)';
+// Kind bezieht sich auf die Abwesenheit: voll = ganzer Tag weg, an = Abreisetag, ab = Rückkehrtag, leer = anwesend
 const KIND_CLASS: Record<Kind, string> = {
-  voll: 'bg-primary',
-  an: 'bg-primary/40',
-  ab: 'bg-primary/40',
-  leer: 'bg-muted',
+  voll: 'bg-slate-500',
+  an: 'bg-slate-400/60',
+  ab: 'bg-slate-400/60',
+  leer: 'bg-primary/20',
 };
-const KIND_LABEL: Record<Kind, string> = { voll: 'anwesend', an: 'Anreise', ab: 'Abreise', leer: 'leer' };
+const KIND_LABEL: Record<Kind, string> = { voll: 'abwesend', an: 'Abreise', ab: 'Rückkehr', leer: 'anwesend' };
 
 // ---------------------------------------------------------------- Datums-Helfer (Ortszeit)
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -88,14 +90,14 @@ function daySegments(D: Date, stays: Stay[], leadH: number, night: { from: [numb
   const frac = (t: number) => (Math.min(Math.max(t, s), e) - s) / len;
   const out: Seg[] = [];
   for (const x of stays) {
-    const vs = x.s - leadH * HOUR;
-    if (leadH > 0 && vs < e && x.s > s) out.push({ kind: 'vor', a: frac(vs), b: frac(x.s), label: `Vorlauf ab ${fmtT(new Date(vs))}` });
-    if (x.s < e && x.e > s) {
-      let label = 'Anwesend';
-      if (x.s >= s) label = `Anreise ${fmtT(new Date(x.s))}`;
-      else if (x.e < e) label = `Abreise ${fmtT(new Date(x.e))}`;
-      out.push({ kind: 'da', a: frac(x.s), b: frac(x.e), label });
+    // Abwesenheit bis zum Vorlauf, danach Vorlauf bis zur Rückkehr
+    const vs = Math.max(x.s, x.e - leadH * HOUR);
+    if (x.s < e && vs > s) {
+      let label = 'Abwesend';
+      if (x.s >= s) label = `Abreise ${fmtT(new Date(x.s))}`;
+      out.push({ kind: 'da', a: frac(x.s), b: frac(vs), label });
     }
+    if (leadH > 0 && vs < e && x.e > s) out.push({ kind: 'vor', a: frac(vs), b: frac(x.e), label: `Vorlauf · Rückkehr ${fmtT(new Date(x.e))}` });
   }
   const nf = atTime(D, night.from).getTime(), nt = atTime(D, night.to).getTime();
   if (nf > nt) {
@@ -104,7 +106,7 @@ function daySegments(D: Date, stays: Stay[], leadH: number, night: { from: [numb
   } else if (nf < nt) {
     out.push({ kind: 'nacht', a: frac(nf), b: frac(nt), label: 'Nacht' });
   }
-  // Nacht liegt halbtransparent über der Anwesenheit – dort keinen zweiten Text darüberschreiben
+  // Nacht liegt halbtransparent über der Abwesenheit – dort keinen zweiten Text darüberschreiben
   const da = out.filter((g) => g.kind === 'da');
   for (const g of out) {
     if (g.kind === 'nacht' && da.some((d) => d.a < g.b && d.b > g.a)) g.label = '';
@@ -114,7 +116,7 @@ function daySegments(D: Date, stays: Stay[], leadH: number, night: { from: [numb
 
 const segStyle = (k: Seg['kind']): { className: string; style?: CSSProperties } => {
   if (k === 'vor') return { className: 'text-amber-950', style: { background: VORLAUF_BG } };
-  if (k === 'da') return { className: 'bg-primary text-primary-foreground font-semibold' };
+  if (k === 'da') return { className: 'bg-slate-500 text-white font-semibold' };
   return { className: 'bg-foreground/10 text-foreground/80' };
 };
 
@@ -161,12 +163,12 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
     setSelId(null);
     if (editId || !from || to) {
       setEditId(null); setNote('');
-      setFrom(toLocalInput(atTime(D, arrT))); setTo('');
+      setFrom(toLocalInput(atTime(D, depT))); setTo('');
       return;
     }
     const a = new Date(from);
-    if (day0(D) <= day0(a)) { setFrom(toLocalInput(atTime(D, arrT))); setTo(toLocalInput(atTime(a, depT))); }
-    else setTo(toLocalInput(atTime(D, depT)));
+    if (day0(D) <= day0(a)) { setFrom(toLocalInput(atTime(D, depT))); setTo(toLocalInput(atTime(a, arrT))); }
+    else setTo(toLocalInput(atTime(D, arrT)));
   };
 
   const startEdit = (p: PresencePeriod) => {
@@ -218,17 +220,17 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
           <div key={first.toISOString()} className="rounded-lg border bg-background/50 p-3 sm:p-4">
             <div className="flex items-baseline justify-between gap-3 mb-2">
               <h4 className="text-base font-semibold">{MON[first.getMonth()]} {first.getFullYear()}</h4>
-              <span className="text-sm text-muted-foreground">{cnt ? `${cnt} ${cnt === 1 ? 'Tag' : 'Tage'} im Haus` : 'kein Aufenthalt'}</span>
+              <span className="text-sm text-muted-foreground">{cnt ? `${cnt} ${cnt === 1 ? 'Tag' : 'Tage'} weg` : 'immer anwesend'}</span>
             </div>
             <div className="overflow-x-auto">
               <div className="min-w-[620px] grid gap-[3px]" style={{ gridTemplateColumns: `repeat(${n}, minmax(0, 1fr))` }}>
                 {days.map((D, k) => {
                   const { kind, stay } = infos[k];
-                  const picked = kind === 'leer' && isPicked(D);
+                  const picked = kind === 'leer' && isPicked(D);  // leer = anwesend, frei für neue Abwesenheit
                   const today = sameDay(D, now);
                   const selected = !!stay && stay.p.id === selId;
                   const label = `${WDL[D.getDay()]} ${D.getDate()}. ${MON[D.getMonth()]}: ${KIND_LABEL[kind]}`
-                    + (kind === 'an' && stay ? ` ${fmtT(new Date(stay.s))}` : '')
+                    + (kind === 'an' && stay ? ` ${fmtT(new Date(stay.s))}` : '')  // Abreise-Uhrzeit
                     + (kind === 'ab' && stay ? ` ${fmtT(new Date(stay.e))}` : '');
                   return (
                     <div key={k} className="flex flex-col items-stretch gap-1">
@@ -306,16 +308,16 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
   const ds = dayDate.getTime(), de = addDays(dayDate, 1).getTime();
   const events: { t: number; text: string }[] = [];
   for (const x of stays) {
-    const vs = x.s - leadH * HOUR;
-    if (leadH > 0 && vs >= ds && vs < de) events.push({ t: vs, text: 'Vorlauf beginnt – ab jetzt gilt das Haus als bewohnt, Räume gehen wieder auf Eco' });
-    if (x.s >= ds && x.s < de) events.push({ t: x.s, text: `Anreise – normaler Heizbetrieb${x.p.note ? ` (${x.p.note})` : ''}` });
-    if (x.e >= ds && x.e < de) events.push({ t: x.e, text: 'Abreise – Haus gilt als leer: Räume halten „Ohne PV“, Sonne lädt bis Eco, kein Komfort' });
+    const vs = Math.max(x.s, x.e - leadH * HOUR);
+    if (x.s >= ds && x.s < de) events.push({ t: x.s, text: `Abreise – Haus gilt als leer: Räume halten „Ohne PV“, Sonne heizt bis Eco, dann Komfort${x.p.note ? ` (${x.p.note})` : ''}` });
+    if (leadH > 0 && vs >= ds && vs < de) events.push({ t: vs, text: 'Vorlauf beginnt – ab jetzt gilt das Haus als bewohnt, normaler Heizbetrieb' });
+    if (x.e >= ds && x.e < de) events.push({ t: x.e, text: 'Rückkehr' });
   }
   events.push({ t: atTime(dayDate, night.to).getTime(), text: 'Nacht endet – Tagesstart, Räume werden neu bewertet' });
   events.push({ t: atTime(dayDate, night.from).getTime(), text: 'Nacht beginnt – Nachtbetrieb wie bisher' });
   events.sort((a, b) => a.t - b.t);
   const dayIsToday = sameDay(dayDate, now);
-  const dayState = { voll: 'Ganzer Tag anwesend', an: 'Anreisetag', ab: 'Abreisetag', leer: 'Haus leer – jeder Tag wie ein Wartetag' }[dKind];
+  const dayState = { voll: 'Ganzer Tag abwesend – Wartetag, PV bis Komfort', an: 'Abreisetag', ab: 'Rückkehrtag', leer: 'Anwesend – normaler Heizbetrieb' }[dKind];
 
   const dayView = (
     <div className="space-y-3">
@@ -365,11 +367,11 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
     const s = new Date(p.start_at), e = new Date(p.end_at);
     const running = s.getTime() <= nowMs && e.getTime() > nowMs;
     const nights = Math.round((day0(e).getTime() - day0(s).getTime()) / 86400_000);
-    const vs = new Date(s.getTime() - leadH * HOUR);
+    const vs = new Date(Math.max(s.getTime(), e.getTime() - leadH * HOUR));
     return (
       <div key={p.id}
         className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border p-3 text-sm ${isPast ? 'opacity-60' : ''} ${p.id === selId ? 'border-primary/60 bg-primary/5' : ''}`}>
-        <span className="w-1.5 self-stretch rounded-sm bg-primary" />
+        <span className="w-1.5 self-stretch rounded-sm bg-slate-500" />
         <div className="min-w-0 flex-1">
           <div className="font-medium">
             {fmtD(s)} {fmtT(s)} – {fmtD(e)} {fmtT(e)}
@@ -399,11 +401,11 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
 
   const legend = (
     <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-primary" />Anwesend</span>
-      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-primary/40" />An-/Abreisetag</span>
-      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm" style={{ background: VORLAUF_BG }} />Vorlauf ({leadH} h)</span>
+      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-primary/20 border" />Anwesend</span>
+      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-slate-500" />Abwesend</span>
+      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-slate-400/60" />Abreise-/Rückkehrtag</span>
+      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm" style={{ background: VORLAUF_BG }} />Vorlauf vor Rückkehr ({leadH} h)</span>
       <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-foreground/10" />Nacht</span>
-      <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-muted border" />Haus leer</span>
       <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded-sm bg-amber-200 border border-dashed border-amber-600" />Neuer Eintrag</span>
     </div>
   );
@@ -416,7 +418,7 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
       badge={available && state.enabled
         ? <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-muted text-muted-foreground">{state.away ? 'abwesend' : 'anwesend'}</span>
         : undefined}
-      description="Trag ein, wann jemand im Haus ist. Außerhalb dieser Zeiten gilt das Haus als leer: Räume halten „Ohne PV“, Sonne lädt bis Eco, kein Komfort. Nachts unverändert. Im Monat: Anreisetag und dann Abreisetag antippen. Ein- und Ausschalten, Vorlauf und Standard-Uhrzeiten unter Haus › Anwesenheit."
+      description="Das Haus gilt immer als bewohnt. Trag hier nur ein, wann du länger weg bist: Dann halten die Räume „Ohne PV“, Sonne heizt bis Eco und dann Komfort. Nachts unverändert. Im Monat: Abreisetag und dann Rückkehrtag antippen. Ein- und Ausschalten, Vorlauf und Standard-Uhrzeiten unter Haus › Anwesenheit."
     >
       {!available ? (
         <p className="text-sm text-warning">Kalender noch nicht eingerichtet – SQL <code>07_anwesenheit.sql</code> ausführen.</p>
@@ -445,19 +447,19 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
           {view === 'tag' && dayView}
 
           <div className="space-y-2 pt-2">
-            <div className="text-sm font-semibold">{editId ? 'Aufenthalt bearbeiten' : 'Neuer Aufenthalt'}</div>
+            <div className="text-sm font-semibold">{editId ? 'Abwesenheit bearbeiten' : 'Neue Abwesenheit'}</div>
             <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr_auto] items-end">
               <label className="space-y-1">
-                <span className="block text-sm">Anreise</span>
+                <span className="block text-sm">Abreise</span>
                 <Input type="datetime-local" value={from} onChange={(e) => setFrom(e.target.value)} />
               </label>
               <label className="space-y-1">
-                <span className="block text-sm">Abreise</span>
+                <span className="block text-sm">Rückkehr</span>
                 <Input type="datetime-local" value={to} onChange={(e) => setTo(e.target.value)} />
               </label>
               <label className="space-y-1">
                 <span className="block text-sm">Notiz</span>
-                <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="z. B. Wochenende, Familie" />
+                <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="z. B. Urlaub, München" />
               </label>
               <div className="flex gap-2">
                 <Button onClick={submit} disabled={busy || !canSave}>
@@ -467,15 +469,15 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Beim Antippen im Kalender: Anreise {pad(arrT[0])}:{pad(arrT[1])}, Abreise {pad(depT[0])}:{pad(depT[1])} –
-              Uhrzeit hier pro Aufenthalt änderbar. Vorlauf {leadH} h vor der Anreise.
+              Beim Antippen im Kalender: Abreise {pad(depT[0])}:{pad(depT[1])}, Rückkehr {pad(arrT[0])}:{pad(arrT[1])} –
+              Uhrzeit hier pro Eintrag änderbar. Vorlauf {leadH} h vor der Rückkehr.
             </p>
           </div>
 
           <div className="space-y-2">
-            <div className="text-sm font-semibold">Geplante Aufenthalte</div>
+            <div className="text-sm font-semibold">Geplante Abwesenheiten</div>
             {open.length === 0
-              ? <p className="text-sm text-muted-foreground">Kein Aufenthalt eingetragen.</p>
+              ? <p className="text-sm text-muted-foreground">Keine Abwesenheit eingetragen – das Haus wird normal geheizt.</p>
               : open.map((p) => row(p, false))}
           </div>
           {past.length > 0 && (

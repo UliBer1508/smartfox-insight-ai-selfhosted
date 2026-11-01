@@ -56,9 +56,9 @@ const GROUPS: Group[] = [
   {
     title: 'Anwesenheit', icon: <Home className="w-3.5 h-3.5 text-primary" />,
     fields: [
-      { k: 'presence_control_enabled', l: 'Anwesenheit steuern', kind: 'switch', def: true, hint: 'An: Außerhalb der Einträge im Kalender (Einstellungen › Anwesenheit) gilt das Haus als leer – Räume halten „Ohne PV“, Sonne lädt bis Eco, kein Komfort. Aus: immer wie bewohnt.' },
-      { k: 'presence_lead_hours', l: 'Vorlauf vor Ankunft', kind: 'number', def: 6, unit: 'h', step: 1, min: 0, max: 72, hint: 'so lange vor einem Eintrag wird wieder normal geheizt', showIf: (v) => v.presence_control_enabled !== false },
-      { k: 'presence_arrival_time', l: 'Standard-Anreise', kind: 'time', def: '14:00', hint: 'setzt der Kalender beim Antippen eines Tages ein – pro Aufenthalt änderbar', showIf: (v) => v.presence_control_enabled !== false },
+      { k: 'presence_control_enabled', l: 'Anwesenheit steuern', kind: 'switch', def: true, hint: 'An: Während einer Abwesenheit im Kalender (Einstellungen › Anwesenheit) halten die Räume „Ohne PV“, Sonne heizt bis Eco und dann Komfort. Sonst und bei Aus: immer wie bewohnt.' },
+      { k: 'presence_lead_hours', l: 'Vorlauf vor Rückkehr', kind: 'number', def: 6, unit: 'h', step: 1, min: 0, max: 72, hint: 'so lange vor dem Ende einer Abwesenheit wird wieder normal geheizt', showIf: (v) => v.presence_control_enabled !== false },
+      { k: 'presence_arrival_time', l: 'Standard-Rückkehr', kind: 'time', def: '14:00', hint: 'setzt der Kalender beim Antippen eines Tages ein – pro Eintrag änderbar', showIf: (v) => v.presence_control_enabled !== false },
       { k: 'presence_departure_time', l: 'Standard-Abreise', kind: 'time', def: '11:00', showIf: (v) => v.presence_control_enabled !== false },
     ],
   },

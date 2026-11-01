@@ -1,5 +1,6 @@
-// Anwesenheit (Konzept 28.10.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md)
-// - PresenceQuick: Karte in der Übersicht mit Schnellschalter „Ich bin da bis …“ / „Ich bin weg“
+// Anwesenheit (Konzept 28.10.2026, umgedreht 01.11.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md §9)
+// Grundzustand anwesend, der Kalender enthält Abwesenheiten.
+// - PresenceQuick: Karte in der Übersicht mit Schnellschalter „Ich bin weg bis …“ / „Ich bin zurück“
 // - PresenceCalendar: Kalender in Einstellungen › Anwesenheit (Monat/Woche/Tag, siehe PresenceCalendar.tsx)
 // Schalter „Anwesenheit steuern“ und Vorlauf liegen in Einstellungen › Haus › Anwesenheit.
 import { useState } from 'react';
@@ -25,12 +26,11 @@ function fromLocalInput(v: string): string | null {
   const d = new Date(v);
   return Number.isNaN(d.getTime()) ? null : d.toISOString();
 }
-/** Vorschlag für „bis“: kommender Sonntag 18:00 (heute Sonntag vor 16 Uhr → heute 18:00). */
-function nextSunday18(): Date {
+/** Vorschlag für „weg bis“: in einer Woche 14:00. */
+function inOneWeek14(): Date {
   const d = new Date();
-  const add = d.getDay() === 0 ? (d.getHours() < 16 ? 0 : 7) : 7 - d.getDay();
-  d.setDate(d.getDate() + add);
-  d.setHours(18, 0, 0, 0);
+  d.setDate(d.getDate() + 7);
+  d.setHours(14, 0, 0, 0);
   return d;
 }
 
@@ -38,9 +38,9 @@ type PresenceSettings = Pick<HeatingSettings, 'presence_control_enabled' | 'pres
 
 // ---------------------------------------------------------------- Übersicht
 export function PresenceQuick({ settings }: { settings: PresenceSettings }) {
-  const { state, available, isLoading, arriveUntil, leaveNow } = usePresence(settings);
+  const { state, available, isLoading, awayUntil, backNow } = usePresence(settings);
   const [editing, setEditing] = useState(false);
-  const [until, setUntil] = useState(() => toLocalInput(nextSunday18()));
+  const [until, setUntil] = useState(() => toLocalInput(inOneWeek14()));
   const [busy, setBusy] = useState(false);
   if (!available || isLoading) return null;
 
@@ -51,28 +51,27 @@ export function PresenceQuick({ settings }: { settings: PresenceSettings }) {
     title = 'Anwesenheit nicht gesteuert';
     text = 'Das Haus wird immer wie bewohnt geheizt (Einstellungen › Haus › Anwesenheit).';
   } else if (state.away) {
-    title = 'Abwesend';
-    text = 'Räume halten „Ohne PV“, Sonne lädt bis Eco, kein Komfort.'
-      + (state.next ? ` Nächster Aufenthalt ${fmtWhen(state.next.start_at)} (Vorlauf ${leadH} h).` : ' Kein Aufenthalt eingetragen.');
+    title = `Abwesend bis ${fmtWhen(state.until)}`;
+    text = `Räume halten „Ohne PV“, Sonne heizt bis Eco und dann Komfort. Normalbetrieb ab ${leadH} h vor der Rückkehr.`;
   } else if (state.inLead) {
-    title = 'Ankunft vorbereiten';
-    text = `Vorlauf läuft – Räume gehen wieder auf Eco. Anwesend bis ${fmtWhen(state.until)}.`;
+    title = 'Rückkehr vorbereiten';
+    text = `Vorlauf läuft – normaler Heizbetrieb. Rückkehr ${fmtWhen(state.until)}.`;
   } else {
     title = 'Anwesend';
-    text = `Normalbetrieb bis ${fmtWhen(state.until)}.`;
+    text = 'Normalbetrieb.' + (state.next ? ` Nächste Abwesenheit ab ${fmtWhen(state.next.start_at)}.` : '');
   }
 
   const submit = async () => {
     const iso = fromLocalInput(until);
     if (!iso) return;
     setBusy(true);
-    const ok = await arriveUntil(iso);
+    const ok = await awayUntil(iso);
     setBusy(false);
     if (ok) setEditing(false);
   };
-  const leave = async () => {
+  const back = async () => {
     setBusy(true);
-    await leaveNow();
+    await backNow();
     setBusy(false);
   };
 
@@ -91,7 +90,7 @@ export function PresenceQuick({ settings }: { settings: PresenceSettings }) {
           editing ? (
             <div className="flex flex-wrap items-end gap-2">
               <label className="space-y-1">
-                <span className="block text-xs text-muted-foreground">Ich bin da bis</span>
+                <span className="block text-xs text-muted-foreground">Ich bin weg bis</span>
                 <Input type="datetime-local" value={until} onChange={(e) => setUntil(e.target.value)} className="w-auto" />
               </label>
               <Button size="sm" onClick={submit} disabled={busy}>
@@ -101,12 +100,13 @@ export function PresenceQuick({ settings }: { settings: PresenceSettings }) {
             </div>
           ) : (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" variant={state.away ? 'default' : 'outline'} onClick={() => setEditing(true)} disabled={busy}>
-                <Home className="w-4 h-4 mr-1.5" /> Ich bin da bis …
-              </Button>
-              {state.current.length > 0 && (
-                <Button size="sm" variant="outline" onClick={leave} disabled={busy}>
-                  {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <DoorOpen className="w-4 h-4 mr-1.5" />} Ich bin weg
+              {state.current.length > 0 ? (
+                <Button size="sm" variant="default" onClick={back} disabled={busy}>
+                  {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Home className="w-4 h-4 mr-1.5" />} Ich bin zurück
+                </Button>
+              ) : (
+                <Button size="sm" variant="outline" onClick={() => setEditing(true)} disabled={busy}>
+                  <DoorOpen className="w-4 h-4 mr-1.5" /> Ich bin weg bis …
                 </Button>
               )}
             </div>

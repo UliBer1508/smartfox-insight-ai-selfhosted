@@ -5,6 +5,16 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.11.0] - 2026-11-01
+
+### Changed (Anwesenheit umgedreht)
+- Grundzustand **anwesend**; Einträge im Kalender (`presence_periods`) bedeuten jetzt **Abwesenheit**, Vorlauf vor der Rückkehr (`doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §9) – SQL `09_abwesenheit_umdrehen.sql`.
+- Bei Abwesenheit heizt PV-Überschuss wieder bis **Komfort** (Phase 2, kein Eco-Deckel; §8, Entscheidung 30.10.2026).
+- App: Schnellschalter „Ich bin weg bis …“ / „Ich bin zurück“, Kalender mit Abreise/Rückkehr, Standard-Abreise 11:00 / Rückkehr 14:00.
+- Offen: Alexa-Function `alexa-heizung` (Repo `heizung-muenchen`) umstellen.
+
+---
+
 ## [2.10.0] - 2026-10-29
 
 ### Added (Alexa)

@@ -94,7 +94,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `night_heating_mode`: `frost_only` (5°C, eingestellt) | `maintain` (night_temp)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
 - `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Tagesmodus, seit 27.10.2026 wieder wirksam)
-- `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026) – Kalender `presence_periods` (Zeiträume, in denen jemand da ist); außerhalb gilt abwesend, Vorlauf vor jedem Eintrag. Aus = immer anwesend
+- `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026, umgedreht 01.11.2026) – Grundzustand anwesend; Kalender `presence_periods` = Zeiträume, in denen das Haus **leer** ist; Vorlauf vor dem Ende (Rückkehr). Aus = immer anwesend
 - `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
 - `battery_reserve_for_night_soc` (60%): nur noch für Batterie-Puffer und Mikro-Budget-Untergrenze. Wird vom KI-Batterie-Vorschlag **nicht** geändert (seit 28.10.2026; vorher beim Übernehmen mit überschrieben)
 - `battery_buffer_enabled`, `battery_buffer_bonus_w` (500W)
@@ -141,7 +141,7 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 |---|---|---|
 | `battery_gate` | Batterie-Gate aktiv (strict) | „Ohne PV“ |
 | `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Ohne PV“ |
-| `wait` (abwesend) | kein Eintrag in `presence_periods` (inkl. Vorlauf), seit 28.10.2026 – auch nach Sonnenuntergang | „Ohne PV“ |
+| `wait` (abwesend) | laufender Eintrag in `presence_periods` (Abwesenheit, ohne Vorlauf vor Rückkehr), seit 01.11.2026 – auch nach Sonnenuntergang | „Ohne PV“; PV-Überschuss trotzdem Eco → Komfort |
 | `grid` (ohne PV) | sonst, und immer nach Sonnenuntergang | Eco nach Priorität, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
 
 - In jedem Modus werden Räume **unter** „Ohne PV“ zuerst bis „Ohne PV“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
@@ -154,7 +154,7 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 - Weicht er vom gewünschten Ziel ab, sendet pv-automation beim nächsten Lauf neu (`tempAlreadyCorrect`)
 
 ### Anwesenheit (seit 28.10.2026)
-Konzept: `doc/KONZEPT-ANWESENHEIT-2026-10-28.md`. `getPresence()` liest `presence_periods`: Eintrag läuft oder beginnt innerhalb von `presence_lead_hours` → anwesend, sonst **abwesend**. Abwesend heißt: Tagesmodus `wait` (Batterie-Gate hat Vorrang), Phase 2 (Komfort) übersprungen, alle Ziele höchstens Eco (Temperatur-Deckelung). PV-Überschuss heizt weiter bis Eco (Phase 1, Mikro-Budget). Nacht unverändert. Fail-safe: Kalender nicht lesbar oder Steuerung aus → anwesend. Protokoll: `heating_day_mode.away`, `presence_reason`, `presence_next_start`.
+Konzept: `doc/KONZEPT-ANWESENHEIT-2026-10-28.md`. Seit 01.11.2026 (§9) gilt: **Grundzustand anwesend**. `getPresence()` liest `presence_periods` (Einträge = Abwesenheiten): Eintrag läuft und endet nicht innerhalb von `presence_lead_hours` → **abwesend**, sonst anwesend. Abwesend heißt: Tagesmodus `wait` (Batterie-Gate hat Vorrang). PV-Überschuss heizt wie anwesend – Phase 1 Eco, Phase 2 Komfort (seit 30.10.2026 kein Eco-Deckel mehr). Nacht unverändert. Fail-safe: Kalender nicht lesbar oder Steuerung aus → anwesend. Protokoll: `heating_day_mode.away`, `presence_reason`, `presence_next_start`.
 
 **Reihenfolge zwingend:** 1 → 2 → 3 → 3b → 4.
 
@@ -562,6 +562,12 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.
 - Werte von Uli zurückgesetzt: Mindest-Ladestand 75 %, Nacht-Reserve 60 %.
 - Fix: `battery-soc-decision` schreibt nur noch `heating_min_battery_soc`. Die Vorschlagsregel (`ai-parameter-advisor` /suggest-battery-soc, feste Wenn-dann-Regel, kein Gemini) bleibt unverändert – nach 2–3 Wochen prüfen, ob sie im Winter nur nach oben zieht (Prognose < 10 kWh → anheben, Senken erst > 20 kWh).
+
+### 2026-11-01 — Anwesenheit umgedreht: Kalender = Abwesenheit
+- Befund (Uli): Räume kühlen bei „abwesend“ zu stark aus; vergessene Einträge machen das Haus „leer“.
+- Grundzustand jetzt anwesend, Einträge in `presence_periods` = Abwesenheit, Vorlauf vor der Rückkehr. SQL `09_abwesenheit_umdrehen.sql` (löscht die alten Aufenthalts-Einträge).
+- Bei Abwesenheit wieder Komfort mit PV-Überschuss (Phase 2, kein Eco-Deckel – Entscheidung 30.10.2026).
+- App: „Ich bin weg bis …“ / „Ich bin zurück“, Kalender mit Abreise/Rückkehr. Alexa (`heizung-muenchen`) muss nachgezogen werden.
 
 ### 2026-10-28 — Anwesenheit (Kalender + Schnellschalter)
 - Neu: Tabelle `presence_periods`, `heating_settings.presence_control_enabled` / `presence_lead_hours` (SQL `07_anwesenheit.sql`).

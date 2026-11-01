@@ -1,6 +1,6 @@
-// Anwesenheit (Konzept 28.10.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md)
-// Kalender presence_periods = Zeiträume, in denen jemand im Haus ist. Außerhalb gilt abwesend.
-// Gleiche Regel wie pv-automation/getPresence: "anwesend" beginnt presence_lead_hours vor start_at.
+// Anwesenheit (Konzept 28.10.2026, umgedreht 01.11.2026, doc/KONZEPT-ANWESENHEIT-2026-10-28.md §9)
+// Grundzustand ANWESEND. Kalender presence_periods = Zeiträume, in denen das Haus LEER ist (Abwesenheit).
+// Gleiche Regel wie pv-automation/getPresence: "anwesend" beginnt presence_lead_hours vor end_at (Rückkehr).
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
@@ -17,10 +17,10 @@ export interface PresencePeriod {
 export interface PresenceState {
   enabled: boolean;
   away: boolean;
-  inLead: boolean;            // Vorlauf: Eintrag beginnt bald, gilt schon als anwesend
-  until: string | null;       // anwesend bis
-  next: PresencePeriod | null; // nächster Eintrag (bei Abwesenheit)
-  current: PresencePeriod[];  // laufende Einträge (start_at ≤ jetzt)
+  inLead: boolean;            // Vorlauf: Abwesenheit endet bald, gilt schon als anwesend
+  until: string | null;       // abwesend bis (Rückkehr)
+  next: PresencePeriod | null; // nächste geplante Abwesenheit
+  current: PresencePeriod[];  // laufende Abwesenheiten (start_at ≤ jetzt < end_at)
 }
 
 export function computePresence(periods: PresencePeriod[], settings: Pick<HeatingSettings, 'presence_control_enabled' | 'presence_lead_hours'> | null, nowMs = Date.now()): PresenceState {
@@ -30,13 +30,15 @@ export function computePresence(periods: PresencePeriod[], settings: Pick<Heatin
     .filter(p => new Date(p.end_at).getTime() > nowMs)
     .sort((a, b) => a.start_at.localeCompare(b.start_at));
   const current = open.filter(p => new Date(p.start_at).getTime() <= nowMs);
-  const active = open.filter(p => new Date(p.start_at).getTime() - leadH * 3600_000 <= nowMs);
-  if (!enabled) return { enabled, away: false, inLead: false, until: null, next: open[0] ?? null, current };
-  if (active.length > 0) {
-    const until = active.map(p => p.end_at).sort().slice(-1)[0];
-    return { enabled, away: false, inLead: current.length === 0, until, next: null, current };
+  const next = open.find(p => new Date(p.start_at).getTime() > nowMs) ?? null;
+  const awayNow = current.filter(p => new Date(p.end_at).getTime() - leadH * 3600_000 > nowMs);
+  if (!enabled) return { enabled, away: false, inLead: false, until: null, next, current };
+  if (awayNow.length > 0) {
+    const until = awayNow.map(p => p.end_at).sort().slice(-1)[0];
+    return { enabled, away: true, inLead: false, until, next, current };
   }
-  return { enabled, away: true, inLead: false, until: null, next: open[0] ?? null, current };
+  const until = current.length > 0 ? current.map(p => p.end_at).sort().slice(-1)[0] : null;
+  return { enabled, away: false, inLead: current.length > 0, until, next, current };
 }
 
 export function usePresence(settings: Pick<HeatingSettings, 'presence_control_enabled' | 'presence_lead_hours'> | null) {
@@ -107,13 +109,13 @@ export function usePresence(settings: Pick<HeatingSettings, 'presence_control_en
     return true;
   }, [load]);
 
-  /** Schnellschalter „Ich bin da bis …“: neuer Eintrag ab jetzt. */
-  const arriveUntil = useCallback(async (endIso: string) => {
+  /** Schnellschalter „Ich bin weg bis …“: neue Abwesenheit ab jetzt. */
+  const awayUntil = useCallback(async (endIso: string) => {
     return add(new Date().toISOString(), endIso, 'Schnellschalter', 'quick');
   }, [add]);
 
-  /** Schnellschalter „Ich bin weg“: laufende Einträge enden jetzt. Künftige bleiben stehen. */
-  const leaveNow = useCallback(async () => {
+  /** Schnellschalter „Ich bin zurück“: laufende Abwesenheiten enden jetzt. Künftige bleiben stehen. */
+  const backNow = useCallback(async () => {
     const now = Date.now();
     const running = periods.filter(p => new Date(p.start_at).getTime() < now && new Date(p.end_at).getTime() > now);
     for (const p of running) {
@@ -129,5 +131,5 @@ export function usePresence(settings: Pick<HeatingSettings, 'presence_control_en
     return true;
   }, [periods, load]);
 
-  return { periods, state, isLoading, available, add, update, remove, arriveUntil, leaveNow, reload: load };
+  return { periods, state, isLoading, available, add, update, remove, awayUntil, backNow, reload: load };
 }
