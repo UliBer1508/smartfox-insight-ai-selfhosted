@@ -5,6 +5,11 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.11.2] - 2026-11-01
+
+### Added
+- Nacht-Protokoll `nacht_protokoll` (SQL `10_nacht_protokoll.sql`): je Nacht und Raum Einstellungen und Ergebnis (Temperaturen, Heiz-kWh, Batterie, Netz, Außen); Cron `nacht-protokoll` stündlich, merkt 21:55 und wertet 09:55 Wiener Zeit aus. Test „Nachtwert halten statt Frostschutz“: `doc/TEST-NACHTWERT-2026-11-01.md`.
+
 ## [2.11.1] - 2026-11-01
 
 ### Changed
