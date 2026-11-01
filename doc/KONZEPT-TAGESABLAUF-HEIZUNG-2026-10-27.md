@@ -50,7 +50,11 @@ aus dem Wartetag ein Schlechter Tag.
 ## 3. Regeln im Detail
 
 ### 3.1 Mindesttemperatur ohne PV (neu)
-- Neuer Wert **je Raum** `rooms.wait_min_temp`, in Einstellungen › Räume als **„Ohne PV“**.
+- Neuer Wert **je Raum** `rooms.wait_min_temp`, in Einstellungen › Räume als **„Untergrenze“**
+  (bis 01.11.2026 „Ohne PV“ – umbenannt, weil irreführend). Bedeutung: so weit darf der Raum unter Eco
+  fallen, solange auf PV-Überschuss gewartet wird; nachgeheizt wird dann mit Sonne statt aus Batterie/Netz.
+  Gleich Eco = nie warten. Empfehlung Uli 01.11.: Wohn-/Schlafräume Eco − 1 °C, Bäder Eco − 0,5 °C,
+  Flur/Wasch-/Wirtschaftsraum Eco − 1,5 °C.
   Startwert: Eco − 1,5 °C (SQL `06_tagesmodus_mindesttemperatur.sql`), danach von Uli anzupassen.
   Leeres Feld = Eco − 1,5 °C.
 - Gilt am Wartetag und als Ziel des Batterie-Gates (3.4).

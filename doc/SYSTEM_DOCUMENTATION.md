@@ -87,7 +87,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `event_type`: `heating_start`, `heating_stop`, `pv_activate`, `pv_deactivate`, `manual_set`
 - Aktive Räume = `heating_start` ohne nachfolgendes `heating_stop`
 
-**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (**Hauptschalter**: nur Räume mit `true` werden von pv-automation überhaupt geladen und gesteuert – aus = keine Befehle, auch kein Nacht-/Frostschutz), `night_temp`, **`wait_min_temp`** („Ohne PV“, Mindesttemperatur ohne PV-Überschuss, seit 27.10.2026; leer = Eco − 1,5 °C), `eco_temp`, `comfort_temp`, `manual_override_until`, `tuya_device_id`, `local_key`. `pv_auto_enabled` wird von pv-automation **nicht ausgewertet** (Befund 27.10.2026).
+**Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (**Hauptschalter**: nur Räume mit `true` werden von pv-automation überhaupt geladen und gesteuert – aus = keine Befehle, auch kein Nacht-/Frostschutz), `night_temp`, **`wait_min_temp`** („Untergrenze“, Mindesttemperatur ohne PV-Überschuss, seit 27.10.2026; leer = Eco − 1,5 °C), `eco_temp`, `comfort_temp`, `manual_override_until`, `tuya_device_id`, `local_key`. `pv_auto_enabled` wird von pv-automation **nicht ausgewertet** (Befund 27.10.2026).
 
 **Heating Settings (Auszug, Werte Stand 27.10.2026):**
 - `night_start_time`, `night_end_time` (Code-Standard 22:00–08:00; eingestellt 22:00–08:00, am 01.07.2026 über die App gesetzt). `night_end_time` = Tagesstart / Morgenbewertung
@@ -120,7 +120,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 1. **Übertemperatur:** `currentRoomTemp >= target + 0.4` bei `is_heating` → Stop auf Eco
 2. **Manual Override:** `manual_override_until > now()` → unbedingt respektieren
 3. **Hard PV Gate:** `pv_power < 300W` UND `forecast_kwh < 8` → kein PV-Heizen (fest im Code)
-4. **Batterie-Gate:** SOC < `heating_min_battery_soc` und Batterie lädt nicht / Netzbezug → (strict) Budgets 0, aktive Stopps auf **„Ohne PV“** (`wait_min_temp`, seit 27.10.2026; vorher night_temp)
+4. **Batterie-Gate:** SOC < `heating_min_battery_soc` und Batterie lädt nicht / Netzbezug → (strict) Budgets 0, aktive Stopps auf **„Untergrenze“** (`wait_min_temp`, seit 27.10.2026; vorher night_temp)
 5. **Quota Exhausted** (nur Cloud-Modus): keine Schreib-Operationen
 
 ### Stufe 2: Phase 1 — Eco für Räume unter Eco, nach Priorität
@@ -139,12 +139,12 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 
 | Modus | Bedingung | Ziel |
 |---|---|---|
-| `battery_gate` | Batterie-Gate aktiv (strict) | „Ohne PV“ |
-| `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Ohne PV“ |
-| `wait` (abwesend) | laufender Eintrag in `presence_periods` (Abwesenheit, ohne Vorlauf vor Rückkehr), seit 01.11.2026 – auch nach Sonnenuntergang | „Ohne PV“; PV-Überschuss trotzdem Eco → Komfort |
+| `battery_gate` | Batterie-Gate aktiv (strict) | „Untergrenze“ |
+| `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Untergrenze“ |
+| `wait` (abwesend) | laufender Eintrag in `presence_periods` (Abwesenheit, ohne Vorlauf vor Rückkehr), seit 01.11.2026 – auch nach Sonnenuntergang | „Untergrenze“; PV-Überschuss trotzdem Eco → Komfort |
 | `grid` (ohne PV) | sonst, und immer nach Sonnenuntergang | Eco nach Priorität, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
 
-- In jedem Modus werden Räume **unter** „Ohne PV“ zuerst bis „Ohne PV“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
+- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
 - KI-Schwelle aus `best_match_today` × `pattern_recall_strength` (siehe §12).
 - Funktion `allocateDayTargets`, Protokoll je Lauf in `system_settings.heating_day_mode`, Anzeige in der Übersicht.
 - Tagesmodus-Ziele erzeugen keine `solar_limit_start/stop`-Einträge und setzen `pv_auto_active = false`.
@@ -233,7 +233,7 @@ Schreibt nach `system_settings.battery_reserve_validation`:
 **Aktivierung:** `target_temp = eco_temp` + `system_settings.last_micro_rotation_at = {ts, room_id, ended:false}`
 
 **Soft-Beendigung:** Nach `micro_heat_duration_min` (5) aktiv beenden:
-- `target_temp = wait_min_temp` („Ohne PV“, seit 27.10.2026; vorher night_temp)
+- `target_temp = wait_min_temp` („Untergrenze“, seit 27.10.2026; vorher night_temp)
 - Status: `ended:true`, `ended_at: now()`
 
 **Cooldown** (`room_rotation_minutes`, 30): zählt ab `ended_at`, nicht ab Aktivierung. Kein neuer Mikro-Raum solange `ended === false`.
@@ -547,7 +547,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 | Hysterese 0.3/0.2°C | Anti-Flapping ohne Komfort-Verlust | — |
 | Thermostate im Modus „home“ statt „auto“ | Nur so wirken die Sollwerte der Automatik; Wochenprogramm mit falscher Uhr | 2026-10-24 |
 | Tagesmodus statt „Tag → Eco halten“ | Räume ohne Budget heizten sonst sofort aus Batterie/Netz (9,6 kW am 27.10. 08:00) | 2026-10-27 |
-| Mindesttemperatur „Ohne PV“ je Raum | Eigener Einstellwert statt Nachtwert als Tagesuntergrenze | 2026-10-27 |
+| Mindesttemperatur „Untergrenze“ je Raum | Eigener Einstellwert statt Nachtwert als Tagesuntergrenze | 2026-10-27 |
 | Max. Heizleistung ohne PV | Netzheizen nur nach Priorität und begrenzt | 2026-10-27 |
 | KI verschiebt Wartetag-Schwelle | Mustergedächtnis entscheidet mit, Grundregeln bleiben ohne KI funktionsfähig | 2026-10-27 |
 | Abwesend = jeder Tag ein Wartetag, keine eigene Absenk-Temperatur | Haus sehr träge (Zeitkonstante ~250–400 h): tiefere Temperatur spart nur 3–11 %; Hebel ist, ohne Bewohner kein Netz-Eco zu heizen | 2026-10-28 |
@@ -578,7 +578,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ### 2026-10-27 — Grundkonzept Tagesablauf, Tagesmodus, drei Steuerfehler behoben
 - Anlass: seit 24.10. jeden Morgen um 08:00 bis 9,6 kW Heizlast, Batterie täglich 57 → 5 %, Auto und Warmwasser ohne Überschuss. Ursache: Thermostate folgen seit Dienst v1.3 („home“) erstmals den Sollwerten; die Logik setzte tagsüber jeden Raum ohne Budget auf Eco.
 - Grundkonzept festgeschrieben: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`.
-- Neu: Tagesmodus `battery_gate` / `wait` / `grid` (§4 Stufe 3b), `rooms.wait_min_temp` („Ohne PV“), `max_grid_heating_power_w` wieder wirksam, KI-Schwelle über Mustergedächtnis.
+- Neu: Tagesmodus `battery_gate` / `wait` / `grid` (§4 Stufe 3b), `rooms.wait_min_temp` („Untergrenze“), `max_grid_heating_power_w` wieder wirksam, KI-Schwelle über Mustergedächtnis.
 - Behoben: Batterie-Gate und Raumschleife schrieben gegeneinander (Pingpong Nacht/Eco alle 5 Min); „Eco=Nacht → direkt Komfort“ umging das Komfort-Budget; Komfort-Upgrade ohne Eco-Budget; `set_mode` scheiterte immer.
 - SQL: `supabase/SQL/06_tagesmodus_mindesttemperatur.sql`. Deploy: `supabase functions deploy pv-automation`.
 - Doku bereinigt: Nachtzeiten, SOC-Schwellen, Hard-PV-Gate-Werte, DP-Mapping, Takt 5 Min.

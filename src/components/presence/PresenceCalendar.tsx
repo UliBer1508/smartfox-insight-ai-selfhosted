@@ -309,7 +309,7 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
   const events: { t: number; text: string }[] = [];
   for (const x of stays) {
     const vs = Math.max(x.s, x.e - leadH * HOUR);
-    if (x.s >= ds && x.s < de) events.push({ t: x.s, text: `Abreise – Haus gilt als leer: Räume halten „Ohne PV“, Sonne heizt bis Eco, dann Komfort${x.p.note ? ` (${x.p.note})` : ''}` });
+    if (x.s >= ds && x.s < de) events.push({ t: x.s, text: `Abreise – Haus gilt als leer: Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort${x.p.note ? ` (${x.p.note})` : ''}` });
     if (leadH > 0 && vs >= ds && vs < de) events.push({ t: vs, text: 'Vorlauf beginnt – ab jetzt gilt das Haus als bewohnt, normaler Heizbetrieb' });
     if (x.e >= ds && x.e < de) events.push({ t: x.e, text: 'Rückkehr' });
   }
@@ -418,7 +418,7 @@ export function PresenceCalendar({ settings }: { settings: CalSettings }) {
       badge={available && state.enabled
         ? <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] font-medium border bg-muted text-muted-foreground">{state.away ? 'abwesend' : 'anwesend'}</span>
         : undefined}
-      description="Das Haus gilt immer als bewohnt. Trag hier nur ein, wann du länger weg bist: Dann halten die Räume „Ohne PV“, Sonne heizt bis Eco und dann Komfort. Nachts unverändert. Im Monat: Abreisetag und dann Rückkehrtag antippen. Ein- und Ausschalten, Vorlauf und Standard-Uhrzeiten unter Haus › Anwesenheit."
+      description="Das Haus gilt immer als bewohnt. Trag hier nur ein, wann du länger weg bist: Dann halten die Räume „Untergrenze“, Sonne heizt bis Eco und dann Komfort. Nachts unverändert. Im Monat: Abreisetag und dann Rückkehrtag antippen. Ein- und Ausschalten, Vorlauf und Standard-Uhrzeiten unter Haus › Anwesenheit."
     >
       {!available ? (
         <p className="text-sm text-warning">Kalender noch nicht eingerichtet – SQL <code>07_anwesenheit.sql</code> ausführen.</p>
