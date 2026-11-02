@@ -14,6 +14,10 @@ Stand: 2026-11-02
 - [ ] k-Werte plausibel? „morgen ohne Heizen“ gegen gemessene Morgentemperatur vergleichen
 - [ ] Reichen 2000 W `max_grid_heating_power_w` im Winter, damit alle Räume Eco erreichen?
 
+### Konzept KI-Vorschläge freigeben (02.11.)
+- [ ] `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` lesen, offene Fragen §7 beantworten
+- [ ] danach bauen: Tagesanalyse, Tab KI › Vorschläge, Evaluator ohne Auto-Rücknahme
+
 ### KI-Batterie-Vorschlag beobachten (seit 28.10.)
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
 - [ ] Vorschläge 2–3 Wochen prüfen statt blind übernehmen; zieht die Regel im Winter nur nach oben (Prognose < 10 kWh → anheben)? Dann Regel überarbeiten (Entwurf im Chat 28.10.: anheben nur, wenn Reserve verfehlt UND ≥ 1 kWh aus der Batterie geheizt)
