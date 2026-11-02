@@ -10,7 +10,10 @@
 --    ② Sonne bleibt (Anteil der PV, der im Haus genutzt wird).
 -- Im SQL-Editor ausführen (Projekt pflnniklvqbwjwrjswaz). Danach pv-automation deployen.
 
--- 1) Notfall-Abstand
+-- 1) Notfall-Abstand (Spalten anlegen, falls SQL 12 noch nicht gelaufen ist)
+alter table public.heating_settings
+  add column if not exists battery_gate_floor_delta numeric not null default 0,
+  add column if not exists battery_gate_max_power_w integer not null default 1000;
 alter table public.heating_settings alter column battery_gate_floor_delta set default 0;
 update public.heating_settings set battery_gate_floor_delta = 0;
 
