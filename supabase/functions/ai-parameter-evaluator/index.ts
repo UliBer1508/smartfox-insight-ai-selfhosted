@@ -92,47 +92,28 @@ Deno.serve(async (req) => {
         .eq('id', d.id);
       evaluated++;
 
-      // Auto-Rollback bei schlechtem Outcome
+      // Seit 02.11.2026 (doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md §4): KEINE automatische Rücknahme mehr.
+      // Prüfmodell: Die KI schlägt vor, Uli entscheidet – auch über eine Rücknahme. Bei schlechtem Ergebnis
+      // wird ein Hinweis ins Protokoll geschrieben; der Rücknahme-Vorschlag kommt aus der Tagesanalyse.
       if (score != null && score < -0.3) {
         const { data: full } = await sb
           .from('ai_parameter_decisions')
-          .select('id, auto_applied, rollback_at, current_value, parameter_key, parameter_scope, room_id')
+          .select('id, current_value, parameter_key, parameter_scope, room_id')
           .eq('id', d.id)
           .maybeSingle();
-
-        if (full && full.auto_applied && !full.rollback_at && full.current_value != null && !LOCKED_PARAMS.has(full.parameter_key)) {
-          const { data: wl } = await sb
-            .from('ai_parameter_whitelist')
-            .select('storage_table, storage_column, data_type')
-            .eq('parameter_key', full.parameter_key)
-            .eq('scope', full.parameter_scope)
-            .maybeSingle();
-
-          if (wl && wl.storage_table === 'heating_settings') {
-            let revertVal: any = full.current_value;
-            if (wl.data_type === 'integer' || wl.data_type === 'number') revertVal = Number(revertVal);
-            if (wl.data_type === 'boolean') revertVal = revertVal === 'true' || revertVal === '1' || revertVal === true;
-
-            const { error: revErr } = await sb
-              .from('heating_settings')
-              .update({ [wl.storage_column]: revertVal });
-
-            if (!revErr) {
-              await sb
-                .from('ai_parameter_decisions')
-                .update({ rollback_at: new Date().toISOString() })
-                .eq('id', d.id);
-
-              // Cool-Down: 24h auf "suggest" degradieren
-              await sb
-                .from('ai_parameter_whitelist')
-                .update({ autonomy_level: 'suggest' })
-                .eq('parameter_key', full.parameter_key)
-                .eq('scope', full.parameter_scope);
-
-              console.log(`[ai-parameter-evaluator] AUTO-ROLLBACK ${full.parameter_key} → ${revertVal} (score ${score})`);
-            }
+        if (full) {
+          try {
+            await sb.rpc('protokoll_add', {
+              p_kind: 'einstellung',
+              p_room: full.room_id ?? null,
+              p_title: `KI: Änderung ${full.parameter_key} wirkt schlechter`,
+              p_detail: `Bewertung ${score.toFixed(2)} – Rücknahme auf ${full.current_value} wird vorgeschlagen (nicht automatisch)`,
+              p_data: { decision_id: full.id, parameter_key: full.parameter_key, score },
+            });
+          } catch (e) {
+            console.warn('[ai-parameter-evaluator] Protokoll-Hinweis fehlgeschlagen:', e);
           }
+          console.log(`[ai-parameter-evaluator] schlechter Outcome ${full.parameter_key} (score ${score}) → nur Hinweis, keine Rücknahme`);
         }
       }
 

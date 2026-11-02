@@ -1,7 +1,7 @@
 # Konzept: KI analysiert und schlägt vor – Uli entscheidet
 
-**Stand:** 2. November 2026 · **Status:** ENTWURF zur Freigabe (Uli, 02.11.2026: „Die KI soll analysieren und
-vorschlagen. Ich kontrolliere, ändere eventuell und genehmige.“) – noch kein Code
+**Stand:** 2. November 2026 · **Status:** FREIGEGEBEN (Uli, 02.11.2026, 22:30 – Antworten §7) · umgesetzt: Auto-Rücknahme
+abgeschaltet, alle Parameter auf „suggest“ (SQL 19), Auto-Deploy (GitHub-Aktion). Offen: Tagesanalyse, Tab KI › Vorschläge
 **Baut auf:** `KONZEPT-LERNSCHLEIFE-2026-11-01.md` (Stufe 3 + 4), `KONZEPT-RAUMMODELL-2026-11-02.md`,
 vorhandene Bausteine `ai-parameter-advisor`, `ai-parameter-evaluator`, `ai_parameter_whitelist`,
 `ai_parameter_decisions`, `battery_soc_suggestions`, `useKiPending`
@@ -90,16 +90,16 @@ Kanal: Hinweis-Leiste in der App; optional Push/Mail (später entscheiden).
 **Wichtig:** `ai-parameter-evaluator` setzt heute bei schlechtem Ergebnis selbst zurück (AUTO-ROLLBACK). Das
 widerspricht dem Prüfmodell und wird auf „Rücknahme vorschlagen“ umgestellt.
 
-## 7. Offene Fragen an Uli
+## 7. Entscheidungen (Uli, 02.11.2026)
 
-1. Grenzen in §3 so in Ordnung?
-2. Sollen Untergrenze und Priorität je Raum überhaupt vorschlagsfähig sein, oder nur die Haus-Werte?
-3. Sofort-Hinweise nur in der App, oder auch Push/Mail?
-4. Optional: GitHub-Aktion, die nach jedem Merge die Edge Functions automatisch deployt (einmalig einen
-   Supabase-Zugangsschlüssel in GitHub hinterlegen) – dann entfällt das Deployen am Österreich-PC.
+1. **Grenzen** wie in §3 – passen so.
+2. **Haus- und Raumwerte** sind vorschlagsfähig (Untergrenze, Priorität, Estrich laden bis je Raum).
+3. **Sofort-Hinweise nur in der App** (Hinweis-Leiste), keine Mail/Push.
+4. **Auto-Deploy einrichten:** `.github/workflows/deploy-functions.yml` deployt nach jedem Merge auf `main` die
+   geänderten Edge Functions. Einmalig: Secret `SUPABASE_ACCESS_TOKEN` in GitHub hinterlegen. SQL bleibt manuell.
 
 ## 8. Reihenfolge
 
-1. 03.11.: PR #16 (Eco als Ziel, Raummodell) einspielen.
+1. ✅ 02.11.: PR #16 (Eco als Ziel, Raummodell) eingespielt; Auto-Rücknahme abgeschaltet, SQL 19, Auto-Deploy.
 2. Einige Tage Tagesnoten nach neuem Maßstab und Raummodell-Nächte sammeln.
 3. Nach Freigabe dieses Konzepts: Tagesanalyse + Vorschlags-Tab bauen, Evaluator auf „vorschlagen“ umstellen.

@@ -14,9 +14,10 @@ Stand: 2026-11-02
 - [ ] k-Werte plausibel? „morgen ohne Heizen“ gegen gemessene Morgentemperatur vergleichen
 - [ ] Reichen 2000 W `max_grid_heating_power_w` im Winter, damit alle Räume Eco erreichen?
 
-### Konzept KI-Vorschläge freigeben (02.11.)
-- [ ] `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` lesen, offene Fragen §7 beantworten
-- [ ] danach bauen: Tagesanalyse, Tab KI › Vorschläge, Evaluator ohne Auto-Rücknahme
+### KI-Vorschläge (Konzept freigegeben 02.11.)
+- [x] Evaluator ohne Auto-Rücknahme (nur Hinweis), SQL `19_ki_nur_vorschlaege.sql`
+- [ ] Secret `SUPABASE_ACCESS_TOKEN` in GitHub anlegen → Auto-Deploy aktiv
+- [ ] bauen: Tagesanalyse 10:00, Tab KI › Vorschläge (Genehmigen/Ändern/Ablehnen), Wirkungsbericht nach 3 Tagen
 
 ### KI-Batterie-Vorschlag beobachten (seit 28.10.)
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
