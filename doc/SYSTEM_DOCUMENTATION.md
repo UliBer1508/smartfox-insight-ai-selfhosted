@@ -66,10 +66,12 @@ bzw. der Fronius selbst bei Batteriemodell „Fronius“. In beiden Fällen gilt
 Batterie jeden Verbrauch im Haus – tags wie nachts – bis zum Mindest-Ladestand (bei uns ~4–5 %).** Erst darunter
 kommt Netzstrom. Belegt am 31.10.2026: 15–17 Uhr Entladung mit 3,4–5,6 kW für die Heizung, Batterie 85 → 5 %.
 
-Folge: „Die Batterie gehört der Nacht“ lässt sich **nur über die Heizlast** erreichen, also über unsere
+Folge: „Sonne zuerst in die Batterie“ lässt sich **nur über die Heizlast** erreichen, also über unsere
 Thermostat-Sollwerte. Das macht die Regel **Ladestand-Grenze** in `pv-automation` (Tagesmodus `battery_gate`,
 in der App „Batterie-Schutz“; Wert `heating_min_battery_soc`, 75 %). Sie ist **nicht** der Batterieschutz des
-Wechselrichters (Mindest-SOC), den wir weder steuern noch ändern.
+Wechselrichters (Mindest-SOC), den wir weder steuern noch ändern. **Seit 02.11.2026 gilt sie nur an Sonnentagen**
+(Überschuss nach Batterieladung reicht für den Eco-Bedarf); an Tagen ohne genug PV und abends ist Eco das Ziel aus
+Batterie/Netz (fester Tarif, Grundlast ≈ 0). Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`.
 
 **Thermostat-Inventar:** 11 statische IPs (192.168.188.42, .43, .61–.69, .79). 10 Local Keys verfügbar.
 
@@ -116,7 +118,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `night_heating_mode`: `frost_only` (5°C, eingestellt) | `maintain` (night_temp)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
 - `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Wartetag / ohne PV; **nicht** im Batterie-Schutz)
-- `battery_gate_floor_delta` (1,0 °C), `battery_gate_max_power_w` (1000 W): Notfall-Heizen im Batterie-Schutz (seit 01.11.2026)
+- `battery_gate_floor_delta` (0 °C seit 02.11.2026, vorher 1,0), `battery_gate_max_power_w` (1000 W): Notfall-Heizen im Batterie-Schutz (seit 01.11.2026)
 - `battery_night_reserve_pct` (10 %): Reserve des Batterie-Vorschlags über dem gemessenen Nachtbedarf (seit 01.11.2026)
 - `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026, umgedreht 01.11.2026) – Grundzustand anwesend; Kalender `presence_periods` = Zeiträume, in denen das Haus **leer** ist; Vorlauf vor dem Ende (Rückkehr). Aus = immer anwesend
 - `target_battery_soc`, `min_battery_soc`: **deprecated** (DB-Reste ohne Logik, siehe `memory/soc-thresholds-consolidated.md`)
@@ -144,7 +146,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 1. **Übertemperatur:** `currentRoomTemp >= target + 0.4` bei `is_heating` → Stop auf Eco
 2. **Manual Override:** `manual_override_until > now()` → unbedingt respektieren
 3. **Hard PV Gate:** `pv_power < 300W` UND `forecast_kwh < 8` → kein PV-Heizen (fest im Code)
-4. **Batterie-Schutz (Ladestand-Grenze):** SOC < `heating_min_battery_soc` – **ohne Ausnahme, auch wenn die Batterie lädt** (seit 01.11.2026). strict: Eco-Budget nur aus echter Einspeisung (≥ `pv_surplus_threshold_on`), Komfort 0; aktive Stopps auf **Untergrenze − `battery_gate_floor_delta`**; Notfall-Heizen darunter bis `battery_gate_max_power_w` (Konzept Tagesablauf §3.4)
+4. **Batterie-Schutz (Ladestand-Grenze):** SOC < `heating_min_battery_soc` **und Sonnentag** (seit 02.11.2026; Tagesart = (Rest-PV − Grundlast − Batterie bis voll) / Eco-Bedarf ≥ Schwelle) – auch wenn die Batterie lädt (seit 01.11.2026). strict: Eco-Budget nur aus echter Einspeisung (≥ `pv_surplus_threshold_on`), Komfort 0; aktive Stopps auf **Untergrenze − `battery_gate_floor_delta`**; Notfall-Heizen darunter bis `battery_gate_max_power_w` (Konzept Tagesablauf §3.4)
 5. **Quota Exhausted** (nur Cloud-Modus): keine Schreib-Operationen
 
 ### Stufe 2: Phase 1 — Eco für Räume unter Eco, nach Priorität
@@ -163,10 +165,12 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 
 | Modus | Bedingung | Ziel |
 |---|---|---|
-| `battery_gate` | Batterie-Schutz aktiv (strict) | „Untergrenze − Abstand“ (1,0 °C); Notfall darunter bis `battery_gate_max_power_w` (1000 W) |
-| `wait` (Wartetag) | PV-Rest heute / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Untergrenze“ |
+| `battery_gate` | Batterie-Schutz aktiv (strict, nur Sonnentag) | „Untergrenze − Abstand“ (seit 02.11.2026 Abstand 0); Notfall darunter bis `battery_gate_max_power_w` (1000 W) |
+| `wait` (Sonnentag) | (PV-Rest − Grundlast − Batterie bis voll) / Eco-Bedarf ≥ Schwelle (1,0 ± KI, Grenzen 0,5–1,5) | „Untergrenze“ |
 | `wait` (abwesend) | laufender Eintrag in `presence_periods` (Abwesenheit, ohne Vorlauf vor Rückkehr), seit 01.11.2026 – auch nach Sonnenuntergang | „Untergrenze“; PV-Überschuss trotzdem Eco → Komfort |
-| `grid` (ohne PV) | sonst, und immer nach Sonnenuntergang | Eco nach Priorität, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
+| `grid` (schlechter Tag) | sonst, und immer nach Sonnenuntergang – **auch bei Batterie unter der Grenze** (seit 02.11.2026) | Eco nach Priorität aus Batterie/Netz, Summe der Raumleistungen ≤ `max_grid_heating_power_w` |
+
+**Raummodell / Vorausschau (seit 02.11.2026):** Je Raum gelernte Auskühlrate k (Tabelle `raum_abkuehlung`, View `raum_modell`, SQL 18) und Außentemperatur-Prognose der Nacht → „abends nötig“ für Eco am Morgen. Bei gleicher Priorität bekommt der Raum mit dem größten Nachtbedarf die PV zuerst. Protokoll in `system_settings.raum_vorausschau`, Anzeige Protokoll › Raummodell. Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`.
 
 - In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
 - KI-Schwelle aus `best_match_today` × `pattern_recall_strength` (siehe §12).
@@ -625,6 +629,15 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-02 — Eco als Ziel, Raummodell
+- Befund: 02.11. morgens Zimmer Uli 20 °C bei Eco 22 °C; Batterie-Schutz (SOC < 75 %) hielt alle Räume auf „Untergrenze − 1 °C“.
+- Uli: „Eco ist das Ziel“, fester Tarif, PV zu 100 % nutzen, Winter/Sommer und unterschiedliches Auskühlen berücksichtigen.
+- `pv-automation`: Tagesart (Sonnentag/schlechter Tag) vor dem Gate, mit Abzug „Batterie bis voll“; Batterie-Schutz nur an Sonnentagen; schlechter Tag und Abend → Eco nach Priorität aus Batterie/Netz; Nacht `maintain` mindestens Untergrenze; Notfall-Abstand Standard 0; Vorausschau aus Raummodell sortiert gleiche Priorität nach Nachtbedarf.
+- `fetch-weather`: Nachtrag aus dem Open-Meteo-Archiv (`backfill_from`).
+- SQL `17_eco_ziel.sql` (Abstand 0, Tagesnote nach Eco/Zeitpunkt des Netzbezugs), `18_raummodell.sql` (Auskühlen je Raum, Cron 09:55).
+- App: Protokoll › Raummodell (Knopf „Außentemperaturen nachtragen und neu berechnen“), Tagesnoten-Texte, Einstellung Notfall-Abstand Standard 0.
+- Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`, Tagesablauf §11.
 
 ### 2026-10-28 — Batterie-Vorschlag ändert nur noch den Mindest-Ladestand
 - Befund: KI-Batterie-Vorschläge 23.–28.10. täglich übernommen → `heating_min_battery_soc` 50 → 90 %. Begründet auf den Fehltagen 24.–27.10. (morgens alle Räume aus der Batterie). Beim Übernehmen setzte `battery-soc-decision` zusätzlich `battery_reserve_for_night_soc` auf denselben Wert → Batterie-Puffer und Mikro-Budget (brauchen Reserve + 20 %) praktisch aus; Batterie-Gate bei 88 % aktiv.

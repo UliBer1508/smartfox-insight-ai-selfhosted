@@ -1,10 +1,18 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-01
+Stand: 2026-11-02
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Eco als Ziel + Raummodell einspielen (02.11.)
+- [ ] SQL `17_eco_ziel.sql` und `18_raummodell.sql` ausführen
+- [ ] Österreich-PC: `git pull`, `supabase functions deploy pv-automation`, `supabase functions deploy fetch-weather`
+- [ ] App: Protokoll › Raummodell › „Außentemperaturen nachtragen und neu berechnen“
+- [ ] Logs prüfen: `[TAGESART]`, `[SOC-GATE] offen`, `[TAGESMODUS] grid`, `[VORAUSSCHAU]`
+- [ ] k-Werte plausibel? „morgen ohne Heizen“ gegen gemessene Morgentemperatur vergleichen
+- [ ] Reichen 2000 W `max_grid_heating_power_w` im Winter, damit alle Räume Eco erreichen?
 
 ### KI-Batterie-Vorschlag beobachten (seit 28.10.)
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)

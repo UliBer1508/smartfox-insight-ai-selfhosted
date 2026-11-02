@@ -74,7 +74,7 @@ const GROUPS: Group[] = [
     title: 'Batterie', icon: <Battery className="w-3.5 h-3.5 text-primary" />,
     fields: [
       { k: 'heating_min_battery_soc', l: 'Mindest-Ladestand für Heizung', kind: 'number', def: 80, unit: '% SoC', step: 5, min: 30, max: 95, hint: 'darunter Batterie-Schutz: Sonne lädt zuerst die Batterie, geheizt wird nur mit echter Einspeisung – auch wenn die Batterie gerade lädt' },
-      { k: 'battery_gate_floor_delta', l: 'Notfall-Abstand unter Untergrenze', kind: 'number', def: 1, unit: '°C', step: 0.5, min: 0, max: 5, hint: 'im Batterie-Schutz heizt ein Raum erst, wenn er so weit unter seiner Untergrenze liegt' },
+      { k: 'battery_gate_floor_delta', l: 'Notfall-Abstand unter Untergrenze', kind: 'number', def: 0, unit: '°C', step: 0.5, min: 0, max: 5, hint: '0 = Untergrenze gilt auch im Batterie-Schutz hart (Standard seit 02.11.2026). Batterie-Schutz gilt nur an Sonnentagen.' },
       { k: 'battery_gate_max_power_w', l: 'Max. Notfall-Heizleistung', kind: 'number', def: 1000, unit: 'W', step: 100, min: 0, max: 10000, hint: 'im Batterie-Schutz höchstens so viel gleichzeitig (nach Priorität). 0 = gar nicht' },
       {
         k: 'heating_soc_gate_mode', l: 'Unter Mindest-Ladestand', kind: 'select', def: 'strict',

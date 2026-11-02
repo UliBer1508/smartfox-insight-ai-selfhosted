@@ -1266,6 +1266,9 @@ export type Database = {
           soc_morgen: number | null
           nachtbedarf_pct: number | null
           raum_min_unter: number | null
+          raum_min_unter_eco: number | null
+          nacht_min_unter: number | null
+          netz_bei_einspeisung_kwh: number | null
           aussen_avg: number | null
           pv_prognose_kwh: number | null
           n_nacht: number | null
@@ -1292,6 +1295,9 @@ export type Database = {
           soc_morgen?: number | null
           nachtbedarf_pct?: number | null
           raum_min_unter?: number | null
+          raum_min_unter_eco?: number | null
+          nacht_min_unter?: number | null
+          netz_bei_einspeisung_kwh?: number | null
           aussen_avg?: number | null
           pv_prognose_kwh?: number | null
           n_nacht?: number | null
@@ -1318,6 +1324,9 @@ export type Database = {
           soc_morgen?: number | null
           nachtbedarf_pct?: number | null
           raum_min_unter?: number | null
+          raum_min_unter_eco?: number | null
+          nacht_min_unter?: number | null
+          netz_bei_einspeisung_kwh?: number | null
           aussen_avg?: number | null
           pv_prognose_kwh?: number | null
           n_nacht?: number | null
