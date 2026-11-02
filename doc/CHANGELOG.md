@@ -5,6 +5,20 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.16.0] - 2026-11-02
+
+### Changed (Eco als Ziel, `doc/KONZEPT-RAUMMODELL-2026-11-02.md`)
+- Batterie-Schutz gilt nur noch an Sonnentagen (Überschuss nach Batterieladung reicht für den Eco-Bedarf). An Tagen ohne genug PV und abends: Eco nach Priorität aus Batterie/Netz.
+- Tagesart rechnet „Batterie bis voll“ vom PV-Rest ab.
+- Untergrenze hart: Notfall-Abstand 0 °C (SQL 17), Nachtwert mindestens Untergrenze.
+- Tagesnote: Komfort an Eco, Nacht an Untergrenze, Netz nur bei gleichzeitiger Einspeisung (SQL 17).
+
+### Added (Raummodell)
+- Auskühlen je Raum aus Nächten ohne Heizen (`raum_abkuehlung`, `raum_modell`, SQL 18), täglich 09:55 fortgeschrieben.
+- Außentemperatur-Nachtrag aus dem Open-Meteo-Archiv (`fetch-weather`, `backfill_from`).
+- Vorausschau in `pv-automation`: „abends nötig“ für Eco am Morgen; gleiche Priorität → größter Nachtbedarf zuerst.
+- Protokoll › Raummodell mit Knopf „Außentemperaturen nachtragen und neu berechnen“.
+
 ## [2.15.0] - 2026-11-01
 
 ### Added (Lernschleife, `doc/KONZEPT-LERNSCHLEIFE-2026-11-01.md`)

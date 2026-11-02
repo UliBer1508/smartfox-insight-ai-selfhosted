@@ -2,6 +2,9 @@
 
 **Status:** läuft · **Entschieden:** Uli, 01.11.2026 · **Protokoll:** Tabelle `nacht_protokoll` (SQL `10_nacht_protokoll.sql`)
 
+> **02.11.2026:** Im Modus `maintain` gilt jetzt Nachtziel = max(Nachtwert, Untergrenze) – die Untergrenze ist hart
+> (`KONZEPT-RAUMMODELL-2026-11-02.md`). Die Tagesnote bewertet die Nacht nach Raum-Minuten unter der Untergrenze.
+
 ## Frage
 
 Frostschutz 5 °C nachts war eine Notlösung, solange die Thermostate im Modus „auto“ die Sollwerte

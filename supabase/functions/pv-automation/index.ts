@@ -136,7 +136,7 @@ function allocateDayTargets(
   // Batterie-Schutz (01.11.2026, Konzept Tagesablauf §3.4): nur Notfall-Heizen. Ziel ist
   // „Untergrenze − battery_gate_floor_delta“, Leistung höchstens battery_gate_max_power_w.
   // Vorher: Untergrenze mit bis zu max_grid_heating_power_w – das zog die Batterie leer (01.11.).
-  const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 1.0));
+  const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0));
 
   for (const rp of rooms) {
     const waitT = dayMode === 'battery_gate'
@@ -886,7 +886,7 @@ Deno.serve(async (req) => {
         // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
-          .select('id, name, tuya_device_id, target_temp, night_temp, pv_auto_active, heating_paused_reason, last_thermostat_sync')
+          .select('id, name, tuya_device_id, target_temp, night_temp, eco_temp, wait_min_temp, pv_auto_active, heating_paused_reason, last_thermostat_sync')
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
@@ -1018,9 +1018,12 @@ Deno.serve(async (req) => {
           const globalNightTemp = settings?.night_temp || 17;
           console.log(`[PV-Automation] Night maintain: globalNightTemp=${globalNightTemp}°C`);
           
+          // Seit 02.11.2026 (Konzept Tagesablauf §11): Die Untergrenze ist auch nachts eine harte Grenze.
+          // Nachtwert unter der Untergrenze wird angehoben. Nur „Frostschutz“ (frost_only) ist eine bewusste Ausnahme.
+          const nightTargetOf = (r: any) => Math.max(Number(r.night_temp) || globalNightTemp, getWaitMinTemp(r, settings));
           const roomsNeedingAdjustment = allRooms.filter(r => {
             const currentTarget = Number(r.target_temp) || 0;
-            const nightTarget = r.night_temp || globalNightTemp;
+            const nightTarget = nightTargetOf(r);
             return Math.abs(currentTarget - nightTarget) >= 0.5;
           });
 
@@ -1042,7 +1045,7 @@ Deno.serve(async (req) => {
           }
 
           for (const room of roomsNeedingAdjustment) {
-            const nightTarget = room.night_temp || globalNightTemp;
+            const nightTarget = nightTargetOf(room);
             console.log(`[PV-Automation] Night maintain: ${room.name} → ${nightTarget}°C (was ${room.target_temp}°C)`);
             
             const result = await setTemperatureForMode(
@@ -1897,6 +1900,50 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ============= TAGESART: SONNENTAG ODER SCHLECHTER TAG (Konzept Tagesablauf §2, Stand 02.11.2026) =============
+      // Uli 02.11.2026: „Eco ist das Ziel. Wir können nicht nur auf PV bauen. Wenn PV da ist, soll sie zu 100 % genutzt
+      // werden.“ Fester Stromtarif, Grundlast ≈ 0 → ob die Batterie tagsüber oder nachts in die Heizung geht, ändert den
+      // Netzbezug nicht. Der Batterie-Schutz hat nur an Tagen Sinn, an denen die Sonne die Batterie heute noch füllt
+      // UND danach Überschuss für die Räume bleibt (Sonnentag). Sonst: Eco aus jeder Quelle, nach Priorität.
+      // Überschuss = Rest-Prognose (korrigiert) − Grundlast − was die Batterie bis voll noch aufnimmt.
+      const batteryNeedWhForDay = Math.max(0, batteryNeedKwh * 1000);
+      const surplusAfterBatteryWh = Math.max(0, remainingPvForHeatingWh - batteryNeedWhForDay);
+      let dayRatio: number | null = null;
+      let dayThreshold = 1.0;
+      let kiAdjust = 0;
+      let kiInfo = 'kein Muster';
+      if (!afterSunset) {
+        dayRatio = totalEcoEnergyNeededWh > 0
+          ? surplusAfterBatteryWh / totalEcoEnergyNeededWh
+          : (surplusAfterBatteryWh > 0 ? 99 : 0);
+        try {
+          const strength = Math.max(0, Math.min(100, Number((settings as any)?.pattern_recall_strength ?? 50)));
+          const { data: bmDayRow } = await supabase
+            .from('system_settings')
+            .select('value')
+            .eq('key', 'best_match_today')
+            .maybeSingle();
+          const bmDay = bmDayRow?.value as any;
+          if (strength > 0 && bmDay?.computed_at && Date.now() - new Date(bmDay.computed_at).getTime() < 24 * 60 * 60 * 1000) {
+            const quality = String(bmDay.match_quality || 'none');
+            const qFactor = quality === 'exact' ? 1.0 : quality === 'partial' ? 0.6 : 0;
+            const top = Array.isArray(bmDay.top_days) && bmDay.top_days.length > 0 ? bmDay.top_days[0] : null;
+            const cov = Number(top?.kpi_pv_heating_coverage);
+            if (qFactor > 0 && Number.isFinite(cov) && cov > 0) {
+              const delta = Math.round((strength / 100) * 0.3 * qFactor * 100) / 100;
+              if (cov >= 0.6) kiAdjust = -delta;       // ähnlicher Tag wurde gut aus PV gedeckt → eher Sonnentag
+              else if (cov < 0.3) kiAdjust = delta;    // ähnlicher Tag kaum PV-Deckung → eher schlechter Tag
+              kiInfo = `${quality} ${top?.date ?? ''} PV-Deckung ${Math.round(cov * 100)}% → Schwelle ${kiAdjust >= 0 ? '+' : ''}${kiAdjust}`;
+            }
+          }
+        } catch (e) {
+          console.warn('[TAGESART] best_match_today nicht lesbar:', e);
+        }
+        dayThreshold = Math.max(0.5, Math.min(1.5, 1.0 + kiAdjust));
+      }
+      const sunnyDay = dayRatio !== null && dayRatio >= dayThreshold;
+      console.log(`[TAGESART] ${sunnyDay ? 'Sonnentag' : (afterSunset ? 'nach Sonnenuntergang' : 'schlechter Tag')} | PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh − Batterie ${(batteryNeedWhForDay / 1000).toFixed(1)} kWh = ${(surplusAfterBatteryWh / 1000).toFixed(1)} kWh für Räume, Eco-Bedarf ${(totalEcoEnergyNeededWh / 1000).toFixed(1)} kWh, Ratio ${dayRatio === null ? '–' : dayRatio.toFixed(2)} / Schwelle ${dayThreshold} | KI: ${kiInfo}`);
+
       // ============= SOC-GATE ENFORCEMENT (gehärtet) =============
       // Komfort-Hard-Lock: Komfort darf NIEMALS bei SOC < heatingMinSoc laufen — auch wenn Batterie gerade lädt.
       if (batterySoc < heatingMinSoc && comfortBudget > 0) {
@@ -1908,7 +1955,12 @@ Deno.serve(async (req) => {
       // SOC < heatingMinSoc → Batterie-Schutz, AUCH wenn die Batterie gerade lädt. Die Sonne gehört
       // zuerst der Batterie. Vorher galt das Gate nur bei „lädt nicht oder Netzbezug“ und öffnete
       // genau dann, wenn PV die Batterie lud – die Heizung nahm ihr die Sonne weg (01.11.2026).
-      const socGateBlocked = batterySoc < heatingMinSoc;
+      // Seit 02.11.2026: nur an Sonnentagen. Am schlechten Tag und nach Sonnenuntergang kein Batterie-Schutz –
+      // dort gilt Eco nach Priorität aus jeder Quelle (Tagesmodus 'grid'), begrenzt durch max_grid_heating_power_w.
+      const socGateBlocked = batterySoc < heatingMinSoc && sunnyDay;
+      if (batterySoc < heatingMinSoc && !sunnyDay) {
+        console.log(`[SOC-GATE] offen: SOC ${batterySoc}% < ${heatingMinSoc}%, aber kein Sonnentag → Eco aus Batterie/Netz nach Priorität`);
+      }
       if (socGateBlocked) {
         if (socGateMode === 'strict') {
           // Geheizt wird nur noch aus echter Einspeisung: Sonne, die die Batterie nicht mehr aufnimmt.
@@ -1934,7 +1986,7 @@ Deno.serve(async (req) => {
               const overrideActive = r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMs;
               if (overrideActive) return false;
               if (!r.tuya_device_id) return false;
-              const floorT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 1.0)));
+              const floorT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0)));
               const targetT = Number(r.target_temp) || 0;
               return targetT > floorT + 0.1;
             });
@@ -1942,7 +1994,7 @@ Deno.serve(async (req) => {
             if (candidates.length > 0) {
               const successIds: string[] = [];
               for (const r of candidates) {
-                const waitT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 1.0)));
+                const waitT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0)));
                 const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop', `Batterie-Schutz (SOC ${batterySoc}%) → Untergrenze − Abstand = ${waitT}°C`);
                 if (result.success) {
                   successIds.push(r.id);
@@ -2069,6 +2121,72 @@ Deno.serve(async (req) => {
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
+      // ============= RAUMMODELL / VORAUSSCHAU (02.11.2026, doc/KONZEPT-RAUMMODELL-2026-11-02.md) =============
+      // Je Raum gelernt: k [1/h] aus Nächten ohne Heizen (Tabelle raum_abkuehlung, View raum_modell).
+      // Mit der Außentemperatur-Prognose für die kommende Nacht:
+      //   nötig abends   = T_außen + (Eco − T_außen) · e^(k·h_Nacht)   → so warm muss der Raum bei Nachtbeginn sein,
+      //                                                                   damit er morgens ohne Heizen noch Eco hat
+      //   morgen ohne Heizen = T_außen + (T_jetzt − T_außen) · e^(−k·h_bis_Morgen)
+      // Wirkung: Bei gleicher Priorität bekommt der Raum mit dem größten Nachtbedarf die PV zuerst (Komfort-Runde =
+      // Estrich laden). Vorsichtig gerechnet mit dem 75-%-Quantil von k. Ohne Modell (zu wenige Nächte) keine Wirkung.
+      const vorausschau = new Map<string, { k: number; noetigAbends: number; morgenOhneHeizen: number; nachtBedarf: number }>();
+      let vorausAussen: number | null = null;
+      let vorausHNacht = 10;
+      try {
+        const nsT = parseTimeOfDay(settings?.night_start_time, '22:00');
+        const neT = parseTimeOfDay(settings?.night_end_time, '08:00');
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const tomorrowD = new Date(`${today}T12:00:00Z`); tomorrowD.setUTCDate(tomorrowD.getUTCDate() + 1);
+        const tomorrow = tomorrowD.toISOString().slice(0, 10);
+        vorausHNacht = (24 - nsT.hour - nsT.minute / 60) + neT.hour + neT.minute / 60;
+        // weather_data: Wiener Ortszeit als UTC gespeichert
+        const { data: wRows } = await supabase
+          .from('weather_data')
+          .select('temperature_c')
+          .gte('timestamp', `${today}T${pad(nsT.hour)}:${pad(nsT.minute)}:00Z`)
+          .lt('timestamp', `${tomorrow}T${pad(neT.hour)}:${pad(neT.minute)}:00Z`);
+        const temps = (wRows || []).map((w: any) => Number(w.temperature_c)).filter((x: number) => Number.isFinite(x));
+        vorausAussen = temps.length > 0 ? temps.reduce((a: number, b: number) => a + b, 0) / temps.length : null;
+        const { data: modell } = await supabase.from('raum_modell').select('room_id, naechte, k_vorsichtig');
+        const nowWienH = currentWienHour;
+        const hBisMorgen = (24 - nowWienH) + neT.hour;
+        if (vorausAussen !== null) {
+          for (const m of (modell || []) as any[]) {
+            const k = Number(m.k_vorsichtig);
+            if (!Number.isFinite(k) || k <= 0 || Number(m.naechte) < 3) continue;
+            const room = rooms.find((r: any) => r.id === m.room_id);
+            if (!room) continue;
+            const eco = Number(room.eco_temp) || Number(settings?.eco_temp) || 19;
+            const cur = Number(room.current_temp) || 0;
+            const noetig = vorausAussen + (eco - vorausAussen) * Math.exp(k * vorausHNacht);
+            const morgen = cur > 0 ? vorausAussen + (cur - vorausAussen) * Math.exp(-k * hBisMorgen) : NaN;
+            vorausschau.set(room.id, {
+              k,
+              noetigAbends: Math.round(noetig * 10) / 10,
+              morgenOhneHeizen: Math.round(morgen * 10) / 10,
+              nachtBedarf: cur > 0 ? Math.round((noetig - cur) * 10) / 10 : 0,
+            });
+          }
+        }
+        console.log(`[VORAUSSCHAU] Nacht ${vorausHNacht.toFixed(1)} h, außen Ø ${vorausAussen === null ? '–' : vorausAussen.toFixed(1)} °C, Modell für ${vorausschau.size}/${rooms.length} Räume`);
+        for (const r of rooms) {
+          const v = vorausschau.get(r.id);
+          if (v) console.log(`[VORAUSSCHAU] ${r.name}: abends nötig ${v.noetigAbends} °C für Eco am Morgen, ohne Heizen morgen ${v.morgenOhneHeizen} °C, Nachtbedarf ${v.nachtBedarf >= 0 ? '+' : ''}${v.nachtBedarf} °C (k ${v.k})`);
+        }
+        await supabase.from('system_settings').upsert({
+          key: 'raum_vorausschau',
+          value: {
+            computed_at: new Date().toISOString(),
+            aussen_nacht: vorausAussen === null ? null : Math.round(vorausAussen * 10) / 10,
+            stunden_nacht: Math.round(vorausHNacht * 10) / 10,
+            rooms: rooms.map((r: any) => ({ room_id: r.id, name: r.name, current: r.current_temp, eco: r.eco_temp, ...(vorausschau.get(r.id) ?? {}) })),
+          },
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'key' });
+      } catch (e) {
+        console.warn('[VORAUSSCHAU] nicht verfügbar (SQL 18 noch nicht ausgeführt?):', e);
+      }
+
       const roomsWithPriority = rooms.map(room => {
         const ecoTemp = room.eco_temp || settings?.eco_temp || 19;
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
@@ -2116,7 +2234,8 @@ Deno.serve(async (req) => {
           waitTimeMinutes,
           isCurrentlyHeating,
           heatingDurationMinutes,
-          aiPlanRank
+          aiPlanRank,
+          nachtBedarf: vorausschau.get(room.id)?.nachtBedarf ?? null,
         };
       });
       
@@ -2131,6 +2250,10 @@ Deno.serve(async (req) => {
           return a.aiPlanRank - b.aiPlanRank;
         }
         if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
+        // Raummodell (02.11.2026): größerer Nachtbedarf zuerst – dieser Raum braucht die PV-Wärme heute Nacht am meisten
+        if (a.nachtBedarf !== null && b.nachtBedarf !== null && Math.abs(a.nachtBedarf - b.nachtBedarf) > 0.3) {
+          return b.nachtBedarf - a.nachtBedarf;
+        }
         const aEff = a.energyPerDegreeWh || 99999;
         const bEff = b.energyPerDegreeWh || 99999;
         if (Math.abs(aEff - bEff) > 100) return aEff - bEff;
@@ -2139,7 +2262,7 @@ Deno.serve(async (req) => {
       
       // Sortierungs-Ergebnis loggen
       const heatingOrder = roomsWithPriority.map((rp, idx) => 
-        `  ${idx + 1}. ${rp.room.name} (Prio ${rp.priority}, Defizit ${rp.tempDeficit.toFixed(1)}°C, ${rp.energyPerDegreeWh ? rp.energyPerDegreeWh + ' Wh/°C' : 'keine ML-Daten'}, ${rp.heatingPower}W, ${rp.isCurrentlyHeating ? 'HEIZT' : 'wartet ' + Math.round(rp.waitTimeMinutes) + ' Min'})`
+        `  ${idx + 1}. ${rp.room.name} (Prio ${rp.priority}, Defizit ${rp.tempDeficit.toFixed(1)}°C, Nachtbedarf ${rp.nachtBedarf ?? '–'}°C, ${rp.energyPerDegreeWh ? rp.energyPerDegreeWh + ' Wh/°C' : 'keine ML-Daten'}, ${rp.heatingPower}W, ${rp.isCurrentlyHeating ? 'HEIZT' : 'wartet ' + Math.round(rp.waitTimeMinutes) + ' Min'})`
       ).join('\n');
       console.log(`[PV-Automation] Heiz-Reihenfolge (${roomsWithPriority.length} Räume):\n${heatingOrder}`);
       
@@ -2739,46 +2862,14 @@ Deno.serve(async (req) => {
       // zwischen wait und grid, max. ±0,3.
       const maxGridHeatingW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
       let dayMode: 'wait' | 'grid' | 'battery_gate' = 'grid';
-      let dayRatio: number | null = null;
-      let dayThreshold = 1.0;
-      let kiAdjust = 0;
-      let kiInfo = 'kein Muster';
       if (socGateBlocked && socGateMode === 'strict') {
         dayMode = 'battery_gate';
       } else if (isAway) {
-        // Abwesend (Kalender-Eintrag): jeder Tag wie ein Wartetag – Netz nur bis „Ohne PV“, PV lädt bis Eco, dann Komfort.
+        // Abwesend (Kalender-Eintrag): jeder Tag wie ein Wartetag – Netz nur bis Untergrenze, PV lädt bis Eco, dann Komfort.
         dayMode = 'wait';
-      } else if (afterSunset) {
-        dayMode = 'grid';
       } else {
-        dayRatio = totalEcoEnergyNeededWh > 0
-          ? remainingPvForHeatingWh / totalEcoEnergyNeededWh
-          : (remainingPvForHeatingWh > 0 ? 99 : 0);
-        try {
-          const strength = Math.max(0, Math.min(100, Number((settings as any)?.pattern_recall_strength ?? 50)));
-          const { data: bmDayRow } = await supabase
-            .from('system_settings')
-            .select('value')
-            .eq('key', 'best_match_today')
-            .maybeSingle();
-          const bmDay = bmDayRow?.value as any;
-          if (strength > 0 && bmDay?.computed_at && Date.now() - new Date(bmDay.computed_at).getTime() < 24 * 60 * 60 * 1000) {
-            const quality = String(bmDay.match_quality || 'none');
-            const qFactor = quality === 'exact' ? 1.0 : quality === 'partial' ? 0.6 : 0;
-            const top = Array.isArray(bmDay.top_days) && bmDay.top_days.length > 0 ? bmDay.top_days[0] : null;
-            const cov = Number(top?.kpi_pv_heating_coverage);
-            if (qFactor > 0 && Number.isFinite(cov) && cov > 0) {
-              const delta = Math.round((strength / 100) * 0.3 * qFactor * 100) / 100;
-              if (cov >= 0.6) kiAdjust = -delta;       // ähnlicher Tag wurde gut aus PV gedeckt → eher warten
-              else if (cov < 0.3) kiAdjust = delta;    // ähnlicher Tag kaum PV-Deckung → eher Netz-Eco
-              kiInfo = `${quality} ${top?.date ?? ''} PV-Deckung ${Math.round(cov * 100)}% → Schwelle ${kiAdjust >= 0 ? '+' : ''}${kiAdjust}`;
-            }
-          }
-        } catch (e) {
-          console.warn('[TAGESMODUS] best_match_today nicht lesbar:', e);
-        }
-        dayThreshold = Math.max(0.5, Math.min(1.5, 1.0 + kiAdjust));
-        dayMode = dayRatio >= dayThreshold ? 'wait' : 'grid';
+        // Sonnentag → warten auf Überschuss (Untergrenze halten); sonst Eco nach Priorität aus jeder Quelle.
+        dayMode = sunnyDay ? 'wait' : 'grid';
       }
 
       const nowMsDay = Date.now();
@@ -2792,8 +2883,8 @@ Deno.serve(async (req) => {
         : isAway
           ? 'Abwesend (Kalender)'
         : dayMode === 'wait'
-          ? `Wartetag (PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh ≥ ${dayThreshold}× Eco-Bedarf)`
-          : 'kein PV-Überschuss erwartet';
+          ? `Sonnentag (Überschuss nach Batterie ${(surplusAfterBatteryWh / 1000).toFixed(1)} kWh ≥ ${dayThreshold}× Eco-Bedarf)`
+          : afterSunset ? 'nach Sonnenuntergang → Eco' : 'schlechter Tag → Eco aus Batterie/Netz';
       // Batterie-Schutz: eigene, kleinere Grenze nur für Notfall-Heizen (01.11.2026)
       const dayCapW = dayMode === 'battery_gate'
         ? Math.max(0, Number(settings?.battery_gate_max_power_w ?? 1000))
@@ -2815,6 +2906,9 @@ Deno.serve(async (req) => {
             computed_at: new Date().toISOString(),
             mode: dayMode,
             ratio: dayRatio,
+            sunny_day: sunnyDay,
+            surplus_after_battery_wh: Math.round(surplusAfterBatteryWh),
+            battery_need_wh: Math.round(batteryNeedWhForDay),
             threshold: dayThreshold,
             ki_adjust: kiAdjust,
             ki_info: kiInfo,

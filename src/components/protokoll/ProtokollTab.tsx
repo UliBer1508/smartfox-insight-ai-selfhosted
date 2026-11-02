@@ -5,6 +5,7 @@
 //                  setzen per Befehl (read_now / set_dp) statt Skript
 //   Energie      – Verbrauch je Stunde gegen heizende Räume, Heizenergie je Raum nach Quelle
 //   Nächte       – nacht_protokoll (SQL 10): Frostschutz gegen Nachtwert
+//   Raummodell   – raum_abkuehlung / raum_modell (SQL 18): Auskühlen je Raum, Vorausschau für die kommende Nacht
 // Aufbau wie der Protokoll-Tab der Heizung München.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -16,7 +17,7 @@ import { toast } from '@/hooks/use-toast';
 import { Room } from '@/types/room';
 import { Tables } from '@/integrations/supabase/types';
 
-type View = 'ereignisse' | 'thermostate' | 'energie' | 'naechte' | 'tage';
+type View = 'ereignisse' | 'thermostate' | 'energie' | 'naechte' | 'tage' | 'raummodell';
 type Event = Tables<'protokoll_events'>;
 type TState = Tables<'thermostat_state'>;
 type Night = Tables<'nacht_protokoll'>;
@@ -576,8 +577,9 @@ function DaysView() {
         <h3 className="font-semibold">Tagesnoten · Lernschleife</h3>
         <Hint>
           Jeder Tag wird am nächsten Morgen (09:55) nach deinen Zielen bewertet, je 25 Punkte:
-          <b> Nacht</b> (Batterie hat bis morgens gereicht) · <b>Sonne</b> (PV im Haus genutzt statt eingespeist) ·
-          <b> Komfort</b> (keine Raum-Minuten unter der Untergrenze) · <b>Netz</b> (wenig Netzstrom für die Heizung).
+          <b> Nacht</b> (Räume nachts über ihrer Untergrenze) · <b>Sonne</b> (PV im Haus genutzt statt eingespeist) ·
+          <b> Komfort</b> (Räume tagsüber auf Eco) · <b>Netz</b> (kein Netzstrom, während PV eingespeist wurde).
+          Netzstrom an dunklen Tagen kostet keine Punkte (fester Tarif, Stand 02.11.2026).
           Dazu die Einstellungen des Tages – daraus lernt das Mustergedächtnis, was an ähnlichen Tagen am besten war.
         </Hint>
         {missing && <p className="text-sm text-warning">Noch nicht eingerichtet – SQL <code>14_lernschleife.sql</code> ausführen.</p>}
@@ -627,7 +629,8 @@ function DaysView() {
                             <div className="grid gap-1 sm:grid-cols-2">
                               <div>Heizung aus PV / Batterie / Netz: {num(d.heiz_pv_kwh)} / {num(d.heiz_batt_kwh)} / {num(d.heiz_netz_kwh)} kWh</div>
                               <div>Eingespeist {num(d.einspeisung_kwh)} kWh · Netz gesamt {num(d.netz_kwh)} kWh · Außen {num(d.aussen_avg)} °C</div>
-                              <div>Nachtbedarf (gemessen) {num(d.nachtbedarf_pct, 0)} % · Raum-Minuten unter Untergrenze {num(d.raum_min_unter, 0)}</div>
+                              <div>Raum-Minuten unter Eco {num(d.raum_min_unter_eco, 0)} · unter Untergrenze {num(d.raum_min_unter, 0)} · nachts unter Untergrenze {num(d.nacht_min_unter, 0)}</div>
+                              <div>Netz trotz Einspeisung {num(d.netz_bei_einspeisung_kwh)} kWh · Nachtbedarf (gemessen) {num(d.nachtbedarf_pct, 0)} %</div>
                               <div>Prognose {num(d.pv_prognose_kwh)} kWh · Untergrenze-Abstand im Batterie-Schutz {String(e.battery_gate_floor_delta ?? '–')} °C · Nacht {String(e.night_heating_mode ?? '–')}</div>
                             </div>
                             {raeume.length > 0 && (
@@ -651,6 +654,162 @@ function DaysView() {
 }
 
 // ================================================================ Tab
+// ================================================================ Raummodell (02.11.2026, doc/KONZEPT-RAUMMODELL-2026-11-02.md)
+type Modell = { room_id: string; name: string; priority: number | null; eco_temp: number | null; naechte: number; naechte_gesamt: number;
+  k_median: number | null; k_vorsichtig: number | null; aussen_min: number | null; aussen_max: number | null; letzte_nacht: string | null };
+type Abk = { room_id: string; nacht: string; t_abends: number | null; t_morgens: number | null; aussen_avg: number | null; stunden: number | null;
+  k_pro_h: number | null; gueltig: boolean; grund: string | null };
+type Voraus = { computed_at?: string; aussen_nacht?: number | null; stunden_nacht?: number;
+  rooms?: { room_id: string; name: string; current?: number; eco?: number; k?: number; noetigAbends?: number; morgenOhneHeizen?: number; nachtBedarf?: number }[] };
+
+// Abfall in h Stunden von T auf Außentemperatur a: (T − a)·(1 − e^(−k·h))
+const abfall = (k: number | null, t: number, a: number, h = 10) => (k == null ? null : (t - a) * (1 - Math.exp(-Number(k) * h)));
+
+function RoomModelView() {
+  const db = supabase as any;
+  const [modell, setModell] = useState<Modell[]>([]);
+  const [naechte, setNaechte] = useState<Abk[]>([]);
+  const [voraus, setVoraus] = useState<Voraus | null>(null);
+  const [missing, setMissing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [m, a, v] = await Promise.all([
+      db.from('raum_modell').select('*').order('priority'),
+      db.from('raum_abkuehlung').select('room_id, nacht, t_abends, t_morgens, aussen_avg, stunden, k_pro_h, gueltig, grund').order('nacht', { ascending: false }).limit(2000),
+      supabase.from('system_settings').select('value').eq('key', 'raum_vorausschau').maybeSingle(),
+    ]);
+    setMissing(!!m.error);
+    setModell(m.data ?? []);
+    setNaechte(a.data ?? []);
+    setVoraus((v.data?.value as Voraus) ?? null);
+    setLoading(false);
+  }, [db]);
+  useEffect(() => { load(); }, [load]);
+
+  const nachtragen = async () => {
+    try {
+      setBusy('Ersten Tag mit Raumtemperaturen suchen …');
+      const { data: erster, error: e1 } = await db.rpc('raum_modell_erster_tag');
+      if (e1) throw e1;
+      if (!erster) throw new Error('keine Raumtemperaturen gefunden');
+      setBusy(`Außentemperaturen ab ${new Date(`${erster}T12:00:00Z`).toLocaleDateString('de-DE')} nachtragen …`);
+      const { error: e2 } = await supabase.functions.invoke('fetch-weather', { body: { backfill_from: erster } });
+      if (e2) throw e2;
+      // In 7-Nächte-Blöcken rechnen (Zeitlimit der Datenbank)
+      let von = String(erster);
+      const bis = shiftDay(viennaToday(), -1);
+      let n = 0;
+      while (von <= bis) {
+        const blockBis = shiftDay(von, 6) < bis ? shiftDay(von, 6) : bis;
+        setBusy(`Nächte ${new Date(`${von}T12:00:00Z`).toLocaleDateString('de-DE')} – ${new Date(`${blockBis}T12:00:00Z`).toLocaleDateString('de-DE')} berechnen …`);
+        const { data, error } = await db.rpc('raum_modell_neu_berechnen', { p_von: von, p_bis: blockBis });
+        if (error) throw error;
+        n += Number(data?.naechte ?? 0);
+        von = shiftDay(blockBis, 1);
+      }
+      toast({ title: 'Raummodell berechnet', description: `${n} Nächte ausgewertet` });
+      await load();
+    } catch (err: unknown) {
+      toast({ title: 'Raummodell', description: err instanceof Error ? err.message : String(err), variant: 'destructive' });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const vMap = new Map((voraus?.rooms ?? []).map((r) => [r.room_id, r]));
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h3 className="font-semibold">Raummodell · wie schnell kühlt jeder Raum aus?</h3>
+          <Button size="sm" variant="outline" onClick={nachtragen} disabled={!!busy || missing}>
+            {busy ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+            Außentemperaturen nachtragen und neu berechnen
+          </Button>
+        </div>
+        {busy && <p className="text-sm text-muted-foreground">{busy}</p>}
+        <Hint>
+          Gemessen in Nächten <b>ohne Heizen</b> (geheizte Nächte werden erkannt und weggelassen). Daraus je Raum die Kennzahl k:
+          je größer, desto schneller kühlt der Raum aus. Mit der Außentemperatur-Prognose rechnet die Steuerung, wie warm ein Raum
+          abends sein muss, damit er morgens ohne Heizen noch Eco hat. Bei gleicher Priorität bekommt der Raum mit dem größten
+          Nachtbedarf die PV zuerst. Sie rechnet vorsichtig (75-%-Wert von k) und erst ab 3 gültigen Nächten.
+        </Hint>
+        {missing && <p className="text-sm text-warning">Noch nicht eingerichtet – SQL <code>18_raummodell.sql</code> ausführen.</p>}
+        {voraus?.computed_at && (
+          <p className="text-sm">
+            Kommende Nacht: außen Ø <b>{num(voraus.aussen_nacht)} °C</b>, {num(voraus.stunden_nacht)} h
+            <span className="text-muted-foreground"> · Stand {timeOf(voraus.computed_at)}</span>
+          </p>
+        )}
+        {loading ? <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm tabular-nums">
+              <thead>
+                <tr className="text-[11px] uppercase tracking-wide text-muted-foreground text-left">
+                  <th className="py-2 pr-3 font-medium">Raum</th>
+                  <th className="py-2 px-2 font-medium text-right">Nächte</th>
+                  <th className="py-2 px-2 font-medium text-right">k</th>
+                  <th className="py-2 px-2 font-medium text-right">−10 h bei 0 °C</th>
+                  <th className="py-2 px-2 font-medium text-right">−10 h bei −10 °C</th>
+                  <th className="py-2 px-2 font-medium text-right">jetzt</th>
+                  <th className="py-2 px-2 font-medium text-right">abends nötig</th>
+                  <th className="py-2 pl-2 font-medium text-right">morgen ohne Heizen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {modell.map((m) => {
+                  const eco = Number(m.eco_temp ?? 21);
+                  const v = vMap.get(m.room_id);
+                  const isOpen = open === m.room_id;
+                  const rows = naechte.filter((n) => n.room_id === m.room_id);
+                  const knapp = v?.morgenOhneHeizen != null && v.morgenOhneHeizen < eco;
+                  return (
+                    <Fragment key={m.room_id}>
+                      <tr className="border-t cursor-pointer hover:bg-muted/40" onClick={() => setOpen(isOpen ? null : m.room_id)}>
+                        <td className="py-2 pr-3 whitespace-nowrap">{m.name}</td>
+                        <td className="py-2 px-2 text-right">{m.naechte}/{m.naechte_gesamt}</td>
+                        <td className="py-2 px-2 text-right">{m.k_median == null ? '–' : Number(m.k_median).toFixed(3)}</td>
+                        <td className="py-2 px-2 text-right">{m.k_median == null ? '–' : `${num(abfall(m.k_median, eco, 0))} °C`}</td>
+                        <td className="py-2 px-2 text-right">{m.k_median == null ? '–' : `${num(abfall(m.k_median, eco, -10))} °C`}</td>
+                        <td className="py-2 px-2 text-right">{num(v?.current)}</td>
+                        <td className="py-2 px-2 text-right">{v?.noetigAbends == null ? '–' : num(v.noetigAbends)}</td>
+                        <td className={`py-2 pl-2 text-right ${knapp ? 'text-warning font-semibold' : ''}`}>{v?.morgenOhneHeizen == null ? '–' : num(v.morgenOhneHeizen)}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="bg-muted/30">
+                          <td colSpan={8} className="p-3 text-xs">
+                            {rows.length === 0 ? 'Noch keine Nächte berechnet.' : (
+                              <div className="grid gap-0.5">
+                                {rows.slice(0, 40).map((n) => (
+                                  <div key={n.nacht} className={n.gueltig ? '' : 'text-muted-foreground'}>
+                                    {new Date(`${n.nacht}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' })}:
+                                    {' '}{num(n.t_abends)} → {num(n.t_morgens)} °C in {num(n.stunden)} h, außen {num(n.aussen_avg)} °C
+                                    {n.gueltig ? ` · k ${Number(n.k_pro_h).toFixed(3)}` : ` · ${n.grund}`}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+            <Hint>„−10 h“: so viel kühlt der Raum in 10 Stunden ohne Heizen ab Eco aus. Zeile antippen → einzelne Nächte mit Begründung.</Hint>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function ProtokollTab({ rooms }: { rooms: Room[] }) {
   const [view, setView] = useState<View>(() => {
     try { return (localStorage.getItem('protokoll-view') as View) || 'ereignisse'; } catch { return 'ereignisse'; }
@@ -662,12 +821,13 @@ export function ProtokollTab({ rooms }: { rooms: Room[] }) {
   return (
     <div className="space-y-4">
       <Seg<View> value={view} onChange={change}
-        items={[['ereignisse', 'Ereignisse'], ['thermostate', 'Thermostate'], ['energie', 'Energie'], ['naechte', 'Nächte'], ['tage', 'Tagesnoten']]} />
+        items={[['ereignisse', 'Ereignisse'], ['thermostate', 'Thermostate'], ['energie', 'Energie'], ['naechte', 'Nächte'], ['tage', 'Tagesnoten'], ['raummodell', 'Raummodell']]} />
       {view === 'ereignisse' && <EventsView rooms={rooms} />}
       {view === 'thermostate' && <ThermostatsView rooms={rooms} />}
       {view === 'energie' && <EnergyView />}
       {view === 'naechte' && <NightsView />}
       {view === 'tage' && <DaysView />}
+      {view === 'raummodell' && <RoomModelView />}
     </div>
   );
 }

@@ -36,6 +36,11 @@ nachprüfbare Begründung; übernommen wird er von Uli. Gesperrte Parameter (`LO
 
 ## 4. Tagesnote (Stufe 2)
 
+> **Geändert 02.11.2026** (Uli: „Eco ist das Ziel“, fester Tarif; SQL `17_eco_ziel.sql`): ① Nacht = Raum-Minuten
+> nachts unter Untergrenze · ③ Komfort = Raum-Minuten **unter Eco** (Toleranz 0,3 °C) · ④ Netz = nur Netzbezug in Stunden
+> mit gleichzeitiger Einspeisung (2 kWh = 0 Punkte). ② Sonne unverändert. Die Tabelle unten ist der Stand 01.11.
+> Begründung: Nach der alten Note hätte die KI gelernt, Räume kalt zu lassen. Siehe `KONZEPT-RAUMMODELL-2026-11-02.md` §3.4.
+
 Je Teil 0–25 Punkte, Summe = Note (Funktion `tag_bewerten`):
 
 | Teil | Frage | Berechnung |

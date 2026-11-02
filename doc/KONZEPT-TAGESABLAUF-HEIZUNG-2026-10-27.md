@@ -1,6 +1,6 @@
 # Konzept: Tagesablauf und Regeln der Heizungssteuerung Venediger
 
-**Stand:** 1. November 2026 · **Status:** FREIGEGEBEN (Uli, 27.10.2026) – umgesetzt; Batterie-Schutz ohne Lücken 01.11.2026 (§3.4, §9); Batterie-Vorschlag mit Nachtbedarf + Mustergedächtnis 01.11.2026 (§10)
+**Stand:** 2. November 2026 · **Status:** FREIGEGEBEN (Uli, 27.10.2026) – umgesetzt; Batterie-Schutz ohne Lücken 01.11.2026 (§3.4, §9); Batterie-Vorschlag mit Nachtbedarf + Mustergedächtnis 01.11.2026 (§10); **Eco als Ziel, Batterie-Schutz nur an Sonnentagen, Untergrenze hart 02.11.2026 (§11, `KONZEPT-RAUMMODELL-2026-11-02.md`)**
 **Supabase:** `pflnniklvqbwjwrjswaz` · **Betrifft:** `pv-automation`, `heating_settings`, `rooms`, Thermostat-Dienst
 
 > Dieses Dokument legt fest, **wie die Heizung arbeiten soll**. Der Code folgt ihm seit 27.10.2026
@@ -11,9 +11,11 @@
 
 ## 1. Grundsätze
 
-1. **Batterie gehört der Nacht.** Smartfox/Fronius regeln die Ladung autonom: erst Batterie, dann
-   je nach Lage Auto und/oder Warmwasser. Die Heizung soll die Batterie tagsüber nicht leerziehen.
-2. **Eco ist die Tagesgrundeinstellung.** Ist kein PV-Überschuss zu erwarten, wird Eco auch aus dem
+1. **Sonne zuerst in die Batterie – an Sonnentagen.** Smartfox/Fronius regeln die Ladung autonom: erst Batterie, dann
+   je nach Lage Auto und/oder Warmwasser. **Seit 02.11.2026 (§11):** Der Batterie-Schutz gilt nur, wenn heute nach
+   dem Laden der Batterie noch Überschuss für die Räume kommt. An Tagen ohne genug PV und abends ist Eco das Ziel,
+   aus Batterie und Netz – bei festem Tarif und Grundlast ≈ 0 ist es egal, wann die Batterie in die Heizung geht.
+2. **Eco ist das Ziel und die Tagesgrundeinstellung.** Ist kein PV-Überschuss zu erwarten, wird Eco auch aus dem
    Netz gehalten – aber **nach Priorität und mit begrenzter Netzleistung**.
 3. **Ist Überschuss absehbar, wird gewartet.** Zeigt die PV-Prognose, dass der Überschuss kommt,
    wird morgens nicht aus dem Netz geheizt. Die Räume warten, bis der Überschuss da ist – fallen
@@ -76,7 +78,8 @@ aus dem Wartetag ein Schlechter Tag.
 - **Neu:** Ein Raum ohne Budget fällt **nicht** automatisch auf Eco zurück, sondern auf das, was die
   Tagesbewertung vorgibt (Wartetag → Mindesttemperatur, Schlechter Tag → Eco innerhalb der Netzgrenze).
 
-### 3.4 Batterie-Schutz (Ladestand-Grenze) – Stand 01.11.2026
+### 3.4 Batterie-Schutz (Ladestand-Grenze) – Stand 01.11.2026, geändert 02.11.2026
+> **Seit 02.11.2026 (§11):** gilt nur noch an **Sonnentagen**; Notfall-Abstand `battery_gate_floor_delta` = 0 (Untergrenze hart).
 - `heating_min_battery_soc` (aktuell 75 %), Modus `heating_soc_gate_mode` (aktuell `strict`).
 - **Gilt ohne Ausnahme**, sobald der Ladestand unter der Grenze liegt – **auch wenn die Batterie gerade lädt**.
   Grundsatz: **Die Sonne gehört zuerst der Batterie** (wie in München).
@@ -321,3 +324,27 @@ werden nicht verwendet.
 
 **Prüfen am 02.11.2026:** Protokoll › Energie (lädt die Batterie mittags bis zur Grenze, danach Heizung nach
 Priorität?), Protokoll › Ereignisse (Modus), Nacht-Protokoll am 03.11. morgens (reicht die Batterie bis zum Morgen?).
+
+---
+
+## 11. Eco als Ziel, Batterie-Schutz nur an Sonnentagen (02.11.2026)
+
+**Anlass:** 02.11. morgens Zimmer Uli 20 °C bei Eco 22 °C – Batterie-Schutz (§3.4) hielt den Raum auf
+„Untergrenze − 1 °C“, weil die Batterie im November morgens immer unter 75 % ist.
+**Entschieden (Uli, 02.11.2026):** „Eco ist das Ziel.“ „Wir können nicht nur auf PV bauen; wenn PV da ist, soll sie
+zu 100 % genutzt werden.“ Fester Tarif.
+
+| Tagesart | Bedingung | Batterie-Schutz | Räume ohne PV-Budget |
+|---|---|---|---|
+| Sonnentag | (Rest-PV − Grundlast − Batterie bis voll) / Eco-Bedarf ≥ Schwelle (1,0 ± KI) | ja | Untergrenze, warten auf Überschuss |
+| Schlechter Tag | sonst | nein | Eco nach Priorität aus Batterie/Netz, ≤ `max_grid_heating_power_w` |
+| Nach Sonnenuntergang | – | nein | Eco nach Priorität |
+| Nacht | – | – | max(Nachtwert, Untergrenze) bei „Nachtwert halten“ |
+
+- Neu im Verhältnis: Abzug **„Batterie bis voll“** – vorher galt ein trüber Tag mit leerer Batterie leicht als Wartetag.
+- `battery_gate_floor_delta` = 0: Untergrenze ist auch im Batterie-Schutz hart.
+- Tagesnote misst an Eco und am Zeitpunkt des Netzbezugs (nicht mehr an jeder kWh Netz), siehe
+  `KONZEPT-LERNSCHLEIFE-2026-11-01.md` §4.
+- Raummodell (Auskühlen je Raum, Vorausschau für die Nacht): `KONZEPT-RAUMMODELL-2026-11-02.md`.
+- Code: `pv-automation` Abschnitte „TAGESART“, „SOC-GATE“, „TAGESMODUS“, „RAUMMODELL / VORAUSSCHAU“, Nacht „maintain“.
+  SQL `17_eco_ziel.sql`, `18_raummodell.sql`.
