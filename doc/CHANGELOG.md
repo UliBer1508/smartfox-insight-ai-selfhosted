@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.16.1] - 2026-11-02
+
+### Changed (KI-Vorschläge, `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md`)
+- `ai-parameter-evaluator`: keine automatische Rücknahme mehr, nur Hinweis im Protokoll (Prüfmodell: Uli entscheidet).
+- Alle KI-Parameter auf „suggest“ (SQL `19_ki_nur_vorschlaege.sql`).
+
+### Added
+- GitHub-Aktion `deploy-functions.yml`: geänderte Edge Functions werden nach jedem Merge auf `main` deployt.
+
 ## [2.16.0] - 2026-11-02
 
 ### Changed (Eco als Ziel, `doc/KONZEPT-RAUMMODELL-2026-11-02.md`)
