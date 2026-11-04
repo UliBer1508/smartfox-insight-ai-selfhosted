@@ -141,11 +141,12 @@ in der Stunde davor, wärmste Temperatur, Heizminuten) und die Tagesnote (`tages
 
 | Regel | Bedingung (an ≥ 3 der 7 Tage) | Vorschlag |
 |---|---|---|
-| Untergrenze je Raum | morgens ≤ Untergrenze + 0,5 °C und danach > 2 h unter Eco | Untergrenze + 0,5 °C (höchstens Eco) |
+| Untergrenze je Raum | Untergrenze morgens gehalten (± 0,3 °C bis + 0,5 °C) und danach > 2 h unter Eco | Untergrenze + 0,5 °C (höchstens Eco) |
 | Heizleistung ohne Sonne | trüber Tag, ≥ 3 Räume > 2 h unter Eco | + 500 W (höchstens 6000 W) |
 | Estrich laden bis je Raum | Sonnentag, Raum hat seine Grenze erreicht (−0,2 °C), trotzdem ≥ 2 kWh eingespeist | + 0,5 °C (höchstens Komfort + 2) |
 
-Höchstens 3 Vorschläge am Tag (Rücknahmen zuerst). Kein neuer Vorschlag, solange der gleiche (Parameter + Raum) offen
+Höchstens 3 Vorschläge am Tag (Rücknahmen zuerst, dann Hauswerte, dann Raumwerte). Gezählt werden nur Tage nach der
+letzten genehmigten Änderung desselben Werts (bei der Untergrenze auch nach einer Änderung der Heizleistung ohne Sonne). Kein neuer Vorschlag, solange der gleiche (Parameter + Raum) offen
 ist oder in den letzten 7 Tagen abgelehnt wurde. Weniger als 3 Tage → nur eine Beobachtung unter „Zur Info“.
 Die Texte schreibt die Funktion aus festen Satzbausteinen mit den gemessenen Zahlen – nachprüfbar, keine erfundenen Werte.
 Die stündlichen Gemini-Vorschläge (`ai-parameter-advisor-15min`) sind abgeschaltet; die Batterie-Empfehlung 21:00 bleibt.
@@ -156,3 +157,16 @@ Datenbank noch dem angezeigten alten Wert entspricht), die Batterie-Grenze nur �
 mit eigenem Wert und für Rücknahmen). Jede Entscheidung steht in `ki_vorschlaege` (Status, Wert, Wirkung) und – für
 Raum-/Hauswerte – zusätzlich in `ai_parameter_decisions`; die Änderung selbst protokolliert der Einstellungs-Trigger
 unter Protokoll › Ereignisse.
+
+### 9.5 Erster Lauf und Korrektur (04.11.2026)
+Der erste Lauf schlug für Toilette Eingang, Zimmer Luca und Zimmer Uli eine höhere Untergrenze vor. Die Räume lagen
+morgens aber schon **unter** ihrer Untergrenze – die Ursachen waren andere: Nacht 02./03.11. auf Frostschutz 5 °C
+(seit 03.11. abends „Nachtwert halten“ ab 20:00) und tagsüber die Grenze **2000 W** ohne Sonne („Grenze 2000W erreicht →
+wartet“; Bad Uli + Zimmer Uli brauchten 1800 W, das Wohnzimmer mit 2400 W passte nie hinein). Uli: Toilette Eingang
+20,0 °C genehmigt, Luca/Uli abgelehnt, **Heizleistung ohne Sonne 2000 → 4000 W** genehmigt.
+Korrektur der Regeln: Untergrenze nur vorschlagen, wenn sie morgens gehalten wurde – sonst ein Hinweis „Nicht einmal die
+Untergrenze gehalten … Ursache prüfen“; greift die Hausgrenze (Regel 2), keine Untergrenzen-Vorschläge; Hauswerte vor
+Raumwerten; Tagesart auch aus der PV-Menge (≥ 25 kWh = Sonnentag, < 15 kWh und < 1 kWh Einspeisung = trüb), weil das
+Haus an Sonnentagen fast alles selbst nahm. Ein zweiter Lauf schlug noch den Flur vor (Tage mit 2000 W) – zurückgezogen,
+seitdem zählt die Untergrenze erst Tage nach einer Änderung der Heizleistung ohne Sonne. Deployt per Supabase-Connector
+(ki-tagesanalyse v3).

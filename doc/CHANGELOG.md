@@ -5,6 +5,14 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.17.1] - 2026-11-04
+
+### Fixed (ki-tagesanalyse, Konzept KI-Vorschläge §9.5)
+- Untergrenze nur vorschlagen, wenn der Raum sie morgens gehalten hat; sonst Hinweis „Nicht einmal die Untergrenze gehalten – Ursache prüfen“.
+- Greift die Hausgrenze „Heizleistung ohne Sonne“, keine Untergrenzen-Vorschläge; Hauswerte vor Raumwerten.
+- Nur Tage nach der letzten genehmigten Änderung desselben Werts zählen.
+- Tagesart auch aus der PV-Menge (Sonnentage speisten kaum ein).
+
 ## [2.17.0] - 2026-11-04
 
 ### Added (KI › Zu entscheiden, `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` §9)
