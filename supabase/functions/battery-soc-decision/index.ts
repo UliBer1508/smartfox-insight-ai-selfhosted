@@ -42,16 +42,52 @@ Deno.serve(async (req) => {
   const auth = await authorize(req);
   if (!auth.ok) return json({ error: 'unauthorized' }, 401);
 
-  let body: { suggestion_id?: string; action?: string };
+  let body: { suggestion_id?: string; ki_vorschlag_id?: string; action?: string; value?: number; notiz?: string };
   try { body = await req.json(); } catch { return json({ error: 'invalid_json' }, 400); }
 
   const suggestionId = body.suggestion_id;
+  const kiId = body.ki_vorschlag_id;
   const action = body.action;
-  if (!suggestionId || !['accept', 'dismiss'].includes(String(action))) {
-    return json({ error: 'invalid_body', expected: { suggestion_id: 'uuid', action: 'accept|dismiss' } }, 400);
+  if ((!suggestionId && !kiId) || !['accept', 'dismiss'].includes(String(action))) {
+    return json({ error: 'invalid_body', expected: { suggestion_id: 'uuid | ki_vorschlag_id: uuid', action: 'accept|dismiss', value: 'optional 40–90' } }, 400);
   }
 
   const sb = createClient(SUPABASE_URL, SERVICE_KEY);
+  const nowIso = new Date().toISOString();
+
+  // Grenzen aus der Whitelist (Konzept KI-Vorschläge §3: 40–90 %)
+  const { data: wl } = await sb.from('ai_parameter_whitelist').select('min_value, max_value')
+    .eq('parameter_key', 'heating_min_battery_soc').maybeSingle();
+  const lo = Number(wl?.min_value ?? 40), hi = Number(wl?.max_value ?? 90);
+  const custom = body.value != null ? Number(body.value) : null;
+  if (custom != null && (!Number.isFinite(custom) || custom < lo || custom > hi)) {
+    return json({ error: `value_out_of_range`, min: lo, max: hi }, 400);
+  }
+
+  const writeSoc = async (v: number) => sb.from('heating_settings')
+    .update({ heating_min_battery_soc: v })
+    .gte('heating_min_battery_soc', 0); // matches all rows (single-row table)
+
+  // ---- Rücknahme aus KI › Zu entscheiden (ki_vorschlaege, Parameter heating_min_battery_soc) ----
+  if (kiId) {
+    const { data: kv, error: kvErr } = await sb.from('ki_vorschlaege').select('*').eq('id', kiId).maybeSingle();
+    if (kvErr) return json({ error: kvErr.message }, 500);
+    if (!kv || kv.parameter_key !== 'heating_min_battery_soc') return json({ error: 'ki_vorschlag_not_found' }, 400);
+    if (kv.status !== 'offen') return json({ error: 'not_open', status: kv.status }, 400);
+    if (action === 'dismiss') {
+      await sb.from('ki_vorschlaege').update({ status: 'abgelehnt', entschieden_at: nowIso, notiz: body.notiz ?? null }).eq('id', kiId);
+      return json({ success: true });
+    }
+    const v = custom ?? Number(kv.neu_wert);
+    const { error: hsErr } = await writeSoc(v);
+    if (hsErr) return json({ error: hsErr.message }, 500);
+    await sb.from('ki_vorschlaege').update({
+      status: custom != null && custom !== Number(kv.neu_wert) ? 'geaendert' : 'genehmigt',
+      entschieden_at: nowIso, entschieden_wert: v, notiz: body.notiz ?? null,
+    }).eq('id', kiId);
+    console.log(`[battery-soc-decision] KI-Vorschlag ${kiId}: heating_min_battery_soc → ${v}% by ${auth.decidedBy}`);
+    return json({ success: true, new_value: v });
+  }
 
   const { data: sug, error: sugErr } = await sb.from('battery_soc_suggestions')
     .select('*').eq('id', suggestionId).maybeSingle();
@@ -61,32 +97,41 @@ Deno.serve(async (req) => {
   if (sug.status !== 'pending') {
     const already = (action === 'accept' && sug.status === 'accepted') ||
                     (action === 'dismiss' && sug.status === 'dismissed');
-    if (already) return json({ success: true, new_value: sug.new_value, already: true });
+    if (already) return json({ success: true, new_value: sug.decided_value ?? sug.new_value, already: true });
     return json({ error: 'not_pending', status: sug.status }, 400);
   }
-
-  const nowIso = new Date().toISOString();
 
   if (action === 'accept') {
     // Authorisiertes Update auf heating_min_battery_soc — einziger erlaubter Pfad.
     // Seit 28.10.2026 NUR der Mindest-Ladestand. Die Nacht-Reserve (battery_reserve_for_night_soc)
     // ist ein eigener Wert (Batterie-Puffer, Mikro-Budget, Reserve-Validierung) und wurde vorher
     // still mit überschrieben – bei 90 % waren Puffer und Mikro-Budget dadurch praktisch aus.
-    const { error: hsErr } = await sb.from('heating_settings')
-      .update({ heating_min_battery_soc: sug.new_value })
-      .gte('heating_min_battery_soc', 0); // matches all rows (single-row table)
+    // Seit 04.11.2026: optional eigener Wert („Anderer Wert“ in KI › Zu entscheiden).
+    const v = custom ?? Number(sug.new_value);
+    const { error: hsErr } = await writeSoc(v);
     if (hsErr) {
       console.error('[battery-soc-decision] heating_settings update failed', hsErr);
       return json({ error: hsErr.message }, 500);
     }
 
     const { error: updErr } = await sb.from('battery_soc_suggestions')
-      .update({ status: 'accepted', decided_at: nowIso, decided_by: auth.decidedBy })
+      .update({ status: 'accepted', decided_at: nowIso, decided_by: auth.decidedBy, decided_value: v })
       .eq('id', suggestionId);
     if (updErr) return json({ error: updErr.message }, 500);
 
-    console.log(`[battery-soc-decision] ACCEPTED ${sug.old_value}% → ${sug.new_value}% by ${auth.decidedBy}`);
-    return json({ success: true, new_value: sug.new_value });
+    // Für den Wirkungsbericht nach 3 Tagen (ki-tagesanalyse) als entschiedener Vorschlag festhalten
+    const { error: kvErr } = await sb.from('ki_vorschlaege').insert({
+      tag: nowIso.slice(0, 10), quelle: 'batterie', art: 'vorschlag',
+      titel: `Batterie-Grenze fürs Heizen von ${sug.old_value} % auf ${sug.new_value} % ändern?`,
+      warum: sug.reason_text, parameter_key: 'heating_min_battery_soc', scope: 'global',
+      alt_wert: sug.old_value, neu_wert: sug.new_value, min_wert: lo, max_wert: hi, einheit: '%',
+      status: v !== Number(sug.new_value) ? 'geaendert' : 'genehmigt', entschieden_at: nowIso, entschieden_wert: v,
+      notiz: body.notiz ?? null, belege: { battery_soc_suggestion_id: suggestionId },
+    });
+    if (kvErr) console.warn('[battery-soc-decision] ki_vorschlaege insert failed (SQL 21 ausgeführt?)', kvErr.message);
+
+    console.log(`[battery-soc-decision] ACCEPTED ${sug.old_value}% → ${v}% by ${auth.decidedBy}`);
+    return json({ success: true, new_value: v });
   }
 
   // dismiss
