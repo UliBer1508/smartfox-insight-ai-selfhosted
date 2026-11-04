@@ -1,5 +1,7 @@
-// Tab "KI" – prüfen und entscheiden (Stand 26.10.2026).
+// Tab "KI" – prüfen und entscheiden (Stand 04.11.2026).
 // Alle KI-Bausteine an einem Ort; vorher verteilt auf Energie, Heizung & KI und Verlauf & Muster.
+// 04.11.2026: „Zu entscheiden“ zeigt alle Vorschläge an einem Platz in einfachen Worten (ZuEntscheiden.tsx).
+// Die frühere Parameter-Liste (stündliche Gemini-Vorschläge) steht nur noch als Protokoll unter 3.
 // Einstellungen der KI (Autopilot an/aus, Modus je Parameter, Mustergedächtnis, Zeitplan) stehen
 // unter Einstellungen › KI.
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,7 +14,8 @@ import { AIShadowDecisions } from '@/components/heating/AIShadowDecisions';
 import { AIDailyPlanCard } from '@/components/heating/AIDailyPlanCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
 import { MLFollowRateWidget } from '@/components/heating/MLFollowRateWidget';
-import { AutomationStatusCard, BatterySocSuggestionCard } from '@/components/heating/AutomationStatusCards';
+import { AutomationStatusCard } from '@/components/heating/AutomationStatusCards';
+import { ZuEntscheiden } from './ZuEntscheiden';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { KiAnalysisRuns } from './KiAnalysisRuns';
 
@@ -56,9 +59,9 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
               {pending.autopilotOn == null ? '–' : pending.autopilotOn ? 'Aktiv' : 'Pausiert'}
             </div>
             <div className="text-xs text-muted-foreground">
-              Wendet Parameter im Modus „Auto“ selbst an. {pending.total > 0 ? `${pending.total} Vorschläge warten auf dich.` : 'Nichts offen.'}
+              Die KI schlägt nur vor – geändert wird erst, wenn du Ja sagst. {pending.total > 0 ? `${pending.total} ${pending.total === 1 ? 'Vorschlag wartet' : 'Vorschläge warten'} auf dich.` : 'Nichts offen.'}
             </div>
-            <Button size="sm" variant="outline" onClick={() => onNavigate('settings')}>Autopilot &amp; Modus je Parameter</Button>
+            <Button size="sm" variant="outline" onClick={() => onNavigate('settings')}>KI-Einstellungen</Button>
           </CardContent>
         </Card>
         <div className="md:col-span-2">
@@ -66,15 +69,14 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         </div>
       </div>
 
-      <Section n={1} title="Zu entscheiden" question="Was schlägt die KI vor? Übernehmen oder ablehnen.">
-        <BatterySocSuggestionCard />
+      <Section n={1} title="Zu entscheiden" question="Was schlägt die KI vor? Ja, anderer Wert oder Nein.">
+        <ZuEntscheiden />
         <PriceSuggestionBanner />
-        <AIShadowDecisions />
-        <AutomationStatusCard />
       </Section>
 
       <Section n={2} title="Heute" question="Was plant die KI für heute – und warum?">
         <AIDailyPlanCard />
+        <AutomationStatusCard />
       </Section>
 
       <Section n={3} title="Lernen & Qualität" question="Lernt die KI richtig? Folgt die Automatik ihren Empfehlungen?">
@@ -82,6 +84,10 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
           <div className="lg:col-span-2"><LearningProgress /></div>
           <MLFollowRateWidget />
         </div>
+        <details className="rounded-lg border bg-card p-4">
+          <summary className="cursor-pointer text-sm font-semibold select-none">Frühere Parameter-Vorschläge (Protokoll bis 04.11.2026)</summary>
+          <div className="mt-3"><AIShadowDecisions /></div>
+        </details>
       </Section>
 
       <Section n={4} title="Auswertungen" question="Musteranalyse für Tag, Woche, Monat – auf Knopfdruck.">

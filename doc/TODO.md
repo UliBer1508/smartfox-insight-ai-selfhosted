@@ -1,6 +1,6 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-02
+Stand: 2026-11-04
 
 ---
 
@@ -17,7 +17,12 @@ Stand: 2026-11-02
 ### KI-Vorschläge (Konzept freigegeben 02.11.)
 - [x] Evaluator ohne Auto-Rücknahme (nur Hinweis), SQL `19_ki_nur_vorschlaege.sql`
 - [ ] Secret `SUPABASE_ACCESS_TOKEN` in GitHub anlegen → Auto-Deploy aktiv
-- [ ] bauen: Tagesanalyse 10:00, Tab KI › Vorschläge (Genehmigen/Ändern/Ablehnen), Wirkungsbericht nach 3 Tagen
+- [x] Whitelist nach §3 (SQL 20, 04.11.)
+- [x] gebaut 04.11.: Tagesanalyse 10:00, KI › Zu entscheiden, Wirkungsbericht nach 3 Tagen (PR „KI › Zu entscheiden“)
+- [ ] SQL `21_ki_zu_entscheiden.sql` ausführen, Functions `ki-tagesanalyse`, `analysis-scheduler`, `battery-soc-decision` deployen
+- [ ] Test: `analysis-scheduler?force=ki_tagesanalyse` – Rückblick und Vorschläge in KI › Zu entscheiden prüfen
+- [ ] nach 1–2 Wochen: lösen die drei Regeln zu oft/zu selten aus? Texte verständlich?
+- [ ] später: Priorität und Schwelle Sonnentag vorschlagsfähig machen; `ai-parameter-advisor` (Hauptpfad) aufräumen
 
 ### KI-Batterie-Vorschlag beobachten (seit 28.10.)
 - [ ] `battery-soc-decision` deployen (ändert nur noch den Mindest-Ladestand)
@@ -74,7 +79,8 @@ Stand: 2026-11-02
 - [ ] Wirtschaftsraum-Thermostat seit 26.10. ~11:43 offline – Ursache vor Ort/FritzBox prüfen
 
 ### ai-parameter-advisor wiederholt offene Vorschläge stündlich
-- [ ] Vor dem Insert prüfen, ob für Parameter + Raum schon ein offener Vorschlag existiert → aktualisieren statt neu anlegen (Frontend zählt seit 26.10. nur den neuesten)
+- [x] entfällt: Cron `ai-parameter-advisor-15min` mit SQL 21 abgeschaltet (04.11.)
+- [ ] ~~Vor dem Insert prüfen, ob für Parameter + Raum schon ein offener Vorschlag existiert → aktualisieren statt neu anlegen (Frontend zählt seit 26.10. nur den neuesten)~~
 
 ### Analyse-Vorschläge (seit 26.10.)
 - [ ] Nach einigen Tagen echter Heizdaten prüfen, ob die Regeln zu oft/zu selten auslösen

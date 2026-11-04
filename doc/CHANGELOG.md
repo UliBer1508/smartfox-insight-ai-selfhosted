@@ -5,6 +5,20 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.17.0] - 2026-11-04
+
+### Added (KI › Zu entscheiden, `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` §9)
+- Alle KI-Vorschläge an einem Platz, in einfachen Worten: Rückblick auf gestern, Vorschläge als Frage mit „Was sich ändert / Warum / Was es bringt – und kostet“, Knöpfe Ja · Anderen Wert · Nein, Rückblick nach 3 Tagen mit Rücknahme-Frage, „Zur Info“.
+- Edge Function `ki-tagesanalyse` (täglich 10:00 über `analysis-scheduler`): drei Regeln aus 7 Tagen (Untergrenze, Heizleistung ohne Sonne, Estrich laden bis), Wirkungsbericht.
+- SQL `21_ki_zu_entscheiden.sql`: Tabellen `ki_vorschlaege`, `ki_tagespaket`, Funktion `ki_raum_tag()`, `battery_soc_suggestions.decided_value`.
+- `battery-soc-decision`: eigener Wert („Anderer Wert“, 40–90 %), Rücknahme aus `ki_vorschlaege`, Eintrag für den Wirkungsbericht.
+
+### Changed
+- Whitelist nach Konzept §3 (SQL `20_whitelist_nach_konzept.sql`): vorschlagsfähig nur Untergrenze, Estrich laden bis, Heizleistung ohne Sonne (und die Batterie-Grenze über die Batterie-Empfehlung).
+- Stündliche Gemini-Vorschläge (`ai-parameter-advisor-15min`) abgeschaltet; alte Liste nur noch als Protokoll unter KI › 3.
+- Texte: „Autopilot wendet selbst an / rollt zurück“ entfernt – die KI schlägt nur vor.
+- Zähler in Kopfzeile und Übersicht zählen `ki_vorschlaege`.
+
 ## [2.16.1] - 2026-11-02
 
 ### Changed (KI-Vorschläge, `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md`)

@@ -455,6 +455,9 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 ### Batterie-Vorschlag (seit 01.11.2026)
 `ai-parameter-advisor` /suggest-battery-soc (21:00): Mindest-Ladestand = gemessener Nachtbedarf (`nacht_protokoll`) + Abend/Morgen ohne PV (Stundenprognose × Grundlast) + `battery_night_reserve_pct`. Mustergedächtnis (`daily_pattern_scores`, Prognose ±30 %) korrigiert die PV-Prognose und rechnet aus, was nach dem Laden für die Heizung frei bleibt (Räume nach Priorität). Alte Regel „Prognose < 10 kWh → Grenze hoch“ entfernt. Nur Vorschlag, Übernehmen im Tab KI. Konzept Tagesablauf §10.
 
+### KI › Zu entscheiden (seit 04.11.2026)
+Alle Vorschläge an einem Platz, in einfachen Worten (Konzept KI-Vorschläge §9). **`ki-tagesanalyse`** (täglich 10:00 über `analysis-scheduler`, nach der Tagesnote 09:55) schreibt `ki_tagespaket` (Rückblick auf gestern) und `ki_vorschlaege`: drei feste Regeln über 7 Tage (Untergrenze je Raum, Heizleistung ohne Sonne, Estrich laden bis je Raum), nur Whitelist-Werte (SQL 20), nur bei ≥ 3 passenden Tagen, höchstens 3 am Tag; 3 Tage nach jeder Genehmigung Wirkungsbericht über die Tagesnote, bei Verschlechterung Rücknahme-Frage. Tageswerte je Raum aus `ki_raum_tag(p_tag)`. Die Batterie-Empfehlung erscheint im selben Format; geschrieben wird sie weiterhin nur über `battery-soc-decision` (jetzt auch mit eigenem Wert). Die stündlichen Gemini-Vorschläge (`ai-parameter-advisor-15min`) sind seit SQL 21 abgeschaltet. **Die KI ändert nichts selbst.**
+
 ### Architektur-Grenze
 **AI empfiehlt Setpoints und verschiebt Schwellen — Kern-Budget-Logik (§4–8) ist die finale Filter.** AI kann Reward-Funktion nicht selbst korrigieren.
 

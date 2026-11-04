@@ -169,6 +169,18 @@ serve(async (req) => {
       }
     }
 
+    // 6) KI-Tagesanalyse täglich 10:00 – nach der Tagesnote 09:55 (force='ki_tagesanalyse' für Test)
+    //    Schreibt den Rückblick und die Vorschläge für KI › Zu entscheiden (Konzept KI-Vorschläge §9).
+    const kiTimeMin = 10 * 60;
+    if (force === 'ki_tagesanalyse' || (nowMin >= kiTimeMin && nowMin < kiTimeMin + 30)) {
+      const last = await getLastRun('scheduler_ki_tagesanalyse');
+      if (force === 'ki_tagesanalyse' || last !== t.date) {
+        const r = await invokeFn('ki-tagesanalyse', {});
+        triggered.push({ job: 'ki_tagesanalyse', status: r.status });
+        if (r.status === 200) await setLastRun('scheduler_ki_tagesanalyse', t.date);
+      }
+    }
+
     return new Response(JSON.stringify({ ok: true, viennaTime: `${t.date} ${t.hour}:${String(t.minute).padStart(2,'0')}`, triggered }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

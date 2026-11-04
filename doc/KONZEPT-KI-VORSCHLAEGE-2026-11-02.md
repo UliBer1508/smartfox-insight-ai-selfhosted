@@ -1,7 +1,8 @@
 # Konzept: KI analysiert und schlägt vor – Uli entscheidet
 
 **Stand:** 2. November 2026 · **Status:** FREIGEGEBEN (Uli, 02.11.2026, 22:30 – Antworten §7) · umgesetzt: Auto-Rücknahme
-abgeschaltet, alle Parameter auf „suggest“ (SQL 19), Auto-Deploy (GitHub-Aktion). Offen: Tagesanalyse, Tab KI › Vorschläge
+abgeschaltet, alle Parameter auf „suggest“ (SQL 19), Auto-Deploy (GitHub-Aktion); 04.11.: Whitelist nach §3 (SQL 20),
+Tagesanalyse + KI › Zu entscheiden (SQL 21, §9)
 **Baut auf:** `KONZEPT-LERNSCHLEIFE-2026-11-01.md` (Stufe 3 + 4), `KONZEPT-RAUMMODELL-2026-11-02.md`,
 vorhandene Bausteine `ai-parameter-advisor`, `ai-parameter-evaluator`, `ai_parameter_whitelist`,
 `ai_parameter_decisions`, `battery_soc_suggestions`, `useKiPending`
@@ -102,4 +103,56 @@ widerspricht dem Prüfmodell und wird auf „Rücknahme vorschlagen“ umgestell
 
 1. ✅ 02.11.: PR #16 (Eco als Ziel, Raummodell) eingespielt; Auto-Rücknahme abgeschaltet, SQL 19, Auto-Deploy.
 2. Einige Tage Tagesnoten nach neuem Maßstab und Raummodell-Nächte sammeln.
-3. Nach Freigabe dieses Konzepts: Tagesanalyse + Vorschlags-Tab bauen, Evaluator auf „vorschlagen“ umstellen.
+3. ✅ 04.11.: Whitelist nach §3 (SQL 20), Tagesanalyse + KI › Zu entscheiden gebaut (SQL 21, §9).
+
+## 9. Umsetzung „KI › Zu entscheiden“ (04.11.2026)
+
+**Anlass (Uli, 04.11.):** „Mir geht es darum, alle zu entscheidenden Punkte an einem Platz zu sehen.“ Im Tab KI stand
+„Zu entscheiden (0)“, obwohl die KI stündlich Vorschläge machte – alle Parameter standen in der Whitelist noch auf
+„shadow“ (SQL 19 hatte nur „auto“ umgestellt), und die Liste zeigt nur „suggest“. Inhaltlich passten die Vorschläge nicht
+zu den Regeln (Komfort je Raum nach der momentanen Temperatur, Nacht auf Frostschutz, Batterie-Grenze 90 → 85 → 80 → 85
+innerhalb eines halben Tages).
+
+**Uli zum Mockup (04.11.):** „Es sollte einfach sein, erklären, um was es geht.“ → „passt“.
+
+### 9.1 Whitelist (SQL 20)
+Vorschlagsfähig nur noch: `wait_min_temp` (Untergrenze je Raum, 16–24 °C, inhaltlich Eco − 2 … Eco),
+`pv_boost_max_temp` (Estrich laden bis, 19–26 °C, inhaltlich Komfort … Komfort + 2), `max_grid_heating_power_w`
+(1000–6000 W) und – nur über die Batterie-Empfehlung – `heating_min_battery_soc` (40–90 %). Alle anderen Einträge
+`enabled = false`. Noch nicht drin: Priorität (Tausch-Logik nötig, `rooms.priority` ist eindeutig), Schwelle Sonnentag
+(noch kein Einstellwert).
+
+### 9.2 Ein Platz, einfache Worte
+Tab **KI › 1 Zu entscheiden** (`src/components/ki/ZuEntscheiden.tsx`):
+1. **Rückblick auf gestern** in einem Absatz (Tagesart, Nacht, Räume unter Eco, verschenkte Sonne, Tagesnote).
+2. **Vorschläge als Frage**, je mit „Was sich ändert“, „Warum“, „Was es bringt – und kostet“; Knöpfe
+   **Ja, übernehmen · Anderen Wert · Nein**. Die Batterie-Empfehlung erscheint im selben Format.
+3. **Rückblick 3 Tage nach einer Genehmigung:** Tagesnote 3 Tage vorher/nachher; ≥ 5 Punkte schlechter →
+   Rücknahme-Frage („Ja, zurück auf … / Nein, so lassen“), sonst ein Satz unter „Zur Info“.
+4. **Zur Info – nichts zu tun:** z. B. „Batterie: um 21:00 neu gerechnet – 85 % passt.“, Beobachtungen mit zu wenigen Tagen.
+
+Übersicht und Kopfzeile zählen nur noch offene Vorschläge, Rücknahmen, Batterie und Preise. Die alte Liste
+„Parameter-Vorschläge & Protokoll“ steht eingeklappt unter KI › 3 als Protokoll.
+
+### 9.3 Tagesanalyse (`ki-tagesanalyse`, täglich 10:00 über `analysis-scheduler`)
+Grundlage: letzte 7 Tage, je Raum aus `ki_raum_tag()` (Minuten unter Eco − 0,3 °C im Tagesfenster, Morgentemperatur
+in der Stunde davor, wärmste Temperatur, Heizminuten) und die Tagesnote (`tages_bewertung`). Tagesart: Einspeisung
+≥ 2 kWh = Sonnentag, < 1 kWh = trüb.
+
+| Regel | Bedingung (an ≥ 3 der 7 Tage) | Vorschlag |
+|---|---|---|
+| Untergrenze je Raum | morgens ≤ Untergrenze + 0,5 °C und danach > 2 h unter Eco | Untergrenze + 0,5 °C (höchstens Eco) |
+| Heizleistung ohne Sonne | trüber Tag, ≥ 3 Räume > 2 h unter Eco | + 500 W (höchstens 6000 W) |
+| Estrich laden bis je Raum | Sonnentag, Raum hat seine Grenze erreicht (−0,2 °C), trotzdem ≥ 2 kWh eingespeist | + 0,5 °C (höchstens Komfort + 2) |
+
+Höchstens 3 Vorschläge am Tag (Rücknahmen zuerst). Kein neuer Vorschlag, solange der gleiche (Parameter + Raum) offen
+ist oder in den letzten 7 Tagen abgelehnt wurde. Weniger als 3 Tage → nur eine Beobachtung unter „Zur Info“.
+Die Texte schreibt die Funktion aus festen Satzbausteinen mit den gemessenen Zahlen – nachprüfbar, keine erfundenen Werte.
+Die stündlichen Gemini-Vorschläge (`ai-parameter-advisor-15min`) sind abgeschaltet; die Batterie-Empfehlung 21:00 bleibt.
+
+### 9.4 Schreiben
+Genehmigen schreibt über die bestehenden Wege: Raum-/Hauswerte über `aiParameters.ts` (prüft vorher, ob der Wert in der
+Datenbank noch dem angezeigten alten Wert entspricht), die Batterie-Grenze nur über `battery-soc-decision` (jetzt auch
+mit eigenem Wert und für Rücknahmen). Jede Entscheidung steht in `ki_vorschlaege` (Status, Wert, Wirkung) und – für
+Raum-/Hauswerte – zusätzlich in `ai_parameter_decisions`; die Änderung selbst protokolliert der Einstellungs-Trigger
+unter Protokoll › Ereignisse.

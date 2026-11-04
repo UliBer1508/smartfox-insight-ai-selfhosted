@@ -299,10 +299,9 @@ export function AIShadowDecisions() {
               Parameter-Vorschläge &amp; Protokoll
             </CardTitle>
             <CardDescription>
-              Die KI beobachtet im Hintergrund und schlägt Parameteranpassungen vor. „Schatten-Modus" bedeutet:
-              die KI zeigt dir, was sie tun würde, ohne es sofort auszuführen — du kannst Vorschläge mit einem
-              Klick übernehmen. Im Auto-Modus wendet sie sie selbst an und rollt bei schlechtem Ergebnis zurück.
-              Analyse läuft alle 15 Minuten.
+              Protokoll der früheren Parameter-Vorschläge (Gemini, bis 04.11.2026 alle 15 Minuten). Neue Vorschläge
+              kommen seit 04.11.2026 einmal täglich unter KI › Zu entscheiden – in einfachen Worten. Die KI ändert
+              nichts selbst.
               <span className="block mt-1 text-[11px] opacity-70">Anzeige: letzte 300 · „Zu entscheiden“ zeigt je Parameter nur den neuesten Vorschlag · Aufbewahrung: 7 Tage offen, 30 Tage bewertet</span>
             </CardDescription>
             <details className="mt-2 text-xs">

@@ -542,7 +542,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
           <Brain className="w-5 h-5 text-violet-600 dark:text-violet-400 shrink-0" />
           <span className="text-sm">
             <strong>{pending.total} KI-{pending.total === 1 ? 'Vorschlag wartet' : 'Vorschläge warten'}</strong> auf deine Entscheidung
-            <span className="text-muted-foreground"> · {[pending.parameters && `${pending.parameters} Parameter`, pending.battery && 'Batterie', pending.prices && `${pending.prices} Preis`].filter(Boolean).join(' · ')}</span>
+            <span className="text-muted-foreground"> · {[pending.parameters && `${pending.parameters} Vorschlag${pending.parameters === 1 ? '' : 'e'}`, pending.battery && 'Batterie', pending.prices && `${pending.prices} Preis`].filter(Boolean).join(' · ')}</span>
           </span>
           <span className="ml-auto text-sm text-violet-700 dark:text-violet-300 font-medium">Zu KI →</span>
         </button>
