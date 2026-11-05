@@ -5,6 +5,14 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.18.0] - 2026-11-05
+
+### Added (Systemstatus, `doc/SYSTEMSTATUS-2026-11-05.md`)
+- Symbol in der Kopfleiste: grün, wenn alles läuft, sonst „1 Problem“. Fenster mit Österreich-PC, München-PC und Cloud; Start/Stop/Neustart für Admins, Fernzugriff (Tailscale, Cloudflare) nur Start.
+- Dienste-Wächter (`local-collector/dienste-waechter/`): eigener NSSM-Dienst je PC, findet alle NSSM-Dienste + Tailscale, meldet alle 30 s über eine ausgehende Verbindung und führt Befehle aus – auch wenn Tailscale nicht läuft.
+- Edge Functions `system-agent` (Token statt anon-Schlüssel) und `system-alert` (Cron alle 5 min: Webseiten prüfen, Mail bei neuem Problem, „wieder in Ordnung“, Erinnerung nach 24 h).
+- SQL `22_systemstatus.sql`: `system_hosts`, `system_services`, `service_commands`, `system_status_admins`, `system_alert_state`, `system_problems()` (eine Liste für App und Mail), `system_cloud_status()`.
+
 ## [2.17.0] - 2026-11-04
 
 ### Added (KI › Zu entscheiden, `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` §9)

@@ -7,6 +7,7 @@ import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAuth } from '@/hooks/useAuth';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { ControlModeBadge } from '@/components/layout/ControlModeBadge';
+import { SystemStatusButton } from '@/components/layout/SystemStatus';
 
 // Tabs nach Zweck (seit 26.10.2026): ansehen · rückblicken · prüfen/entscheiden · einstellen
 // + Protokoll (01.11.2026): was die Steuerung und die Thermostate tun – Test- und Protokoll-Modul
@@ -83,6 +84,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
             {/* Mobile-only quick actions on the right */}
             {isMobile && (
               <div className="flex items-center gap-1 flex-shrink-0">
+                <SystemStatusButton compact />
                 <ControlModeBadge onClick={() => onTabChange('settings')} />
                 {isInstallable && !isInstalled && (
                   <Button variant="outline" size="icon" onClick={handleInstall} className="h-8 w-8">
@@ -116,6 +118,9 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
               ))}
 
               <div className="flex-1" />
+
+              {/* Systemstatus: laufen alle Prozesse? (05.11.2026, doc/SYSTEMSTATUS-2026-11-05.md) */}
+              <SystemStatusButton />
 
               <ControlModeBadge onClick={() => onTabChange('settings')} />
 
