@@ -42,25 +42,36 @@ if %errorLevel% neq 0 (
 )
 
 echo.
-echo === Dienst einrichten ===
-nssm stop "%SERVICE%" >nul 2>&1
-nssm remove "%SERVICE%" confirm >nul 2>&1
-if not exist "%DIR%\logs" mkdir "%DIR%\logs"
-nssm install "%SERVICE%" "%NODE_EXE%" "%DIR%\index.js"
-nssm set "%SERVICE%" AppDirectory "%DIR%"
-nssm set "%SERVICE%" DisplayName "Dienste-Waechter (Systemstatus Heizung)"
-nssm set "%SERVICE%" Start SERVICE_AUTO_START
-nssm set "%SERVICE%" AppStdout "%DIR%\logs\waechter.log"
-nssm set "%SERVICE%" AppStderr "%DIR%\logs\waechter.log"
-nssm set "%SERVICE%" AppRotateFiles 1
-nssm set "%SERVICE%" AppRotateOnline 1
-nssm set "%SERVICE%" AppRotateBytes 1000000
-nssm set "%SERVICE%" AppExit Default Restart
-nssm set "%SERVICE%" AppRestartDelay 10000
-nssm start "%SERVICE%"
+echo === nssm.exe suchen ===
+set "NSSM="
+for /f "delims=" %%P in ('call "%NODE_EXE%" "%DIR%\index.js" --nssm-path') do set "NSSM=%%P"
+if not defined NSSM (
+  echo [FEHLER] nssm.exe nicht gefunden. Pfad in config.json als "nssm_path" eintragen.
+  pause
+  exit /b 1
+)
+echo NSSM: %NSSM%
 
 echo.
-nssm status "%SERVICE%"
+echo === Dienst einrichten ===
+"%NSSM%" stop "%SERVICE%" >nul 2>&1
+"%NSSM%" remove "%SERVICE%" confirm >nul 2>&1
+if not exist "%DIR%\logs" mkdir "%DIR%\logs"
+"%NSSM%" install "%SERVICE%" "%NODE_EXE%" "%DIR%\index.js"
+"%NSSM%" set "%SERVICE%" AppDirectory "%DIR%"
+"%NSSM%" set "%SERVICE%" DisplayName "Dienste-Waechter (Systemstatus Heizung)"
+"%NSSM%" set "%SERVICE%" Start SERVICE_AUTO_START
+"%NSSM%" set "%SERVICE%" AppStdout "%DIR%\logs\waechter.log"
+"%NSSM%" set "%SERVICE%" AppStderr "%DIR%\logs\waechter.log"
+"%NSSM%" set "%SERVICE%" AppRotateFiles 1
+"%NSSM%" set "%SERVICE%" AppRotateOnline 1
+"%NSSM%" set "%SERVICE%" AppRotateBytes 1000000
+"%NSSM%" set "%SERVICE%" AppExit Default Restart
+"%NSSM%" set "%SERVICE%" AppRestartDelay 10000
+"%NSSM%" start "%SERVICE%"
+
+echo.
+"%NSSM%" status "%SERVICE%"
 echo Fertig. In der App erscheint der PC nach ca. 30 Sekunden (Symbol oben rechts).
 echo Log: %DIR%\logs\waechter.log
 pause

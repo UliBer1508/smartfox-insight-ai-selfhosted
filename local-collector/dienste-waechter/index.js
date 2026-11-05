@@ -51,7 +51,7 @@ if (!config.endpoint || !config.token || String(config.token).includes('HIER')) 
   process.exit(1);
 }
 const SELF = config.self_service || 'DiensteWaechter';
-const NSSM = config.nssm_path || 'nssm';
+let NSSM = config.nssm_path || 'nssm'; // wird beim Start gesucht, falls nicht im PATH (siehe findNssm)
 const INTERVAL_MS = Math.max(15, Number(config.interval_seconds) || 30) * 1000;
 const DISCOVERY_MS = Math.max(60, Number(config.discovery_seconds) || 300) * 1000;
 const overrides = config.services && typeof config.services === 'object' ? config.services : {};
@@ -102,6 +102,28 @@ async function queryStatus(name, kind) {
   if (t.includes('STOPPED')) return 'stopped';
   if (t.includes('START_PENDING') || t.includes('STOP_PENDING')) return 'unknown';
   return 'unknown';
+}
+
+/**
+ * nssm.exe finden: 1. config.nssm_path, 2. im PATH (where nssm),
+ * 3. aus dem ImagePath eines vorhandenen NSSM-Dienstes (München: nssm nicht im PATH).
+ * @returns {Promise<string|null>}
+ */
+async function findNssm() {
+  if (config.nssm_path) return fs.existsSync(config.nssm_path) ? config.nssm_path : null;
+  if (!IS_WINDOWS) return null;
+  const w = await run('where', ['nssm'], 10000);
+  if (w.ok) {
+    const first = w.out.split(/\r?\n/).map((l) => l.trim()).find((l) => l.toLowerCase().endsWith('.exe'));
+    if (first) return first;
+  }
+  const names = await discover();
+  for (const name of names) {
+    const r = await run('reg', ['query', `HKLM\\SYSTEM\\CurrentControlSet\\Services\\${name}`, '/v', 'ImagePath'], 10000);
+    const m = r.out.match(/ImagePath\s+REG_\w+\s+"?([^"\r\n]*nssm[^"\r\n]*?\.exe)"?/i);
+    if (m && fs.existsSync(m[1])) return m[1];
+  }
+  return null;
 }
 
 function controlFor(name, kind, wanted) {
@@ -208,6 +230,15 @@ async function tick() {
 
 // --- Start ---------------------------------------------------------------------------------------------
 async function main() {
+  // Für install-dienst.bat: nur den Pfad von nssm.exe ausgeben
+  if (process.argv.includes('--nssm-path')) {
+    const p = await findNssm();
+    if (p) console.log(p); else process.exitCode = 1;
+    return;
+  }
+  const found = await findNssm();
+  if (found) NSSM = found;
+  else if (IS_WINDOWS) console.log('Hinweis: nssm.exe nicht gefunden – Start/Stop von NSSM-Diensten geht nicht (config.json: "nssm_path")');
   log(`Dienste-Wächter v${VERSION} – ${config.label || HOST} (${HOST}), alle ${INTERVAL_MS / 1000} s`);
   if (process.argv.includes('--test')) {
     const rows = await collect();
