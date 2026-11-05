@@ -118,9 +118,11 @@ async function getPresence(supabase: any, settings: any): Promise<PresenceInfo> 
 
 // Tagesmodus-Zuteilung (Konzept 27.10.2026 §2/§3). Reine Funktion, testbar.
 // rooms: Räume OHNE Budget, nach Priorität sortiert.
-// Pass 1: Räume unter Mindesttemperatur → bis Mindesttemperatur heizen, nach Priorität,
-//         Summe der Raumleistungen ≤ maxGridW; wer nicht mehr passt, wartet knapp unter Ist.
-// Pass 2 (nur 'grid'): Eco nach Priorität innerhalb derselben Netzgrenze; warme Räume halten Eco.
+// Pass 1: Räume unter Untergrenze → IMMER bis Untergrenze heizen (Untergrenze ist hart, 05.11.2026).
+//         Die Leistungsgrenze maxGridW zählt diese Räume mit, hält sie aber nicht mehr auf.
+//         Vorher: wer nicht mehr in die Grenze passte, bekam „Ist − 0,5 °C“ und kühlte beliebig aus.
+// Pass 2 (nur 'grid'): Eco nach Priorität, nur solange unter maxGridW noch Leistung frei ist;
+//         warme Räume halten Eco.
 function allocateDayTargets(
   rooms: Array<{ room: any; heatingPower: number }>,
   settings: any,
@@ -131,11 +133,8 @@ function allocateDayTargets(
   const targets = new Map<string, { temp: number; why: string }>();
   let gridUsedW = 0;
   const granted = new Set<string>();
-  const holdBelow = (cur: number, waitT: number) =>
-    Math.min(waitT, Math.max(5, Math.floor((cur - 0.5) * 2) / 2));
-  // Batterie-Schutz (01.11.2026, Konzept Tagesablauf §3.4): nur Notfall-Heizen. Ziel ist
-  // „Untergrenze − battery_gate_floor_delta“, Leistung höchstens battery_gate_max_power_w.
-  // Vorher: Untergrenze mit bis zu max_grid_heating_power_w – das zog die Batterie leer (01.11.).
+  // Batterie-Schutz (Konzept Tagesablauf §3.4, Raummodell §3.2): Ziel ist
+  // „Untergrenze − battery_gate_floor_delta“ (seit 02.11.2026 Abstand 0 → Untergrenze).
   const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0));
 
   for (const rp of rooms) {
@@ -144,19 +143,15 @@ function allocateDayTargets(
       : getWaitMinTemp(rp.room, settings);
     const cur = Number(rp.room.current_temp) || 0;
     if (cur > 0 && cur < waitT) {
-      if (gridUsedW + rp.heatingPower <= maxGridW) {
-        gridUsedW += rp.heatingPower;
-        granted.add(rp.room.id);
-        targets.set(rp.room.id, { temp: waitT, why: dayMode === 'battery_gate'
-          ? `Notfall: unter Untergrenze − ${gateDelta}°C (${cur.toFixed(1)} < ${waitT}°C), ${gridUsedW}/${maxGridW}W`
-          : `unter Mindesttemperatur (${cur.toFixed(1)} < ${waitT}°C), Netz ${gridUsedW}/${maxGridW}W` });
-      } else {
-        targets.set(rp.room.id, { temp: holdBelow(cur, waitT), why: `unter ${dayMode === 'battery_gate' ? 'Notfall-Grenze' : 'Mindesttemperatur'}, Grenze ${maxGridW}W erreicht → wartet` });
-      }
+      gridUsedW += rp.heatingPower;
+      granted.add(rp.room.id);
+      const over = gridUsedW > maxGridW ? ` – über der Grenze ${maxGridW} W, Untergrenze geht vor` : '';
+      targets.set(rp.room.id, { temp: waitT,
+        why: `unter Untergrenze (${cur.toFixed(1)} < ${waitT} °C) → heizt bis Untergrenze, ${gridUsedW}/${maxGridW} W${over}` });
     } else {
       targets.set(rp.room.id, { temp: waitT, why: dayMode === 'battery_gate'
-        ? `${modeText} → Untergrenze − ${gateDelta}°C (kein Heizen)`
-        : `${modeText} → Mindesttemperatur` });
+        ? `Batterie-Schutz: hält Untergrenze ${waitT} °C, Sonne lädt erst die Batterie`
+        : `${modeText} → hält Untergrenze ${waitT} °C` });
     }
   }
 

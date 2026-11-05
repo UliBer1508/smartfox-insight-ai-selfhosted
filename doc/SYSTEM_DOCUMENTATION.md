@@ -172,7 +172,7 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 
 **Raummodell / Vorausschau (seit 02.11.2026):** Je Raum gelernte Auskühlrate k (Tabelle `raum_abkuehlung`, View `raum_modell`, SQL 18) und Außentemperatur-Prognose der Nacht → „abends nötig“ für Eco am Morgen. Bei gleicher Priorität bekommt der Raum mit dem größten Nachtbedarf die PV zuerst. Protokoll in `system_settings.raum_vorausschau`, Anzeige Protokoll › Raummodell. Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`.
 
-- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt, nach Priorität innerhalb der Netzgrenze; wer nicht hineinpasst, wartet (Sollwert knapp unter Ist).
+- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt, nach Priorität – **immer**, auch über die Netz-/Notfall-Grenze hinaus (seit 05.11.2026, Untergrenze ist hart). Die Grenze gilt nur noch für Eco aus dem Netz.
 - KI-Schwelle aus `best_match_today` × `pattern_recall_strength` (siehe §12).
 - Funktion `allocateDayTargets`, Protokoll je Lauf in `system_settings.heating_day_mode`, Anzeige in der Übersicht.
 - Tagesmodus-Ziele erzeugen keine `solar_limit_start/stop`-Einträge und setzen `pv_auto_active = false`.

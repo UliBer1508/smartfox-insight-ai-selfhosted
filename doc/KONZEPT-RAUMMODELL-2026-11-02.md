@@ -56,6 +56,7 @@ Bei Abwesenheit (Kalender) bleibt es beim Wartetag (Untergrenze), PV lädt bis K
 
 ### 3.2 Untergrenze ist hart
 - `battery_gate_floor_delta` = 0 (vorher 1,0 °C): auch im Batterie-Schutz wird bis zur Untergrenze geheizt.
+- Seit 05.11.2026: auch dann, wenn die Notfall-Grenze (`battery_gate_max_power_w`) oder die Netzgrenze schon voll ist – die Untergrenze geht vor (`FIX-UNTERGRENZE-HART-2026-11-05.md`).
 - Nachtmodus „Nachtwert halten“: Ziel = max(Nachtwert, Untergrenze). Nur „Frostschutz“ ist eine bewusste Ausnahme.
 
 ### 3.3 PV zu 100 %

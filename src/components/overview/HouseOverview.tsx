@@ -372,7 +372,27 @@ function Forecast({ kwp }: { kwp: number }) {
 }
 
 // ---------------------------------------------------------------- Raumkarte
-function RoomCard({ room, night, onChanged }: { room: Room; night: boolean; onChanged: (id: string, patch: Partial<Room>) => void }) {
+// Begründung der Automatik je Raum aus dem Tagesmodus (system_settings.heating_day_mode.rooms[].why, 05.11.2026).
+// Nur frische Werte (< 20 min); nachts und bei PV-Boost/Manuell gilt die Begründung nicht.
+type DayModeRoom = { room_id: string; target: number | null; why: string | null };
+function useDayModeRooms() {
+  const [rooms, setRooms] = useState<Map<string, DayModeRoom>>(new Map());
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const { data } = await supabase.from('system_settings').select('value').eq('key', 'heating_day_mode').maybeSingle();
+      const v = data?.value as { computed_at?: string; rooms?: DayModeRoom[] } | undefined;
+      const fresh = v?.computed_at && Date.now() - new Date(v.computed_at).getTime() < 20 * 60_000;
+      if (alive) setRooms(new Map(fresh ? (v?.rooms ?? []).map(r => [r.room_id, r]) : []));
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+  return rooms;
+}
+
+function RoomCard({ room, night, dayRoom, onChanged }: { room: Room; night: boolean; dayRoom?: DayModeRoom; onChanged: (id: string, patch: Partial<Room>) => void }) {
   const { setTemperature } = useTuyaControl();
   const [open, setOpen] = useState(false);
   const [temp, setTemp] = useState<number>(Number(room.target_temp ?? room.comfort_temp ?? 21));
@@ -439,6 +459,10 @@ function RoomCard({ room, night, onChanged }: { room: Room; night: boolean; onCh
           </div>
         </div>
 
+        {dayRoom?.why && state.label === 'Normal' && (
+          <div className="text-xs text-muted-foreground -mt-1">Automatik: {dayRoom.why}</div>
+        )}
+
         <div className="border-t pt-3 space-y-2">
           {overrideOn ? (
             <div className="flex items-center justify-between gap-2 text-sm">
@@ -491,7 +515,7 @@ function RoomCard({ room, night, onChanged }: { room: Room; night: boolean; onCh
 
         <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
           {room.automation_enabled === false && <PauseCircle className="w-3.5 h-3.5" />}
-          Nacht {fmtT(room.night_temp)} · Eco {fmtT(room.eco_temp)} · Komfort {fmtT(room.comfort_temp)}
+          Nacht {fmtT(room.night_temp)}{room.wait_min_temp != null && <> · Untergrenze {fmtT(room.wait_min_temp)}</>} · Eco {fmtT(room.eco_temp)} · Komfort {fmtT(room.comfort_temp)}
           {room.pv_boost_max_temp != null && <> · PV max {fmtT(room.pv_boost_max_temp)}</>}
         </div>
       </CardContent>
@@ -531,6 +555,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
   const surplus = usableSurplus(currentReading, settings.heating_min_battery_soc ?? 80);
   const night = isNight(settings);
   const thermostatRooms = rooms.filter(r => r.tuya_device_id);
+  const dayRooms = useDayModeRooms();
   return (
     <div className="space-y-4 md:space-y-6">
       <StatusBar energyOk={isConnected} energyTs={currentReading?.timestamp} />
@@ -564,7 +589,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
       <Forecast kwp={settings.pv_capacity_kwp} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {thermostatRooms.map(r => (
-          <RoomCard key={r.id} room={r} night={night} onChanged={updateRoomLocally} />
+          <RoomCard key={r.id} room={r} night={night} dayRoom={dayRooms.get(r.id)} onChanged={updateRoomLocally} />
         ))}
       </div>
       {/* Heizleistung live, aktiviert/wartend, parallele Kapazität, Komfort-Budget (früher Heizung & KI) */}
