@@ -63,8 +63,11 @@ aus dem Wartetag ein Schlechter Tag.
 - Validierung in der App: 5 °C ≤ „Ohne PV“ ≤ Eco ≤ Komfort.
 - Räume unter ihrer Mindesttemperatur werden im Wartetag und ohne PV **zuerst** bis zur Mindesttemperatur
   (im Batterie-Schutz nur als Notfall unter Untergrenze − Abstand, siehe 3.4)
-  geheizt, nach Priorität und innerhalb der Netzgrenze (3.2). Passt ein Raum nicht mehr hinein,
-  wartet er: Sollwert knapp unter Ist (heizt nicht an), bis Kapazität frei wird.
+  geheizt, nach Priorität. **Seit 05.11.2026:** Räume unter der Untergrenze werden immer geheizt,
+  auch wenn die Netzgrenze (3.2) bzw. die Notfall-Grenze im Batterie-Schutz dadurch überschritten wird –
+  die Grenze gilt nur noch für das Heizen über der Untergrenze (Eco aus dem Netz). Vorher wartete ein Raum,
+  der nicht mehr hineinpasste, mit „Ist − 0,5 °C“ und konnte beliebig auskühlen
+  (`FIX-UNTERGRENZE-HART-2026-11-05.md`).
 - Löst den bisherigen Missbrauch des Nachtwerts als „Tagesuntergrenze“ ab.
 
 ### 3.2 Max. Netz-Heizleistung

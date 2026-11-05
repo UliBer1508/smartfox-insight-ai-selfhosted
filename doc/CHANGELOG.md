@@ -5,6 +5,14 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.18.2] - 2026-11-05
+
+### Fixed (`doc/FIX-UNTERGRENZE-HART-2026-11-05.md`)
+- `pv-automation`: Räume unter der Untergrenze werden immer bis zur Untergrenze geheizt, auch wenn die Leistungsgrenze (Batterie-Schutz 1000 W bzw. Heizleistung ohne Sonne) schon voll ist. Vorher bekam ein solcher Raum „Ist − 0,5 °C“ und kühlte beliebig aus (Zimmer Uli am 05.11.: Soll 20,0 °C bei Untergrenze 21 °C).
+
+### Changed
+- Übersicht › Raumkarte: Zeile „Automatik: …“ mit der Begründung des Tagesmodus; Untergrenze steht jetzt in der Wertezeile (Nacht · Untergrenze · Eco · Komfort).
+
 ## [2.18.1] - 2026-11-05
 
 ### Added
