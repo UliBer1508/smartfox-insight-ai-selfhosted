@@ -1,0 +1,18 @@
+{
+  "_hinweis": "Österreich-PC: nach config.json kopieren und token eintragen (gleich wie Supabase-Secret SYSTEM_AGENT_TOKEN). config.json steht in .gitignore.",
+  "host": "oesterreich",
+  "label": "Österreich-PC",
+  "endpoint": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/system-agent",
+  "token": "HIER_TOKEN_EINTRAGEN",
+  "interval_seconds": 30,
+  "services": {
+    "SmartfoxTuya":      { "label": "Thermostate (SmartfoxTuya)" },
+    "SmartfoxFronius":   { "label": "Fronius-Daten (SmartfoxFronius)" },
+    "WallboxBackend":    { "label": "Wallbox-Backend", "url": "http://100.101.72.25:8080" },
+    "CloudflaredTunnel": { "label": "Cloudflare-Tunnel (Gäste)", "url": "https://wallbox.steinbockchalets-charge.com" },
+    "DiensteWaechter":   { "label": "Dienste-Wächter" }
+  },
+  "extraServices": [
+    { "name": "Tailscale", "label": "Tailscale (Fernzugriff)", "url": "https://login.tailscale.com/admin/machines" }
+  ]
+}

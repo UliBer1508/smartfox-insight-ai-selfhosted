@@ -1,10 +1,18 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-04
+Stand: 2026-11-05
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Systemstatus einspielen (05.11.)
+- [ ] SQL `22_systemstatus.sql` ausführen, Cron `system-alert-5min` prüfen
+- [ ] Secrets: `SYSTEM_AGENT_TOKEN`, `MAIL_USER`, `MAIL_PASS`, `ALERT_EMAIL`
+- [ ] Functions `system-agent`, `system-alert` deployen
+- [ ] Österreich-PC: `git pull`, `config.json` anlegen, `install-dienst.bat` als Administrator
+- [ ] München-PC: Ordner `dienste-waechter` holen, `config.json`, `install-dienst.bat` als Administrator
+- [ ] Test nach `doc/SYSTEMSTATUS-2026-11-05.md` §7 (Neustart alexa-bridge, Test-Mail über falsche Webseite)
 
 ### Eco als Ziel + Raummodell einspielen (02.11.)
 - [ ] SQL `17_eco_ziel.sql` und `18_raummodell.sql` ausführen

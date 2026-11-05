@@ -1,0 +1,14 @@
+{
+  "_hinweis": "München-PC: nach config.json kopieren und token eintragen (gleich wie Supabase-Secret SYSTEM_AGENT_TOKEN). Alle NSSM-Dienste werden automatisch gefunden; hier nur schönere Namen eintragen.",
+  "host": "muenchen",
+  "label": "München-PC",
+  "endpoint": "https://pflnniklvqbwjwrjswaz.supabase.co/functions/v1/system-agent",
+  "token": "HIER_TOKEN_EINTRAGEN",
+  "interval_seconds": 30,
+  "services": {
+    "DiensteWaechter": { "label": "Dienste-Wächter" }
+  },
+  "extraServices": [
+    { "name": "Tailscale", "label": "Tailscale (Fernzugriff)", "url": "https://login.tailscale.com/admin/machines" }
+  ]
+}
