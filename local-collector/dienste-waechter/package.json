@@ -1,0 +1,8 @@
+{
+  "name": "dienste-waechter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Systemstatus: Dienste-Waechter (doc/SYSTEMSTATUS-2026-11-05.md). CommonJS, weil das Repo-package.json type=module setzt.",
+  "type": "commonjs",
+  "main": "index.js"
+}
