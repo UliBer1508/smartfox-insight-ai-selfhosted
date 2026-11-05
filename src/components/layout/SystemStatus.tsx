@@ -227,6 +227,11 @@ function CloudRows({ cloud, isAdmin, busyPv, onRunPv }: { cloud: CloudStatus | n
       <Row tone={old(cloud.last_energy, 15) ? 'bad' : 'ok'} title="Fronius-Daten" sub={`letzte Messung ${ago(cloud.last_energy)}`} />
       <Row tone={old(t?.last_sync, 10) ? 'bad' : tuyaPartial ? 'warn' : 'ok'} title="Thermostate"
         sub={`${t?.devices_ok ?? '–'}/${t?.devices_configured ?? '–'} erreichbar · letzte Meldung ${ago(t?.last_sync)}${cloud.open_api_errors ? ` · ${cloud.open_api_errors} offene Gerätefehler` : ''}`} />
+      {cloud.muc && (
+        <Row tone={old(cloud.muc.last_seen, 10) ? 'bad' : cloud.muc.fenecon_ok === false || cloud.muc.loxone_ok === false ? 'warn' : 'ok'}
+          title="Heizung München (Collector)"
+          sub={`letzte Meldung ${ago(cloud.muc.last_seen)} · FENECON ${cloud.muc.fenecon_ok === false ? 'Fehler' : 'ok'} · Loxone ${cloud.muc.loxone_ok === false ? 'Fehler' : 'ok'}`} />
+      )}
       <Row tone={cloud.cron.failed_24h > 0 ? 'warn' : 'ok'} title="Geplante Aufgaben (pg_cron)"
         sub={`${cloud.cron.jobs} Aufgaben · ${cloud.cron.runs_24h} Läufe in 24 h · ${cloud.cron.failed_24h ? `${cloud.cron.failed_24h} Fehler` : 'keine Fehler'}`} />
       <Row tone={cloud.net_2h.errors > 0 ? 'warn' : 'ok'} title="Function-Aufrufe (2 h)"

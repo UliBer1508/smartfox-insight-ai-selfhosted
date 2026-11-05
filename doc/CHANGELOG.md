@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.18.1] - 2026-11-05
+
+### Added
+- Systemstatus auch in der App Heizung München; Zeile „Heizung München (Collector)“ in beiden Apps.
+- SQL `23_systemstatus_muenchen.sql`: München-Collector in `system_problems()`/`system_cloud_status()`, Anmeldung München als Admin.
+
+### Fixed
+- Dienste-Wächter: eigene `package.json` (CommonJS), findet `nssm.exe` selbst (München: nicht im PATH), Install-Skript bricht ab, wenn die Cloud nicht erreichbar ist.
+
 ## [2.18.0] - 2026-11-05
 
 ### Added (Systemstatus, `doc/SYSTEMSTATUS-2026-11-05.md`)

@@ -31,6 +31,7 @@ export interface CloudStatus {
   open_api_errors: number;
   cron: { jobs: number; runs_24h: number; failed_24h: number; last_run: string | null };
   pv_automation_last: string | null;
+  muc: { last_seen: string | null; fenecon_ok: boolean | null; loxone_ok: boolean | null; house_mode: string | null; version: string | null; last_error: string | null } | null;
   net_2h: { ok: number; errors: number; timeouts: number };
 }
 

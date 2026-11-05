@@ -125,6 +125,12 @@ Fehlen die Mail-Secrets, läuft alles andere trotzdem (Antwort der Function: „
   die Commit-Kennung statt `main` in die Adresse setzen.
 - Mail (Secrets `MAIL_USER`, `MAIL_PASS`, `ALERT_EMAIL`) noch nicht eingerichtet.
 
+**Nachtrag 05.11.2026 (Uli: „ich wollte es in beiden“):** Das Symbol gibt es auch in der App **Heizung München**
+(Repo `heizung-muenchen`, `frontend/src/SystemStatus.jsx`) – gleiches Supabase-Projekt, gleiche Daten.
+SQL `23_systemstatus_muenchen.sql`: Anmeldung München (`…+muc@…`) ist ebenfalls Admin; `system_problems()` meldet
+zusätzlich den München-Collector (meldet sich nicht > 10 min, FENECON oder Loxone nicht erreichbar);
+`system_cloud_status()` liefert `muc` für die Zeile „Heizung München (Collector)“ in beiden Apps.
+
 ## 7. Erster Test
 
 - Kopfleiste: Symbol grün? Im Fenster beide PCs mit „meldet sich · vor … s“?
