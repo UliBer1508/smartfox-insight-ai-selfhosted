@@ -115,6 +115,16 @@ Fehlen die Mail-Secrets, läuft alles andere trotzdem (Antwort der Function: „
    `C:\Users\ulibe\dienste-waechter`), `config.muenchen.example.json` → `config.json`, Token eintragen,
    `install-dienst.bat` als Administrator.
 
+**Stand 05.11.2026, 07:34:** beide PCs eingerichtet und melden sich.
+- Österreich: `C:\Heizung\repo\local-collector\dienste-waechter` (7 Dienste). Neustart `alexa-bridge` aus der App getestet: 32 s vom Klick bis „neu gestartet“ (Wächter fragt alle 30 s).
+- München: `C:\Users\ulibe\dienste-waechter`, Dateien per `Invoke-WebRequest` von GitHub geholt (kein Repo-Klon).
+  `nssm.exe` liegt dort unter `C:\nssm\` und ist nicht im PATH – der Wächter findet es seit 6fc7340 selbst
+  (aus dem ImagePath eines NSSM-Dienstes); `install-dienst.bat` benutzt den gefundenen Pfad.
+- Stolpersteine: Das Repo-`package.json` setzt `type: module` → eigener `package.json` (CommonJS) im Wächter-Ordner.
+  raw.githubusercontent.com liefert nach einem Push einige Minuten die alte Fassung – für sofortige Updates
+  die Commit-Kennung statt `main` in die Adresse setzen.
+- Mail (Secrets `MAIL_USER`, `MAIL_PASS`, `ALERT_EMAIL`) noch nicht eingerichtet.
+
 ## 7. Erster Test
 
 - Kopfleiste: Symbol grün? Im Fenster beide PCs mit „meldet sich · vor … s“?
