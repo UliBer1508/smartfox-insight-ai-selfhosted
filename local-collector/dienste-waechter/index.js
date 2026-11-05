@@ -217,6 +217,8 @@ async function main() {
       console.log('Cloud: OK – Adresse und Token stimmen');
     } catch (e) {
       console.log('Cloud: FEHLER –', e.message);
+      if (/HTTP 401/.test(e.message)) console.log('       → Token in config.json und Supabase-Secret SYSTEM_AGENT_TOKEN vergleichen');
+      process.exitCode = 1; // install-dienst.bat bricht dann ab
     }
     return;
   }
