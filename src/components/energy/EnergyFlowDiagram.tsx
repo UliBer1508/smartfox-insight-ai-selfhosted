@@ -194,7 +194,7 @@ const InverterNode = ({ cx, cy }: { cx: number; cy: number }) => (
       fontSize="10"
       fontWeight="500"
     >
-      Inverter
+      Fronius
     </text>
   </g>
 );
