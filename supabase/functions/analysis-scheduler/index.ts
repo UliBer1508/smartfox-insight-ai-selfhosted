@@ -194,6 +194,33 @@ serve(async (req) => {
       }
     }
 
+    // 8) Heizplaner (Schattenbetrieb, doc/KONZEPT-PLANER-2026-11-06.md)
+    //    a) täglich 03:00: je Raum das Raummodell lernen (ein Aufruf je Raum wegen der Rechenzeit-Grenze),
+    //       PV-Vorhersage lernen, Vortag gegenrechnen (force='heizplaner_lernen' für Test)
+    //    b) bei jedem Lauf (alle 15 min): neuen 24-h-Plan rechnen
+    const learnTimeMin = 3 * 60;
+    if (force === 'heizplaner_lernen' || (nowMin >= learnTimeMin && nowMin < learnTimeMin + 30)) {
+      const last = await getLastRun('scheduler_heizplaner_lernen');
+      if (force === 'heizplaner_lernen' || last !== t.date) {
+        const { data: rr } = await supabase.from('rooms').select('id').not('tuya_device_id', 'is', null).order('priority');
+        let okCount = 0;
+        for (const r of rr ?? []) {
+          const res = await invokeFn('heizplaner', { aktion: 'lernen', raum: r.id });
+          if (res.status === 200) okCount++;
+        }
+        triggered.push({ job: `heizplaner_lernen ${okCount}/${(rr ?? []).length}`, status: okCount > 0 ? 200 : 500 });
+        const pv = await invokeFn('heizplaner', { aktion: 'pv_lernen' });
+        triggered.push({ job: 'heizplaner_pv_lernen', status: pv.status });
+        const vg = await invokeFn('heizplaner', { aktion: 'vergleich' });
+        triggered.push({ job: 'heizplaner_vergleich', status: vg.status });
+        if (okCount > 0) await setLastRun('scheduler_heizplaner_lernen', t.date);
+      }
+    }
+    {
+      const p = await invokeFn('heizplaner', { aktion: 'planen' });
+      triggered.push({ job: 'heizplaner_planen', status: p.status });
+    }
+
     return new Response(JSON.stringify({ ok: true, viennaTime: `${t.date} ${t.hour}:${String(t.minute).padStart(2,'0')}`, triggered }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
