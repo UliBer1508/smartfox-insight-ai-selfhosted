@@ -115,9 +115,10 @@ Frontend (15–60 s Polling, KEIN Realtime)
 
 **Heating Settings (Auszug, Werte Stand 27.10.2026):**
 - `night_start_time`, `night_end_time` (Code-Standard 22:00–08:00; eingestellt 22:00–08:00, am 01.07.2026 über die App gesetzt). `night_end_time` = Tagesstart / Morgenbewertung
-- `night_heating_mode`: `frost_only` (5°C, eingestellt) | `maintain` (night_temp)
+- `night_heating_mode`: `frost_only` (5°C) | `maintain` (Nachtwert halten, eingestellt seit 03.11.2026; seit 06.11.2026 unter der Leistungsgrenze)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
-- `max_grid_heating_power_w` (2000 W): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen (Wartetag / ohne PV; **nicht** im Batterie-Schutz)
+- `max_grid_heating_power_w` (4000 W seit 04.11.2026): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen. Gilt seit 06.11.2026 **immer**: tagsüber (Wartetag / ohne PV) **und nachts**, auch für Räume unter der Untergrenze; ein Raum, der allein größer ist, heizt nur allein (`doc/FIX-HEIZLEISTUNG-2026-11-06.md`). Im Batterie-Schutz gilt `battery_gate_max_power_w`
+- `cap_wait_boost_min` (60 min, seit 06.11.2026): wer so lange auf freie Leistung wartet, kommt zuerst dran (Zustand `system_settings.cap_wait_state`)
 - `battery_gate_floor_delta` (0 °C seit 02.11.2026, vorher 1,0), `battery_gate_max_power_w` (1000 W): Notfall-Heizen im Batterie-Schutz (seit 01.11.2026)
 - `battery_night_reserve_pct` (10 %): Reserve des Batterie-Vorschlags über dem gemessenen Nachtbedarf (seit 01.11.2026)
 - `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026, umgedreht 01.11.2026) – Grundzustand anwesend; Kalender `presence_periods` = Zeiträume, in denen das Haus **leer** ist; Vorlauf vor dem Ende (Rückkehr). Aus = immer anwesend
@@ -135,6 +136,10 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `min_soc_during_night`, `night_consumption_kwh`, `heating_battery_used_kwh`
 
 ---
+
+## 4a. Heizplaner (Schattenbetrieb, seit 06.11.2026)
+
+Rechnender Planer statt fester Regeln, Konzept `doc/KONZEPT-PLANER-2026-11-06.md`. Edge Function `heizplaner`: alle 15 min (über `analysis-scheduler`) ein 24-h-Plan je Raum und halbe Stunde, der Netzstrom + Komfortabweichung minimiert (gelerntes Raummodell `heizmodell`, gelernte PV-Vorhersage `system_settings.planer_pv_modell` mit Nachführung, Batterie, Leistungsgrenze). Täglich 03:00: Raummodell je Raum lernen, PV lernen, Vortag gegenrechnen (`heizplan_vergleich`). **Steuert noch nicht** (`heating_settings.planer_modus = schatten`); Anzeige KI › Planer. Gewichte: `planer_gewicht_ziel` (0,6 kWh je °C·h unter Ziel), `planer_gewicht_unter` (2), `planer_sicherheit_abstand` (1,5 °C). SQL 25.
 
 ## 4. PV-Automation: 4-Stufen-Logik
 
@@ -172,7 +177,7 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 
 **Raummodell / Vorausschau (seit 02.11.2026):** Je Raum gelernte Auskühlrate k (Tabelle `raum_abkuehlung`, View `raum_modell`, SQL 18) und Außentemperatur-Prognose der Nacht → „abends nötig“ für Eco am Morgen. Bei gleicher Priorität bekommt der Raum mit dem größten Nachtbedarf die PV zuerst. Protokoll in `system_settings.raum_vorausschau`, Anzeige Protokoll › Raummodell. Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`.
 
-- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt, nach Priorität – **immer**, auch über die Netz-/Notfall-Grenze hinaus (seit 05.11.2026, Untergrenze ist hart). Die Grenze gilt nur noch für Eco aus dem Netz.
+- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt – seit 06.11.2026 wieder **unter der Grenze** (Uli: „Grenze gilt immer“; 05.11. hatte das Wohnzimmer mit 5,5 kW die Grenze 4000 W gesprengt). Reihenfolge: Wartezeit-Vorrang (`cap_wait_boost_min`), dann Priorität. Ist noch nichts belegt, darf ein Raum über der Grenze allein heizen – nur bis Untergrenze. Wer nicht passt, wartet mit „Ist − 0,5 °C“. Räume im Nachlauf (heizen über dem Ziel) zählen mit. Funktion `allocateUnderCap`, `doc/FIX-HEIZLEISTUNG-2026-11-06.md`.
 - KI-Schwelle aus `best_match_today` × `pattern_recall_strength` (siehe §12).
 - Funktion `allocateDayTargets`, Protokoll je Lauf in `system_settings.heating_day_mode`, Anzeige in der Übersicht.
 - Tagesmodus-Ziele erzeugen keine `solar_limit_start/stop`-Einträge und setzen `pv_auto_active = false`.
@@ -301,7 +306,7 @@ const tolerate =
 
 ### Nacht
 - `frost_only` (eingestellt): einmaliger Befehl je Nacht, alle Räume auf 5 °C (fest im Code), danach Ruhe (Gate `night_frost_last_pushed`)
-- `maintain`: einmalig auf `night_temp`
+- `maintain` (eingestellt seit 03.11.2026): Ziel je Raum max(Nachtwert, Untergrenze). Seit 06.11.2026 **bei jedem Lauf** neu verteilt unter `max_grid_heating_power_w` (wie tagsüber, `allocateUnderCap`), kein Quiet Mode mehr – vorher setzte ein einmaliger Push alle Räume gleichzeitig hoch (03./04.11.: 7–11 kW die ganze Nacht). Manuell übersteuerte Räume zählen mit, Räume mit Automatik aus bleiben unberührt. Begründung je Raum in `system_settings.heating_night_mode`.
 
 ### Tag (ab `night_end_time`)
 Morgenbewertung bei jedem Lauf neu: Tagesmodus `battery_gate` / `wait` / `grid` (§4 Stufe 3b). Räume mit Budget heizen nach Phase 1/2, Räume ohne Budget bekommen das Tagesmodus-Ziel. Die Prognose-Boni dürfen schon `floor_heating_response_hours` (eingestellt 2 h, Untergrenze 06:00) vor dem Tagesstart greifen.
@@ -456,7 +461,7 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 `ai-parameter-advisor` /suggest-battery-soc (21:00): Mindest-Ladestand = gemessener Nachtbedarf (`nacht_protokoll`) + Abend/Morgen ohne PV (Stundenprognose × Grundlast) + `battery_night_reserve_pct`. Mustergedächtnis (`daily_pattern_scores`, Prognose ±30 %) korrigiert die PV-Prognose und rechnet aus, was nach dem Laden für die Heizung frei bleibt (Räume nach Priorität). Alte Regel „Prognose < 10 kWh → Grenze hoch“ entfernt. Nur Vorschlag, Übernehmen im Tab KI. Konzept Tagesablauf §10.
 
 ### KI › Zu entscheiden (seit 04.11.2026)
-Alle Vorschläge an einem Platz, in einfachen Worten (Konzept KI-Vorschläge §9). **`ki-tagesanalyse`** (täglich 10:00 über `analysis-scheduler`, nach der Tagesnote 09:55) schreibt `ki_tagespaket` (Rückblick auf gestern) und `ki_vorschlaege`: drei feste Regeln über 7 Tage (Untergrenze je Raum, Heizleistung ohne Sonne, Estrich laden bis je Raum), nur Whitelist-Werte (SQL 20), nur bei ≥ 3 passenden Tagen, höchstens 3 am Tag; 3 Tage nach jeder Genehmigung Wirkungsbericht über die Tagesnote, bei Verschlechterung Rücknahme-Frage. Tageswerte je Raum aus `ki_raum_tag(p_tag)`. Die Batterie-Empfehlung erscheint im selben Format; geschrieben wird sie weiterhin nur über `battery-soc-decision` (jetzt auch mit eigenem Wert). Die stündlichen Gemini-Vorschläge (`ai-parameter-advisor-15min`) sind seit SQL 21 abgeschaltet. **Die KI ändert nichts selbst.**
+Alle Vorschläge an einem Platz, in einfachen Worten (Konzept KI-Vorschläge §9). **`ki-tagesanalyse`** (täglich 10:00 über `analysis-scheduler`, nach der Tagesnote 09:55) schreibt `ki_tagespaket` (Rückblick auf gestern) und `ki_vorschlaege`: drei feste Regeln über 7 Tage (Untergrenze je Raum, Heizleistung ohne Sonne, Estrich laden bis je Raum), nur Whitelist-Werte (SQL 20), nur bei ≥ 3 passenden Tagen, höchstens 3 am Tag; 3 Tage nach jeder Genehmigung Wirkungsbericht über die Tagesnote, bei Verschlechterung Rücknahme-Frage. Tageswerte je Raum aus `ki_raum_tag(p_tag)`. Die Batterie-Empfehlung erscheint im selben Format; geschrieben wird sie weiterhin nur über `battery-soc-decision` (jetzt auch mit eigenem Wert). Seit 06.11.2026 schlägt auch die Leistungsmessung (`measure-room-power`, 09:30) Raumleistungen vor (`heating_power_w`). Die stündlichen Gemini-Vorschläge (`ai-parameter-advisor-15min`) sind seit SQL 21 abgeschaltet. **Die KI ändert nichts selbst.**
 
 ### Architektur-Grenze
 **AI empfiehlt Setpoints und verschiebt Schwellen — Kern-Budget-Logik (§4–8) ist die finale Filter.** AI kann Reward-Funktion nicht selbst korrigieren.
@@ -502,7 +507,9 @@ Speichert in `pv_forecasts`:
 | `generate-settings-suggestions` | KI-Settings-Vorschläge | manuell | hybrid |
 | `monitor-solar-heating` | Solar-Event-Erkennung | regelmäßig | service_role |
 | `analyze-solar-gain` | Passiver Solargewinn | regelmäßig | service_role |
-| `calculate-heating-power` | Power-Kalibrierung | regelmäßig | service_role |
+| `calculate-heating-power` | Power-Kalibrierung (alt, lief nie – kein Cron) | – | service_role |
+| `heizplaner` | Planer (Schattenbetrieb): `planen` alle 15 min, `lernen` je Raum + `pv_lernen` + `vergleich` täglich 03:00 | `analysis-scheduler` | service_role |
+| `measure-room-power` | Heizleistung je Raum messen (Regression Verbrauch ohne PV ~ „heizt“), Vorschläge in KI › Zu entscheiden | `analysis-scheduler` täglich 09:30 | service_role |
 
 **Routing-Robustheit:** `/check` und Root-Pfad beide unterstützt.
 
@@ -632,6 +639,19 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-06 — Heizplaner im Schattenbetrieb
+- Uli: ständig feste Werte, die nicht funktionieren – die KI soll das beste Modell finden. Entscheidung: rechnender Planer statt Regeln, zuerst im Schatten.
+- Raummodell je Raum (k, g, s, c, τ) aus 24-h-Simulation gelernt, Prior für Räume mit wenig Daten; PV je Stunde aus Strahlung inkl. Bergschatten, Nachführung; Batterie; gieriger Planer 24 h × halbe Stunde.
+- Prüfung 05.11.: Modell mit echter Heizung 0,28 °C Abweichung; Planer bei gleichem Strom 0,6 statt 34 °C·h unter Untergrenze.
+- Edge Function `heizplaner`, SQL 25, `analysis-scheduler`, App KI › Planer, Einstellungen Planer. Konzept `doc/KONZEPT-PLANER-2026-11-06.md`.
+
+### 2026-11-06 — Kontrolle über die Heizleistung
+- Befund: Raumleistungen geschätzt (Wirtschaftsraum 700 statt ~2050 W, Haustür/Toilette leer), automatische Messung lief nie, Grenze am Tag (Untergrenze hart) und nachts (einmaliger Push) wirkungslos – 05.11. Wohnzimmer 5,5 kW aus Batterie/Netz, Nacht 03./04.11. 7–11 kW.
+- Raumleistungen auf Messwerte gesetzt (13 Tage, Regression, mittl. Abweichung 73 W).
+- `measure-room-power` täglich 09:30, Vorschläge in KI › Zu entscheiden (Whitelist `heating_power_w`), SQL 24.
+- `pv-automation`: „Grenze gilt immer“ – Tag und Nacht unter der Grenze, Raum über der Grenze heizt allein, Wartezeit-Vorrang, Nachlauf zählt mit.
+- Übersicht: Karte „Heizung jetzt“ (gemessen vs. laut Thermostaten, Grenze, kWh heute), Raumkarte mit Leistung, „seit“, „heute“. Details `doc/FIX-HEIZLEISTUNG-2026-11-06.md`.
 
 ### 2026-11-02 — Eco als Ziel, Raummodell
 - Befund: 02.11. morgens Zimmer Uli 20 °C bei Eco 22 °C; Batterie-Schutz (SOC < 75 %) hielt alle Räume auf „Untergrenze − 1 °C“.

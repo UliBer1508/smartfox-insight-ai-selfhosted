@@ -5,6 +5,26 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.20.0] - 2026-11-06
+
+### Added (Heizplaner, `doc/KONZEPT-PLANER-2026-11-06.md`)
+- Edge Function `heizplaner` (Schattenbetrieb): 24-h-Plan alle 15 min, minimiert Netzstrom bei Komfortzielen; lernt nachts Raummodell (Auskühlen, Aufheizen, Sonne, innere Wärme) und PV-Vorhersage (inkl. Bergschatten), rechnet den Vortag gegen.
+- SQL `25_heizplaner.sql`: `heizmodell`, `heizplan`, `heizplan_vergleich`, `heizplaner_daten()`, Einstellungen `planer_*`.
+- App: KI › 2 „Planer“ (Plan 24 h, Jetzt Planer vs. Steuerung, Zeitleiste je Raum, Gegenrechnung, Modell je Raum); Einstellungen › Haus › Verteilung: Planer-Modus und Gewichte.
+- `analysis-scheduler`: Planer bei jedem Lauf, Lernen + Gegenrechnung 03:00.
+
+## [2.19.0] - 2026-11-06
+
+### Fixed (`doc/FIX-HEIZLEISTUNG-2026-11-06.md`)
+- Raumleistungen auf gemessene Werte gesetzt (Wirtschaftsraum 700 → 2050 W, Haustür/Toilette eingetragen u. a.).
+- `pv-automation`: Leistungsgrenze gilt immer – tagsüber auch für Räume unter der Untergrenze, nachts bei jedem Lauf (vorher einmaliger Push ohne Grenze, 7–11 kW). Ein Raum über der Grenze heizt allein und nur bis Untergrenze; Wartezeit-Vorrang (`cap_wait_boost_min`, 60 min); Nachlauf zählt mit.
+
+### Added
+- Edge Function `measure-room-power` (täglich 09:30): misst die Heizleistung je Raum, Vorschläge in KI › Zu entscheiden.
+- SQL `24_heizleistung_messung.sql`: `raum_leistung_messung`, `raum_leistung_daten()`, `raum_heizung_heute()`, Whitelist `heating_power_w`, `heating_settings.cap_wait_boost_min`.
+- Übersicht: Karte „Heizung jetzt“ (gemessen vs. laut Thermostaten, Grenze, kWh heute); Raumkarte mit Leistung, „seit“, „heute“, Automatik-Begründung auch nachts.
+- Einstellungen › Haus › Verteilung: „Wartezeit bis Vorrang“.
+
 ## [2.18.2] - 2026-11-05
 
 ### Fixed (`doc/FIX-UNTERGRENZE-HART-2026-11-05.md`)

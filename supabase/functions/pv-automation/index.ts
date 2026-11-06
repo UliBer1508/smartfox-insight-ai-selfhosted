@@ -116,11 +116,92 @@ async function getPresence(supabase: any, settings: any): Promise<PresenceInfo> 
   }
 }
 
+// ============= LEISTUNGSGRENZE GILT IMMER (06.11.2026, doc/FIX-HEIZLEISTUNG-2026-11-06.md) =============
+// Uli 06.11.2026: „Grenze gilt immer“. Räume unter ihrer Untergrenze (Tag) bzw. unter ihrem Nachtwert
+// (Nacht) heizen nach Priorität, aber nur solange die Summe der Raumleistungen unter der Grenze bleibt.
+// Ausnahme: Ein Raum, der allein schon größer ist als die Grenze (Wohnzimmer 5,5 kW), darf heizen,
+// wenn gerade kein anderer Raum heizt – dann heizt er allein.
+// Wer länger als cap_wait_boost_min wartet, kommt beim nächsten Lauf zuerst dran (sonst käme ein
+// großer Raum mit niedriger Priorität nie zum Zug).
+// Räume, die gerade noch nachlaufen (Thermostat heizt über den Sollwert hinaus), werden mitgezählt.
+
+/** Sollwert, bei dem ein wartender Raum sicher nicht heizt: abgerundet Ist − 0,5 °C, nie über dem Ziel. */
+function holdBelow(cur: number, want: number): number {
+  return Math.min(want, Math.max(5, Math.floor((cur - 0.5) * 2) / 2));
+}
+
+type CapCand = { id: string; name: string; power: number; prio: number };
+type CapResult = { granted: Set<string>; waiting: Set<string>; usedW: number; alone: string | null };
+
+/** Reine Funktion: teilt die Leistung unter capW nach Wartezeit-Vorrang, dann Priorität zu. */
+function allocateUnderCap(
+  cands: CapCand[],
+  capW: number,
+  startUsedW: number,
+  waitSince: Record<string, string>,
+  boostMin: number,
+  nowMs: number,
+): CapResult {
+  const boosted = (c: CapCand) => {
+    const s = waitSince[c.id];
+    return s && boostMin > 0 && nowMs - new Date(s).getTime() >= boostMin * 60_000 ? new Date(s).getTime() : null;
+  };
+  const ordered = [...cands].sort((a, b) => {
+    const ba = boosted(a), bb = boosted(b);
+    if (ba !== null && bb !== null) return ba - bb;   // am längsten wartend zuerst
+    if (ba !== null) return -1;
+    if (bb !== null) return 1;
+    return a.prio - b.prio;
+  });
+  const granted = new Set<string>();
+  const waiting = new Set<string>();
+  let usedW = startUsedW;
+  let alone: string | null = null;
+  for (const c of ordered) {
+    if (usedW + c.power <= capW) {
+      usedW += c.power; granted.add(c.id);
+    } else if (usedW === 0 && granted.size === 0) {
+      // größer als die Grenze, aber sonst heizt niemand → allein
+      usedW += c.power; granted.add(c.id); alone = c.id;
+    } else {
+      waiting.add(c.id);
+    }
+  }
+  return { granted, waiting, usedW, alone };
+}
+
+/** Wartezustand fortschreiben: neue Wartende mit „jetzt“, wer nicht mehr wartet, fällt raus. */
+function nextWaitState(prev: Record<string, string>, waiting: Set<string>, nowIso: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const id of waiting) out[id] = prev[id] ?? nowIso;
+  return out;
+}
+
+async function loadWaitState(supabase: any): Promise<Record<string, string>> {
+  try {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'cap_wait_state').maybeSingle();
+    const v = data?.value as { rooms?: Record<string, string> } | null;
+    return v?.rooms ?? {};
+  } catch { return {}; }
+}
+async function saveWaitState(supabase: any, rooms: Record<string, string>, phase: 'tag' | 'nacht') {
+  try {
+    await supabase.from('system_settings').upsert({
+      key: 'cap_wait_state',
+      value: { rooms, phase, updated_at: new Date().toISOString() },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+  } catch (e) { console.log(`[GRENZE] Wartezustand nicht gespeichert: ${e}`); }
+}
+
+const roomPowerW = (room: any) => Number(room?.calculated_power_w) || Number(room?.heating_power_w) || 800;
+
 // Tagesmodus-Zuteilung (Konzept 27.10.2026 §2/§3). Reine Funktion, testbar.
 // rooms: Räume OHNE Budget, nach Priorität sortiert.
-// Pass 1: Räume unter Untergrenze → IMMER bis Untergrenze heizen (Untergrenze ist hart, 05.11.2026).
-//         Die Leistungsgrenze maxGridW zählt diese Räume mit, hält sie aber nicht mehr auf.
-//         Vorher: wer nicht mehr in die Grenze passte, bekam „Ist − 0,5 °C“ und kühlte beliebig aus.
+// Schritt 0: Räume, die noch nachlaufen (heizen, obwohl schon über dem Ziel), zählen zur Leistung.
+// Pass 1: Räume unter Untergrenze → bis Untergrenze heizen, nach Priorität UNTER der Grenze maxGridW
+//         (seit 06.11.2026 wieder begrenzt, „Grenze gilt immer“; ein Raum über der Grenze heizt allein).
+//         Wer nicht mehr passt, wartet mit „Ist − 0,5 °C“ und kommt nach cap_wait_boost_min zuerst dran.
 // Pass 2 (nur 'grid'): Eco nach Priorität, nur solange unter maxGridW noch Leistung frei ist;
 //         warme Räume halten Eco.
 function allocateDayTargets(
@@ -129,41 +210,68 @@ function allocateDayTargets(
   dayMode: 'wait' | 'grid' | 'battery_gate',
   maxGridW: number,
   modeText: string,
-): { targets: Map<string, { temp: number; why: string }>; gridUsedW: number } {
+  waitSince: Record<string, string> = {},
+  nowMs: number = Date.now(),
+): { targets: Map<string, { temp: number; why: string }>; gridUsedW: number; waiting: Set<string> } {
   const targets = new Map<string, { temp: number; why: string }>();
-  let gridUsedW = 0;
-  const granted = new Set<string>();
   // Batterie-Schutz (Konzept Tagesablauf §3.4, Raummodell §3.2): Ziel ist
   // „Untergrenze − battery_gate_floor_delta“ (seit 02.11.2026 Abstand 0 → Untergrenze).
   const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0));
+  const boostMin = Math.max(0, Number(settings?.cap_wait_boost_min ?? 60));
+  const floorOf = (rp: { room: any }) => dayMode === 'battery_gate'
+    ? Math.max(5, getWaitMinTemp(rp.room, settings) - gateDelta)
+    : getWaitMinTemp(rp.room, settings);
+  const ecoOf = (rp: { room: any }) => Number(rp.room.eco_temp) || Number(settings?.eco_temp) || 19;
+  const curOf = (rp: { room: any }) => Number(rp.room.current_temp) || 0;
+
+  // Schritt 0: Nachlauf mitzählen (Thermostat heizt noch, Raum liegt schon über seinem Ziel)
+  let startUsed = 0;
+  const nachlauf = new Set<string>();
+  for (const rp of rooms) {
+    const cur = curOf(rp);
+    const ziel = dayMode === 'grid' ? Math.max(floorOf(rp), ecoOf(rp)) : floorOf(rp);
+    if (rp.room.is_heating === true && cur > 0 && cur >= ziel) { startUsed += rp.heatingPower; nachlauf.add(rp.room.id); }
+  }
+
+  // Pass 1: unter Untergrenze
+  const under = rooms.filter(rp => { const c = curOf(rp); return c > 0 && c < floorOf(rp); });
+  const cap = allocateUnderCap(
+    under.map(rp => ({ id: rp.room.id, name: rp.room.name, power: rp.heatingPower, prio: Number(rp.room.priority) || 99 })),
+    maxGridW, startUsed, waitSince, boostMin, nowMs,
+  );
+  let gridUsedW = cap.usedW;
+  const granted = new Set<string>(cap.granted);
 
   for (const rp of rooms) {
-    const waitT = dayMode === 'battery_gate'
-      ? Math.max(5, getWaitMinTemp(rp.room, settings) - gateDelta)
-      : getWaitMinTemp(rp.room, settings);
-    const cur = Number(rp.room.current_temp) || 0;
-    if (cur > 0 && cur < waitT) {
-      gridUsedW += rp.heatingPower;
-      granted.add(rp.room.id);
-      const over = gridUsedW > maxGridW ? ` – über der Grenze ${maxGridW} W, Untergrenze geht vor` : '';
+    const waitT = floorOf(rp);
+    const cur = curOf(rp);
+    if (cap.granted.has(rp.room.id)) {
+      const allein = cap.alone === rp.room.id ? ` – größer als die Grenze ${maxGridW} W, heizt allein` : '';
       targets.set(rp.room.id, { temp: waitT,
-        why: `unter Untergrenze (${cur.toFixed(1)} < ${waitT} °C) → heizt bis Untergrenze, ${gridUsedW}/${maxGridW} W${over}` });
+        why: `unter Untergrenze (${cur.toFixed(1)} < ${waitT} °C) → heizt bis Untergrenze, ${cap.usedW}/${maxGridW} W${allein}` });
+    } else if (cap.waiting.has(rp.room.id)) {
+      const seit = waitSince[rp.room.id] ? ` seit ${new Date(waitSince[rp.room.id]).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' })}` : '';
+      targets.set(rp.room.id, { temp: holdBelow(cur, waitT),
+        why: `unter Untergrenze (${cur.toFixed(1)} < ${waitT} °C), Grenze ${maxGridW} W belegt (${cap.usedW} W) → wartet${seit}` });
     } else {
-      targets.set(rp.room.id, { temp: waitT, why: dayMode === 'battery_gate'
+      const nach = nachlauf.has(rp.room.id) ? ' (heizt noch nach, zählt mit)' : '';
+      targets.set(rp.room.id, { temp: waitT, why: (dayMode === 'battery_gate'
         ? `Batterie-Schutz: hält Untergrenze ${waitT} °C, Sonne lädt erst die Batterie`
-        : `${modeText} → hält Untergrenze ${waitT} °C` });
+        : `${modeText} → hält Untergrenze ${waitT} °C`) + nach });
     }
   }
 
   if (dayMode === 'grid') {
     for (const rp of rooms) {
-      const ecoT = Number(rp.room.eco_temp) || Number(settings?.eco_temp) || 19;
+      const ecoT = ecoOf(rp);
       const waitT = getWaitMinTemp(rp.room, settings);
       if (ecoT <= waitT) continue;
-      const cur = Number(rp.room.current_temp) || 0;
+      if (cap.waiting.has(rp.room.id)) continue;   // wartet schon auf die Untergrenze
+      if (cap.alone === rp.room.id) continue;      // heizt allein über der Grenze – nur bis Untergrenze, nicht bis Eco
+      const cur = curOf(rp);
       if (cur <= 0) continue;
       if (cur >= ecoT) {
-        targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco halten (Raum warm)` });
+        targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco halten (Raum warm)${nachlauf.has(rp.room.id) ? ', heizt noch nach' : ''}` });
       } else if (granted.has(rp.room.id)) {
         targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco aus Netz (${gridUsedW}/${maxGridW}W)` });
       } else if (gridUsedW + rp.heatingPower <= maxGridW) {
@@ -174,7 +282,7 @@ function allocateDayTargets(
       // sonst bleibt das Ziel aus Pass 1 – Raum wartet auf Netz-Kapazität
     }
   }
-  return { targets, gridUsedW };
+  return { targets, gridUsedW, waiting: cap.waiting };
 }
 
 // (isMorningWaitPeriod entfernt — Thermostate regeln passiven Solargewinn selbst, alle Räume gleich behandelt)
@@ -857,8 +965,13 @@ Deno.serve(async (req) => {
 
         // Quiet Mode NUR wenn die Nacht bereits ohne Fehler abgeschlossen wurde.
         // Bei Fehlern: alle 15 Min erneut versuchen (nur fehlgeschlagene Räume).
-        const fullySucceeded = lastPushedNight === nightKey && lastFailures === 0;
-        const recentlyAttempted = lastPushedNight === nightKey && minsSinceLastAttempt < NIGHT_RETRY_THROTTLE_MIN;
+        // Seit 06.11.2026: „Nachtwert halten“ (maintain) hat KEINEN Quiet Mode mehr – die Leistungsgrenze
+        // wird bei jedem Lauf neu verteilt (sonst heizten alle Räume gleichzeitig, 03./04.11.: 7–11 kW).
+        // Nur bei Fehlern bleibt die 15-Minuten-Pause, damit ein offline Dienst nicht alle 5 Minuten Fehler schreibt.
+        const isMaintainNight = nightHeatingMode !== 'frost_only';
+        const fullySucceeded = !isMaintainNight && lastPushedNight === nightKey && lastFailures === 0;
+        const recentlyAttempted = lastPushedNight === nightKey && minsSinceLastAttempt < NIGHT_RETRY_THROTTLE_MIN
+          && (!isMaintainNight || lastFailures > 0);
         if (fullySucceeded || recentlyAttempted) {
           const reason = fullySucceeded
             ? `bereits erfolgreich gepushed für Nacht ${nightKey}`
@@ -881,7 +994,7 @@ Deno.serve(async (req) => {
         // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
-          .select('id, name, tuya_device_id, target_temp, night_temp, eco_temp, wait_min_temp, pv_auto_active, heating_paused_reason, last_thermostat_sync')
+          .select('id, name, tuya_device_id, target_temp, night_temp, eco_temp, wait_min_temp, pv_auto_active, heating_paused_reason, last_thermostat_sync, priority, current_temp, is_heating, heating_power_w, calculated_power_w, manual_override_until, automation_enabled')
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
@@ -1016,39 +1129,96 @@ Deno.serve(async (req) => {
           // Seit 02.11.2026 (Konzept Tagesablauf §11): Die Untergrenze ist auch nachts eine harte Grenze.
           // Nachtwert unter der Untergrenze wird angehoben. Nur „Frostschutz“ (frost_only) ist eine bewusste Ausnahme.
           const nightTargetOf = (r: any) => Math.max(Number(r.night_temp) || globalNightTemp, getWaitMinTemp(r, settings));
-          const roomsNeedingAdjustment = allRooms.filter(r => {
-            const currentTarget = Number(r.target_temp) || 0;
-            const nightTarget = nightTargetOf(r);
-            return Math.abs(currentTarget - nightTarget) >= 0.5;
+
+          // ---- Leistungsgrenze auch nachts (06.11.2026, Uli: „Grenze gilt immer“) ----
+          // Grenze = „Max. Heizleistung ohne PV“ (max_grid_heating_power_w). Räume unter ihrem Nachtwert
+          // heizen nach Wartezeit-Vorrang/Priorität, solange die Summe darunter bleibt; ein Raum über der
+          // Grenze heizt allein. Andere warten mit „Ist − 0,5 °C“. Nachlauf und manuell übersteuerte
+          // Räume, die gerade heizen, zählen zur Leistung. Räume mit ausgeschalteter Automatik bleiben unberührt.
+          const nightCapW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
+          const nightBoostMin = Math.max(0, Number(settings?.cap_wait_boost_min ?? 60));
+          const nowMsNight = Date.now();
+          const isOverridden = (r: any) => !!r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMsNight;
+          const autoRooms = allRooms.filter((r: any) => r.automation_enabled !== false);
+          const ctrlRooms = autoRooms.filter((r: any) => !isOverridden(r));
+          let nightStartUsed = 0;
+          const nightNachlauf = new Set<string>();
+          for (const r of autoRooms) {
+            const cur = Number(r.current_temp) || 0;
+            const heatingAnyway = r.is_heating === true && (isOverridden(r) || (cur > 0 && cur >= nightTargetOf(r)));
+            if (heatingAnyway) { nightStartUsed += roomPowerW(r); nightNachlauf.add(r.id); }
+          }
+          const nightCands = ctrlRooms
+            .filter((r: any) => { const c = Number(r.current_temp) || 0; return c > 0 && c < nightTargetOf(r); })
+            .map((r: any) => ({ id: r.id, name: r.name, power: roomPowerW(r), prio: Number(r.priority) || 99 }));
+          const nightWaitPrev = await loadWaitState(supabase);
+          const nightCap = allocateUnderCap(nightCands, nightCapW, nightStartUsed, nightWaitPrev, nightBoostMin, nowMsNight);
+          await saveWaitState(supabase, nextWaitState(nightWaitPrev, nightCap.waiting, new Date().toISOString()), 'nacht');
+
+          const fmtHM = (iso: string) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' });
+          const nightPlan: Array<{ room: any; target: number; why: string }> = ctrlRooms.map((r: any) => {
+            const want = nightTargetOf(r);
+            const cur = Number(r.current_temp) || 0;
+            let target = want;
+            let why: string;
+            if (nightCap.granted.has(r.id)) {
+              why = `unter Nachtwert (${cur.toFixed(1)} < ${want} °C) → heizt, ${nightCap.usedW}/${nightCapW} W`
+                + (nightCap.alone === r.id ? ` – größer als die Grenze, heizt allein` : '');
+            } else if (nightCap.waiting.has(r.id)) {
+              target = holdBelow(cur, want);
+              const seit = nightWaitPrev[r.id] ? ` seit ${fmtHM(nightWaitPrev[r.id])}` : '';
+              why = `unter Nachtwert (${cur.toFixed(1)} < ${want} °C), Grenze ${nightCapW} W belegt (${nightCap.usedW} W) → wartet${seit}`;
+            } else {
+              why = `hält Nachtwert ${want} °C` + (nightNachlauf.has(r.id) ? ' (heizt noch nach, zählt mit)' : '');
+            }
+            return { room: r, target, why };
           });
+          console.log(`[NACHT-GRENZE] ${nightCap.usedW}/${nightCapW} W · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size}`);
+
+          // Für die App: Begründung je Raum auch nachts (Übersicht › Raumkarte „Automatik: …“)
+          try {
+            await supabase.from('system_settings').upsert({
+              key: 'heating_night_mode',
+              value: {
+                computed_at: new Date().toISOString(),
+                cap_w: nightCapW,
+                used_w: nightCap.usedW,
+                rooms: nightPlan.map(p => ({ room_id: p.room.id, name: p.room.name, target: p.target, why: p.why })),
+              },
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'key' });
+          } catch (e) { console.log(`[NACHT-GRENZE] Persist fehlgeschlagen: ${e}`); }
+
+          const roomsNeedingAdjustment = nightPlan.filter(p => Math.abs((Number(p.room.target_temp) || 0) - p.target) >= 0.25);
 
           if (roomsNeedingAdjustment.length === 0) {
             await supabase.from('system_settings').upsert({
               key: 'night_frost_last_pushed',
-              value: { night: nightKey, pushed_at: new Date().toISOString(), rooms: 0, mode: 'maintain' }
+              value: { night: nightKey, pushed_at: new Date().toISOString(), last_attempt_at: new Date().toISOString(), rooms: 0, failures: 0, mode: 'maintain' }
             }, { onConflict: 'key' });
-            return new Response(JSON.stringify({ 
-              success: true, 
-              message: `Nachtmodus aktiv (${wienTime}) - alle ${allRooms.length} Thermostate bereits auf Nachttemperatur`,
+            return new Response(JSON.stringify({
+              success: true,
+              message: `Nachtmodus aktiv (${wienTime}) - keine Änderung nötig (${nightCap.usedW}/${nightCapW} W)`,
               nightMode: true, nightHeatingMode,
-              quietMode: true, nightKey,
+              nightKey,
               thermostatsChecked: allRooms.length,
-              results: [] 
+              results: []
             }), {
               headers: { ...corsHeaders, 'Content-Type': 'application/json' }
             });
           }
 
-          for (const room of roomsNeedingAdjustment) {
-            const nightTarget = nightTargetOf(room);
-            console.log(`[PV-Automation] Night maintain: ${room.name} → ${nightTarget}°C (was ${room.target_temp}°C)`);
-            
+          for (const plan of roomsNeedingAdjustment) {
+            const room = plan.room;
+            const nightTarget = plan.target;
+            console.log(`[PV-Automation] Night maintain: ${room.name} → ${nightTarget}°C (was ${room.target_temp}°C) – ${plan.why}`);
+
             const result = await setTemperatureForMode(
               room.tuya_device_id!,
               room.id,
               nightTarget,
               'stop',
-              `Nacht: Nachtwert halten ${nightTarget}°C`
+              `Nacht: ${plan.why}`
             );
 
             if (result.success) {
@@ -2884,10 +3054,12 @@ Deno.serve(async (req) => {
       const dayCapW = dayMode === 'battery_gate'
         ? Math.max(0, Number(settings?.battery_gate_max_power_w ?? 1000))
         : maxGridHeatingW;
-      const { targets: dayFallback, gridUsedW } = allocateDayTargets(
+      const dayWaitPrev = await loadWaitState(supabase);
+      const { targets: dayFallback, gridUsedW, waiting: dayWaiting } = allocateDayTargets(
         unbudgetedRooms.map(rp => ({ room: rp.room, heatingPower: rp.heatingPower })),
-        settings, dayMode, dayCapW, modeText,
+        settings, dayMode, dayCapW, modeText, dayWaitPrev, nowMsDay,
       );
+      await saveWaitState(supabase, nextWaitState(dayWaitPrev, dayWaiting, new Date().toISOString()), 'tag');
 
       console.log(`[TAGESMODUS] ${dayMode} | Ratio=${dayRatio === null ? '–' : dayRatio.toFixed(2)} Schwelle=${dayThreshold} | KI: ${kiInfo} | Netz ${gridUsedW}/${dayCapW}W | ${unbudgetedRooms.length} Räume ohne Budget`);
       for (const rp of unbudgetedRooms) {

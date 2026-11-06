@@ -1,4 +1,4 @@
-// Tab "KI" – prüfen und entscheiden (Stand 04.11.2026).
+// Tab "KI" – prüfen und entscheiden (Stand 06.11.2026: Abschnitt 2 „Planer“, Schattenbetrieb).
 // Alle KI-Bausteine an einem Ort; vorher verteilt auf Energie, Heizung & KI und Verlauf & Muster.
 // 04.11.2026: „Zu entscheiden“ zeigt alle Vorschläge an einem Platz in einfachen Worten (ZuEntscheiden.tsx).
 // Die frühere Parameter-Liste (stündliche Gemini-Vorschläge) steht nur noch als Protokoll unter 3.
@@ -18,6 +18,7 @@ import { AutomationStatusCard } from '@/components/heating/AutomationStatusCards
 import { ZuEntscheiden } from './ZuEntscheiden';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { KiAnalysisRuns } from './KiAnalysisRuns';
+import { PlanerView } from './PlanerView';
 
 function Section({ n, title, question, children, right }: { n: number; title: string; question: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
@@ -74,12 +75,16 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         <PriceSuggestionBanner />
       </Section>
 
-      <Section n={2} title="Heute" question="Was plant die KI für heute – und warum?">
+      <Section n={2} title="Planer" question="Was würde der rechnende Planer tun – und wäre es besser? (Schattenbetrieb, steuert noch nicht)">
+        <PlanerView />
+      </Section>
+
+      <Section n={3} title="Heute" question="Was plant die KI für heute – und warum?">
         <AIDailyPlanCard />
         <AutomationStatusCard />
       </Section>
 
-      <Section n={3} title="Lernen & Qualität" question="Lernt die KI richtig? Folgt die Automatik ihren Empfehlungen?">
+      <Section n={4} title="Lernen & Qualität" question="Lernt die KI richtig? Folgt die Automatik ihren Empfehlungen?">
         <div className="grid lg:grid-cols-3 gap-4">
           <div className="lg:col-span-2"><LearningProgress /></div>
           <MLFollowRateWidget />
@@ -90,7 +95,7 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         </details>
       </Section>
 
-      <Section n={4} title="Auswertungen" question="Musteranalyse für Tag, Woche, Monat – auf Knopfdruck.">
+      <Section n={5} title="Auswertungen" question="Musteranalyse für Tag, Woche, Monat – auf Knopfdruck.">
         <Card>
           <CardContent className="p-4">
             <KiAnalysisRuns readings={readings} analysis={pattern.analysis} isAnalyzing={pattern.isAnalyzing}

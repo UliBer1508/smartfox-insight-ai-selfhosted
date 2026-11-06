@@ -1,10 +1,27 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-05
+Stand: 2026-11-06
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Heizplaner im Schattenbetrieb (06.11., `KONZEPT-PLANER-2026-11-06.md`)
+- [x] SQL `25_heizplaner.sql` ausgeführt, Raummodelle + PV-Modell + Gegenrechnung 05.11. eingetragen (06.11.)
+- [ ] PR mergen → `heizplaner` + `analysis-scheduler` deployt; KI › Planer zeigt alle 15 min einen neuen Plan
+- [ ] Morgen früh: Gegenrechnung 06.11. in KI › Planer, Raummodelle um 03:00 neu gelernt?
+- [ ] Einige Tage beobachten: Plan plausibel? Gewichte (0,6 / 2 / 1,5 °C) passend?
+- [ ] Wünsche je Raum und Uhrzeit (Belegung: Wohnzimmer, Zimmer Luis tagsüber …)
+- [ ] Nach Freigabe: Modus „steuern“ bauen, Regelwerk schrittweise abbauen
+
+### Heizleistung unter Kontrolle (06.11., `FIX-HEIZLEISTUNG-2026-11-06.md`)
+- [x] Raumleistungen auf Messwerte gesetzt (06.11. 08:40)
+- [x] SQL `24_heizleistung_messung.sql` ausgeführt (06.11.)
+- [ ] PR mergen → `pv-automation`, `measure-room-power`, `analysis-scheduler` per GitHub-Aktion deployt?
+- [ ] Heute Abend nach Nachtbeginn: Übersicht › Raumkarten „Automatik: …“, Karte „Heizung jetzt“ (Grenze 4 kW eingehalten?)
+- [ ] Morgen 09:30: `raum_leistung_messung` gefüllt, Vorschläge in KI › Zu entscheiden plausibel?
+- [ ] Toilette Eingang: hängt eine Heizung am Thermostat? (heizt-Meldung ohne Verbrauch, ~100 W)
+- [ ] Zimmer Uli: Leistung 2000 W nur aus 5 Messwerten – Messung beobachten
 
 ### Systemstatus einspielen (05.11.)
 - [x] SQL `22_systemstatus.sql` ausgeführt, Cron `system-alert-5min` läuft (05.11.)
