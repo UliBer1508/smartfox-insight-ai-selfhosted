@@ -50,6 +50,14 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 - Edge Functions `system-agent` (Token statt anon-Schlüssel) und `system-alert` (Cron alle 5 min: Webseiten prüfen, Mail bei neuem Problem, „wieder in Ordnung“, Erinnerung nach 24 h).
 - SQL `22_systemstatus.sql`: `system_hosts`, `system_services`, `service_commands`, `system_status_admins`, `system_alert_state`, `system_problems()` (eine Liste für App und Mail), `system_cloud_status()`.
 
+## [2.17.1] - 2026-11-04
+
+### Fixed (ki-tagesanalyse, Konzept KI-Vorschläge §9.5)
+- Untergrenze nur vorschlagen, wenn der Raum sie morgens gehalten hat; sonst Hinweis „Nicht einmal die Untergrenze gehalten – Ursache prüfen“.
+- Greift die Hausgrenze „Heizleistung ohne Sonne“, keine Untergrenzen-Vorschläge; Hauswerte vor Raumwerten.
+- Nur Tage nach der letzten genehmigten Änderung desselben Werts zählen.
+- Tagesart auch aus der PV-Menge (Sonnentage speisten kaum ein).
+
 ## [2.17.0] - 2026-11-04
 
 ### Added (KI › Zu entscheiden, `doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md` §9)

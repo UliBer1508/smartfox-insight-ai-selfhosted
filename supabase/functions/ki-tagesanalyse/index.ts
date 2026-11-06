@@ -74,10 +74,11 @@ interface Neu {
   bezug_id?: string; gewicht?: number;
 }
 
-function tagesart(einsp: number | null): TagInfo['art'] {
-  if (einsp == null) return 'wechselhaft';
-  if (einsp >= 2) return 'sonnig';
-  if (einsp < 1) return 'trueb';
+// Tagesart aus PV-Menge und Einspeisung (04.11.: Sonnentage mit 40+ kWh speisten kaum ein, weil das Haus alles nahm –
+// die Einspeisung allein reicht deshalb nicht).
+function tagesart(pv: number | null, einsp: number | null): TagInfo['art'] {
+  if ((pv ?? 0) >= 25 || (einsp ?? 0) >= 2) return 'sonnig';
+  if (pv != null && pv < 15 && (einsp ?? 0) < 1) return 'trueb';
   return 'wechselhaft';
 }
 
@@ -113,7 +114,8 @@ Deno.serve(async (req) => {
       if (!raeume.length) continue;                       // Tag ohne Messwerte
       const b = tb.get(t);
       const einsp = b?.einspeisung_kwh != null ? Number(b.einspeisung_kwh) : null;
-      tagInfos.push({ tag: t, art: tagesart(einsp), pv: b?.pv_kwh != null ? Number(b.pv_kwh) : null, einsp,
+      const pvKwh = b?.pv_kwh != null ? Number(b.pv_kwh) : null;
+      tagInfos.push({ tag: t, art: tagesart(pvKwh, einsp), pv: pvKwh, einsp,
                       note: b?.note != null ? Number(b.note) : null, raeume });
     }
     const n = tagInfos.length;
@@ -124,18 +126,34 @@ Deno.serve(async (req) => {
         v.status === 'offen' ||
         (v.status === 'abgelehnt' && v.entschieden_at && Date.now() - new Date(v.entschieden_at).getTime() < SPERRE_ABGELEHNT_TAGE * 86400000)));
 
+    // Nur Tage NACH der letzten genehmigten Änderung desselben Werts zählen – vorher galt ein anderer Wert
+    const seit = (key: string, roomId: string | null): string => vorhanden
+      .filter((v) => v.parameter_key === key && (v.room_id ?? null) === roomId && ['genehmigt', 'geaendert'].includes(v.status) && v.entschieden_at)
+      .map((v) => viennaDate(new Date(v.entschieden_at))).sort().pop() ?? '0000-00-00';
+
     const kandidaten: Neu[] = [];
     const infos: Neu[] = [];
 
     // ---- Regel 1: Untergrenze je Raum ----------------------------------------------------------------
-    // Raum morgens nur knapp über seiner Untergrenze UND danach > 2 h unter Eco → Untergrenze um 0,5 °C anheben
+    // Raum hat morgens seine Untergrenze gehalten (± 0,3 °C), lag danach aber > 2 h unter Eco → Untergrenze + 0,5 °C.
+    // 04.11.: Liegt der Raum morgens schon deutlich UNTER der Untergrenze, hilft ein höherer Wert nichts – dann
+    // wird die Untergrenze gar nicht gehalten (Nacht auf Frostschutz, Heizleistung zu klein …) → nur Hinweis.
     const wlU = wl.get('wait_min_temp');
+    const haeltNicht: Array<{ name: string; morgen: number; grenze: number; tage: number }> = [];
     if (wlU) {
       for (const r of (rooms ?? []) as any[]) {
         if (r.automation_enabled === false || r.eco_temp == null || r.wait_min_temp == null) continue;
         const eco = Number(r.eco_temp), alt = Number(r.wait_min_temp);
-        const treffer = tagInfos.map((t) => ({ t, x: t.raeume.find((x) => x.room_id === r.id) }))
-          .filter(({ x }) => x && x.t_morgen != null && x.min_unter_eco >= UNTER_ECO_SCHWELLE_MIN && Number(x.t_morgen) <= alt + 0.5);
+        const tageRaum = tagInfos.map((t) => ({ t, x: t.raeume.find((x) => x.room_id === r.id) }))
+          .filter(({ x }) => x && x.t_morgen != null);
+        const darunter = tageRaum.filter(({ x }) => Number(x!.t_morgen) < alt - 0.3);
+        if (darunter.length >= MIN_TAGE) {
+          haeltNicht.push({ name: r.name, morgen: mittel(darunter.map(({ x }) => Number(x!.t_morgen))), grenze: alt, tage: darunter.length });
+        }
+        // Auch eine Änderung der Heizleistung ohne Sonne (betrifft alle Räume) startet die Zählung neu
+        const abU = [seit('wait_min_temp', r.id), seit('max_grid_heating_power_w', null)].sort().pop()!;
+        const treffer = tageRaum.filter(({ t }) => t.tag > abU)
+          .filter(({ x }) => x!.min_unter_eco >= UNTER_ECO_SCHWELLE_MIN && Number(x!.t_morgen) >= alt - 0.3 && Number(x!.t_morgen) <= alt + 0.5);
         if (!treffer.length) continue;
         const neu = Math.min(eco, alt + 0.5, Number(wlU.max_value ?? 99));
         const morgen = mittel(treffer.map(({ x }) => Number(x!.t_morgen)));
@@ -164,7 +182,8 @@ Deno.serve(async (req) => {
     const wlG = wl.get('max_grid_heating_power_w');
     if (wlG && hs?.max_grid_heating_power_w != null) {
       const alt = Number(hs.max_grid_heating_power_w);
-      const treffer = tagInfos.filter((t) => t.art === 'trueb')
+      const abG = seit('max_grid_heating_power_w', null);
+      const treffer = tagInfos.filter((t) => t.art === 'trueb' && t.tag > abG)
         .map((t) => ({ t, kalt: t.raeume.filter((x) => x.min_unter_eco >= UNTER_ECO_SCHWELLE_MIN) }))
         .filter(({ kalt }) => kalt.length >= 3);
       const neu = Math.min(alt + 500, Number(wlG.max_value ?? 6000));
@@ -180,7 +199,19 @@ Deno.serve(async (req) => {
           min_wert: Number(wlG.min_value ?? 1000), max_wert: Number(wlG.max_value ?? 6000), einheit: 'W',
           tage_basis: treffer.length, belege: treffer.map(({ t, kalt }) => ({ tag: t.tag, einspeisung_kwh: t.einsp, raeume_unter_eco: kalt.map((x) => x.raum) })),
         });
+        // Die Hausgrenze ist die Ursache – Untergrenzen je Raum erst wieder, wenn das geklärt ist
+        for (let i = kandidaten.length - 1; i >= 0; i--) if (kandidaten[i].parameter_key === 'wait_min_temp') kandidaten.splice(i, 1);
       }
+    }
+
+    // Räume, die nicht einmal ihre Untergrenze halten – ein Hinweis für alle zusammen
+    if (haeltNicht.length) {
+      haeltNicht.sort((a, b) => (a.morgen - a.grenze) - (b.morgen - b.grenze));
+      infos.push({ quelle: 'tagesanalyse', art: 'info', gewicht: 50,
+        titel: `Nicht einmal die Untergrenze gehalten (an mindestens ${MIN_TAGE} der letzten ${n} Tage morgens darunter): `
+          + haeltNicht.slice(0, 5).map((h) => `${h.name} morgens ${zahl(h.morgen)} °C statt ${zahl(h.grenze)} °C`).join(', ')
+          + `${haeltNicht.length > 5 ? ` und ${haeltNicht.length - 5} weitere` : ''}. Ein höherer Wert hilft hier nicht – Ursache prüfen `
+          + '(Nacht auf Frostschutz? Heizleistung ohne Sonne zu klein? Thermostat offline?).' });
     }
 
     // ---- Regel 3: Estrich laden bis je Raum ---------------------------------------------------------
@@ -191,7 +222,8 @@ Deno.serve(async (req) => {
         if (r.automation_enabled === false || r.pv_boost_max_temp == null || r.comfort_temp == null) continue;
         const alt = Number(r.pv_boost_max_temp), komfort = Number(r.comfort_temp);
         const obergrenze = Math.min(komfort + 2, Number(wlE.max_value ?? 26));
-        const treffer = tagInfos.filter((t) => t.art === 'sonnig')
+        const abE = seit('pv_boost_max_temp', r.id);
+        const treffer = tagInfos.filter((t) => t.art === 'sonnig' && t.tag > abE)
           .map((t) => ({ t, x: t.raeume.find((x) => x.room_id === r.id) }))
           .filter(({ x }) => x && x.t_max != null && Number(x.t_max) >= alt - 0.2);
         const neu = Math.min(alt + 0.5, obergrenze);
@@ -253,7 +285,9 @@ Deno.serve(async (req) => {
     }
 
     // ---- Auswahl und Schreiben -----------------------------------------------------------------------
-    const vorschlaege = [...ruecknahmen, ...kandidaten.sort((x, y) => (y.gewicht ?? 0) - (x.gewicht ?? 0))].slice(0, MAX_VORSCHLAEGE);
+    // Rücknahmen zuerst, dann Hauswerte (betreffen alle Räume), dann Raumwerte nach Anzahl Tage
+    const rang = (v: Neu) => (v.scope === 'global' ? 1000 : 0) + (v.gewicht ?? 0);
+    const vorschlaege = [...ruecknahmen, ...kandidaten.sort((x, y) => rang(y) - rang(x))].slice(0, MAX_VORSCHLAEGE);
     const infoAuswahl = infos.sort((x, y) => (y.gewicht ?? 0) - (x.gewicht ?? 0)).slice(0, 3);
 
     for (const w of wirkungUpdates) {
