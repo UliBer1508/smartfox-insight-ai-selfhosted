@@ -207,7 +207,7 @@ const roomPowerW = (room: any) => Number(room?.calculated_power_w) || Number(roo
 function allocateDayTargets(
   rooms: Array<{ room: any; heatingPower: number }>,
   settings: any,
-  dayMode: 'wait' | 'grid' | 'battery_gate',
+  dayMode: 'wait' | 'grid' | 'battery_gate' | 'evening',
   maxGridW: number,
   modeText: string,
   waitSince: Record<string, string> = {},
@@ -218,9 +218,13 @@ function allocateDayTargets(
   // „Untergrenze − battery_gate_floor_delta“ (seit 02.11.2026 Abstand 0 → Untergrenze).
   const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0));
   const boostMin = Math.max(0, Number(settings?.cap_wait_boost_min ?? 60));
+  // Abend (seit 06.11.2026): ab Sonnenuntergang gilt die Nachtlogik – Ziel = max(Nachtwert, Untergrenze), kein Eco.
+  const nightOf = (rp: { room: any }) => Math.max(Number(rp.room.night_temp) || Number(settings?.night_temp) || 17, getWaitMinTemp(rp.room, settings));
   const floorOf = (rp: { room: any }) => dayMode === 'battery_gate'
     ? Math.max(5, getWaitMinTemp(rp.room, settings) - gateDelta)
+    : dayMode === 'evening' ? nightOf(rp)
     : getWaitMinTemp(rp.room, settings);
+  const floorName = dayMode === 'evening' ? 'Nachtwert' : 'Untergrenze';
   const ecoOf = (rp: { room: any }) => Number(rp.room.eco_temp) || Number(settings?.eco_temp) || 19;
   const curOf = (rp: { room: any }) => Number(rp.room.current_temp) || 0;
 
@@ -248,16 +252,16 @@ function allocateDayTargets(
     if (cap.granted.has(rp.room.id)) {
       const allein = cap.alone === rp.room.id ? ` – größer als die Grenze ${maxGridW} W, heizt allein` : '';
       targets.set(rp.room.id, { temp: waitT,
-        why: `unter Untergrenze (${cur.toFixed(1)} < ${waitT} °C) → heizt bis Untergrenze, ${cap.usedW}/${maxGridW} W${allein}` });
+        why: `unter ${floorName} (${cur.toFixed(1)} < ${waitT} °C) → heizt bis ${floorName}, ${cap.usedW}/${maxGridW} W${allein}` });
     } else if (cap.waiting.has(rp.room.id)) {
       const seit = waitSince[rp.room.id] ? ` seit ${new Date(waitSince[rp.room.id]).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' })}` : '';
       targets.set(rp.room.id, { temp: holdBelow(cur, waitT),
-        why: `unter Untergrenze (${cur.toFixed(1)} < ${waitT} °C), Grenze ${maxGridW} W belegt (${cap.usedW} W) → wartet${seit}` });
+        why: `unter ${floorName} (${cur.toFixed(1)} < ${waitT} °C), Grenze ${maxGridW} W belegt (${cap.usedW} W) → wartet${seit}` });
     } else {
       const nach = nachlauf.has(rp.room.id) ? ' (heizt noch nach, zählt mit)' : '';
       targets.set(rp.room.id, { temp: waitT, why: (dayMode === 'battery_gate'
         ? `Batterie-Schutz: hält Untergrenze ${waitT} °C, Sonne lädt erst die Batterie`
-        : `${modeText} → hält Untergrenze ${waitT} °C`) + nach });
+        : `${modeText} → hält ${floorName} ${waitT} °C`) + nach });
     }
   }
 
@@ -1570,8 +1574,12 @@ Deno.serve(async (req) => {
       // Sonnenuntergang erkennen für Batterie-Reserve-Logik
       const sunsetStr = pvForecast?.sunset as string | null; // z.B. "19:45:00"
       const sunsetHour = sunsetStr ? parseInt(sunsetStr.split(':')[0], 10) : 20; // Fallback 20:00
+      const sunsetMin = sunsetStr ? sunsetHour * 60 + (parseInt(sunsetStr.split(':')[1], 10) || 0) : 20 * 60;
       const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '08:00');
-      const afterSunset = currentWienHour >= sunsetHour;
+      const wienNowParts = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
+      const wienNowMin = Number(wienNowParts.find(p => p.type === 'hour')?.value ?? currentWienHour) * 60 + Number(wienNowParts.find(p => p.type === 'minute')?.value ?? 0);
+      // Seit 06.11.2026 minutengenau (vorher nur Stunde → „nach Sonnenuntergang“ galt z. B. schon ab 16:00 bei Sonnenuntergang 16:40).
+      const afterSunset = wienNowMin >= sunsetMin;
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
       // WW + E-Auto werden autonom von Smartfox gesteuert und reduzieren
@@ -1697,7 +1705,10 @@ Deno.serve(async (req) => {
       const socGateMode = (settings?.heating_soc_gate_mode ?? 'strict') as 'strict' | 'soft';
 
       // Nach Sonnenuntergang: Batterie-Reserve für Eco nur wenn SOC > Gate (nicht mehr hartcodiert 50)
-      const batteryEcoReserveAllowed = afterSunset && ecoRoomsRemaining > 0 && batterySoc > heatingMinSoc;
+      // Seit 06.11.2026 aus: Ab Sonnenuntergang gilt die Nachtlogik (Tagesmodus 'evening'), kein Eco aus der Batterie.
+      // Uli: „Warum um 19:00 auf 22? Das ist doch Quatsch.“ – die Batterie ist für die Nacht.
+      const batteryEcoReserveAllowed = false;
+      void ecoRoomsRemaining;
       
       // Aktuelle Stunden-Prognose für Mindest-Budget
       const currentHourForecastW = hourlyWatts[`${today} ${currentWienHour.toString().padStart(2, '0')}:00:00`] || 0;
@@ -3019,15 +3030,19 @@ Deno.serve(async (req) => {
       // Batterie/Netz), sondern bekommen ihr Ziel aus dem Tagesmodus:
       //   battery_gate – SOC unter heating_min_battery_soc (strict): Mindesttemperatur ohne PV
       //   wait         – PV-Überschuss für den Eco-Bedarf ist heute noch absehbar: Mindesttemperatur
-      //   grid         – kein Überschuss zu erwarten / nach Sonnenuntergang: Eco nach Priorität,
+      //   evening      – nach Sonnenuntergang (seit 06.11.2026): wie Nacht, Ziel max(Nachtwert, Untergrenze), kein Eco
+      //   grid         – kein Überschuss zu erwarten: Eco nach Priorität,
       //                  Summe der Raumleistungen ≤ max_grid_heating_power_w
       // Räume unter ihrer Mindesttemperatur werden in jedem Modus zuerst bis zur Mindesttemperatur
       // geheizt, ebenfalls nach Priorität innerhalb der Netzgrenze.
       // KI (Mustergedächtnis best_match_today × pattern_recall_strength) verschiebt nur die Schwelle
       // zwischen wait und grid, max. ±0,3.
       const maxGridHeatingW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
-      let dayMode: 'wait' | 'grid' | 'battery_gate' = 'grid';
-      if (socGateBlocked && socGateMode === 'strict') {
+      let dayMode: 'wait' | 'grid' | 'battery_gate' | 'evening' = 'grid';
+      if (afterSunset) {
+        // Seit 06.11.2026: Abend = Nachtlogik. Ziel max(Nachtwert, Untergrenze), Grenze max_grid_heating_power_w, kein Eco.
+        dayMode = 'evening';
+      } else if (socGateBlocked && socGateMode === 'strict') {
         dayMode = 'battery_gate';
       } else if (isAway) {
         // Abwesend (Kalender-Eintrag): jeder Tag wie ein Wartetag – Netz nur bis Untergrenze, PV lädt bis Eco, dann Komfort.
@@ -3043,13 +3058,15 @@ Deno.serve(async (req) => {
         const ov = rp.room.manual_override_until && new Date(rp.room.manual_override_until).getTime() > nowMsDay;
         return !ov;
       });
-      const modeText = dayMode === 'battery_gate'
+      const modeText = dayMode === 'evening'
+        ? 'Abend (nach Sonnenuntergang wie Nacht)'
+        : dayMode === 'battery_gate'
         ? `Batterie-Gate (${batterySoc}% < ${heatingMinSoc}%)`
         : isAway
           ? 'Abwesend (Kalender)'
         : dayMode === 'wait'
           ? `Sonnentag (Überschuss nach Batterie ${(surplusAfterBatteryWh / 1000).toFixed(1)} kWh ≥ ${dayThreshold}× Eco-Bedarf)`
-          : afterSunset ? 'nach Sonnenuntergang → Eco' : 'schlechter Tag → Eco aus Batterie/Netz';
+          : 'schlechter Tag → Eco aus Batterie/Netz';
       // Batterie-Schutz: eigene, kleinere Grenze nur für Notfall-Heizen (01.11.2026)
       const dayCapW = dayMode === 'battery_gate'
         ? Math.max(0, Number(settings?.battery_gate_max_power_w ?? 1000))

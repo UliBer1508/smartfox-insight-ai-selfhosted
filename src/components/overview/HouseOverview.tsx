@@ -144,6 +144,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
     : dayMode?.away && dayMode?.mode === 'wait' ? 'Abwesend – Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort'
     : dayMode?.mode === 'wait' ? 'Tagesmodus: Wartetag – Räume halten „Untergrenze“, bis Überschuss kommt'
     : dayMode?.mode === 'battery_gate' ? 'Tagesmodus: Batterie-Schutz – Räume halten „Untergrenze“'
+    : dayMode?.mode === 'evening' ? `Abend: nach Sonnenuntergang wie Nacht – Räume halten „Nacht“, kein Eco, ${fmtW(dayMode.grid_used_w ?? 0)} von ${fmtW(dayMode.grid_cap_w ?? 0)}`
     : dayMode?.mode === 'grid' ? `Tagesmodus: ohne PV – Eco nach Priorität, ${fmtW(dayMode.grid_used_w ?? 0)} von ${fmtW(dayMode.grid_cap_w ?? 0)}`
     : null;
 
