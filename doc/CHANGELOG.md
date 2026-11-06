@@ -5,6 +5,14 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.20.0] - 2026-11-06
+
+### Added (Heizplaner, `doc/KONZEPT-PLANER-2026-11-06.md`)
+- Edge Function `heizplaner` (Schattenbetrieb): 24-h-Plan alle 15 min, minimiert Netzstrom bei Komfortzielen; lernt nachts Raummodell (Auskühlen, Aufheizen, Sonne, innere Wärme) und PV-Vorhersage (inkl. Bergschatten), rechnet den Vortag gegen.
+- SQL `25_heizplaner.sql`: `heizmodell`, `heizplan`, `heizplan_vergleich`, `heizplaner_daten()`, Einstellungen `planer_*`.
+- App: KI › 2 „Planer“ (Plan 24 h, Jetzt Planer vs. Steuerung, Zeitleiste je Raum, Gegenrechnung, Modell je Raum); Einstellungen › Haus › Verteilung: Planer-Modus und Gewichte.
+- `analysis-scheduler`: Planer bei jedem Lauf, Lernen + Gegenrechnung 03:00.
+
 ## [2.19.0] - 2026-11-06
 
 ### Fixed (`doc/FIX-HEIZLEISTUNG-2026-11-06.md`)

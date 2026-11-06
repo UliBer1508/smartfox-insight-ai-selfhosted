@@ -137,6 +137,10 @@ Frontend (15–60 s Polling, KEIN Realtime)
 
 ---
 
+## 4a. Heizplaner (Schattenbetrieb, seit 06.11.2026)
+
+Rechnender Planer statt fester Regeln, Konzept `doc/KONZEPT-PLANER-2026-11-06.md`. Edge Function `heizplaner`: alle 15 min (über `analysis-scheduler`) ein 24-h-Plan je Raum und halbe Stunde, der Netzstrom + Komfortabweichung minimiert (gelerntes Raummodell `heizmodell`, gelernte PV-Vorhersage `system_settings.planer_pv_modell` mit Nachführung, Batterie, Leistungsgrenze). Täglich 03:00: Raummodell je Raum lernen, PV lernen, Vortag gegenrechnen (`heizplan_vergleich`). **Steuert noch nicht** (`heating_settings.planer_modus = schatten`); Anzeige KI › Planer. Gewichte: `planer_gewicht_ziel` (0,6 kWh je °C·h unter Ziel), `planer_gewicht_unter` (2), `planer_sicherheit_abstand` (1,5 °C). SQL 25.
+
 ## 4. PV-Automation: 4-Stufen-Logik
 
 `pv-automation` läuft alle 5 Minuten (pg_cron `pv-automation-check`) und zusätzlich nach jedem Sync des Thermostat-Dienstes. Kumulatives Budget — keine Momentaufnahme.
@@ -504,6 +508,7 @@ Speichert in `pv_forecasts`:
 | `monitor-solar-heating` | Solar-Event-Erkennung | regelmäßig | service_role |
 | `analyze-solar-gain` | Passiver Solargewinn | regelmäßig | service_role |
 | `calculate-heating-power` | Power-Kalibrierung (alt, lief nie – kein Cron) | – | service_role |
+| `heizplaner` | Planer (Schattenbetrieb): `planen` alle 15 min, `lernen` je Raum + `pv_lernen` + `vergleich` täglich 03:00 | `analysis-scheduler` | service_role |
 | `measure-room-power` | Heizleistung je Raum messen (Regression Verbrauch ohne PV ~ „heizt“), Vorschläge in KI › Zu entscheiden | `analysis-scheduler` täglich 09:30 | service_role |
 
 **Routing-Robustheit:** `/check` und Root-Pfad beide unterstützt.
@@ -634,6 +639,12 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-06 — Heizplaner im Schattenbetrieb
+- Uli: ständig feste Werte, die nicht funktionieren – die KI soll das beste Modell finden. Entscheidung: rechnender Planer statt Regeln, zuerst im Schatten.
+- Raummodell je Raum (k, g, s, c, τ) aus 24-h-Simulation gelernt, Prior für Räume mit wenig Daten; PV je Stunde aus Strahlung inkl. Bergschatten, Nachführung; Batterie; gieriger Planer 24 h × halbe Stunde.
+- Prüfung 05.11.: Modell mit echter Heizung 0,28 °C Abweichung; Planer bei gleichem Strom 0,6 statt 34 °C·h unter Untergrenze.
+- Edge Function `heizplaner`, SQL 25, `analysis-scheduler`, App KI › Planer, Einstellungen Planer. Konzept `doc/KONZEPT-PLANER-2026-11-06.md`.
 
 ### 2026-11-06 — Kontrolle über die Heizleistung
 - Befund: Raumleistungen geschätzt (Wirtschaftsraum 700 statt ~2050 W, Haustür/Toilette leer), automatische Messung lief nie, Grenze am Tag (Untergrenze hart) und nachts (einmaliger Push) wirkungslos – 05.11. Wohnzimmer 5,5 kW aus Batterie/Netz, Nacht 03./04.11. 7–11 kW.
