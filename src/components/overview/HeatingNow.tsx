@@ -65,7 +65,7 @@ function useGrenze(night: boolean): Grenze {
       if (!fresh) { setG(null); return; }
       const used = Number(night ? v?.used_w : v?.grid_used_w) || 0;
       const cap = Number(night ? v?.cap_w : v?.grid_cap_w) || 0;
-      const text = night ? 'Nacht' : v?.mode === 'battery_gate' ? 'Batterie-Schutz' : v?.mode === 'wait' ? 'Wartetag' : 'ohne PV';
+      const text = night ? 'Nacht' : v?.mode === 'battery_gate' ? 'Batterie-Schutz' : v?.mode === 'evening' ? 'Abend' : v?.mode === 'wait' ? 'Wartetag' : 'ohne PV';
       setG({ used, cap, text });
     };
     load();
