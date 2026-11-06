@@ -60,6 +60,13 @@ export interface HeatingSettings {
   // Leistungsbudget-Management
   power_budget_enabled?: boolean;
   max_grid_heating_power_w?: number;
+  // Leistungsgrenze gilt immer (06.11.2026): nach so vielen Minuten Warten kommt ein Raum zuerst dran
+  cap_wait_boost_min?: number;
+  // Heizplaner (06.11.2026, Schattenbetrieb)
+  planer_modus?: 'aus' | 'schatten';
+  planer_gewicht_ziel?: number;
+  planer_gewicht_unter?: number;
+  planer_sicherheit_abstand?: number;
   // Batterie-Schutz (01.11.2026): Notfall-Heizen erst unter Untergrenze − Abstand, eigene Leistungsgrenze
   battery_gate_floor_delta?: number;
   battery_gate_max_power_w?: number;

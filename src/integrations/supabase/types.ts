@@ -747,6 +747,11 @@ export type Database = {
           max_grid_heating_power_w: number | null
           battery_gate_floor_delta: number
           battery_gate_max_power_w: number
+          cap_wait_boost_min: number
+          planer_gewicht_unter: number
+          planer_gewicht_ziel: number
+          planer_modus: string
+          planer_sicherheit_abstand: number
           battery_night_reserve_pct: number
           presence_arrival_time: string
           presence_control_enabled: boolean
@@ -821,6 +826,11 @@ export type Database = {
           max_grid_heating_power_w?: number | null
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
+          cap_wait_boost_min?: number
+          planer_gewicht_unter?: number
+          planer_gewicht_ziel?: number
+          planer_modus?: string
+          planer_sicherheit_abstand?: number
           battery_night_reserve_pct?: number
           presence_arrival_time?: string
           presence_control_enabled?: boolean
@@ -895,6 +905,11 @@ export type Database = {
           max_grid_heating_power_w?: number | null
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
+          cap_wait_boost_min?: number
+          planer_gewicht_unter?: number
+          planer_gewicht_ziel?: number
+          planer_modus?: string
+          planer_sicherheit_abstand?: number
           battery_night_reserve_pct?: number
           presence_arrival_time?: string
           presence_control_enabled?: boolean

@@ -3,7 +3,9 @@
 # Deployt nur die geänderten Funktionen; bei Änderungen in einem gemeinsamen Ordner (_shared) alle.
 # Einmalig nötig: GitHub › Settings › Secrets and variables › Actions › New repository secret
 #   Name: SUPABASE_ACCESS_TOKEN   Wert: Token aus https://supabase.com/dashboard/account/tokens
-# Manuell starten: Actions › „Edge Functions deployen“ › Run workflow (deployt dann alle).
+# Manuell starten: Actions › „Edge Functions deployen“ › Run workflow – im Feld „funktionen“ die Namen eintragen
+# (leer = alle; Vorsicht: „alle“ deployt den Stand aus main, auch für Funktionen, die zuletzt von Hand deployt wurden).
+# --yes (06.11.2026): Die Supabase-CLI fragt seit 2026 vor jedem Deploy nach und bricht ohne Terminal sonst ab.
 name: Edge Functions deployen
 
 on:
@@ -11,6 +13,11 @@ on:
     branches: [main]
     paths: ['supabase/functions/**']
   workflow_dispatch:
+    inputs:
+      funktionen:
+        description: 'Welche Funktionen deployen? Namen mit Leerzeichen getrennt (z. B. "pv-automation heizplaner"). Leer = alle.'
+        required: false
+        default: ''
 
 concurrency:
   group: deploy-functions
@@ -34,7 +41,9 @@ jobs:
       - name: Geänderte Funktionen bestimmen
         id: changed
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || git diff --name-only HEAD~1 HEAD | grep -q '^supabase/functions/_'; then
+          if [ -n "${{ github.event.inputs.funktionen }}" ]; then
+            list="${{ github.event.inputs.funktionen }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] || git diff --name-only HEAD~1 HEAD | grep -q '^supabase/functions/_'; then
             list=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d ! -name '_*' -exec basename {} \; | sort)
           else
             list=$(git diff --name-only HEAD~1 HEAD | grep '^supabase/functions/' | cut -d/ -f3 | grep -v '^_' | sort -u)
@@ -50,6 +59,6 @@ jobs:
         run: |
           for f in ${{ steps.changed.outputs.functions }}; do
             echo "::group::$f"
-            supabase functions deploy "$f" --project-ref "$PROJECT_REF"
+            supabase functions deploy "$f" --project-ref "$PROJECT_REF" --yes
             echo "::endgroup::"
           done

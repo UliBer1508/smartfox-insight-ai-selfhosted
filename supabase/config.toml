@@ -45,3 +45,12 @@ verify_jwt = false
 
 [functions.ai-daily-planner]
 verify_jwt = false
+
+# Systemstatus (05.11.2026, doc/SYSTEMSTATUS-2026-11-05.md)
+# system-agent: Dienste-Wächter meldet sich mit eigenem Token (x-agent-token), nicht mit Supabase-JWT
+[functions.system-agent]
+verify_jwt = false
+
+# system-alert: prüft die Rolle im JWT selbst (anon/service_role), wie auto-resolve-api-errors
+[functions.system-alert]
+verify_jwt = false
