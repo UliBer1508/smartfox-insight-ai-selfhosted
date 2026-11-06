@@ -747,6 +747,7 @@ export type Database = {
           max_grid_heating_power_w: number | null
           battery_gate_floor_delta: number
           battery_gate_max_power_w: number
+          cap_wait_boost_min: number
           battery_night_reserve_pct: number
           presence_arrival_time: string
           presence_control_enabled: boolean
@@ -821,6 +822,7 @@ export type Database = {
           max_grid_heating_power_w?: number | null
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
+          cap_wait_boost_min?: number
           battery_night_reserve_pct?: number
           presence_arrival_time?: string
           presence_control_enabled?: boolean
@@ -895,6 +897,7 @@ export type Database = {
           max_grid_heating_power_w?: number | null
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
+          cap_wait_boost_min?: number
           battery_night_reserve_pct?: number
           presence_arrival_time?: string
           presence_control_enabled?: boolean

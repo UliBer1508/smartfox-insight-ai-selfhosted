@@ -20,6 +20,7 @@ import { EnergyFlowDiagram } from '@/components/energy/EnergyFlowDiagram';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 import { useKiPending } from '@/hooks/useKiPending';
 import { PresenceQuick } from '@/components/presence/Presence';
+import { HeatingNowCard, useHeizungHeute, roomPowerW, RaumHeute } from './HeatingNow';
 
 const TZ = 'Europe/Vienna';
 
@@ -372,15 +373,16 @@ function Forecast({ kwp }: { kwp: number }) {
 }
 
 // ---------------------------------------------------------------- Raumkarte
-// Begründung der Automatik je Raum aus dem Tagesmodus (system_settings.heating_day_mode.rooms[].why, 05.11.2026).
-// Nur frische Werte (< 20 min); nachts und bei PV-Boost/Manuell gilt die Begründung nicht.
+// Begründung der Automatik je Raum aus dem Tagesmodus (system_settings.heating_day_mode.rooms[].why, 05.11.2026),
+// nachts aus heating_night_mode (Leistungsgrenze auch nachts, 06.11.2026).
+// Nur frische Werte (< 20 min); bei PV-Boost/Manuell gilt die Begründung nicht.
 type DayModeRoom = { room_id: string; target: number | null; why: string | null };
-function useDayModeRooms() {
+function useDayModeRooms(night: boolean) {
   const [rooms, setRooms] = useState<Map<string, DayModeRoom>>(new Map());
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const { data } = await supabase.from('system_settings').select('value').eq('key', 'heating_day_mode').maybeSingle();
+      const { data } = await supabase.from('system_settings').select('value').eq('key', night ? 'heating_night_mode' : 'heating_day_mode').maybeSingle();
       const v = data?.value as { computed_at?: string; rooms?: DayModeRoom[] } | undefined;
       const fresh = v?.computed_at && Date.now() - new Date(v.computed_at).getTime() < 20 * 60_000;
       if (alive) setRooms(new Map(fresh ? (v?.rooms ?? []).map(r => [r.room_id, r]) : []));
@@ -388,11 +390,11 @@ function useDayModeRooms() {
     load();
     const id = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(id); };
-  }, []);
+  }, [night]);
   return rooms;
 }
 
-function RoomCard({ room, night, dayRoom, onChanged }: { room: Room; night: boolean; dayRoom?: DayModeRoom; onChanged: (id: string, patch: Partial<Room>) => void }) {
+function RoomCard({ room, night, dayRoom, heute, onChanged }: { room: Room; night: boolean; dayRoom?: DayModeRoom; heute?: RaumHeute; onChanged: (id: string, patch: Partial<Room>) => void }) {
   const { setTemperature } = useTuyaControl();
   const [open, setOpen] = useState(false);
   const [temp, setTemp] = useState<number>(Number(room.target_temp ?? room.comfort_temp ?? 21));
@@ -454,14 +456,20 @@ function RoomCard({ room, night, dayRoom, onChanged }: { room: Room; night: bool
           <div>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Heizt</div>
             <div className={`text-lg font-semibold flex items-center gap-1 mt-1 ${room.is_heating ? 'text-energy-import' : 'text-muted-foreground'}`}>
-              {room.is_heating ? <><Flame className="w-4 h-4" />ja</> : room.is_heating == null ? '–' : <><Snowflake className="w-4 h-4" />nein</>}
+              {room.is_heating ? <><Flame className="w-4 h-4" />{fmtW(roomPowerW(room))}</> : room.is_heating == null ? '–' : <><Snowflake className="w-4 h-4" />nein</>}
             </div>
+            {room.is_heating && heute?.heizt_seit && <div className="text-xs text-muted-foreground">seit {fmtTime(heute.heizt_seit)}</div>}
           </div>
         </div>
 
-        {dayRoom?.why && state.label === 'Normal' && (
+        {dayRoom?.why && (state.label === 'Normal' || state.label === 'Nacht') && (
           <div className="text-xs text-muted-foreground -mt-1">Automatik: {dayRoom.why}</div>
         )}
+        <div className="text-xs text-muted-foreground -mt-2">
+          Heute {heute && heute.heiz_min > 0
+            ? <>geheizt {heute.heiz_min >= 60 ? `${Math.floor(heute.heiz_min / 60)} h ${heute.heiz_min % 60} min` : `${heute.heiz_min} min`} · {Number(heute.kwh).toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWh</>
+            : 'nicht geheizt'} · Leistung {fmtW(roomPowerW(room))}
+        </div>
 
         <div className="border-t pt-3 space-y-2">
           {overrideOn ? (
@@ -555,7 +563,8 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
   const surplus = usableSurplus(currentReading, settings.heating_min_battery_soc ?? 80);
   const night = isNight(settings);
   const thermostatRooms = rooms.filter(r => r.tuya_device_id);
-  const dayRooms = useDayModeRooms();
+  const dayRooms = useDayModeRooms(night);
+  const { heute, grundlast } = useHeizungHeute();
   return (
     <div className="space-y-4 md:space-y-6">
       <StatusBar energyOk={isConnected} energyTs={currentReading?.timestamp} />
@@ -577,6 +586,8 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
         <ModeHero rooms={rooms} settings={settings} surplus={surplus} reading={currentReading} />
         <EnergyTiles r={currentReading} surplus={surplus} />
       </div>
+      {/* Heizung jetzt: gemessen vs. laut Thermostaten, Grenze, kWh heute (06.11.2026) */}
+      <HeatingNowCard rooms={rooms} reading={currentReading} night={night} heute={heute} grundlast={grundlast} />
       <Fold title="Energiefluss jetzt">
         <EnergyFlowDiagram
           pvPower={currentReading?.pv_power ?? null}
@@ -589,7 +600,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
       <Forecast kwp={settings.pv_capacity_kwp} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {thermostatRooms.map(r => (
-          <RoomCard key={r.id} room={r} night={night} dayRoom={dayRooms.get(r.id)} onChanged={updateRoomLocally} />
+          <RoomCard key={r.id} room={r} night={night} dayRoom={dayRooms.get(r.id)} heute={heute.get(r.id)} onChanged={updateRoomLocally} />
         ))}
       </div>
       {/* Heizleistung live, aktiviert/wartend, parallele Kapazität, Komfort-Budget (früher Heizung & KI) */}

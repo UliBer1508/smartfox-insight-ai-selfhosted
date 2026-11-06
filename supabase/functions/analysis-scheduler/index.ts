@@ -181,6 +181,19 @@ serve(async (req) => {
       }
     }
 
+    // 7) Leistungsmessung je Raum täglich 09:30 (force='measure_room_power' für Test)
+    //    Misst die echte Heizleistung aus Hausverbrauch und „heizt“ der Thermostate, Vorschläge in
+    //    KI › Zu entscheiden (doc/FIX-HEIZLEISTUNG-2026-11-06.md).
+    const powerTimeMin = 9 * 60 + 30;
+    if (force === 'measure_room_power' || (nowMin >= powerTimeMin && nowMin < powerTimeMin + 30)) {
+      const last = await getLastRun('scheduler_measure_room_power');
+      if (force === 'measure_room_power' || last !== t.date) {
+        const r = await invokeFn('measure-room-power', {});
+        triggered.push({ job: 'measure_room_power', status: r.status });
+        if (r.status === 200) await setLastRun('scheduler_measure_room_power', t.date);
+      }
+    }
+
     return new Response(JSON.stringify({ ok: true, viennaTime: `${t.date} ${t.hour}:${String(t.minute).padStart(2,'0')}`, triggered }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

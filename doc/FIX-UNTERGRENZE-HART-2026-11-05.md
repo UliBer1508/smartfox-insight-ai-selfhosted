@@ -1,5 +1,8 @@
 # Fix: Untergrenze ist hart – kein „Warten unter Ist“ mehr (05.11.2026)
 
+> **Abgelöst am 06.11.2026** durch `FIX-HEIZLEISTUNG-2026-11-06.md`: Die Grenze gilt wieder immer (Uli: „Grenze gilt immer“).
+> Das Wohnzimmer (5,5 kW) hatte am 05.11. nachmittags die Batterie geleert und bis 8,7 kW aus dem Netz gezogen.
+
 **Betrifft:** `supabase/functions/pv-automation/index.ts` (`allocateDayTargets`), `src/components/overview/HouseOverview.tsx`
 
 ## Beobachtung

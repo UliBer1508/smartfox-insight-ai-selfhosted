@@ -75,7 +75,7 @@ const GROUPS: Group[] = [
     fields: [
       { k: 'heating_min_battery_soc', l: 'Mindest-Ladestand für Heizung', kind: 'number', def: 80, unit: '% SoC', step: 5, min: 30, max: 95, hint: 'darunter Batterie-Schutz: Sonne lädt zuerst die Batterie, geheizt wird nur mit echter Einspeisung – auch wenn die Batterie gerade lädt' },
       { k: 'battery_gate_floor_delta', l: 'Notfall-Abstand unter Untergrenze', kind: 'number', def: 0, unit: '°C', step: 0.5, min: 0, max: 5, hint: '0 = Untergrenze gilt auch im Batterie-Schutz hart (Standard seit 02.11.2026). Batterie-Schutz gilt nur an Sonnentagen.' },
-      { k: 'battery_gate_max_power_w', l: 'Max. Notfall-Heizleistung', kind: 'number', def: 1000, unit: 'W', step: 100, min: 0, max: 10000, hint: 'im Batterie-Schutz höchstens so viel gleichzeitig (nach Priorität). 0 = gar nicht' },
+      { k: 'battery_gate_max_power_w', l: 'Max. Notfall-Heizleistung', kind: 'number', def: 1000, unit: 'W', step: 100, min: 0, max: 10000, hint: 'im Batterie-Schutz höchstens so viel gleichzeitig (nach Priorität). Ein Raum, der allein größer ist, heizt nur allein. 0 = gar nicht' },
       {
         k: 'heating_soc_gate_mode', l: 'Unter Mindest-Ladestand', kind: 'select', def: 'strict',
         options: [{ v: 'strict', l: 'Sofort stoppen (strikt)' }, { v: 'soft', l: 'Fertigheizen lassen (sanft)' }],
@@ -91,7 +91,8 @@ const GROUPS: Group[] = [
     title: 'Verteilung auf die Räume', icon: <Shuffle className="w-3.5 h-3.5 text-orange-500" />,
     fields: [
       { k: 'power_budget_enabled', l: 'Leistungsbudget', kind: 'switch', def: true, hint: 'Räume nacheinander nach Priorität einschalten, solange das Budget reicht.' },
-      { k: 'max_grid_heating_power_w', l: 'Max. Heizleistung ohne PV', kind: 'number', def: 2000, unit: 'W', step: 100, min: 0, max: 20000, hint: 'Summe der Räume, die ohne Überschuss gleichzeitig heizen dürfen (nach Priorität), auch bis zur „Untergrenze“. Gilt nicht im Batterie-Schutz – dort die Notfall-Heizleistung. 0 = ohne PV gar nicht heizen.' },
+      { k: 'max_grid_heating_power_w', l: 'Max. Heizleistung ohne PV', kind: 'number', def: 2000, unit: 'W', step: 100, min: 0, max: 20000, hint: 'Summe der Räume, die ohne Überschuss gleichzeitig heizen dürfen (nach Priorität) – gilt immer, tagsüber und nachts, auch für Räume unter der „Untergrenze“. Ein Raum, der allein größer ist (Wohnzimmer), heizt nur, wenn sonst keiner heizt. Im Batterie-Schutz gilt die Notfall-Heizleistung. 0 = ohne PV gar nicht heizen.' },
+      { k: 'cap_wait_boost_min', l: 'Wartezeit bis Vorrang', kind: 'number', def: 60, unit: 'min', step: 15, min: 0, max: 240, hint: 'Wartet ein Raum so lange auf freie Leistung, kommt er als Nächster dran – auch vor Räumen mit höherer Priorität. 0 = nur Priorität.' },
       { k: 'power_budget_tolerance_w', l: 'Toleranz', kind: 'number', def: 200, unit: 'W', step: 50, min: 0, max: 2000, hint: 'erlaubter kurzer Netzbezug', showIf: (v) => v.power_budget_enabled !== false },
       { k: 'micro_budget_enabled', l: 'Mikro-Budget', kind: 'switch', def: true, hint: 'Bei kleinem Überschuss heizt reihum ein Raum kurz (Batterie als Puffer).' },
       { k: 'micro_heat_duration_min', l: 'Heizdauer je Runde', kind: 'number', def: 5, unit: 'min', step: 1, min: 3, max: 15, showIf: (v) => v.micro_budget_enabled !== false },

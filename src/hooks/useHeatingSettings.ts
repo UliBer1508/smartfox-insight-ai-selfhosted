@@ -47,6 +47,7 @@ const defaultSettings: HeatingSettings = {
   // Leistungsbudget-Management
   power_budget_enabled: true,
   max_grid_heating_power_w: 2000,
+  cap_wait_boost_min: 60,
   battery_gate_floor_delta: 0,
   battery_gate_max_power_w: 1000,
   battery_night_reserve_pct: 10,
