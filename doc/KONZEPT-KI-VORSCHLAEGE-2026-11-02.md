@@ -116,6 +116,9 @@ innerhalb eines halben Tages).
 **Uli zum Mockup (04.11.):** „Es sollte einfach sein, erklären, um was es geht.“ → „passt“.
 
 ### 9.1 Whitelist (SQL 20)
+> **07.11.2026:** `pv_boost_max_temp` (Estrich laden bis) abgeschafft – Komfort ist das Maximum (SQL 26,
+> `doc/FIX-KOMFORT-IST-MAXIMUM-2026-11-07.md`). Die KI schlägt ihn nicht mehr vor.
+
 Vorschlagsfähig nur noch: `wait_min_temp` (Untergrenze je Raum, 16–24 °C, inhaltlich Eco − 2 … Eco),
 `pv_boost_max_temp` (Estrich laden bis, 19–26 °C, inhaltlich Komfort … Komfort + 2), `max_grid_heating_power_w`
 (1000–6000 W) und – nur über die Batterie-Empfehlung – `heating_min_battery_soc` (40–90 %). Alle anderen Einträge

@@ -9,8 +9,8 @@
 // - "Automatik" (automation_enabled) ist der Hauptschalter des Raums: pv-automation lädt nur
 //   Räume mit automation_enabled = true. Aus = Raum wird gar nicht gesteuert (auch kein
 //   Nacht-/Frostschutz-Befehl). Seit 26.10.2026 hier statt in der alten Thermostat-Karte.
-// - "Batterie voll" (pv_boost_max_temp) ist KEIN Sollwert, sondern die Grenze für den
-//   Battery-Full-Override – daher nur als Info (siehe doc/memory/comfort-saturation-estrich-storage.md).
+// - Komfort ist das Maximum (07.11.2026, Uli). Den alten Wert „Batterie voll“ (pv_boost_max_temp) gibt es nicht
+//   mehr; bei voller Batterie bleiben Räume nur dann auf Komfort, wenn ALLE Räume auf Komfort sind.
 // - "Untergrenze" (wait_min_temp, seit 27.10.2026, bis 01.11.2026 „Ohne PV“): so weit darf der Raum
 //   unter Eco fallen, solange auf PV-Überschuss gewartet wird. Ziel am
 //   Wartetag, beim Batterie-Gate und für Räume ohne Budget (doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md).
@@ -124,11 +124,6 @@ function RoomCard({ room, onSave, onDelete }: {
     setBusy(false);
   };
 
-  // "Batterie voll"-Grenze (nur Info): pv_boost_max_temp, sonst Komfort + 1,5 °C (wie pv-automation)
-  const comfort = Number(room.comfort_temp ?? 21);
-  const capRaw = room.pv_boost_max_temp != null && Number(room.pv_boost_max_temp) > 0 ? Number(room.pv_boost_max_temp) : null;
-  const cap = capRaw ?? comfort + 1.5;
-  const capActive = cap - 0.2 > comfort;
 
   const tempInput = (k: string, label: string) => (
     <div className="flex items-center gap-1.5">
@@ -222,9 +217,7 @@ function RoomCard({ room, onSave, onDelete }: {
 
       <div className="flex items-start gap-2 text-xs text-muted-foreground">
         <Battery className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
-        {capActive
-          ? <span>Bei voller Batterie: Komfort halten bis {fmt(cap)}{capRaw == null && ' (automatisch: Komfort + 1,5 °C)'}</span>
-          : <span className="text-warning">Bei voller Batterie: inaktiv – Grenze {fmt(cap)} liegt nicht über Komfort</span>}
+        <span>Mit Sonnen-Überschuss heizt dieser Raum höchstens bis Komfort. Darüber nur, wenn alle Räume auf Komfort sind und die Batterie voll ist.</span>
       </div>
 
       <Collapsible>

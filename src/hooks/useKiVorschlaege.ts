@@ -1,4 +1,4 @@
-// KI › Zu entscheiden (04.11.2026, Konzept KI-Vorschläge §9).
+// KI › Zu entscheiden (04.11.2026, Konzept KI-Vorschläge §9; Grenzen aus aktuellen Raumwerten: 07.11.2026).
 // Lädt alles, was auf Ulis Entscheidung wartet, aus einer Quelle zusammen:
 //   - ki_vorschlaege (ki-tagesanalyse, täglich 10:00: Vorschläge, Rücknahmen, Infos)
 //   - battery_soc_suggestions (Batterie-Empfehlung, täglich 21:00) – in dasselbe Format gebracht
@@ -55,6 +55,32 @@ function batterieAlsVorschlag(s: any): KiVorschlag {
   };
 }
 
+/**
+ * 07.11.2026: Raumwerte-Grenzen gelten so, wie die Raumwerte JETZT sind – nicht wie um 10:00, als die
+ * Tagesanalyse lief. Sonst blockiert ein gespeicherter Mindestwert (z. B. alter Komfort 23 °C) die Übernahme,
+ * obwohl Uli Komfort inzwischen geändert hat.
+ *   Estrich laden bis (pv_boost_max_temp): Komfort … Komfort + 2
+ *   Untergrenze (wait_min_temp):           Eco − 2 … Eco
+ * jeweils zusätzlich innerhalb der Whitelist.
+ */
+function aktuelleGrenzen(
+  v: KiVorschlag,
+  raum: { eco_temp: number | null; comfort_temp: number | null } | undefined,
+  wl: { min_value: number | null; max_value: number | null } | undefined,
+): { min_wert: number | null; max_wert: number | null } {
+  const wlMin = wl?.min_value != null ? Number(wl.min_value) : -Infinity;
+  const wlMax = wl?.max_value != null ? Number(wl.max_value) : Infinity;
+  if (v.parameter_key === 'pv_boost_max_temp' && raum?.comfort_temp != null) {
+    const k = Number(raum.comfort_temp);
+    return { min_wert: Math.max(k, wlMin), max_wert: Math.min(k + 2, wlMax) };
+  }
+  if (v.parameter_key === 'wait_min_temp' && raum?.eco_temp != null) {
+    const e = Number(raum.eco_temp);
+    return { min_wert: Math.max(e - 2, wlMin), max_wert: Math.min(e, wlMax) };
+  }
+  return { min_wert: v.min_wert, max_wert: v.max_wert };
+}
+
 export function useKiVorschlaege(pollMs = 60_000) {
   const [offen, setOffen] = useState<KiVorschlag[]>([]);
   const [infos, setInfos] = useState<KiVorschlag[]>([]);
@@ -64,20 +90,27 @@ export function useKiVorschlaege(pollMs = 60_000) {
   const [fehler, setFehler] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [kv, bat, tp, last] = await Promise.all([
+    const [kv, bat, tp, last, rm, wlAll] = await Promise.all([
       db.from('ki_vorschlaege').select('*').or('status.eq.offen,art.eq.info')
         .gte('created_at', new Date(Date.now() - 14 * 86400000).toISOString())
         .order('created_at', { ascending: false }).limit(100),
       supabase.from('battery_soc_suggestions').select('*').eq('status', 'pending').order('created_at', { ascending: false }).limit(1),
       db.from('ki_tagespaket').select('*').order('tag', { ascending: false }).limit(1),
       supabase.from('system_settings').select('value').eq('key', 'battery_soc_suggestion_last').maybeSingle(),
+      supabase.from('rooms').select('id, eco_temp, comfort_temp'),
+      loadWhitelist(),
     ]);
+    const raumMap = new Map<string, any>(((rm.data ?? []) as any[]).map((r) => [r.id, r]));
+    const wlMap = new Map<string, any>(wlAll.map((w) => [w.parameter_key, w]));
     if (kv.error) setFehler(kv.error.message.includes('ki_vorschlaege') ? 'SQL 21 ist noch nicht ausgeführt.' : kv.error.message);
     else setFehler(null);
     const rows = (kv.data ?? []) as KiVorschlag[];
     const neuesterTag = rows.filter((r) => r.art === 'info').map((r: any) => r.tag).sort().pop();
     const batterie = (bat.data ?? []).map(batterieAlsVorschlag);
     const offeneKi = rows.filter((r) => r.art !== 'info' && (r as any).status === 'offen')
+      .map((r) => (r.scope === 'room' && r.room_id
+        ? { ...r, ...aktuelleGrenzen(r, raumMap.get(r.room_id), wlMap.get(r.parameter_key ?? '')) }
+        : r))
       .sort((a, b) => (a.art === 'ruecknahme' ? -1 : 0) - (b.art === 'ruecknahme' ? -1 : 0));
     setOffen([...offeneKi, ...batterie]);
     setInfos(rows.filter((r: any) => r.art === 'info' && r.tag === neuesterTag));
@@ -96,8 +129,17 @@ export function useKiVorschlaege(pollMs = 60_000) {
   /** Ja / Anderer Wert. Gibt eine Fehlermeldung zurück oder null. */
   const genehmigen = useCallback(async (v: KiVorschlag, wert?: number, notiz?: string): Promise<string | null> => {
     const ziel = wert ?? Number(v.neu_wert);
-    if (v.min_wert != null && ziel < Number(v.min_wert)) return `Mindestens ${v.min_wert} ${v.einheit}`;
-    if (v.max_wert != null && ziel > Number(v.max_wert)) return `Höchstens ${v.max_wert} ${v.einheit}`;
+    let grenzen = { min_wert: v.min_wert, max_wert: v.max_wert };
+    if (v.scope === 'room' && v.room_id) {
+      const [{ data: raum }, wlAktuell] = await Promise.all([
+        supabase.from('rooms').select('eco_temp, comfort_temp').eq('id', v.room_id).maybeSingle(),
+        loadWhitelist(),
+      ]);
+      grenzen = aktuelleGrenzen(v, (raum ?? undefined) as any, wlAktuell.find((w) => w.parameter_key === v.parameter_key));
+    }
+    const f = (x: number) => (v.einheit === '°C' ? x.toFixed(1).replace('.', ',') : String(Math.round(x)));
+    if (grenzen.min_wert != null && ziel < Number(grenzen.min_wert)) return `Mindestens ${f(Number(grenzen.min_wert))} ${v.einheit} (Grenze nach den aktuellen Raumwerten)`;
+    if (grenzen.max_wert != null && ziel > Number(grenzen.max_wert)) return `Höchstens ${f(Number(grenzen.max_wert))} ${v.einheit} (Grenze nach den aktuellen Raumwerten)`;
 
     // Batterie-Grenze schreibt nur battery-soc-decision (gesperrter Parameter)
     if (v.parameter_key === 'heating_min_battery_soc') {

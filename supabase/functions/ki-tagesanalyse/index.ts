@@ -1,4 +1,4 @@
-// ki-tagesanalyse (04.11.2026)
+// ki-tagesanalyse (04.11.2026; Regel 3 „Estrich laden bis“ entfernt 07.11.2026)
 // Konzept doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md §9 – „KI › Zu entscheiden“, freigegeben 04.11.2026.
 //
 // Läuft täglich 10:00 Wiener Zeit (analysis-scheduler), nach der Tagesnote (09:55). Schaut auf die letzten
@@ -28,7 +28,6 @@ const UNTER_ECO_SCHWELLE_MIN = 120;   // „lange unter Eco“ = mehr als 2 Stun
 
 const LABEL: Record<string, string> = {
   wait_min_temp: 'Untergrenze',
-  pv_boost_max_temp: 'Estrich laden bis',
   max_grid_heating_power_w: 'Heizleistung ohne Sonne',
   heating_min_battery_soc: 'Batterie-Grenze fürs Heizen',
 };
@@ -98,7 +97,7 @@ Deno.serve(async (req) => {
         .gte('tag', addDays(gestern, -30)).lte('tag', gestern),
       sb.from('ai_parameter_whitelist').select('parameter_key, scope, min_value, max_value, autonomy_level').eq('enabled', true),
       sb.from('heating_settings').select('max_grid_heating_power_w').limit(1).maybeSingle(),
-      sb.from('rooms').select('id, name, eco_temp, comfort_temp, wait_min_temp, pv_boost_max_temp, automation_enabled'),
+      sb.from('rooms').select('id, name, eco_temp, comfort_temp, wait_min_temp, automation_enabled'),
       sb.from('ki_vorschlaege').select('*').gte('created_at', new Date(Date.now() - 60 * 86400000).toISOString()),
     ]);
     const tb = new Map<string, any>(((tbRows ?? []) as any[]).map((r) => [String(r.tag), r]));
@@ -214,33 +213,10 @@ Deno.serve(async (req) => {
           + '(Nacht auf Frostschutz? Heizleistung ohne Sonne zu klein? Thermostat offline?).' });
     }
 
-    // ---- Regel 3: Estrich laden bis je Raum ---------------------------------------------------------
-    // Sonnentage, an denen der Raum seine Obergrenze erreicht hat und trotzdem ≥ 2 kWh eingespeist wurden
-    const wlE = wl.get('pv_boost_max_temp');
-    if (wlE) {
-      for (const r of (rooms ?? []) as any[]) {
-        if (r.automation_enabled === false || r.pv_boost_max_temp == null || r.comfort_temp == null) continue;
-        const alt = Number(r.pv_boost_max_temp), komfort = Number(r.comfort_temp);
-        const obergrenze = Math.min(komfort + 2, Number(wlE.max_value ?? 26));
-        const abE = seit('pv_boost_max_temp', r.id);
-        const treffer = tagInfos.filter((t) => t.art === 'sonnig' && t.tag > abE)
-          .map((t) => ({ t, x: t.raeume.find((x) => x.room_id === r.id) }))
-          .filter(({ x }) => x && x.t_max != null && Number(x.t_max) >= alt - 0.2);
-        const neu = Math.min(alt + 0.5, obergrenze);
-        if (treffer.length >= MIN_TAGE && neu > alt && !sperre('pv_boost_max_temp', r.id)) {
-          kandidaten.push({
-            quelle: 'tagesanalyse', art: 'vorschlag', gewicht: treffer.length - 0.5,   // Komfort-Gewinn, nachrangig
-            titel: `${r.name}: an Sonnentagen mehr Wärme speichern?`,
-            was: `An Sonnentagen darf ${r.name} bis ${zahl(neu)} °C aufheizen statt bis ${zahl(alt)} °C.`,
-            warum: `An ${treffer.length} Sonnentagen war ${r.name} schon bei ${zahl(alt)} °C „voll“, und trotzdem gingen im Schnitt ${zahl(mittel(treffer.map(({ t }) => t.einsp ?? 0)))} kWh Sonnenstrom ins Netz.`,
-            wirkung_text: `Mehr Sonne bleibt im Haus (im Boden gespeichert), ${r.name} ist abends wärmer. Dafür ist es dort an Sonnentagen etwas wärmer als Komfort.`,
-            parameter_key: 'pv_boost_max_temp', scope: 'room', room_id: r.id, alt_wert: alt, neu_wert: neu,
-            min_wert: Math.max(komfort, Number(wlE.min_value ?? 0)), max_wert: obergrenze, einheit: '°C',
-            tage_basis: treffer.length, belege: treffer.map(({ t, x }) => ({ tag: t.tag, t_max: x!.t_max, einspeisung_kwh: t.einsp })),
-          });
-        }
-      }
-    }
+    // ---- Regel 3 (Estrich laden bis) ENTFERNT am 07.11.2026 ------------------------------------------
+    // Uli: Komfort ist das Maximum, der Estrich speichert durch das Heizen bis Komfort. Einen eigenen Wert dafür
+    // gibt es nicht mehr; die KI schlägt ihn nicht mehr vor. Ob Überschuss an andere Räume weitergegeben wird,
+    // ist eine Frage der Steuerung (Priorität), nicht eines Raumwerts.
 
     // ---- Wirkungsbericht 3 Tage nach einer Genehmigung ----------------------------------------------
     const note = (t: string) => { const v = tb.get(t)?.note; return v != null ? Number(v) : null; };

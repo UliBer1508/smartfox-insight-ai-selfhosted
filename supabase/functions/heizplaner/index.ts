@@ -126,7 +126,7 @@ function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: number) =
     raeume.push({
       id: r.id, name: r.name, p: Number(r.p) || 800, T0: t0, S0, param,
       ziel: nacht.map(n => (n ? nachtZiel : eco)), unter: eps.map(() => unter), sicher: eps.map(() => unter - abst),
-      max: eps.map(() => Math.max(Number(r.komfort ?? eco + 1), Number(r.pvmax ?? 0))),
+      max: eps.map(() => Number(r.komfort ?? eco + 1)),   // 07.11.2026: Komfort ist das Maximum (kein eigener Estrich-Wert mehr)
       gewicht: 1 + (12 - (Number(r.prio) || 12)) / 12,
       fest: eps.map((ep, i) => (festVon ? festVon(r, ep, i) : null)),
     });

@@ -5,6 +5,14 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.21.0] - 2026-11-07
+
+### Changed (`doc/FIX-KOMFORT-IST-MAXIMUM-2026-11-07.md`)
+- Komfort ist das Maximum: Wert „Estrich laden bis“ (`pv_boost_max_temp`) abgeschafft – `pv-automation` hält Komfort bei voller Batterie nur noch, wenn alle Räume auf Komfort sind; Heizplaner deckelt bei Komfort; Tagesanalyse-Regel 3 entfernt; App-Hinweise angepasst; SQL 26 (Whitelist aus).
+
+### Fixed
+- KI › Zu entscheiden: Grenzen für Raumwerte aus den aktuellen Raumwerten (Vorschlag ließ sich nach Änderung von Komfort nicht übernehmen).
+
 ## [2.20.0] - 2026-11-06
 
 ### Added (Heizplaner, `doc/KONZEPT-PLANER-2026-11-06.md`)

@@ -525,7 +525,6 @@ function RoomCard({ room, night, dayRoom, heute, onChanged }: { room: Room; nigh
         <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
           {room.automation_enabled === false && <PauseCircle className="w-3.5 h-3.5" />}
           Nacht {fmtT(room.night_temp)}{room.wait_min_temp != null && <> · Untergrenze {fmtT(room.wait_min_temp)}</>} · Eco {fmtT(room.eco_temp)} · Komfort {fmtT(room.comfort_temp)}
-          {room.pv_boost_max_temp != null && <> · PV max {fmtT(room.pv_boost_max_temp)}</>}
         </div>
       </CardContent>
     </Card>
