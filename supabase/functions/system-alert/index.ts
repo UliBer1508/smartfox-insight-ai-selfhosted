@@ -64,7 +64,7 @@ function loesung(key: string, text: string): string[] {
   if (key.startsWith('thermo:')) return [
     'Das Thermostat antwortet im Hausnetz nicht (Port 6668). Hat es Strom, regelt es weiter auf den zuletzt gesetzten Sollwert, wird aber nicht mehr gesteuert. Ohne Strom heizt der Raum nicht.',
     '1. Display am Gerät an? Wenn nicht: Sicherung bzw. Stromzufuhr prüfen.',
-    '2. WLAN-Symbol am Gerät an? In der FritzBox unter Heimnetz nachsehen, ob das Gerät online ist und dieselbe IP wie in config.json hat.',
+    '2. Netzwerkkabel (LAN) am Thermostat und am Switch fest? Leuchtet die Link-LED am Switch-Port? In der FritzBox unter Heimnetz nachsehen, ob das Gerät online ist und dieselbe IP wie in config.json hat.',
     '3. Gerät 30 Sekunden stromlos machen (Sicherung), dann warten – der Dienst fragt alle 5 min.',
     '4. Wurde es in der Smart-Life-App neu gekoppelt, hat es einen neuen Local Key: neu holen, in config.json eintragen, Dienst SmartfoxTuya neu starten.',
   ];

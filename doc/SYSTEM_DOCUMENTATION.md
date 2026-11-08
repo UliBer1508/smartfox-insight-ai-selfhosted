@@ -63,7 +63,7 @@
 | **Batterie** | 13.8 kWh (Fronius-verwaltet) | Fronius API (P_Akku, SOC) |
 | **Smartfox Pro Energiemanager** | 192.168.188.45 | `/all` HTTP-Endpoint (Daten nicht mehr genutzt); regelt Batterie, Warmwasser, Auto selbst |
 | **Fronius Wechselrichter** | 192.168.188.64 | `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` |
-| **Tuya Thermostate** | 12 × TGP508 (MAC 3C:0B:59) | Tuya Cloud (Cloud-Modus) ODER Port 6668 (Lokal-Modus) |
+| **Tuya Thermostate** | 12 × TGP508 (MAC 3C:0B:59), **per LAN (Kabel) angebunden, nicht WLAN** | Tuya Cloud (Cloud-Modus) ODER Port 6668 (Lokal-Modus) |
 | **Standort** | 47.24983°N, 12.25415°E (Österreich), Europe/Vienna | — |
 
 ### Wer steuert was (Grundsatz, Uli 01.11.2026)
