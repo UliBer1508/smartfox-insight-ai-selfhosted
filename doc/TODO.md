@@ -121,12 +121,12 @@ Stand: 2026-11-08
 - [ ] Erwartet: eine Mail „Problem: Thermostat Büro …“ mit Lösungsansatz, keine „gelöst“-Mail; nach Behebung genau eine „gelöst“-Mail
 - [ ] Büro-Thermostat vor Ort prüfen (seit 07.11. 16:48 nicht erreichbar)
 
-### pv-automation: falscher Erreichbarkeits-Zeitstempel im Lokal-Modus (Nebenwirkungen belegt 08.11.)
-- [ ] Nach erfolgreichem Setzen schreibt pv-automation `last_thermostat_sync = now` und schließt `api_errors` des Raums – im Lokal-Modus heißt „erfolgreich“ nur „eingereiht“
-- Beleg 08.11.: Büro zuletzt gelesen 07.11. 16:48, `last_thermostat_sync` 19:50.
-- Folgen: (a) Stale-Erkennung (`isRoomStale`, > 2 h) greift für tote Räume nicht → ein toter Raum unter Eco kann **Phase 2 (Komfort) für alle blockieren** – prüfen im Zusammenhang mit „Überschuss wird nicht weitergegeben“ (07.11.); (b) `auto-resolve-api-errors` Regel (b) schließt Fehler als „wieder erreichbar“; (c) Banner zeigt Ausfall nur zeitweise (`useApiErrors` blendet `device_offline` > 2 h zusätzlich aus).
-- Vor einer Änderung zu prüfen (Prüfliste): Sicherheits-Resync (`syncStale` > 60 min) würde für tote Räume jeden Lauf greifen und `learning_events` erzeugen; Nacht-Frostschutz und Über-Temperatur-Pfad setzen ebenfalls `last_thermostat_sync`. Vorschlag: Erreichbarkeit überall aus `thermostat_state.read_at`; erst Konzept, dann Code.
-- [x] Kommentar „automation_enabled controls ONLY ML“ korrigieren (27.10.)
+### Lokal-Modus: Erreichbarkeit nur nach echter Lesung (08.11., `FIX-LOKAL-ERREICHBARKEIT-2026-11-08.md`)
+- [x] `pv-automation`, `auto-resolve-api-errors`, App-Banner angepasst (PR)
+- [ ] Nach dem Deploy: Büro-Fehler bleibt **ein** offener Eintrag (kein neuer alle 2 h); Banner zeigt Büro dauerhaft
+- [ ] Wenn das Büro wieder antwortet: Fehler in ≤ 10 min geschlossen, genau eine „gelöst“-Mail
+- [ ] Offen: toter Raum geht mit letzten Messwerten in die Leistungsgrenze ein – bewusst so gelassen, bei Bedarf Konzept
+- [ ] Offen: 65 % der Heizzyklen (7 Tage) < 6 min – echtes Takten oder Abtast-Effekt (Lesung alle 5 min)? Erst klären, dann entscheiden
 
 ### Collector: Smartfox-Datenabruf entfernen
 - [ ] Smartfox-Datenabruf aus `collector-node/index.js` entfernen (falls noch vorhanden), `config.example.json` anpassen

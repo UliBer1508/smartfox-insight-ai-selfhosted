@@ -36,6 +36,16 @@ Deno.serve(async (req) => {
 
   const now = Date.now();
   const nowIso = new Date(now).toISOString();
+
+  // device_id -> letzte echte Lesung (thermostat_state.read_at, schreibt nur der Thermostat-Dienst).
+  // Enthält jedes Gerät, das zu einem Raum gehört (read_at = null, wenn noch nie gelesen).
+  const loadReadAtByDevice = async (): Promise<Map<string, string | null>> => {
+    const { data: rms } = await supabase.from('rooms').select('id, tuya_device_id').not('tuya_device_id', 'is', null);
+    const { data: st } = await supabase.from('thermostat_state').select('room_id, read_at');
+    const readByRoom = new Map((st ?? []).map((x: { room_id: string; read_at: string | null }) => [x.room_id, x.read_at]));
+    return new Map((rms ?? []).map((r: { id: string; tuya_device_id: string }) =>
+      [r.tuya_device_id, readByRoom.get(r.id) ?? null]));
+  };
   const summary = {
     heartbeat_resolved: 0,
     connection_resolved: 0,
@@ -64,8 +74,11 @@ Deno.serve(async (req) => {
 
   // 2) connection_error / device_offline pro Raum: aufgelöst, wenn
   //    (a) Raum in den letzten 30 min einen executed Command hat, ODER
-  //    (b) das Gerät laut rooms.last_thermostat_sync wieder erreichbar ist (< 10 min), ODER
-  //    (c) der Fehler älter als 2 h ist (kein neuer Fehler-Trigger).
+  //    (b) das Gerät wieder ECHT gelesen wurde: thermostat_state.read_at < 10 min (08.11.2026 – vorher
+  //        rooms.last_thermostat_sync, das pv-automation im Lokal-Modus auch ohne Antwort setzte), ODER
+  //    (c) der Fehler älter als 2 h ist – NUR noch für Fehler ohne bekanntes Gerät (08.11.2026).
+  //        Für ein bekanntes Gerät, das weiter nicht antwortet, bleibt der Fehler offen: vorher wurde er
+  //        alle 2 h geschlossen und sofort neu angelegt → Mail-Pingpong (doc/FIX-ALERT-MAILS-2026-11-08.md).
   //
   //    Bedingung (b) ist neu: Sie loest ueber device_id auf und funktioniert damit auch,
   //    wenn der Collector kein room_id mitschreibt. Ausserdem haengt sie an der reinen
@@ -82,17 +95,8 @@ Deno.serve(async (req) => {
     const twoHoursAgo = now - 2 * 60 * 60 * 1000;
     const freshSyncMs = 10 * 60 * 1000;
 
-    // Geraete-Sync-Zeitpunkte einmalig laden (device_id -> last_thermostat_sync)
-    const { data: roomSyncs } = await supabase
-      .from('rooms')
-      .select('tuya_device_id, last_thermostat_sync')
-      .not('tuya_device_id', 'is', null);
-
-    const syncByDevice = new Map<string, string | null>(
-      (roomSyncs ?? []).map((r: { tuya_device_id: string; last_thermostat_sync: string | null }) =>
-        [r.tuya_device_id, r.last_thermostat_sync]
-      )
-    );
+    // Letzte ECHTE Lesung je Gerät einmalig laden (device_id -> thermostat_state.read_at)
+    const syncByDevice = await loadReadAtByDevice();
 
     const toResolve: string[] = [];
     let reachableCount = 0;
@@ -100,14 +104,16 @@ Deno.serve(async (req) => {
     for (const err of openConnErrors) {
       let resolve = false;
 
-      // (a) Ausgefuehrtes Kommando im Raum innerhalb der letzten 30 min
+      // (a) Ausgefuehrtes Kommando im Raum innerhalb der letzten 30 min – und NACH dem Fehler
+      //     (08.11.2026: sonst schloss ein Befehl von kurz vor dem Ausfall den neuen Fehler immer wieder)
       if (err.room_id) {
+        const execAfter = new Date(Math.max(new Date(thirtyMinAgo).getTime(), new Date(err.created_at).getTime())).toISOString();
         const { data: recentExec } = await supabase
           .from('thermostat_commands')
           .select('id')
           .eq('room_id', err.room_id)
           .eq('status', 'executed')
-          .gte('executed_at', thirtyMinAgo)
+          .gt('executed_at', execAfter)
           .limit(1);
         if (recentExec && recentExec.length > 0) resolve = true;
       }
@@ -121,8 +127,9 @@ Deno.serve(async (req) => {
         }
       }
 
-      // (c) Fehler ist aelter als 2 h
-      if (!resolve && new Date(err.created_at).getTime() < twoHoursAgo) resolve = true;
+      // (c) Fehler ist aelter als 2 h – nur wenn das Gerät nicht (mehr) zu einem Raum gehört
+      if (!resolve && !(err.device_id && syncByDevice.has(err.device_id))
+          && new Date(err.created_at).getTime() < twoHoursAgo) resolve = true;
 
       if (resolve) toResolve.push(err.id);
     }
@@ -140,15 +147,24 @@ Deno.serve(async (req) => {
     }
   }
 
-  // 3) Sicherheitsnetz: alles was unresolved und älter als 24 h ist → schließen
+  // 3) Sicherheitsnetz: alles was unresolved und älter als 24 h ist → schließen.
+  //    Ausnahme (08.11.2026): Erreichbarkeits-Fehler eines bekannten Geräts, das weiter nicht antwortet –
+  //    der Ausfall besteht noch; Schließen + Neuanlegen würde wieder „gelöst“/„neu“ erzeugen.
   const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-  const { data: safetyNet } = await supabase
+  const { data: oldOpen } = await supabase
     .from('api_errors')
-    .update({ resolved_at: nowIso })
+    .select('id, error_type, device_id')
     .is('resolved_at', null)
-    .lt('created_at', dayAgo)
-    .select('id');
-  summary.safety_net_resolved = safetyNet?.length ?? 0;
+    .lt('created_at', dayAgo);
+  const readAt = await loadReadAtByDevice();
+  const safetyIds = (oldOpen ?? [])
+    .filter((e: { error_type: string; device_id: string | null }) =>
+      !(['connection_error', 'device_offline'].includes(e.error_type) && e.device_id && readAt.has(e.device_id)))
+    .map((e: { id: string }) => e.id);
+  if (safetyIds.length > 0) {
+    await supabase.from('api_errors').update({ resolved_at: nowIso }).in('id', safetyIds);
+  }
+  summary.safety_net_resolved = safetyIds.length;
 
   console.log('[auto-resolve-api-errors]', { healthy, ...summary });
 
