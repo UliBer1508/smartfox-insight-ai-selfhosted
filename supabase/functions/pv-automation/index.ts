@@ -1067,10 +1067,10 @@ Deno.serve(async (req) => {
               await supabase.from('rooms').update({
                 target_temp: FROST_TEMP,
                 pv_auto_active: false,
-                is_heating: false,
                 heating_paused_reason: 'night_frost_only',
                 last_auto_change: new Date().toISOString(),
-                last_thermostat_sync: new Date().toISOString(),
+                // Lokal-Modus (08.11.2026): „erfolgreich“ heißt nur „eingereiht“ – Erreichbarkeit und Heizstatus schreibt allein der Thermostat-Dienst nach echter Lesung (FIX-LOKAL-ERREICHBARKEIT-2026-11-08).
+                ...(controlMode === 'cloud' ? { is_heating: false, last_thermostat_sync: new Date().toISOString() } : {}),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
 
@@ -1231,7 +1231,8 @@ Deno.serve(async (req) => {
                 pv_auto_active: false,
                 heating_paused_reason: null,
                 last_auto_change: new Date().toISOString(),
-                last_thermostat_sync: new Date().toISOString(),
+                // Lokal-Modus (08.11.2026): „erfolgreich“ heißt nur „eingereiht“ – Erreichbarkeit und Heizstatus schreibt allein der Thermostat-Dienst nach echter Lesung (FIX-LOKAL-ERREICHBARKEIT-2026-11-08).
+                ...(controlMode === 'cloud' ? { last_thermostat_sync: new Date().toISOString() } : {}),
                 updated_at: new Date().toISOString()
               }).eq('id', room.id);
               
@@ -3437,7 +3438,9 @@ Deno.serve(async (req) => {
           if (targetAlreadyLowEnough) {
             console.log(`[CALL-SKIP] ${room.name}: Übertemperatur (Ist=${currentRoomTempSafety}°C ≥ Ziel=${currentTargetTempSafety}°C+${OVER_TEMP_DEADBAND}), Sollwert bereits ≤ Eco (${ecoTempForGuard}°C) → DB-only Status-Korrektur, kein Tuya-Call`);
             await supabase.from('rooms').update({
-              is_heating: false,
+              // Lokal-Modus (08.11.2026): „erfolgreich“ heißt nur „eingereiht“ – Erreichbarkeit und Heizstatus schreibt allein der Thermostat-Dienst nach echter Lesung (FIX-LOKAL-ERREICHBARKEIT-2026-11-08).
+              // Lokal: Heizt-Meldung (DP 5) ist gemessen – nicht überschreiben, sonst falsche Heizzyklen (Trigger 04).
+              ...(controlMode === 'cloud' ? { is_heating: false } : {}),
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
@@ -3464,11 +3467,11 @@ Deno.serve(async (req) => {
             const result = await setTemperatureForMode(room.tuya_device_id, room.id, safeTemp, 'stop', `Über-Temperatur (Ist ${currentRoomTempSafety}°C) → Eco ${safeTemp}°C`);
             if (result.success) {
               await supabase.from('rooms').update({
-                is_heating: false,
+                // Lokal-Modus (08.11.2026): „erfolgreich“ heißt nur „eingereiht“ – Erreichbarkeit und Heizstatus schreibt allein der Thermostat-Dienst nach echter Lesung (FIX-LOKAL-ERREICHBARKEIT-2026-11-08).
+                ...(controlMode === 'cloud' ? { is_heating: false, last_thermostat_sync: now.toISOString() } : {}),
                 pv_auto_active: false,
                 pv_auto_last_change: now.toISOString(),
                 last_auto_change: now.toISOString(),
-                last_thermostat_sync: now.toISOString(),
                 target_temp: safeTemp,
                 heating_paused_reason: 'over_temp',
               }).eq('id', room.id);
@@ -3902,7 +3905,10 @@ Deno.serve(async (req) => {
         // Kritischer Sicherheitsfall: Bei wenig PV + altem Sync IMMER mindestens Eco/Nacht neu pushen
         // ABER: Nicht wenn Quota erschöpft — dann würde der API-Call sowieso blockiert
         const lowPvSafetyWindow = pvPower < 500 || expectedPvKwh < 5;
-        if (action === 'keep' && syncStale && lowPvSafetyWindow && !quotaExhausted) {
+        // Nur Cloud-Modus (08.11.2026): Lokal liest der Thermostat-Dienst alle 5 min und Stufe 4 korrigiert Abweichungen.
+        // Ein alter Zeitstempel heißt lokal „Gerät antwortet nicht“ – ein neuer Befehl hilft dann nicht und erzeugte
+        // nur alle 5 min ein Lern-Ereignis.
+        if (controlMode === 'cloud' && action === 'keep' && syncStale && lowPvSafetyWindow && !quotaExhausted) {
           action = 'deactivate';
           targetTemp = Math.min(currentTargetTemp || ecoTemp, ecoTemp);
           solarLimitTemp = null;
@@ -4075,18 +4081,25 @@ Deno.serve(async (req) => {
 
           if (success || !room.tuya_device_id) {
             // Clear any existing errors for this room on success
-            await supabase
-              .from('api_errors')
-              .update({ resolved_at: now.toISOString() })
-              .eq('room_id', room.id)
-              .is('resolved_at', null);
+            // Lokal-Modus (08.11.2026): Erreichbarkeits-Fehler NICHT schließen – der Befehl ist nur eingereiht.
+            // Die schließt auto-resolve-api-errors, sobald das Gerät wirklich gelesen wurde.
+            {
+              let clearQuery = supabase
+                .from('api_errors')
+                .update({ resolved_at: now.toISOString() })
+                .eq('room_id', room.id)
+                .is('resolved_at', null);
+              if (controlMode !== 'cloud') clearQuery = clearQuery.not('error_type', 'in', '(device_offline,connection_error)');
+              await clearQuery;
+            }
 
             await supabase.from('rooms').update({
               // Tagesmodus-Ziel ist kein PV-Heizen → pv_auto_active bleibt aus
               pv_auto_active: !dayModeApplied,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
-              last_thermostat_sync: now.toISOString(),
+              // Lokal-Modus (08.11.2026): „erfolgreich“ heißt nur „eingereiht“ – Erreichbarkeit und Heizstatus schreibt allein der Thermostat-Dienst nach echter Lesung (FIX-LOKAL-ERREICHBARKEIT-2026-11-08).
+              ...(controlMode === 'cloud' ? { last_thermostat_sync: now.toISOString() } : {}),
               target_temp: targetTemp,
               solar_limit_temp: solarLimitTemp
             }).eq('id', room.id);
@@ -4145,16 +4158,23 @@ Deno.serve(async (req) => {
 
           if (success || !room.tuya_device_id) {
             // Clear any existing errors for this room on success
-            await supabase
-              .from('api_errors')
-              .update({ resolved_at: now.toISOString() })
-              .eq('room_id', room.id)
-              .is('resolved_at', null);
+            // Lokal-Modus (08.11.2026): Erreichbarkeits-Fehler NICHT schließen – der Befehl ist nur eingereiht.
+            // Die schließt auto-resolve-api-errors, sobald das Gerät wirklich gelesen wurde.
+            {
+              let clearQuery = supabase
+                .from('api_errors')
+                .update({ resolved_at: now.toISOString() })
+                .eq('room_id', room.id)
+                .is('resolved_at', null);
+              if (controlMode !== 'cloud') clearQuery = clearQuery.not('error_type', 'in', '(device_offline,connection_error)');
+              await clearQuery;
+            }
             await supabase.from('rooms').update({
               pv_auto_active: false,
               pv_auto_last_change: now.toISOString(),
               last_auto_change: now.toISOString(),
-              last_thermostat_sync: now.toISOString(),
+              // Lokal-Modus (08.11.2026): „erfolgreich“ heißt nur „eingereiht“ – Erreichbarkeit und Heizstatus schreibt allein der Thermostat-Dienst nach echter Lesung (FIX-LOKAL-ERREICHBARKEIT-2026-11-08).
+              ...(controlMode === 'cloud' ? { last_thermostat_sync: now.toISOString() } : {}),
               target_temp: finalTemp,
               solar_limit_temp: null // Solar-Limit zurücksetzen
             }).eq('id', room.id);

@@ -400,6 +400,7 @@ Läuft auf dem Österreich-PC als NSSM-Dienst **SmartfoxTuya** im Ordner `C:\Use
 3. **DPS-Mapping:** siehe oben. Das frühere Mapping `MODE='1'`, `HEATING='4'` war falsch.
 4. **setTemperature atomar:** Modus `home` + Soll in einem Befehl. pv-automation schickt deshalb seit 27.10.2026 kein separates `set_mode` mehr.
 5. **TCP-Preflight** (`tcpProbe`, Port 6668, <1 s) vor jedem Sync – unerreichbare Geräte sofort als `device_offline`, erreichbare in Gruppen zu 3.
+   **Erreichbarkeit = echte Lesung** (seit 08.11.2026): `last_thermostat_sync`, `is_heating` und `thermostat_state.read_at` schreibt im Lokal-Modus nur dieser Dienst. `pv-automation` reiht lokal nur ein und behauptet keine Antwort (`doc/FIX-LOKAL-ERREICHBARKEIT-2026-11-08.md`).
 6. **Seit v1.4:** alle Datenpunkte nach jedem Auslesen per RPC `thermostat_state_upsert` in die Datenbank; Befehle `read_now` und `set_dp` (nur DP 19, 101, 103, 111) – siehe `doc/PROTOKOLL-MODUL-2026-11-01.md`.
 7. Der frühere eigenständige „Dienst v2.0“ (`tuya-thermostat-v2/`, `.env`) und die Variante mit Befehls-Warteschlange und dauerhaften Verbindungen („Hybrid v4“) sind **nicht** im Einsatz.
 
@@ -656,6 +657,11 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-08 — Lokal-Modus: „erreichbar“ nur nach echter Lesung
+- `pv-automation` (nur Lokal): kein `last_thermostat_sync`/`is_heating` mehr nach bloßem Einreihen, keine Erreichbarkeits-Fehler mehr schließen, Sicherheits-Resync nur Cloud.
+- `auto-resolve-api-errors`: „wieder erreichbar“ aus `thermostat_state.read_at`; Gerätefehler bleiben offen, solange das Gerät nicht antwortet; Befehl zählt nur nach dem Fehler.
+- App: Offline-Fehler werden nicht mehr nach 2 h ausgeblendet. Details `doc/FIX-LOKAL-ERREICHBARKEIT-2026-11-08.md`.
 
 ### 2026-11-08 — Alarm-Mails: je Problem genau zwei, mit Lösungsansatz; Prüfliste Nebenwirkungen
 - Befund: Büro-Thermostat offline seit 07.11. 16:48 → 17 Mails in 14 h (Pingpong „Gerätefehler“/„wieder in Ordnung“). Ursache: `system_problems()` las `api_errors`; die werden nach 2 h (`auto-resolve-api-errors`) bzw. beim bloßen Einreihen eines Befehls (`pv-automation`, Lokal-Modus) geschlossen, obwohl das Gerät weg ist.

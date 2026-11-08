@@ -17,10 +17,8 @@ export interface ApiError {
   retry_count: number;
 }
 
-// Connection/offline errors auto-expire from the UI after this window,
-// even if the DB row hasn't been resolved yet by the auto-resolve cron.
-const STALE_HIDE_MS = 2 * 60 * 60 * 1000; // 2 hours
-const STALE_HIDE_TYPES = new Set(['connection_error', 'device_offline']);
+// (08.11.2026) Kein Ausblenden alter Offline-Fehler mehr: auto-resolve-api-errors schließt sie jetzt nur,
+// wenn das Gerät wirklich wieder gelesen wurde. Ein Thermostat, das seit Stunden fehlt, bleibt sichtbar.
 
 // Transient/flapping types: a single Tuya device that doesn't answer in one
 // sync cycle (and recovers in the next ~45-60s) should NOT immediately surface
@@ -78,14 +76,8 @@ export function useApiErrors() {
 
       if (error) throw error;
 
-      // Hide stale connection/offline errors whose underlying cause has long passed.
-      const cutoff = Date.now() - STALE_HIDE_MS;
-      const fresh = (data as ApiError[]).filter(
-        (e) => !(STALE_HIDE_TYPES.has(e.error_type) && new Date(e.created_at).getTime() < cutoff),
-      );
-
       // Suppress flapping single-cycle outages; only show persistent/repeated ones.
-      return filterFlapping(fresh);
+      return filterFlapping(data as ApiError[]);
     },
     refetchInterval: 30000, // Refresh every 30 seconds
   });
