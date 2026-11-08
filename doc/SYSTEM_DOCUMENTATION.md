@@ -10,7 +10,24 @@
 > 3. Diese Doku aktualisieren (betroffene Sektion + Changelog Sektion 20)
 > 4. Bei Konflikt zwischen User-Wunsch und dokumentiertem Konzept → **nachfragen**, nicht überschreiben
 >
-> **Letzte Aktualisierung:** 2026-11-01 · **Version:** 3.5 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> ## 🔍 PFLICHT: Nebenwirkungen prüfen, BEVOR implementiert wird (Uli, 08.11.2026)
+> Bisher hat fast jede Lösung ein neues Problem erzeugt – jede Änderung war für sich richtig, das Zusammenspiel
+> mit dem Bestehenden und das Verhalten über Zeit wurde nicht geprüft (Beispiele: Heizzyklen/RLS 26.10.,
+> Batterie-Vorschlag überschrieb Nacht-Reserve 28.10., Nachtwert halten 7–11 kW 03.11., Mail-Pingpong 08.11.).
+> Vor jeder Änderung, für **alle** Teile (Code, SQL, Trigger, Cron, Dienst, App):
+> 1. **Wer liest und schreibt dieselben Daten?** Jede berührte Tabelle/Spalte/Funktion im ganzen Repo suchen
+>    (Edge Functions, SQL-Trigger, Cron-Jobs, lokale Dienste, beide Apps, auch `heizung-muenchen`). Je Stelle:
+>    Was passiert dort nach der Änderung? Welche Annahme macht sie über die Daten – stimmt sie wirklich
+>    (z. B. „erfolgreich“ = nur eingereiht, `last_thermostat_sync` ≠ echte Lesung)?
+> 2. **Verhalten über Zeit.** Mindestens durchspielen: kurzer Aussetzer · Dauerausfall über Stunden · Flackern ·
+>    Neustart eines Dienstes · Tag/Nacht-Wechsel · Abwesenheit. Wo treffen zwei Zeitschwellen aufeinander?
+> 3. **Mit echten Daten nachrechnen.** Die neue Logik gegen die Daten der letzten Tage laufen lassen (SQL, nur
+>    lesend) und das Ergebnis mit dem Ist vergleichen – bevor etwas eingespielt wird.
+> 4. **Umstellung selbst prüfen.** Was passiert im Moment des Einspielens (alte Zustände, Reihenfolge Deploy/SQL)?
+> 5. Ergebnis als Abschnitt **„Nebenwirkungen geprüft“** in die FIX-/Konzept-Doku. Was bewusst nicht geändert
+>    wird, steht mit Grund dort und im TODO.
+>
+> **Letzte Aktualisierung:** 2026-11-08 · **Version:** 3.6 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -639,6 +656,13 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-08 — Alarm-Mails: je Problem genau zwei, mit Lösungsansatz; Prüfliste Nebenwirkungen
+- Befund: Büro-Thermostat offline seit 07.11. 16:48 → 17 Mails in 14 h (Pingpong „Gerätefehler“/„wieder in Ordnung“). Ursache: `system_problems()` las `api_errors`; die werden nach 2 h (`auto-resolve-api-errors`) bzw. beim bloßen Einreihen eines Befehls (`pv-automation`, Lokal-Modus) geschlossen, obwohl das Gerät weg ist.
+- `system_problems()`: Thermostate einzeln aus `thermostat_state.read_at` (nur echte Lesungen), übrige Fehler je Quelle + Art. SQL 27.
+- `system-alert`: Problem-Mail mit „Was tun“, Gelöst-Mail erst nach 15 min am Stück ohne Problem, keine 24-h-Erinnerung.
+- Neu im Kopf dieser Doku: Pflicht-Prüfliste Nebenwirkungen. Details `doc/FIX-ALERT-MAILS-2026-11-08.md`.
+- Offen (TODO): `pv-automation` meldet im Lokal-Modus „erreichbar“ ohne Antwort.
 
 ### 2026-11-06 — Heizplaner im Schattenbetrieb
 - Uli: ständig feste Werte, die nicht funktionieren – die KI soll das beste Modell finden. Entscheidung: rechnender Planer statt Regeln, zuerst im Schatten.

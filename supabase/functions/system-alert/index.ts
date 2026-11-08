@@ -1,13 +1,14 @@
-// system-alert – Systemstatus prüfen und bei Problemen eine Mail schicken  (05.11.2026)
-// Doku: doc/SYSTEMSTATUS-2026-11-05.md
+// system-alert – Systemstatus prüfen und bei Problemen eine Mail schicken  (05.11.2026, überarbeitet 08.11.2026)
+// Doku: doc/SYSTEMSTATUS-2026-11-05.md, doc/FIX-ALERT-MAILS-2026-11-08.md
 //
 // Läuft alle 5 min per pg_cron (system-alert-5min, SQL 22):
 //   1) Webseiten aus system_settings.system_status_websites aufrufen → system_services (host 'cloud')
 //   2) system_problems() lesen – dieselbe Liste, die die App in der Kopfleiste zeigt
-//   3) system_alert_state abgleichen und per Mail melden:
-//        - neues Problem, das seit mind. 4 min besteht (ein Aussetzer löst keine Mail aus)
-//        - Problem ist wieder weg („wieder in Ordnung“)
-//        - Erinnerung, wenn ein Problem nach 24 h immer noch besteht
+//   3) system_alert_state abgleichen und per Mail melden – je Problem GENAU ZWEI Mails (Uli, 08.11.2026):
+//        - „Problem“: besteht seit mind. 4 min → Mail mit Beschreibung und Lösungsansatz
+//        - „Gelöst“:  ist seit mind. 15 min am Stück weg → Mail mit Dauer
+//      Taucht ein Problem innerhalb dieser 15 min wieder auf, gilt es als dasselbe – keine neue Mail.
+//      Keine Erinnerungs-Mails mehr (vorher nach 24 h) – die App zeigt offene Probleme weiter an.
 //   4) Aufräumen: alte Befehle (30 Tage), erledigte Mail-Zustände (30 Tage)
 //
 // Mail über Gmail-SMTP (Port 465, wie der Wallbox-Mailer). Secrets: MAIL_USER, MAIL_PASS (App-Passwort),
@@ -17,8 +18,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import nodemailer from 'npm:nodemailer@6.9.16';
 
 const APP_URL = 'https://heizung.steinbockchalets-charge.com';
-const MAIL_AFTER_MS = 4 * 60 * 1000;        // Problem muss so lange bestehen
-const REMIND_AFTER_MS = 24 * 3600 * 1000;   // Erinnerung, wenn noch offen
+const MAIL_AFTER_MS = 4 * 60 * 1000;      // Problem muss so lange bestehen, bevor gemeldet wird
+const RESOLVE_AFTER_MS = 15 * 60 * 1000;  // so lange muss es am Stück weg sein, bevor „gelöst“ gilt
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
@@ -50,6 +51,74 @@ async function checkWebsite(w: Website) {
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleString('de-AT', { timeZone: 'Europe/Vienna', dateStyle: 'short', timeStyle: 'short' });
+
+function dauer(fromIso: string, toIso: string) {
+  const min = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 60000));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60), m = min % 60;
+  return h < 48 ? `${h} h ${m} min` : `${Math.floor(h / 24)} Tage ${h % 24} h`;
+}
+
+// Lösungsansatz je Problemart (Schlüssel aus system_problems(), SQL 27)
+function loesung(key: string, text: string): string[] {
+  if (key.startsWith('thermo:')) return [
+    'Das Thermostat antwortet im Hausnetz nicht (Port 6668). Hat es Strom, regelt es weiter auf den zuletzt gesetzten Sollwert, wird aber nicht mehr gesteuert. Ohne Strom heizt der Raum nicht.',
+    '1. Display am Gerät an? Wenn nicht: Sicherung bzw. Stromzufuhr prüfen.',
+    '2. WLAN-Symbol am Gerät an? In der FritzBox unter Heimnetz nachsehen, ob das Gerät online ist und dieselbe IP wie in config.json hat.',
+    '3. Gerät 30 Sekunden stromlos machen (Sicherung), dann warten – der Dienst fragt alle 5 min.',
+    '4. Wurde es in der Smart-Life-App neu gekoppelt, hat es einen neuen Local Key: neu holen, in config.json eintragen, Dienst SmartfoxTuya neu starten.',
+  ];
+  if (key === 'cloud:tuya') return [
+    'Der Thermostat-Dienst auf dem Österreich-PC meldet sich nicht – es werden keine Sollwerte gesetzt und keine Temperaturen gelesen.',
+    '1. App › Systemstatus (Symbol oben rechts): SmartfoxTuya neu starten.',
+    '2. Meldet sich auch der Österreich-PC nicht: PC an? Internet? (siehe eigene Meldung).',
+  ];
+  if (key.startsWith('err:') && /no_control_channel|local_service_offline/.test(key)) return [
+    'pv-automation reiht Befehle ein, der lokale Thermostat-Dienst holt sie nicht ab.',
+    '1. App › Systemstatus: SmartfoxTuya neu starten.',
+    '2. Hilft das nicht: Log im Dienst-Ordner C:\\Users\\ulibe\\tuya-thermostat ansehen.',
+  ];
+  if (key.startsWith('err:')) return [
+    'Ein Fehler steht seit über 15 min offen.',
+    '1. Details in der App unter Übersicht › Fehler.',
+    '2. Edge-Function-Logs der genannten Quelle in Supabase ansehen.',
+  ];
+  if (key === 'cloud:fronius') return [
+    'Es kommen keine Messwerte vom Fronius an – die Heizungsautomatik rechnet mit alten Werten.',
+    '1. App › Systemstatus: SmartfoxFronius neu starten.',
+    '2. Wechselrichter im Hausnetz erreichbar (192.168.188.64)?',
+  ];
+  if (key.startsWith('host:')) return [
+    'Der Dienste-Wächter dieses PCs meldet sich nicht – PC aus, im Ruhezustand oder ohne Internet.',
+    '1. PC einschalten bzw. aufwecken, Internet prüfen.',
+    '2. Läuft der PC: Dienst DiensteWaechter prüfen (nssm status DiensteWaechter).',
+  ];
+  if (key.startsWith('svc:cloud:')) return [
+    'Die Webseite antwortet nicht oder mit einem Serverfehler.',
+    '1. Wallbox-Seite: Cloudflare-Tunnel und Wallbox-Backend auf dem Österreich-PC prüfen (App › Systemstatus).',
+    '2. Heizungs-App: Vercel-Status bzw. letzten Deploy prüfen.',
+  ];
+  if (key.startsWith('svc:')) return [
+    'Ein Dienst läuft nicht.',
+    '1. App › Systemstatus (Symbol oben rechts): Dienst starten bzw. neu starten.',
+    '2. Startet er nicht: Log im Dienst-Ordner ansehen.',
+  ];
+  if (key.startsWith('cron:')) return [
+    'Eine geplante Aufgabe (pg_cron) ist fehlgeschlagen. Die Meldung bleibt 24 h nach dem letzten Fehlschlag stehen.',
+    '1. Supabase › Database › Cron Jobs: Fehlermeldung des Laufs ansehen.',
+  ];
+  if (key === 'cloud:net') return [
+    'Ein Function-Aufruf aus einer geplanten Aufgabe kam mit HTTP-Fehler zurück.',
+    '1. HTTP 401: Schlüssel im Cron-Befehl falsch. HTTP 5xx: Function abgestürzt.',
+    '2. Supabase › Edge Functions › Logs der betroffenen Function ansehen.',
+  ];
+  if (key.startsWith('muc:')) return [
+    'Problem bei der Heizung München (' + text + ').',
+    '1. München-PC an? App Heizung München › Systemstatus prüfen.',
+    '2. FENECON/Loxone im Münchner Netz erreichbar?',
+  ];
+  return ['Details in der App (Symbol oben rechts).'];
+}
 
 Deno.serve(async (req) => {
   const role = decodeJwtRole(req.headers.get('authorization'));
@@ -87,30 +156,32 @@ Deno.serve(async (req) => {
   for (const p of problems) {
     const s = state.get(p.key);
     if (!s || s.resolved_at) {
-      // neu oder nach Erledigung wieder aufgetreten → neu beginnen
+      // neu oder nach Erledigung (> 15 min weg) wieder aufgetreten → neues Problem
       const row = { key: p.key, area: p.area, text: p.text, first_seen: nowIso, last_seen: nowIso,
                     notified_at: null, resolved_at: null, resolved_notified_at: null };
       await supabase.from('system_alert_state').upsert(row, { onConflict: 'key' });
       state.set(p.key, row);
     } else {
+      // besteht weiter – auch wenn es zwischendurch kurz weg war (< 15 min): kein neues Problem
       await supabase.from('system_alert_state').update({ text: p.text, area: p.area, last_seen: nowIso }).eq('key', p.key);
-      s.text = p.text; s.area = p.area;
+      s.text = p.text; s.area = p.area; s.last_seen = nowIso;
     }
   }
   for (const [key, s] of state) {
-    if (!current.has(key) && !s.resolved_at) {
-      await supabase.from('system_alert_state').update({ resolved_at: nowIso }).eq('key', key);
-      s.resolved_at = nowIso;
+    // erst nach 15 min am Stück ohne Problem als erledigt werten (vorher: sofort → Mail-Pingpong)
+    if (!current.has(key) && !s.resolved_at && now - Date.parse(s.last_seen) >= RESOLVE_AFTER_MS) {
+      await supabase.from('system_alert_state').update({ resolved_at: s.last_seen }).eq('key', key);
+      s.resolved_at = s.last_seen;
     }
   }
 
-  const fresh: any[] = [], remind: any[] = [], fixed: any[] = [];
+  const fresh: any[] = [], fixed: any[] = [];
   for (const s of state.values()) {
     if (!s.resolved_at) {
-      if (!s.notified_at && now - Date.parse(s.first_seen) >= MAIL_AFTER_MS) fresh.push(s);
-      else if (s.notified_at && now - Date.parse(s.notified_at) >= REMIND_AFTER_MS) remind.push(s);
+      // nur melden, was JETZT besteht (nicht, was gerade in der 15-min-Wartezeit ist)
+      if (!s.notified_at && current.has(s.key) && now - Date.parse(s.first_seen) >= MAIL_AFTER_MS) fresh.push(s);
     } else if (s.notified_at && !s.resolved_notified_at) {
-      fixed.push(s); // nur melden, was vorher auch gemeldet wurde
+      fixed.push(s); // nur „gelöst“ melden, was vorher auch als Problem gemeldet wurde
     }
   }
 
@@ -118,28 +189,28 @@ Deno.serve(async (req) => {
   const user = Deno.env.get('MAIL_USER');
   const pass = Deno.env.get('MAIL_PASS');
   const to = Deno.env.get('ALERT_EMAIL');
-  if (fresh.length + remind.length + fixed.length > 0) {
+  if (fresh.length + fixed.length > 0) {
     if (!user || !pass || !to) {
       summary.mail = 'nicht konfiguriert (MAIL_USER/MAIL_PASS/ALERT_EMAIL fehlen)';
     } else {
       const open = problems.length;
+      const more = (n: number) => (n > 1 ? ` (+${n - 1} weitere)` : '');
       const subject = fresh.length > 0
-        ? `Heizung Venediger: ${fresh[0].text}${fresh.length > 1 ? ` (+${fresh.length - 1} weitere)` : ''}`
-        : remind.length > 0
-          ? `Heizung Venediger: immer noch ${open === 1 ? '1 Problem' : `${open} Probleme`}`
-          : `Heizung Venediger: wieder in Ordnung${open > 0 ? ` (noch ${open} offen)` : ''}`;
-      const line = (s: any) => `• ${s.area}: ${s.text}`;
+        ? `Heizung Venediger – Problem: ${fresh[0].text}${more(fresh.length)}`
+        : `Heizung Venediger – gelöst: ${fixed[0].text}${more(fixed.length)}`;
       const parts: string[] = [];
-      if (fresh.length) parts.push('Neues Problem:\n' + fresh.map(line).join('\n'));
-      if (remind.length) parts.push('Besteht seit über 24 Stunden:\n' + remind.map(line).join('\n'));
-      if (fixed.length) parts.push('Wieder in Ordnung:\n' + fixed.map((s) => `• ${s.area}: ${s.text} (seit ${fmt(s.first_seen)})`).join('\n'));
+      for (const s of fresh) {
+        parts.push(`PROBLEM – ${s.area}\n${s.text}\nerkannt: ${fmt(s.first_seen)}\n\nWas tun:\n${loesung(s.key, s.text).join('\n')}`);
+      }
+      for (const s of fixed) {
+        parts.push(`GELÖST – ${s.area}\n${s.text}\nDauer: ${fmt(s.first_seen)} bis ${fmt(s.resolved_at)} (${dauer(s.first_seen, s.resolved_at)})`);
+      }
       parts.push(open === 0 ? 'Zurzeit laufen alle Prozesse.' : `Zurzeit offen: ${open}.`);
-      parts.push(`Systemstatus in der App (Symbol oben rechts): ${APP_URL}`);
+      parts.push(`Zu jedem Problem kommen genau zwei Mails: diese und eine, wenn es gelöst ist.\nSystemstatus in der App (Symbol oben rechts): ${APP_URL}`);
       try {
         const transport = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass } });
-        await transport.sendMail({ from: `"Heizung Venediger" <${user}>`, to, subject, text: parts.join('\n\n') });
-        const sentKeys = [...fresh, ...remind].map((s) => s.key);
-        if (sentKeys.length) await supabase.from('system_alert_state').update({ notified_at: nowIso }).in('key', sentKeys);
+        await transport.sendMail({ from: `"Heizung Venediger" <${user}>`, to, subject, text: parts.join('\n\n────────\n\n') });
+        if (fresh.length) await supabase.from('system_alert_state').update({ notified_at: nowIso }).in('key', fresh.map((s) => s.key));
         if (fixed.length) await supabase.from('system_alert_state').update({ resolved_notified_at: nowIso }).in('key', fixed.map((s) => s.key));
         summary.mail = `gesendet: ${subject}`;
       } catch (e) {

@@ -43,7 +43,8 @@ Ist ein PC ganz aus oder ohne Internet, kann man aus der Ferne nichts tun. Die A
 | Heizungsautomatik | letzter erfolgreicher Cron-Lauf `pv-automation-check` | (nur Anzeige, Knopf „Jetzt ausführen“) |
 | Fronius-Daten | letzte Zeile `energy_readings` | älter als 15 min |
 | Thermostate | `service_health` (tuya-thermostat) | Herzschlag älter als 10 min |
-| Gerätefehler | `api_errors` offen | länger als 15 min offen (kurze Aussetzer zählen nicht) |
+| Thermostate einzeln (seit 08.11.) | `thermostat_state.read_at` (letzte echte Lesung) | älter als 15 min, solange der Thermostat-Dienst läuft |
+| übrige Fehler (seit 08.11. je Quelle + Art) | `api_errors` offen, ohne `device_offline`/`connection_error` | länger als 15 min offen (sofort, wenn ein gleicher langer Fehler ≤ 10 min vorher geschlossen wurde) |
 | Geplante Aufgaben | `cron.job_run_details` | Lauf mit Status „failed“ in 24 h |
 | Function-Aufrufe | `net._http_response` | HTTP ≥ 400 in 2 h (ein 401 erscheint im Cron als „succeeded“ – siehe learnings) |
 | Webseiten | `system_status_websites` → `system_services` (host `cloud`) | 5xx oder keine Antwort |
@@ -74,9 +75,12 @@ sind die Heizungs-App und die Wallbox-Gästeseite – Letztere prüft Cloudflare
 
 Edge Function `system-alert`, alle 5 min per Cron (`system-alert-5min`):
 
-- **Neues Problem**, das mindestens 4 min besteht → eine Mail (ein einzelner Aussetzer löst nichts aus).
-- **Wieder in Ordnung** → eine Mail (nur für Probleme, die vorher gemeldet wurden).
-- **Erinnerung**, wenn ein Problem nach 24 h immer noch besteht.
+Seit 08.11.2026 (`doc/FIX-ALERT-MAILS-2026-11-08.md`): je Problem **genau zwei Mails**.
+- **Problem**, das mindestens 4 min besteht → eine Mail mit Beschreibung und **Was tun** (Lösungsansatz je Problemart).
+- **Gelöst** → eine Mail mit Dauer, erst wenn das Problem **15 min am Stück** weg ist (nur für vorher gemeldete Probleme).
+  Kommt es innerhalb der 15 min zurück, gilt es als dasselbe Problem – keine neue Mail.
+- Keine Erinnerung mehr nach 24 h (bis 07.11.2026); offene Probleme zeigt die App.
+- Thermostate werden einzeln gemeldet, aus der letzten echten Lesung (`thermostat_state.read_at`), nicht aus `api_errors`.
 - Versand über Gmail (Port 465), wie die Wallbox-Quittungen. Schlägt der Versand fehl, versucht es der nächste Lauf wieder.
 
 Secrets (Supabase › Edge Functions › Secrets):
