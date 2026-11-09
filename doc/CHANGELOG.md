@@ -5,6 +5,19 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.22.0] - 2026-11-09
+
+### Fixed (`doc/FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`)
+- Sonne auf dem Fühler (Wohnzimmer, sonnige Vormittage, bis 32,4 °C gemeldet): Trigger `a_trg_fuehler_plausibel` erkennt
+  Sprünge (≥ 2,0 °C je Lesung / ≥ 3,0 °C in 15 min), hält bis zum Ende den letzten plausiblen Wert; Gerätewert in
+  `rooms.current_temp_gemeldet` bzw. `room_temperature_samples.temperature_gemeldet`. `pv-automation` lässt den Raum
+  so lange aus (kein Budget, kein Anteil an der Grenze, kein Befehl). SQL 28.
+- DP 19 (−1,0 → 0 am 06.11., Büro 01.11.) verschiebt die gemeldete Temperatur um +1,0 °C: Messwerte davor
+  nachkorrigiert (`fuehler_korrektur`, umkehrbar). Annahme vom 01.11. widerlegt.
+
+### Added
+- Einstellungen › Haus › Thermostat-Fühler (an/aus, Schwellen, Höchstdauer). Raumkarte: Hinweis „Fühler in der Sonne“.
+
 ## [2.21.0] - 2026-11-07
 
 ### Changed (`doc/FIX-KOMFORT-IST-MAXIMUM-2026-11-07.md`)

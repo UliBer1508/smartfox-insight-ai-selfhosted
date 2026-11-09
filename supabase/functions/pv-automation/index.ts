@@ -998,7 +998,8 @@ Deno.serve(async (req) => {
         // Load all rooms with Tuya devices
         const { data: allRooms } = await supabase
           .from('rooms')
-          .select('id, name, tuya_device_id, target_temp, night_temp, eco_temp, wait_min_temp, pv_auto_active, heating_paused_reason, last_thermostat_sync, priority, current_temp, is_heating, heating_power_w, calculated_power_w, manual_override_until, automation_enabled')
+          // '*' statt Spaltenliste: enthält fuehler_sonne_seit (SQL 28), läuft aber auch ohne die Spalte weiter
+          .select('*')
           .not('tuya_device_id', 'is', null);
         
         if (!allRooms || allRooms.length === 0) {
@@ -1142,7 +1143,9 @@ Deno.serve(async (req) => {
           const nightCapW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
           const nightBoostMin = Math.max(0, Number(settings?.cap_wait_boost_min ?? 60));
           const nowMsNight = Date.now();
-          const isOverridden = (r: any) => !!r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMsNight;
+          // Fühler in der Sonne (SQL 28) wie übersteuert: keine Befehle, zählt nur mit, wenn er heizt
+          const isOverridden = (r: any) => !!r.fuehler_sonne_seit
+            || (!!r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMsNight);
           const autoRooms = allRooms.filter((r: any) => r.automation_enabled !== false);
           const ctrlRooms = autoRooms.filter((r: any) => !isOverridden(r));
           let nightStartUsed = 0;
@@ -1391,6 +1394,18 @@ Deno.serve(async (req) => {
         return new Response(JSON.stringify({ success: true, message: 'No rooms with PV automation', results: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' }
         });
+      }
+
+      // ---- Fühler in der Sonne (09.11.2026, doc/FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md) ----
+      // Meldet ein Thermostat eine Sonnenspitze (SQL 28 setzt rooms.fuehler_sonne_seit), misst es am heißen Fühler
+      // und heizt ohnehin nicht. Der Raum bekommt dann weder PV-Budget noch einen Teil der Leistungsgrenze und
+      // keinen Befehl – sonst wäre Leistung für einen Raum reserviert, der gar nicht heizt. Sollwert bleibt, wie er ist.
+      const fuehlerSonne = rooms.filter((r: any) => !!r.fuehler_sonne_seit);
+      if (fuehlerSonne.length > 0) {
+        for (const r of fuehlerSonne) {
+          console.log(`[FUEHLER-SONNE] ${r.name}: gemeldet ${r.current_temp_gemeldet} °C, gerechnet ${r.current_temp} °C seit ${r.fuehler_sonne_seit} → ausgelassen`);
+        }
+        rooms = rooms.filter((r: any) => !r.fuehler_sonne_seit);
       }
 
       // 3a. Load AI daily plan (if exists) for secondary sorting within same priority
@@ -3140,7 +3155,8 @@ Deno.serve(async (req) => {
       // hotwaterActive bleibt als Status für superComfortAllowed-Gate und Monitoring erhalten.
 
       // Prüfe ob alle Räume >= comfort_temp sind (für Super-Comfort)
-      const allRoomsAtComfort = rooms.every(r => {
+      // Raum mit Fühler in der Sonne: wahre Temperatur unbekannt → zählt als „nicht auf Komfort“ (vorsichtig)
+      const allRoomsAtComfort = fuehlerSonne.length === 0 && rooms.every(r => {
         const roomComfort = r.comfort_temp || settings?.comfort_temp || 21;
         return (r.current_temp || 0) >= roomComfort - 0.3;
       });

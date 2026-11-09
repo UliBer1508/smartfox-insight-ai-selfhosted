@@ -105,6 +105,16 @@ const GROUPS: Group[] = [
     ],
   },
   {
+    title: 'Thermostat-Fühler', icon: <Sun className="w-3.5 h-3.5 text-warning" />,
+    fields: [
+      { k: 'fuehler_pruefung_aktiv', l: 'Sonne auf dem Fühler erkennen', kind: 'switch', def: true, hint: 'Springt die gemeldete Temperatur sprunghaft (Sonne auf dem Thermostat), rechnet das System mit dem letzten plausiblen Wert weiter und lässt den Raum in der Automatik aus. Protokoll: „Fühler in der Sonne“.' },
+      { k: 'fuehler_sprung_c', l: 'Sprung zwischen zwei Lesungen ab', kind: 'number', def: 2.0, unit: '°C', step: 0.5, min: 1, max: 10, hint: 'gemessen 09.11.: Sonnenspitzen 2,2–3,7 °C, sonst höchstens 1,4 °C (Heizen), DP-19-Umstellung 1,0 °C', showIf: (v) => v.fuehler_pruefung_aktiv !== false },
+      { k: 'fuehler_sprung15_c', l: 'oder Anstieg in 15 min ab', kind: 'number', def: 3.0, unit: '°C', step: 0.5, min: 1.5, max: 15, showIf: (v) => v.fuehler_pruefung_aktiv !== false },
+      { k: 'fuehler_ende_abstand_c', l: 'Ende: unter der Spitze um', kind: 'number', def: 1.5, unit: '°C', step: 0.5, min: 0.5, max: 10, hint: 'und 10 min ruhig – dann gilt der gemeldete Wert wieder', showIf: (v) => v.fuehler_pruefung_aktiv !== false },
+      { k: 'fuehler_max_stunden', l: 'Höchstens halten', kind: 'number', def: 3, unit: 'h', step: 0.5, min: 0.5, max: 8, showIf: (v) => v.fuehler_pruefung_aktiv !== false },
+    ],
+  },
+  {
     title: 'Anlage', icon: <Factory className="w-3.5 h-3.5 text-muted-foreground" />,
     fields: [
       { k: 'pv_capacity_kwp', l: 'PV-Leistung', kind: 'number', def: 15.8, unit: 'kWp', step: 0.1, min: 0.1, max: 100 },

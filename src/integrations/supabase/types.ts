@@ -748,6 +748,11 @@ export type Database = {
           battery_gate_floor_delta: number
           battery_gate_max_power_w: number
           cap_wait_boost_min: number
+          fuehler_ende_abstand_c: number
+          fuehler_max_stunden: number
+          fuehler_pruefung_aktiv: boolean
+          fuehler_sprung_c: number
+          fuehler_sprung15_c: number
           planer_gewicht_unter: number
           planer_gewicht_ziel: number
           planer_modus: string
@@ -827,6 +832,11 @@ export type Database = {
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
           cap_wait_boost_min?: number
+          fuehler_ende_abstand_c?: number
+          fuehler_max_stunden?: number
+          fuehler_pruefung_aktiv?: boolean
+          fuehler_sprung_c?: number
+          fuehler_sprung15_c?: number
           planer_gewicht_unter?: number
           planer_gewicht_ziel?: number
           planer_modus?: string
@@ -906,6 +916,11 @@ export type Database = {
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
           cap_wait_boost_min?: number
+          fuehler_ende_abstand_c?: number
+          fuehler_max_stunden?: number
+          fuehler_pruefung_aktiv?: boolean
+          fuehler_sprung_c?: number
+          fuehler_sprung15_c?: number
           planer_gewicht_unter?: number
           planer_gewicht_ziel?: number
           planer_modus?: string
@@ -1705,6 +1720,9 @@ export type Database = {
           pv_power_w: number | null
           room_id: string
           temperature: number
+          temperature_gemeldet: number | null
+          korrektur_dp19: number | null
+          fuehler_sonne: boolean
           timestamp: string
         }
         Insert: {
@@ -1714,6 +1732,9 @@ export type Database = {
           pv_power_w?: number | null
           room_id: string
           temperature: number
+          temperature_gemeldet?: number | null
+          korrektur_dp19?: number | null
+          fuehler_sonne?: boolean
           timestamp?: string
         }
         Update: {
@@ -1723,6 +1744,9 @@ export type Database = {
           pv_power_w?: number | null
           room_id?: string
           temperature?: number
+          temperature_gemeldet?: number | null
+          korrektur_dp19?: number | null
+          fuehler_sonne?: boolean
           timestamp?: string
         }
         Relationships: [
@@ -1753,6 +1777,11 @@ export type Database = {
           comfort_temp: number | null
           created_at: string | null
           current_temp: number | null
+          current_temp_gemeldet: number | null
+          fuehler_sonne_max: number | null
+          fuehler_sonne_ref: number | null
+          fuehler_sonne_ruhig_seit: string | null
+          fuehler_sonne_seit: string | null
           eco_temp: number | null
           wait_min_temp: number | null
           estimated_kwh_per_degree: number | null
@@ -1803,6 +1832,11 @@ export type Database = {
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
+          current_temp_gemeldet?: number | null
+          fuehler_sonne_max?: number | null
+          fuehler_sonne_ref?: number | null
+          fuehler_sonne_ruhig_seit?: string | null
+          fuehler_sonne_seit?: string | null
           eco_temp?: number | null
           wait_min_temp?: number | null
           estimated_kwh_per_degree?: number | null
@@ -1853,6 +1887,11 @@ export type Database = {
           comfort_temp?: number | null
           created_at?: string | null
           current_temp?: number | null
+          current_temp_gemeldet?: number | null
+          fuehler_sonne_max?: number | null
+          fuehler_sonne_ref?: number | null
+          fuehler_sonne_ruhig_seit?: string | null
+          fuehler_sonne_seit?: string | null
           eco_temp?: number | null
           wait_min_temp?: number | null
           estimated_kwh_per_degree?: number | null
