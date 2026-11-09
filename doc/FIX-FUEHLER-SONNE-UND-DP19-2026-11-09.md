@@ -1,6 +1,6 @@
 # Fix: Sonne auf dem Fühler und Temperatur-Korrektur DP 19 (09.11.2026)
 
-**Status:** von Uli beauftragt 09.11.2026 („Option 2“, „Ja“) · SQL 28 + PR
+**Status:** von Uli beauftragt 09.11.2026 („Option 2“, „Ja“) · SQL 28 ausgeführt 09.11. 18:28 · PR #32
 **Betrifft:** SQL `28_fuehler_plausibel.sql` (Trigger auf `rooms`, `capture_room_temperature_sample`, Altdaten),
 `supabase/functions/pv-automation/index.ts`, App: `HouseOverview.tsx` (Raumkarte), `HouseSettingsCard.tsx`
 (Einstellungen › Haus › Thermostat-Fühler), Typen.

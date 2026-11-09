@@ -7,7 +7,7 @@ Stand: 2026-11-09
 ## 🔴 Hohe Priorität
 
 ### Sonne auf dem Fühler + DP 19 (09.11., `FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`)
-- [ ] SQL `28_fuehler_plausibel.sql` ausführen (Ergebnis: Wohnzimmer 3 Spitzen / 58 Werte, sonst 0)
+- [x] SQL `28_fuehler_plausibel.sql` ausgeführt 09.11. 18:28 (Wohnzimmer 3 Spitzen / 58 Werte, sonst 0; 37.611 Werte DP-19-korrigiert; erste Live-Lesung 18:28 ok)
 - [ ] PR mergen → `pv-automation` (GitHub-Aktion), App (Vercel)
 - [ ] Nächster Sonnenvormittag: Protokoll „Fühler in der Sonne“ im Wohnzimmer, Raumkarte zeigt den Hinweis, Ende nach Abfall
 - [ ] **Kinder Bad DP 19 noch −10:** über Protokoll › Thermostate erneut auf 0 setzen und nach 10 min prüfen; danach Altdaten Kinder Bad +1,0 °C (Zeile in `fuehler_korrektur`) und genehmigte Untergrenze 21 °C prüfen
