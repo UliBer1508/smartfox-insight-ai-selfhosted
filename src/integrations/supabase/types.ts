@@ -748,6 +748,8 @@ export type Database = {
           battery_gate_floor_delta: number
           battery_gate_max_power_w: number
           cap_wait_boost_min: number
+          cap_keep_max_min: number
+          ziel_abschalt_ueber_c: number
           fuehler_ende_abstand_c: number
           fuehler_max_stunden: number
           fuehler_pruefung_aktiv: boolean
@@ -832,6 +834,8 @@ export type Database = {
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
           cap_wait_boost_min?: number
+          cap_keep_max_min?: number
+          ziel_abschalt_ueber_c?: number
           fuehler_ende_abstand_c?: number
           fuehler_max_stunden?: number
           fuehler_pruefung_aktiv?: boolean
@@ -916,6 +920,8 @@ export type Database = {
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
           cap_wait_boost_min?: number
+          cap_keep_max_min?: number
+          ziel_abschalt_ueber_c?: number
           fuehler_ende_abstand_c?: number
           fuehler_max_stunden?: number
           fuehler_pruefung_aktiv?: boolean

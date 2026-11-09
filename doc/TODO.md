@@ -16,10 +16,14 @@ Stand: 2026-11-09
 - [ ] DP 110 (Fühlerwahl) steht bei Bad Uli und Toilette Eingang auf "3", sonst "1" – klären, ob gewollt
 - [ ] Einstellungen nach DP-19-Umstellung neu bewerten: seit 06.11. zeigen die Räume 1 °C mehr bei gleicher Luft → gleiche Sollwerte = ~1 °C kühler als vorher
 
-### Vorrang „allein heizen“ geht nach einem Lauf verloren (Befund 09.11.)
-- [ ] Wohnzimmer (5550 W > Grenze 4000 W) bekommt nach 60 min Warten für **einen** Lauf „heizt allein“, im nächsten Lauf fällt es aus `cap_wait_state` und wartet wieder (09.11.: sechsmal, ~95 min Heizzeit am Tag, Untergrenze nie erreicht). Konzept FIX-HEIZLEISTUNG: „heizt allein – nur bis Untergrenze“. Fix: Platz behalten bis Ziel erreicht; Nebenwirkungen prüfen
-- [ ] Grenze belegt durch zugeteilte Räume, die gar nicht heizen (innerhalb der Schaltdifferenz) – zählen nach DP 5?
-- [ ] Konzeptfrage an Uli: Wohnzimmer an Tagen ohne Sonne nur bis Untergrenze oder bis Eco?
+### Vorrang behalten + Schaltband (09.11., `FIX-VORRANG-UND-SCHALTBAND-2026-11-09.md`)
+- [x] DP 101 Wohnzimmer 10 → 5 (09.11. 18:43, gelesen = 5)
+- [x] SQL `29_vorrang_schaltband.sql` ausgeführt (09.11.)
+- [ ] PR mergen → `pv-automation`
+- [ ] Heute Abend/Nacht: Raumkarten „behält Leistung bis Ziel“, „Anstoß …“, „… erreicht → Thermostat aus“; Karte „Heizung jetzt“ nie über 4 kW außer Wohnzimmer allein
+- [ ] Morgen: Wohnzimmer hält 20,5 °C? Schaltpunkte Wohnzimmer mit Band 0,5 (Protokoll › Thermostate) → dann DP 101 = 5 an allen Räumen entscheiden
+- [ ] Anzahl Befehle/Heizzyklen beobachten (Simulation ~14 Sollwert-Wechsel/h)
+- [ ] Konzeptfrage an Uli: Wohnzimmer an Tagen ohne Sonne nur bis Untergrenze oder bis Eco? Grenze 4000 W < 5550 W Wohnzimmer
 
 ### Heizplaner im Schattenbetrieb (06.11., `KONZEPT-PLANER-2026-11-06.md`)
 - [x] SQL `25_heizplaner.sql` ausgeführt, Raummodelle + PV-Modell + Gegenrechnung 05.11. eingetragen (06.11.)

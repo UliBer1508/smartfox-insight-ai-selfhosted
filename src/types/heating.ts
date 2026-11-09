@@ -62,6 +62,9 @@ export interface HeatingSettings {
   max_grid_heating_power_w?: number;
   // Leistungsgrenze gilt immer (06.11.2026): nach so vielen Minuten Warten kommt ein Raum zuerst dran
   cap_wait_boost_min?: number;
+  // Vorrang behalten / Abschalten am Ziel (09.11.2026, SQL 29)
+  cap_keep_max_min?: number;
+  ziel_abschalt_ueber_c?: number;
   // Fühler-Prüfung (09.11.2026, SQL 28): Sonnenspitzen am Thermostat erkennen und den Wert halten
   fuehler_pruefung_aktiv?: boolean;
   fuehler_sprung_c?: number;

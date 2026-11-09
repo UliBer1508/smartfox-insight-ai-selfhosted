@@ -48,6 +48,8 @@ const defaultSettings: HeatingSettings = {
   power_budget_enabled: true,
   max_grid_heating_power_w: 2000,
   cap_wait_boost_min: 60,
+  cap_keep_max_min: 120,
+  ziel_abschalt_ueber_c: 0.3,
   fuehler_pruefung_aktiv: true,
   fuehler_sprung_c: 2.0,
   fuehler_sprung15_c: 3.0,
