@@ -1,10 +1,25 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-08
+Stand: 2026-11-09
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Sonne auf dem Fühler + DP 19 (09.11., `FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`)
+- [x] SQL `28_fuehler_plausibel.sql` ausgeführt 09.11. 18:28 (Wohnzimmer 3 Spitzen / 58 Werte, sonst 0; 37.611 Werte DP-19-korrigiert; erste Live-Lesung 18:28 ok)
+- [ ] PR mergen → `pv-automation` (GitHub-Aktion), App (Vercel)
+- [ ] Nächster Sonnenvormittag: Protokoll „Fühler in der Sonne“ im Wohnzimmer, Raumkarte zeigt den Hinweis, Ende nach Abfall
+- [ ] **Kinder Bad DP 19 noch −10:** über Protokoll › Thermostate erneut auf 0 setzen und nach 10 min prüfen; danach Altdaten Kinder Bad +1,0 °C (Zeile in `fuehler_korrektur`) und genehmigte Untergrenze 21 °C prüfen
+- [ ] Thermostat-Dienst: `set_dp` nach dem Zurücklesen prüfen (Wert übernommen?) und sonst Fehler melden statt „ausgeführt“
+- [ ] `tuya-control` (Cloud): bei jeder Lesung `last_thermostat_sync` setzen, sonst greift die Fühler-Prüfung dort nicht
+- [ ] DP 110 (Fühlerwahl) steht bei Bad Uli und Toilette Eingang auf "3", sonst "1" – klären, ob gewollt
+- [ ] Einstellungen nach DP-19-Umstellung neu bewerten: seit 06.11. zeigen die Räume 1 °C mehr bei gleicher Luft → gleiche Sollwerte = ~1 °C kühler als vorher
+
+### Vorrang „allein heizen“ geht nach einem Lauf verloren (Befund 09.11.)
+- [ ] Wohnzimmer (5550 W > Grenze 4000 W) bekommt nach 60 min Warten für **einen** Lauf „heizt allein“, im nächsten Lauf fällt es aus `cap_wait_state` und wartet wieder (09.11.: sechsmal, ~95 min Heizzeit am Tag, Untergrenze nie erreicht). Konzept FIX-HEIZLEISTUNG: „heizt allein – nur bis Untergrenze“. Fix: Platz behalten bis Ziel erreicht; Nebenwirkungen prüfen
+- [ ] Grenze belegt durch zugeteilte Räume, die gar nicht heizen (innerhalb der Schaltdifferenz) – zählen nach DP 5?
+- [ ] Konzeptfrage an Uli: Wohnzimmer an Tagen ohne Sonne nur bis Untergrenze oder bis Eco?
 
 ### Heizplaner im Schattenbetrieb (06.11., `KONZEPT-PLANER-2026-11-06.md`)
 - [x] SQL `25_heizplaner.sql` ausgeführt, Raummodelle + PV-Modell + Gegenrechnung 05.11. eingetragen (06.11.)

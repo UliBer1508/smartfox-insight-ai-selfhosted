@@ -18,6 +18,9 @@ export interface Room {
   local_key?: string | null;
   thermostat_local_ip?: string | null;
   current_temp?: number | null;
+  // Fühler-Prüfung (SQL 28): Gerätewert und Sonnenspitze; current_temp ist dann der gehaltene, plausible Wert
+  current_temp_gemeldet?: number | null;
+  fuehler_sonne_seit?: string | null;
   target_temp?: number | null;
   is_heating?: boolean | null;
   pv_auto_enabled?: boolean | null;

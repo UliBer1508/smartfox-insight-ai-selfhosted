@@ -62,6 +62,12 @@ export interface HeatingSettings {
   max_grid_heating_power_w?: number;
   // Leistungsgrenze gilt immer (06.11.2026): nach so vielen Minuten Warten kommt ein Raum zuerst dran
   cap_wait_boost_min?: number;
+  // Fühler-Prüfung (09.11.2026, SQL 28): Sonnenspitzen am Thermostat erkennen und den Wert halten
+  fuehler_pruefung_aktiv?: boolean;
+  fuehler_sprung_c?: number;
+  fuehler_sprung15_c?: number;
+  fuehler_ende_abstand_c?: number;
+  fuehler_max_stunden?: number;
   // Heizplaner (06.11.2026, Schattenbetrieb)
   planer_modus?: 'aus' | 'schatten';
   planer_gewicht_ziel?: number;

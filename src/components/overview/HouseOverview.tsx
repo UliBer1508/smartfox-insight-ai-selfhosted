@@ -463,7 +463,12 @@ function RoomCard({ room, night, dayRoom, heute, onChanged }: { room: Room; nigh
           </div>
         </div>
 
-        {dayRoom?.why && (state.label === 'Normal' || state.label === 'Nacht') && (
+        {room.fuehler_sonne_seit ? (
+          <div className="text-xs text-warning -mt-1">
+            ☀ Fühler in der Sonne seit {fmtTime(room.fuehler_sonne_seit)} – gemeldet {fmtT(room.current_temp_gemeldet)},
+            gerechnet {fmtT(room.current_temp)}. Das Thermostat heizt so nicht; die Automatik lässt den Raum aus.
+          </div>
+        ) : dayRoom?.why && (state.label === 'Normal' || state.label === 'Nacht') && (
           <div className="text-xs text-muted-foreground -mt-1">Automatik: {dayRoom.why}</div>
         )}
         <div className="text-xs text-muted-foreground -mt-2">

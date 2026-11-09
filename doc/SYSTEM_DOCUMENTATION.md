@@ -27,7 +27,7 @@
 > 5. Ergebnis als Abschnitt **„Nebenwirkungen geprüft“** in die FIX-/Konzept-Doku. Was bewusst nicht geändert
 >    wird, steht mit Grund dort und im TODO.
 >
-> **Letzte Aktualisierung:** 2026-11-08 · **Version:** 3.6 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> **Letzte Aktualisierung:** 2026-11-09 · **Version:** 3.7 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -127,6 +127,8 @@ Frontend (15–60 s Polling, KEIN Realtime)
 **Quelle der Wahrheit für Heiz-Status:** `room_heating_logs` (NICHT `rooms.is_heating` — letzteres kann veralten). Seit 26.10.2026 schreibt der Trigger `trg_log_room_heating_transition` jeden Wechsel von `rooms.is_heating` als `heating_start`/`heating_stop` (lokal und Cloud).
 - `event_type`: `heating_start`, `heating_stop`, `pv_activate`, `pv_deactivate`, `manual_set`
 - Aktive Räume = `heating_start` ohne nachfolgendes `heating_stop`
+
+**Raumtemperatur (seit 09.11.2026, SQL 28):** `rooms.current_temp` ist der **plausible** Wert, `current_temp_gemeldet` der Gerätewert. Der Trigger `a_trg_fuehler_plausibel` erkennt Sonne auf dem Fühler (Sprung ≥ `fuehler_sprung_c` 2,0 °C je Lesung oder ≥ `fuehler_sprung15_c` 3,0 °C in 15 min), hält den letzten plausiblen Wert (`fuehler_sonne_seit`/`_ref`) bis der Wert ≥ `fuehler_ende_abstand_c` unter der Spitze und 10 min ruhig ist (höchstens `fuehler_max_stunden`). Messwerte: `room_temperature_samples.temperature` plausibel, `temperature_gemeldet`, `fuehler_sonne`, `korrektur_dp19` (+1,0 °C vor der DP-19-Umstellung). `doc/FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`.
 
 **Räume (`rooms`):** Priorität 1–12 strikt (jede Zahl genau einmal). Felder: `automation_enabled` (**Hauptschalter**: nur Räume mit `true` werden von pv-automation überhaupt geladen und gesteuert – aus = keine Befehle, auch kein Nacht-/Frostschutz), `night_temp`, **`wait_min_temp`** („Untergrenze“, Mindesttemperatur ohne PV-Überschuss, seit 27.10.2026; leer = Eco − 1,5 °C), `eco_temp`, `comfort_temp`, `manual_override_until`, `tuya_device_id`, `local_key`. `pv_auto_enabled` wird von pv-automation **nicht ausgewertet** (Befund 27.10.2026).
 
@@ -339,6 +341,10 @@ Seit Dienst v1.3 (24.10.2026) schaltet jeder Sollwert das TGP508 auf **„home�
 
 ### Regelpunkt der Thermostate (Befund 01.11.2026)
 Gemessen über 3 Tage (Schaltpunkte je Raum): Die TGP508 schalten nicht um den Sollwert, sondern um **Soll +0,6 bis +1,0 °C** (Wohnzimmer 40 Zyklen: ein +0,65, aus +0,69 °C); die eigentliche Schaltdifferenz ist klein (0,2–0,4 °C). Verdacht: DP 19 = −10 (Temperatur-Korrektur −1,0 °C) wirkt auf die Regelung, nicht auf die gemeldete Temperatur. Test mit DP 19 = 0 am Büro über den Tab Protokoll (`doc/PROTOKOLL-MODUL-2026-11-01.md`). Alle Datenpunkte je Gerät: Tabelle `thermostat_state`.
+**Befund 09.11.2026:** DP 19 verschiebt die **gemeldete** Temperatur (06.11. 20:04 alle Geräte −1,0 → 0: Sprung +0,7…+1,0 °C in jedem Raum). Werte davor 1 °C zu tief, mit SQL 28 nachkorrigiert. Kinder Bad steht noch auf −10.
+
+### Sonne auf dem Fühler (seit 09.11.2026)
+Wohnzimmer (Süd): an sonnigen Vormittagen meldet das Thermostat bis zu 32 °C (direkte Sonne aufs Gerät). Solange `rooms.fuehler_sonne_seit` gesetzt ist, lässt `pv-automation` den Raum aus (tags: aus der Verteilung genommen, zählt als „nicht auf Komfort“; nachts wie manuell übersteuert). Das Thermostat heizt in dieser Zeit ohnehin nicht, weil es am heißen Fühler misst. Einstellungen › Haus › Thermostat-Fühler.
 
 ### Protokoll (seit 01.11.2026)
 Tab **Protokoll** und Tabelle `protokoll_events` (Trigger, SQL 11): jede Sollwert-Änderung mit Begründung (`thermostat_commands.reason`), heizt an/aus, Tagesmodus, Einstellungen alt → neu, Abwesenheit, Thermostat-Auffälligkeiten, Fehler. Details: `doc/PROTOKOLL-MODUL-2026-11-01.md`.
@@ -376,7 +382,7 @@ Tab **Protokoll** und Tabelle `protokoll_events` (Trigger, SQL 11): jede Sollwer
   | 9 | Kindersicherung | false |
   | 11 | Fehler (E01 = Fühler) | 0 |
   | 15 | höchster Sollwert, °C | 60 |
-  | **19** | **Temperatur-Korrektur, ×0,1 °C (−99…99)** | **−10 = −1,0 °C** |
+  | **19** | **Temperatur-Korrektur, ×0,1 °C (−99…99)** – verschiebt die gemeldete Temperatur | **0** seit 06.11. (Büro 01.11.), Kinder Bad noch −10 |
   | **101** | **Einschalt-Differenz, ×0,1 °C (5…100, Schritt 5)** | **10 = 1,0 °C** |
   | 102 | Grenztemperatur Fühler, °C | 60 |
   | 103 | Frostschutz des Geräts | gemischt |
@@ -657,6 +663,11 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-09 — Sonne auf dem Fühler, DP 19 verschiebt die gemeldete Temperatur
+- Befund: Wohnzimmer meldet an sonnigen Vormittagen bis 32,4 °C (26.10., 31.10., 06.11.); Steuerung, Planer, KI und Tagesnote nahmen das als Raumtemperatur. DP 19 −1,0 → 0 (06.11.) hob alle gemeldeten Werte um 1 °C – alte und neue Werte nicht vergleichbar.
+- SQL 28: plausible Raumtemperatur per Trigger, Gerätewert getrennt gespeichert, Altdaten DP-19-korrigiert und rückwirkend geprüft. `pv-automation` lässt Räume mit Sonne auf dem Fühler aus. App: Hinweis auf der Raumkarte, Einstellungen › Haus › Thermostat-Fühler.
+- Details `doc/FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`.
 
 ### 2026-11-08 — Lokal-Modus: „erreichbar“ nur nach echter Lesung
 - `pv-automation` (nur Lokal): kein `last_thermostat_sync`/`is_heating` mehr nach bloßem Einreihen, keine Erreichbarkeits-Fehler mehr schließen, Sicherheits-Resync nur Cloud.
