@@ -127,26 +127,52 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   const manual = auto.filter(r => r.manual_override_until && new Date(r.manual_override_until) > new Date()).length;
   const thresholdOn = settings.pv_surplus_threshold_on ?? 500;
 
-  // Tagesmodus der pv-automation (system_settings.heating_day_mode, seit 27.10.2026)
-  const [dayMode, setDayMode] = useState<{ mode?: string; computed_at?: string; grid_used_w?: number; grid_cap_w?: number; ki_info?: string; away?: boolean } | null>(null);
+  // Status der pv-automation: tagsüber/abends system_settings.heating_day_mode (seit 27.10.2026),
+  // nachts heating_night_mode (seit 06.11.2026). Nur Anzeige – keine Änderung an der Steuerung.
+  type StatusRoom = { room_id: string; name?: string; target: number | null; why: string | null };
+  type ModeStatus = {
+    mode?: string; computed_at?: string; ki_info?: string; away?: boolean;
+    grid_used_w?: number; grid_cap_w?: number; used_w?: number; cap_w?: number; rooms?: StatusRoom[];
+  };
+  const [dayMode, setDayMode] = useState<ModeStatus | null>(null);
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const { data } = await supabase.from('system_settings').select('value').eq('key', 'heating_day_mode').maybeSingle();
-      if (alive) setDayMode((data?.value as typeof dayMode) ?? null);
+      const { data } = await supabase.from('system_settings').select('value')
+        .eq('key', night ? 'heating_night_mode' : 'heating_day_mode').maybeSingle();
+      if (alive) setDayMode((data?.value as ModeStatus) ?? null);
     };
     load();
     const id = setInterval(load, 60_000);
     return () => { alive = false; clearInterval(id); };
-  }, []);
-  const dayModeFresh = dayMode?.computed_at && Date.now() - new Date(dayMode.computed_at).getTime() < 20 * 60_000;
-  const dayModeText = !dayModeFresh || night ? null
+  }, [night]);
+  const dayModeFresh = !!dayMode?.computed_at && Date.now() - new Date(dayMode.computed_at).getTime() < 20 * 60_000;
+  const evening = !night && dayModeFresh && dayMode?.mode === 'evening';
+  const capW = dayMode?.grid_cap_w ?? dayMode?.cap_w ?? null;
+  const usedW = dayMode?.grid_used_w ?? dayMode?.used_w ?? null;
+  const dayModeText = !dayModeFresh || night || evening ? null
     : dayMode?.away && dayMode?.mode === 'wait' ? 'Abwesend – Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort'
     : dayMode?.mode === 'wait' ? 'Tagesmodus: Wartetag – Räume halten „Untergrenze“, bis Überschuss kommt'
     : dayMode?.mode === 'battery_gate' ? 'Tagesmodus: Batterie-Schutz – Räume halten „Untergrenze“'
-    : dayMode?.mode === 'evening' ? `Abend: nach Sonnenuntergang wie Nacht – Räume halten „Nacht“, kein Eco, ${fmtW(dayMode.grid_used_w ?? 0)} von ${fmtW(dayMode.grid_cap_w ?? 0)}`
-    : dayMode?.mode === 'grid' ? `Tagesmodus: ohne PV – Eco nach Priorität, ${fmtW(dayMode.grid_used_w ?? 0)} von ${fmtW(dayMode.grid_cap_w ?? 0)}`
+    : dayMode?.mode === 'grid' ? 'Tagesmodus: ohne PV – Eco nach Priorität'
     : null;
+
+  // Zeile wie in Heizung München: wer heizt (Ist → Ziel), wie viele warten, Leistungsgrenze.
+  const sequenceText = (() => {
+    if (!dayModeFresh) return null;
+    const byId = new Map((dayMode?.rooms ?? []).map(r => [r.room_id, r]));
+    const heizen = auto.filter(r => r.is_heating);
+    const warten = (dayMode?.rooms ?? []).filter(r => r.why?.includes('wartet')
+      && !heizen.some(h => h.id === r.room_id)).length;
+    const head = capW != null ? `Grenze ${fmtW(capW)}, belegt ${fmtW(usedW ?? 0)}` : 'Automatik';
+    const list = heizen.map(r => {
+      const ziel = byId.get(r.id)?.target ?? r.target_temp;
+      return `${r.name} ${fmtT(r.current_temp).replace(' °C', '')} → ${fmtT(ziel)}`;
+    }).join(' · ');
+    return heizen.length
+      ? `${head}: es heizen ${heizen.length} – ${list}${warten ? ` · ${warten} warten` : ''}`
+      : `${head}: kein Raum muss heizen${warten ? ` · ${warten} warten` : ''}`;
+  })();
 
   const socGate = settings.heating_min_battery_soc ?? 80;
   const soc = reading?.battery_soc ?? null;
@@ -156,7 +182,10 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   let label = 'Normal';
   let Icon = Zap;
   let reason: string;
-  if (night) {
+  if (evening) {
+    tone = 'night'; label = 'Abend'; Icon = Moon;
+    reason = 'Abend wie Nacht – Räume halten den Nachtwert, kein Eco aus der Batterie';
+  } else if (night) {
     tone = 'night'; label = 'Nacht'; Icon = Moon;
     reason = settings.night_heating_mode === 'frost_only'
       ? `Frostschutz 5 °C bis ${settings.night_end_time?.slice(0, 5) ?? '08:00'}`
@@ -185,7 +214,9 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
         </div>
         <div className="text-sm">{reason}</div>
         {dayModeText && <div className="text-sm text-muted-foreground" title={dayMode?.ki_info ? `KI: ${dayMode.ki_info}` : undefined}>{dayModeText}</div>}
+        {sequenceText && <div className="text-sm">↳ {sequenceText}</div>}
         <div className="text-xs text-muted-foreground">
+          {night && <>seit {settings.night_start_time?.slice(0, 5) ?? '22:00'} · </>}
           {heating} von {auto.length} Räumen heizen
           {manual > 0 && <> · {manual} manuell</>} · Stand {fmtTime(energyTs)}
         </div>
