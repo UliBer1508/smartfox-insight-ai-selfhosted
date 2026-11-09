@@ -5,6 +5,19 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.23.0] - 2026-11-09
+
+### Fixed (`doc/FIX-VORRANG-UND-SCHALTBAND-2026-11-09.md`)
+- Vorrang hielt nur einen Lauf: Wer Leistung hat und heizt, behält sie bis zum Ziel (höchstens `cap_keep_max_min`,
+  120 min); ein wartender Raum mit Vorrang (Wohnzimmer) reserviert die Grenze, bis er allein heizen kann.
+- Schaltband der Thermostate (Soll ± DP 101, eingestellt 1,0 °C): „wartet“ = Ist − Band − 0,5 °C (schaltet wirklich ab),
+  Anstoß für zugeteilte Räume im Band, Abschalten bei Ziel + `ziel_abschalt_ueber_c` (0,3 °C) statt Ziel + 1,0 °C.
+  Anstoß/Abschalten nur im Lokal-Modus.
+- DP 101 Wohnzimmer 1,0 → 0,5 °C (Test).
+
+### Added
+- SQL 29 (`cap_keep_max_min`, `ziel_abschalt_ueber_c`), Einstellungen › Haus › Verteilung.
+
 ## [2.22.0] - 2026-11-09
 
 ### Fixed (`doc/FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`)

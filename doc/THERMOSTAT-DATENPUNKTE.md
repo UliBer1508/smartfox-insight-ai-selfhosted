@@ -40,6 +40,7 @@ eigenen Gerät geprüft.
   **DP 19 verschiebt die gemeldete Temperatur.** Alle Werte davor lagen 1 °C zu tief; Messwerte nachkorrigiert mit
   SQL 28 (`doc/FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`). **Kinder Bad steht noch auf −10** (Befehl „ausgeführt“,
   aber nicht übernommen).
+- **Befund 09.11.2026:** DP 101 ist ein **Band nach beiden Seiten** – an bei Ist ≤ Soll − Band, aus bei Ist ≥ Soll + Band (alle Schaltpunkte seit 06.11., z. B. Bad Uli aus 6× bei Soll + 1,0). Test Wohnzimmer DP 101 = 5 (0,5 °C) seit 09.11. 18:43. `doc/FIX-VORRANG-UND-SCHALTBAND-2026-11-09.md`.
 - **DP 101 = 1,0 °C Einschalt-Differenz.** Trotzdem takten manche Räume sehr kurz (Wohnzimmer alle 7 min).
   Zusammen mit DP 19 erst nach dem Test bewerten.
 - **DP 111 Nachtmodus** ist bei 6 Räumen an. Das Gerät hat damit ein eigenes Nachtprogramm (DP 105) – mit

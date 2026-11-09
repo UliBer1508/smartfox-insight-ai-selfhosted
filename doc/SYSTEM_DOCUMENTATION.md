@@ -138,6 +138,7 @@ Frontend (15–60 s Polling, KEIN Realtime)
 - `heating_min_battery_soc` (Code-Standard 80 %, eingestellt 75 %) + `heating_soc_gate_mode` (`strict`): Batterie-Gate, einziger wirksamer SOC-Schwellwert für die Heizung
 - `max_grid_heating_power_w` (4000 W seit 04.11.2026): **Max. Heizleistung ohne PV** – Summe der Räume, die ohne Budget gleichzeitig heizen dürfen. Gilt seit 06.11.2026 **immer**: tagsüber (Wartetag / ohne PV) **und nachts**, auch für Räume unter der Untergrenze; ein Raum, der allein größer ist, heizt nur allein (`doc/FIX-HEIZLEISTUNG-2026-11-06.md`). Im Batterie-Schutz gilt `battery_gate_max_power_w`
 - `cap_wait_boost_min` (60 min, seit 06.11.2026): wer so lange auf freie Leistung wartet, kommt zuerst dran (Zustand `system_settings.cap_wait_state`)
+- `cap_keep_max_min` (120 min, seit 09.11.2026): wer Leistung hat und heizt, behält sie bis zum Ziel, höchstens so lange; `ziel_abschalt_ueber_c` (0,3 °C): heizender Raum wird bei Ziel + Wert abgeschaltet (SQL 29)
 - `battery_gate_floor_delta` (0 °C seit 02.11.2026, vorher 1,0), `battery_gate_max_power_w` (1000 W): Notfall-Heizen im Batterie-Schutz (seit 01.11.2026)
 - `battery_night_reserve_pct` (10 %): Reserve des Batterie-Vorschlags über dem gemessenen Nachtbedarf (seit 01.11.2026)
 - `presence_control_enabled` (true), `presence_lead_hours` (6 h): **Anwesenheit** (seit 28.10.2026, umgedreht 01.11.2026) – Grundzustand anwesend; Kalender `presence_periods` = Zeiträume, in denen das Haus **leer** ist; Vorlauf vor dem Ende (Rückkehr). Aus = immer anwesend
@@ -196,7 +197,8 @@ Räume, die in Phase 1/2 **kein** Budget bekommen haben (Budget-Stopp, Rotation,
 
 **Raummodell / Vorausschau (seit 02.11.2026):** Je Raum gelernte Auskühlrate k (Tabelle `raum_abkuehlung`, View `raum_modell`, SQL 18) und Außentemperatur-Prognose der Nacht → „abends nötig“ für Eco am Morgen. Bei gleicher Priorität bekommt der Raum mit dem größten Nachtbedarf die PV zuerst. Protokoll in `system_settings.raum_vorausschau`, Anzeige Protokoll › Raummodell. Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`.
 
-- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt – seit 06.11.2026 wieder **unter der Grenze** (Uli: „Grenze gilt immer“; 05.11. hatte das Wohnzimmer mit 5,5 kW die Grenze 4000 W gesprengt). Reihenfolge: Wartezeit-Vorrang (`cap_wait_boost_min`), dann Priorität. Ist noch nichts belegt, darf ein Raum über der Grenze allein heizen – nur bis Untergrenze. Wer nicht passt, wartet mit „Ist − 0,5 °C“. Räume im Nachlauf (heizen über dem Ziel) zählen mit. Funktion `allocateUnderCap`, `doc/FIX-HEIZLEISTUNG-2026-11-06.md`.
+- In jedem Modus werden Räume **unter** „Untergrenze“ zuerst bis „Untergrenze“ geheizt – seit 06.11.2026 wieder **unter der Grenze** (Uli: „Grenze gilt immer“; 05.11. hatte das Wohnzimmer mit 5,5 kW die Grenze 4000 W gesprengt). Reihenfolge: Wartezeit-Vorrang (`cap_wait_boost_min`), dann Priorität. Ist noch nichts belegt, darf ein Raum über der Grenze allein heizen – nur bis Untergrenze. Räume im Nachlauf (heizen über dem Ziel) zählen mit. Funktion `allocateUnderCap`, `doc/FIX-HEIZLEISTUNG-2026-11-06.md`.
+- **Seit 09.11.2026** (`doc/FIX-VORRANG-UND-SCHALTBAND-2026-11-09.md`): Reihenfolge **behalten** (zugeteilt und heizt, ≤ `cap_keep_max_min`) → Wartezeit-Vorrang → Priorität. Passt ein Raum mit Vorrang nicht, bekommen andere keine neue Leistung (Reservierung, auch kein Eco-Pass). Wer wartet, bekommt **Ist − Band − 0,5 °C** (Thermostat schaltet sicher ab). Lokal-Modus: zugeteilter Raum im Schaltband bekommt einen **Anstoß** (Soll = Ist + Band + 0,2), heizender Raum über Ziel + `ziel_abschalt_ueber_c` wird **abgeschaltet**. Band je Raum aus `thermostat_state.dp101`.
 - KI-Schwelle aus `best_match_today` × `pattern_recall_strength` (siehe §12).
 - Funktion `allocateDayTargets`, Protokoll je Lauf in `system_settings.heating_day_mode`, Anzeige in der Übersicht.
 - Tagesmodus-Ziele erzeugen keine `solar_limit_start/stop`-Einträge und setzen `pv_auto_active = false`.
@@ -335,6 +337,7 @@ Morgenbewertung bei jedem Lauf neu: Tagesmodus `battery_gate` / `wait` / `grid` 
 
 ### Hysterese (Anti-Flapping)
 - Thermostat-intern; pv-automation stoppt hart bei `currentTemp >= target + 0.4 °C` (Übertemperatur) und plant mit 0,3 °C Abstand zu Eco/Komfort
+- **Schaltband (Befund 09.11.2026):** Die TGP508 schalten **an bei Ist ≤ Soll − Band** und **aus bei Ist ≥ Soll + Band**, Band = DP 101 × 0,1 °C (eingestellt 1,0 °C, Wohnzimmer seit 09.11. Test 0,5 °C). Ein Raum im Band springt trotz Soll = Ziel nicht an; ein laufendes Thermostat läuft bis Soll + Band. Untergrenze/Nachtwert regelt deshalb `pv-automation` selbst (Anstoß/Abschalten, §4 Stufe 3b).
 
 ### Thermostat-Modus (wichtig)
 Seit Dienst v1.3 (24.10.2026) schaltet jeder Sollwert das TGP508 auf **„home“** (manuell). Vorher blieben die Thermostate auf **„auto“** (eigenes Wochenprogramm) und überschrieben die Sollwerte von pv-automation – die Steuerlogik hat bis 23.10.2026 praktisch nie gewirkt. Analyse: `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md` §5.1.
@@ -383,7 +386,7 @@ Tab **Protokoll** und Tabelle `protokoll_events` (Trigger, SQL 11): jede Sollwer
   | 11 | Fehler (E01 = Fühler) | 0 |
   | 15 | höchster Sollwert, °C | 60 |
   | **19** | **Temperatur-Korrektur, ×0,1 °C (−99…99)** – verschiebt die gemeldete Temperatur | **0** seit 06.11. (Büro 01.11.), Kinder Bad noch −10 |
-  | **101** | **Einschalt-Differenz, ×0,1 °C (5…100, Schritt 5)** | **10 = 1,0 °C** |
+  | **101** | **Schaltband, ×0,1 °C (5…100, Schritt 5): an bei Soll − Band, aus bei Soll + Band** | **10 = 1,0 °C**, Wohnzimmer 5 (Test seit 09.11.) |
   | 102 | Grenztemperatur Fühler, °C | 60 |
   | 103 | Frostschutz des Geräts | gemischt |
   | 104 | Werkseinstellung | false |
@@ -663,6 +666,11 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-09 — Vorrang behalten, Schaltband der Thermostate
+- Befund: Wohnzimmer verlor „heizt allein“ nach einem Lauf (sechsmal am 09.11.); Thermostate schalten bei Soll ± 1,0 °C – „wartet → Ist − 0,5“ stoppte nichts (5,5 kW über der Grenze), zugeteilte Räume im Band heizten nicht, belegten aber die Grenze.
+- `pv-automation`: behalten bis Ziel, Reservierung für Vorrang, Warten = Ist − Band − 0,5, Anstoß und Abschalten am Ziel (Lokal). SQL 29, Einstellungen › Haus › Verteilung. DP 101 Wohnzimmer → 0,5 °C (Test).
+- Details `doc/FIX-VORRANG-UND-SCHALTBAND-2026-11-09.md`.
 
 ### 2026-11-09 — Sonne auf dem Fühler, DP 19 verschiebt die gemeldete Temperatur
 - Befund: Wohnzimmer meldet an sonnigen Vormittagen bis 32,4 °C (26.10., 31.10., 06.11.); Steuerung, Planer, KI und Tagesnote nahmen das als Raumtemperatur. DP 19 −1,0 → 0 (06.11.) hob alle gemeldeten Werte um 1 °C – alte und neue Werte nicht vergleichbar.
