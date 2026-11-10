@@ -209,8 +209,11 @@ function allocateUnderCap(
     if (reserviert && !isKept) { waiting.add(c.id); continue; }
     if (usedW + c.power <= capW) {
       usedW += c.power; granted.add(c.id);
-    } else if (usedW === 0 && granted.size === 0) {
-      // größer als die Grenze, aber sonst heizt niemand → allein
+    } else if (granted.size === 0 && (usedW === 0 || boosted(c) !== null)) {
+      // größer als die Grenze, aber sonst heizt niemand → allein.
+      // Seit 10.11.2026 (B): auch wenn nur noch Nachlauf läuft (kein Raum hat Leistung zugeteilt) und der Raum
+      // schon die Vorrang-Wartezeit hinter sich hat. Vorher blockierte ein einziges nachlaufendes Thermostat
+      // (Toilette Eingang, 100 W) über Stunden alle Räume (Reservierung + usedW nie 0).
       usedW += c.power; granted.add(c.id); alone = c.id;
     } else {
       waiting.add(c.id);
@@ -255,6 +258,23 @@ async function saveWaitState(supabase: any, rooms: Record<string, string>, grant
 }
 
 const roomPowerW = (room: any) => Number(room?.calculated_power_w) || Number(room?.heating_power_w) || 800;
+
+// Nicht steuerbar (10.11.2026, C, doc/FIX-REGELN-A-B-C-2026-11-10.md): SQL 30 setzt rooms.nicht_steuerbar_seit, wenn
+// ≥ 4 ausgeführte Befehle den Sollwert am Gerät nicht geändert haben. Solche Räume bekommen keine Befehle mehr –
+// außer einem Prüfbefehl pro Stunde: Wirkt er (Gerät repariert), löscht SQL 30 die Markierung von selbst.
+async function probeDueIds(supabase: any, rooms: any[]): Promise<Set<string>> {
+  const flagged = rooms.filter((r: any) => !!r.nicht_steuerbar_seit);
+  const due = new Set<string>();
+  if (flagged.length === 0) return due;
+  try {
+    const { data } = await supabase.from('thermostat_commands').select('room_id, created_at')
+      .in('room_id', flagged.map((r: any) => r.id))
+      .gte('created_at', new Date(Date.now() - 60 * 60_000).toISOString());
+    const recent = new Set(((data ?? []) as any[]).map((c) => c.room_id));
+    for (const r of flagged) if (!recent.has(r.id)) due.add(r.id);
+  } catch (e) { console.log(`[NICHT-STEUERBAR] Prüfbefehl-Abfrage fehlgeschlagen → kein Prüfbefehl: ${e}`); }
+  return due;
+}
 
 /** Schaltband je Raum aus thermostat_state.dp101 (×0,1 °C) an die Raumobjekte hängen (room._band). */
 async function attachBands(supabase: any, rooms: any[]): Promise<void> {
@@ -307,7 +327,8 @@ function allocateDayTargets(
   const curOf = (rp: { room: any }) => Number(rp.room.current_temp) || 0;
 
   // Schritt 0: Nachlauf mitzählen (Thermostat heizt noch, Raum liegt schon über seinem Ziel)
-  let startUsed = 0;
+  // Räume außerhalb der Steuerung, die trotzdem heizen (nicht steuerbar, Fühler in der Sonne), zählen zur Leistung (10.11.2026)
+  let startUsed = Math.max(0, Number(settings?._extraUsedW) || 0);
   const nachlauf = new Set<string>();
   for (const rp of rooms) {
     const cur = curOf(rp);
@@ -361,7 +382,11 @@ function allocateDayTargets(
       if (cap.alone === rp.room.id) continue;      // heizt allein über der Grenze – nur bis Untergrenze, nicht bis Eco
       const cur = curOf(rp);
       if (cur <= 0) continue;
-      if (cur >= ecoT) {
+      if (fein && rp.room.is_heating === true && cur >= ecoT + stopMargin) {
+        // Eco erreicht, Thermostat läuft noch: abschalten wie in Pass 1 – sonst heizt es bis Eco + Band (10.11.2026, A)
+        targets.set(rp.room.id, { temp: holdBelow(cur, ecoT, bandOf(rp.room)),
+          why: `${modeText} → Eco erreicht (${cur.toFixed(1)} ≥ ${ecoT} + ${stopMargin} °C) → Thermostat aus (würde sonst bis ${(ecoT + bandOf(rp.room)).toFixed(1)} °C heizen)` });
+      } else if (cur >= ecoT) {
         targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco halten (Raum warm)${nachlauf.has(rp.room.id) ? ', heizt noch nach' : ''}` });
       } else if (granted.has(rp.room.id)) {
         targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco aus Netz (${gridUsedW}/${maxGridW}W)` });
@@ -1233,7 +1258,10 @@ Deno.serve(async (req) => {
           const nowMsNight = Date.now();
           await attachBands(supabase, allRooms);
           // Fühler in der Sonne (SQL 28) wie übersteuert: keine Befehle, zählt nur mit, wenn er heizt
+          // Nicht steuerbar (C, 10.11.2026) wie übersteuert, außer Prüfbefehl fällig
+          const nachtProbe = await probeDueIds(supabase, allRooms);
           const isOverridden = (r: any) => !!r.fuehler_sonne_seit
+            || (!!r.nicht_steuerbar_seit && !nachtProbe.has(r.id))
             || (!!r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMsNight);
           const autoRooms = allRooms.filter((r: any) => r.automation_enabled !== false);
           const ctrlRooms = autoRooms.filter((r: any) => !isOverridden(r));
@@ -1510,6 +1538,16 @@ Deno.serve(async (req) => {
         }
         rooms = rooms.filter((r: any) => !r.fuehler_sonne_seit);
       }
+      // Nicht steuerbar (C): raus aus der Runde, außer Prüfbefehl fällig. Wer davon trotzdem heizt, zählt zur Grenze.
+      const tagProbe = await probeDueIds(supabase, rooms);
+      const nichtSteuerbar = rooms.filter((r: any) => !!r.nicht_steuerbar_seit && !tagProbe.has(r.id));
+      for (const r of nichtSteuerbar) {
+        console.log(`[NICHT-STEUERBAR] ${r.name}: seit ${r.nicht_steuerbar_seit} (${r.nicht_steuerbar_grund ?? '–'}) → keine Befehle, nächster Prüfbefehl spätestens in 60 min`);
+      }
+      for (const id of tagProbe) console.log(`[NICHT-STEUERBAR] ${rooms.find((r: any) => r.id === id)?.name}: Prüfbefehl fällig → bleibt in dieser Runde`);
+      if (nichtSteuerbar.length > 0) rooms = rooms.filter((r: any) => !nichtSteuerbar.includes(r));
+      const ausserhalbHeizW = [...fuehlerSonne, ...nichtSteuerbar]
+        .filter((r: any) => r.is_heating === true).reduce((a: number, r: any) => a + roomPowerW(r), 0);
 
       // 3a. Load AI daily plan (if exists) for secondary sorting within same priority
       let aiPlanRanks: Record<string, number> = {};
@@ -3194,7 +3232,7 @@ Deno.serve(async (req) => {
       await attachBands(supabase, unbudgetedRooms.map((rp: any) => rp.room));
       const { targets: dayFallback, gridUsedW, waiting: dayWaiting, capGranted: dayCapGranted } = allocateDayTargets(
         unbudgetedRooms.map(rp => ({ room: rp.room, heatingPower: rp.heatingPower })),
-        { ...settings, _lokal: controlMode === 'local' }, dayMode, dayCapW, modeText, dayWaitPrev, nowMsDay, dayState.granted,
+        { ...settings, _lokal: controlMode === 'local', _extraUsedW: ausserhalbHeizW }, dayMode, dayCapW, modeText, dayWaitPrev, nowMsDay, dayState.granted,
       );
       const nowIsoDay = new Date().toISOString();
       await saveWaitState(supabase, nextWaitState(dayWaitPrev, dayWaiting, nowIsoDay),
@@ -3551,7 +3589,15 @@ Deno.serve(async (req) => {
         const isOverTemp = currentRoomTempSafety > 0 && currentTargetTempSafety > 0 && 
           currentRoomTempSafety >= currentTargetTempSafety + OVER_TEMP_DEADBAND;
         
-        if (isOverTemp && room.is_heating) {
+        // Lokal-Modus (10.11.2026, doc/FIX-REGELN-A-B-C-2026-11-10.md, A): Räume mit Tagesmodus-Ziel entscheidet allein
+        // der Tagesmodus (Abschalten am Ziel, 09.11.). Dieser alte Schutz brach vorher mit „Soll ≤ Eco → kein Befehl“ ab,
+        // das Thermostat heizte bis Soll + Band weiter und blockierte als Nachlauf die Leistungsgrenze (271× in 24 h).
+        // Cloud-Modus und Räume mit PV-Budget: unverändert.
+        const dayModeDecides = controlMode === 'local' && dayFallback.has(room.id);
+        if (isOverTemp && room.is_heating && dayModeDecides) {
+          console.log(`[ÜBERTEMP] ${room.name}: Ist ${currentRoomTempSafety}°C ≥ Soll ${currentTargetTempSafety}°C + ${OVER_TEMP_DEADBAND} → entscheidet der Tagesmodus (Abschalten am Ziel)`);
+        }
+        if (isOverTemp && room.is_heating && !dayModeDecides) {
           const ecoTempForGuard = room.eco_temp || settings?.eco_temp || 19;
           // Wenn Sollwert bereits auf Eco oder darunter → kein Tuya-Call nötig.
           // Das Thermostat hört eigenständig auf zu heizen sobald current >= target.
