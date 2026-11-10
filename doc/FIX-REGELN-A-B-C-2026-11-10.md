@@ -106,3 +106,21 @@ Weitere Aufrufe:
 ## Rückweg
 - **PR zurücknehmen (Revert):** Danach laufen die alten Functions wieder.
 - **SQL 30 zurücknehmen:** `thermostat_state_upsert` aus SQL 29 bzw. der Fassung vor 10.11. neu einspielen. Die Spalten können bleiben.
+
+## Nachtrag 10.11.2026, 16:05 – Korrektur B2 (Nebenwirkung von B in den Live-Daten)
+
+**Gefunden nach dem Deploy (15:45):**
+- **Vorrang verloren:** Das Wohnzimmer bekam um 15:45 die Leistung allein und verlor sie um 15:50 wieder. In der zweiten Runde zählte es nicht mehr als wartend, also griff die Wartezeit-Ausnahme nicht, und der Wirtschaftsraum lief gerade nach (2050 W).
+- **„Allein“ unter der Grenze:** Zimmer Uli (2000 W, also *unter* der Grenze) durfte „allein“ heizen, weil es die Wartezeit hinter sich hatte. Mit dem Nachlauf ergab das 4050 von 4000 W.
+
+**B2:** Allein heizen trotz Nachlauf gilt nur noch für einen Raum, der **größer als die Grenze** ist, und nur wenn er **schon heizt** (Vorrang) oder die Wartezeit hinter sich hat. Räume unter der Grenze warten wieder, bis sie hineinpassen.
+
+**Nachgerechnet** (alt B1 / neu B2):
+
+| Fall | B1 (live seit 15:45) | B2 |
+|---|---|---|
+| 15:50: Wohnzimmer heizt, Wirtschaftsraum läuft nach | Wohnzimmer verliert die Leistung, Haustür heizt (2500 W) | Wohnzimmer heizt weiter (**7600 W**, solange der Wirtschaftsraum nachläuft) |
+| 14:35: Toilette 100 W Nachlauf | Wohnzimmer allein (5650 W) | gleich |
+| Raum unter der Grenze, 2050 W Nachlauf | Zimmer Uli „allein“ (4050 W) | Zimmer Uli wartet (2050 W) |
+
+**Abwägung, Entscheidung Uli:** Mit B2 behält das Wohnzimmer seinen Vorrang. Die Grenze kann dafür **kurz um die Leistung eines nachlaufenden Raums** überschritten werden (im Fall oben 3,6 kW), bis dieser sein Ziel + 0,3 °C erreicht und abgeschaltet wird.
