@@ -85,7 +85,12 @@ Die Leistungsmessung, `ki-tagesanalyse`, `heizplaner` (Schattenbetrieb) und `ana
   - Das Kinder Bad steht fest auf 19 °C (Untergrenze 21 °C).
   - Es bekommt jede Runde einen neuen Befehl. Das liegt daran, dass `pv-automation` `target_temp` = Befehl schreibt und der Dienst wieder den Gerätewert schreibt.
   - In der Leistungsgrenze zählt es als steuerbarer Raum.
-- **Ursache offen.** Lesen klappt, Schreiben wirkt nicht. Verdacht: Protokollversion oder Schlüssel des Eintrags in `config.json`. Das muss am Gerät geprüft werden.
+- **Ursache geklärt (Test am 10.11.2026, 15:20):** Es liegt am Gerät.
+  - `node set-dp-test.js "Kinder Bad" 109 false`: Verbindung über v3.5 klappt, Lesen klappt, Schreiben endet mit **„Timeout 4000ms: set“**. Das Gerät bestätigt den Schreibbefehl nicht.
+  - Gegenprobe Flur, derselbe Befehl: VORHER `true`, NACHHER `false`. Skript und Protokoll funktionieren.
+  - Auch eine Änderung auf 20 °C aus der Tuya-App kam nicht an (DP 2 blieb 190).
+  - Lösung vor Ort: Strom aus und wieder ein (Sicherung); hilft das nicht, das Gerät tauschen. Bitte keinen Werksreset.
+- **Zweiter Fehler, im Dienst:** Der Thermostat-Dienst (v1.3 am Österreich-PC) meldet `executed` bzw. „[OK] gesetzt“, obwohl das Gerät den Befehl nie bestätigt hat. Ein Befehl darf erst als ausgeführt gelten, wenn das Gerät ihn bestätigt und die nächste Lesung den neuen Wert zeigt (Vorschlag C).
 
 ### K4 – Die KI lernt aus Entscheidungen, die gar nicht ausgeführt wurden (mittel)
 - **Was:** Stufe 11 (Policies) setzt Aktion und Ziel und protokolliert `ml_followed = true`. Danach überschreibt Stufe 13 (Tagesmodus) beides.
@@ -102,7 +107,7 @@ Die Logik setzt voraus, dass alle Geräte gleich regeln: Raumfühler, kein Gerä
 
 | DP | Erwartet | Abweichend |
 |---|---|---|
-| 110 Fühlerwahl | 1 (Raumfühler) | **3** bei Toilette Eingang und Bad Uli – genau die beiden mit den meisten Übertemperatur-Treffern |
+| 110 Fühlerwahl | 1 (Raumfühler) | **3** bei Toilette Eingang und Bad Uli – genau die beiden mit den meisten Übertemperatur-Treffern. Seit 01.11. laut DP-Protokoll unverändert, niemand hat es umgestellt; die Doku vom 01.11. („alle 1“) war falsch. |
 | 111 Nachtmodus Gerät | aus | **an** bei Büro, Toilette Eingang, Wirtschaftsraum, Wohnzimmer, Zimmer Luis, Zimmer Uli |
 | 19 Korrektur | 0 | **−10** bei Kinder Bad (K3) |
 | 107 / 106 | 1 / 3 | 107 = 3 bei Toilette Eingang und Wirtschaftsraum; 106 = 1 bei Haustür (Bedeutung unbekannt) |
@@ -141,7 +146,7 @@ Sie sollten raus, damit die nächste Prüfung überschaubar bleibt. Ein Aufräum
 | A | Übertemperatur-Schutz im Lokal-Modus nicht mehr vor dem Tagesmodus abbrechen lassen. Dann entscheidet die Logik vom 09.11. (Abschalten am Ziel). Im Cloud-Modus bleibt der Schutz zum Sparen von Aufrufen. | K1, Ursache von K2 | Code `pv-automation` |
 | B | „Allein heizen“ auch erlauben, wenn nur Nachlauf läuft (kein Raum mit zugeteilter Leistung). So kann ein einzelnes Thermostat, das nicht abschaltet, nicht alles blockieren. Gilt für Tag und Nacht. | K2 dauerhaft | Code `pv-automation` |
 | C | Eingebaute Wirkungsprüfung: Meldet ein Raum nach 3 ausgeführten Befehlen keinen geänderten Sollwert, gilt er als **nicht steuerbar**. Er bekommt keine Befehle mehr, zählt nicht als steuerbar zur Grenze und erzeugt einen Fehler in Banner, Systemstatus und Mail. | K3, künftige Fälle | Code + SQL |
-| D | Kinder Bad am Gerät prüfen: Eintrag in `config.json` (Version, Schlüssel), Test mit `set-dp-test.js`. | K3 | vor Ort / Fernzugriff |
+| D | Kinder Bad vor Ort: Strom aus/ein, sonst Gerät tauschen (Test am 10.11. zeigt: Gerät bestätigt kein Schreiben). | K3 | vor Ort |
 | E | Thermostate vereinheitlichen: DP 110 = 1, DP 111 = aus, DP 19 = 0 bei allen; DP 106/107 erst klären. | K6 | Befehle über den Dienst |
 | F | Festlegung klären: Batterie an schlechten Tagen tagsüber verwenden – ja oder nein? | K5 | Entscheidung Uli |
 | G | Lern-Ereignisse nur noch für das schreiben, was wirklich ausgeführt wurde; Policies bis dahin nicht als KI-Grundlage verwenden. | K4 | Code |
