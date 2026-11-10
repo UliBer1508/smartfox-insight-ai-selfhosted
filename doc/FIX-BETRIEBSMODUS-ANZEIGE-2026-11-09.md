@@ -52,3 +52,13 @@ In München gibt es zusätzlich „Morgen ohne PV“. Venediger unterscheidet Mo
 Die Temperaturnamen (Eco/Komfort gegenüber Normal/PV/Voll in München) sind bewusst nicht angeglichen, weil sie an den Einstellungen hängen.
 
 **Live-Prüfung am 10.11.2026 um 12:25:** Tagesmodus `grid`, kein Raum im PV-Boost. Die Karte zeigt „Tag ohne PV“.
+
+## Nachtrag 10.11.2026: Energie-Kacheln Eigenverbrauch und Autarkie wie in München
+In München gibt es zusätzlich die Kacheln **Eigenverbrauch** und **Autarkie**, in Venediger gab es sie nicht. Sie sind jetzt ergänzt (`selfUse` in `HouseOverview.tsx`), mit derselben Rechnung wie in München (`Overview.jsx`):
+- **Eigenverbrauch** = (PV − Einspeisung) / PV; wird erst ab 50 W PV angezeigt.
+- **Autarkie** = 1 − Netzbezug / Hausverbrauch; wird erst ab 50 W Verbrauch angezeigt.
+- Vorzeichen nach Fronius: `power_io` > 0 heißt Bezug, `battery_power` > 0 heißt Entladen. Das entspricht `grid_w` und `battery_w` in München.
+
+Auf breiten Bildschirmen steht die Kachel Überschuss jetzt schmal in der zweiten Reihe neben den beiden neuen Kacheln, wie in München.
+
+**Live-Prüfung am 10.11.2026 um 12:25:** PV 1394 W, Netz +24 W, Batterie entlädt 953 W, Verbrauch 2280 W. Ergebnis: Eigenverbrauch 100 %, Autarkie 99 %.
