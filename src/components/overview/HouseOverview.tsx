@@ -150,12 +150,17 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   const evening = !night && dayModeFresh && dayMode?.mode === 'evening';
   const capW = dayMode?.grid_cap_w ?? dayMode?.cap_w ?? null;
   const usedW = dayMode?.grid_used_w ?? dayMode?.used_w ?? null;
-  const dayModeText = !dayModeFresh || night || evening ? null
-    : dayMode?.away && dayMode?.mode === 'wait' ? 'Abwesend – Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort'
-    : dayMode?.mode === 'wait' ? 'Tagesmodus: Wartetag – Räume halten „Untergrenze“, bis Überschuss kommt'
-    : dayMode?.mode === 'battery_gate' ? 'Tagesmodus: Batterie-Schutz – Räume halten „Untergrenze“'
-    : dayMode?.mode === 'grid' ? 'Tagesmodus: ohne PV – Eco nach Priorität'
+  // Name des Betriebsmodus wie in Heizung München, direkt aus dem Tagesmodus der pv-automation (10.11.2026)
+  const dayLabel = !dayModeFresh || night || evening ? null
+    : dayMode?.mode === 'wait' ? (dayMode?.away ? 'Wartetag · abwesend' : 'Wartetag')
+    : dayMode?.mode === 'battery_gate' ? 'Batterie-Schutz'
+    : dayMode?.mode === 'grid' ? 'Tag ohne PV'
     : null;
+  const dayModeText = !dayLabel ? null
+    : dayMode?.mode === 'wait' && dayMode?.away ? 'Abwesend – Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort'
+    : dayMode?.mode === 'wait' ? 'Heute kommt laut Prognose noch Überschuss – Räume halten ihre „Untergrenze“'
+    : dayMode?.mode === 'battery_gate' ? 'Batterie unter Mindest-Ladestand – Räume halten ihre „Untergrenze“'
+    : `Räume nach Priorität auf Eco, höchstens ${fmtW(capW)} aus dem Netz`;
 
   // Zeile wie in Heizung München: wer heizt (Ist → Ziel), wie viele warten, Leistungsgrenze.
   const sequenceText = (() => {
@@ -194,6 +199,9 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
     // Nur dann PV-Modus, wenn die Automatik tatsächlich Räume mit Überschuss heizt
     tone = 'pv'; label = 'PV-Heizen'; Icon = Sun;
     reason = `${pvRooms} ${pvRooms === 1 ? 'Raum' : 'Räume'} im PV-Boost · ${fmtW(surplus)} Überschuss`;
+  } else if (dayLabel) {
+    label = dayLabel;
+    reason = dayModeText ?? '';
   } else if (charging && soc != null && soc < socGate) {
     reason = `Sonne lädt zuerst die Batterie (${Math.round(soc)} % von ${socGate} %)`;
   } else if ((surplus ?? 0) >= thresholdOn) {
@@ -213,7 +221,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
           {label}
         </div>
         <div className="text-sm">{reason}</div>
-        {dayModeText && <div className="text-sm text-muted-foreground" title={dayMode?.ki_info ? `KI: ${dayMode.ki_info}` : undefined}>{dayModeText}</div>}
+        {dayModeText && reason !== dayModeText && <div className="text-sm text-muted-foreground" title={dayMode?.ki_info ? `KI: ${dayMode.ki_info}` : undefined}>{dayModeText}</div>}
         {sequenceText && <div className="text-sm">↳ {sequenceText}</div>}
         <div className="text-xs text-muted-foreground">
           {night && <>seit {settings.night_start_time?.slice(0, 5) ?? '22:00'} · </>}

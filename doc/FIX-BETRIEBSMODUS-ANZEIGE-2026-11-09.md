@@ -29,3 +29,26 @@ Uli will dieselben Infos. Es geht nur um die Anzeige, an der Steuerung wird nich
 
 ## Einspielen
 Den PR mergen; Vercel deployt automatisch. Es ist kein SQL nötig und keine Function muss deployt werden.
+
+## Nachtrag 10.11.2026: Namen der Betriebsmodi wie in München
+Uli fiel auf, dass München an einem Tag ohne Sonne „Tag ohne PV“ zeigt, Venediger aber „Normal“.
+Venediger kannte als Namen nur Nacht, Abend, PV-Heizen und Normal; den Tagesmodus zeigte es nur als Zusatzzeile.
+
+Jetzt kommt der Name direkt aus dem Tagesmodus von `pv-automation` (`heating_day_mode.mode`, frisch unter 20 min):
+
+| Tagesmodus | Name (wie München) | Begründung auf der Karte |
+|---|---|---|
+| `grid` | Tag ohne PV | Räume nach Priorität auf Eco, höchstens X kW aus dem Netz |
+| `wait` | Wartetag (abwesend: „Wartetag · abwesend“) | Heute kommt laut Prognose noch Überschuss, die Räume halten ihre Untergrenze |
+| `battery_gate` | Batterie-Schutz (in München gibt es dazu kein Gegenstück) | Batterie unter Mindest-Ladestand, die Räume halten ihre Untergrenze |
+| `evening` | Abend (seit 09.11.) | unverändert |
+
+Unverändert bleiben:
+- **Nacht** und **PV-Heizen**: PV-Heizen hat Vorrang, sobald Räume mit Überschuss heizen.
+- **„Normal“**: nur noch, wenn kein frischer Tagesmodus da ist.
+
+In München gibt es zusätzlich „Morgen ohne PV“. Venediger unterscheidet Morgen und Tag nicht, die Steuerung kennt nur `grid`.
+
+Die Temperaturnamen (Eco/Komfort gegenüber Normal/PV/Voll in München) sind bewusst nicht angeglichen, weil sie an den Einstellungen hängen.
+
+**Live-Prüfung am 10.11.2026 um 12:25:** Tagesmodus `grid`, kein Raum im PV-Boost. Die Karte zeigt „Tag ohne PV“.
