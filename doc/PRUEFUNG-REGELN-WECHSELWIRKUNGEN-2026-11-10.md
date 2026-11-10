@@ -10,6 +10,12 @@ Uli: „Warum werden die Regeln nicht vor jeder Änderung geprüft, ob sie sich 
 
 **Code-Änderungen:** keine. Dieses Dokument ist nur der Befund mit Vorschlägen.
 
+> **Stand 10.11.2026, abends:** Die Korrekturen zu allen Befunden stehen in
+> - `doc/FIX-REGELN-A-B-C-2026-11-10.md` (K1, K2, K3, Selbsttest; PR #37/#38)
+> - `doc/FIX-PRUEFUNG-REST-2026-11-10.md` (K4, K7, L1–L4, neuer Befund K9, Entscheidungen K5/K9, K8-Schritt, toter Code)
+>
+> **Offen:** K5 (Entscheidung Uli), K8 (Schritt am Österreich-PC), Kinder Bad und Büro vor Ort, Entfernen des toten Codes (eigener PR).
+
 ---
 
 ## 1. Warum das immer wieder passiert

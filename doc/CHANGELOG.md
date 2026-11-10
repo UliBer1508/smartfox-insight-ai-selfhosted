@@ -5,6 +5,25 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.24.0] - 2026-11-10
+
+### Fixed (`doc/PRUEFUNG-REGELN-WECHSELWIRKUNGEN-2026-11-10.md`, `doc/FIX-REGELN-A-B-C-2026-11-10.md`, `doc/FIX-PRUEFUNG-REST-2026-11-10.md`)
+- Prüfung aller Regeln und Prozesse auf Wechselwirkungen (pv-automation vollständig, 28 Functions, 30 Cron-Jobs, Trigger, Dienst).
+- A: Alter Übertemperatur-Schutz brach im Lokal-Modus vor dem Tagesmodus ab (271× in 24 h) – jetzt entscheidet der Tagesmodus;
+  Eco-Pass schaltet am Ziel ab.
+- B/B2: Blockade der Leistungsgrenze durch Vorrang-Reservierung + Nachlauf (10.11. ab 13:00: 100/4000 W, 6 Räume unter
+  Untergrenze). Allein heizen trotz Nachlauf nur für Räume über der Grenze, die schon heizen oder lange warten.
+- C: Wirkungsprüfung „nicht steuerbar“ (SQL 30) – Kinder Bad nahm seit ≥ 01.11. keinen Befehl an (1727 Befehle ohne Wirkung).
+  Markierte Räume bekommen nur einen Prüfbefehl pro Stunde; Hinweis auf der Raumkarte.
+- K4: Lern-Ereignisse zeigen, wer das Ziel wirklich bestimmt hat (`entschieden_von`); Kinder-Bad-Lerndaten ausgeschlossen (SQL 32).
+- K7: höchstens ein `pv-automation`-Lauf pro 60 s (SQL 33).
+- PV-Budget zieht Netzbezug ab (27 % der PV-Messungen hatten gleichzeitig im Mittel 1,5 kW Bezug).
+- Gemessene Raumleistung (`heating_power_w`) vor `calculated_power_w`; undefinierte Variable `heatingSettings` behoben.
+
+### Added
+- `local-collector/tuya-thermostat/thermostat-selbsttest.js` + SQL 31: prüft jedes Thermostat (Netz, Protokoll, Datenpunkte,
+  Schreiben Ton/Soll/Soll+Modus). Ergebnis 10.11.: 10 Geräte gleich (v3.5), Kinder Bad schreibt nicht, Büro offline.
+
 ## [2.23.0] - 2026-11-09
 
 ### Fixed (`doc/FIX-VORRANG-UND-SCHALTBAND-2026-11-09.md`)
