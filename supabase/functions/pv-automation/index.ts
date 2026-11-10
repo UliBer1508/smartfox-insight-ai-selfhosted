@@ -209,11 +209,15 @@ function allocateUnderCap(
     if (reserviert && !isKept) { waiting.add(c.id); continue; }
     if (usedW + c.power <= capW) {
       usedW += c.power; granted.add(c.id);
-    } else if (granted.size === 0 && (usedW === 0 || boosted(c) !== null)) {
+    } else if (granted.size === 0 && (usedW === 0
+      || (c.power > capW && (isKept || boosted(c) !== null)))) {
       // größer als die Grenze, aber sonst heizt niemand → allein.
-      // Seit 10.11.2026 (B): auch wenn nur noch Nachlauf läuft (kein Raum hat Leistung zugeteilt) und der Raum
-      // schon die Vorrang-Wartezeit hinter sich hat. Vorher blockierte ein einziges nachlaufendes Thermostat
-      // (Toilette Eingang, 100 W) über Stunden alle Räume (Reservierung + usedW nie 0).
+      // Seit 10.11.2026 (B): auch wenn nur noch Nachlauf läuft (kein Raum hat Leistung zugeteilt) – aber NUR für
+      // einen Raum, der größer als die Grenze ist, und nur wenn er schon heizt (Vorrang: wer heizt, heizt bis Ziel)
+      // oder die Vorrang-Wartezeit hinter sich hat. Vorher blockierte ein einziges nachlaufendes Thermostat
+      // (Toilette Eingang, 100 W) über Stunden alle Räume. Korrektur 10.11. 16:05 (B2): Die erste Fassung ließ auch
+      // Räume unter der Grenze „allein“ heizen (Zimmer Uli 2000 W + 2050 W Nachlauf) und nahm dem schon heizenden
+      // Wohnzimmer nach einer Runde die Leistung wieder weg, weil es nicht mehr als wartend zählte.
       usedW += c.power; granted.add(c.id); alone = c.id;
     } else {
       waiting.add(c.id);
