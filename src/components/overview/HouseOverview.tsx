@@ -234,9 +234,26 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
 }
 
 // ---------------------------------------------------------------- Energie
+// Eigenverbrauch und Autarkie aus den aktuellen Leistungswerten – gleiche Rechnung wie Heizung München (10.11.2026).
+// Eigenverbrauch = PV, die nicht ins Netz geht (Haus, Heizung, Batterie laden …).
+// Autarkie      = Anteil des Hausverbrauchs, der nicht aus dem Netz kommt.
+// Fronius: power_io > 0 = Bezug, < 0 = Einspeisung; battery_power > 0 = entlädt, < 0 = lädt.
+function selfUse(r: EnergyReading | null) {
+  if (r?.pv_power == null || r?.power_io == null) return { quote: null, self: null, autarky: null, gridIn: null };
+  const pv = Math.max(0, r.pv_power);
+  const feed = Math.max(0, -r.power_io);
+  const gridIn = Math.max(0, r.power_io);
+  const use = r.consumption ?? Math.max(0, pv + r.power_io + (r.battery_power ?? 0));
+  const self = Math.max(0, pv - feed);
+  const quote = pv >= 50 ? Math.min(100, Math.round((100 * self) / pv)) : null;
+  const autarky = use >= 50 ? Math.max(0, Math.min(100, Math.round(100 * (1 - gridIn / use)))) : null;
+  return { quote, self, autarky, gridIn };
+}
+
 function EnergyTiles({ r, surplus }: { r: EnergyReading | null; surplus: number | null }) {
   const grid = r?.power_io;
   const bat = r?.battery_power;
+  const su = selfUse(r);
   const tiles = [
     { k: 'PV', v: fmtW(r?.pv_power), s: 'Erzeugung', cls: 'text-energy-export' },
     {
@@ -262,13 +279,31 @@ function EnergyTiles({ r, surplus }: { r: EnergyReading | null; surplus: number 
           </CardContent>
         </Card>
       ))}
-      <Card className="col-span-2 sm:col-span-2 border-2 border-energy-export/50 bg-energy-export/5">
+      <Card className="col-span-2 sm:col-span-1 border-2 border-energy-export/50 bg-energy-export/5">
         <CardContent className="p-3">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Überschuss</div>
           <div className="text-xl font-bold font-mono text-energy-export">{fmtW(surplus)}</div>
           <div className="text-xs text-muted-foreground">nutzbar für Heizung</div>
         </CardContent>
       </Card>
+      {[
+        {
+          k: 'Eigenverbrauch', v: su.quote != null ? `${su.quote} %` : '–',
+          s: su.quote != null ? `${fmtW(su.self)} der PV selbst genutzt` : 'keine PV-Erzeugung',
+        },
+        {
+          k: 'Autarkie', v: su.autarky != null ? `${su.autarky} %` : '–',
+          s: su.autarky == null ? '' : (su.gridIn ?? 0) > 50 ? `${fmtW(su.gridIn)} aus dem Netz` : 'ohne Netzbezug',
+        },
+      ].map(t => (
+        <Card key={t.k}>
+          <CardContent className="p-3">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{t.k}</div>
+            <div className="text-xl font-bold font-mono">{t.v}</div>
+            <div className="text-xs text-muted-foreground">{t.s}</div>
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }
