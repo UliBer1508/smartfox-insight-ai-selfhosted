@@ -21,6 +21,9 @@ export interface Room {
   // Fühler-Prüfung (SQL 28): Gerätewert und Sonnenspitze; current_temp ist dann der gehaltene, plausible Wert
   current_temp_gemeldet?: number | null;
   fuehler_sonne_seit?: string | null;
+  // SQL 30 (10.11.2026): Thermostat nimmt keine Befehle an
+  nicht_steuerbar_seit?: string | null;
+  nicht_steuerbar_grund?: string | null;
   target_temp?: number | null;
   is_heating?: boolean | null;
   pv_auto_enabled?: boolean | null;

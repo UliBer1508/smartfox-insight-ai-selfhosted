@@ -537,7 +537,12 @@ function RoomCard({ room, night, dayRoom, heute, onChanged }: { room: Room; nigh
           </div>
         </div>
 
-        {room.fuehler_sonne_seit ? (
+        {room.nicht_steuerbar_seit ? (
+          <div className="text-xs text-destructive -mt-1">
+            ⚠ Thermostat nimmt keine Befehle an (seit {fmtTime(room.nicht_steuerbar_seit)}{room.nicht_steuerbar_grund ? ` – ${room.nicht_steuerbar_grund}` : ''}).
+            Die Automatik schickt nur noch einen Prüfbefehl pro Stunde; wirkt er wieder, ist der Raum von selbst zurück.
+          </div>
+        ) : room.fuehler_sonne_seit ? (
           <div className="text-xs text-warning -mt-1">
             ☀ Fühler in der Sonne seit {fmtTime(room.fuehler_sonne_seit)} – gemeldet {fmtT(room.current_temp_gemeldet)},
             gerechnet {fmtT(room.current_temp)}. Das Thermostat heizt so nicht; die Automatik lässt den Raum aus.

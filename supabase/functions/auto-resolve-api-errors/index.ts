@@ -159,7 +159,9 @@ Deno.serve(async (req) => {
   const readAt = await loadReadAtByDevice();
   const safetyIds = (oldOpen ?? [])
     .filter((e: { error_type: string; device_id: string | null }) =>
-      !(['connection_error', 'device_offline'].includes(e.error_type) && e.device_id && readAt.has(e.device_id)))
+      !(['connection_error', 'device_offline'].includes(e.error_type) && e.device_id && readAt.has(e.device_id))
+      // „nicht steuerbar“ (SQL 30, 10.11.2026) schließt thermostat_state_upsert selbst, sobald ein Befehl wieder wirkt
+      && e.error_type !== 'not_controllable')
     .map((e: { id: string }) => e.id);
   if (safetyIds.length > 0) {
     await supabase.from('api_errors').update({ resolved_at: nowIso }).in('id', safetyIds);
