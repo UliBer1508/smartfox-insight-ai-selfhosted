@@ -68,7 +68,8 @@ Die Leistungsmessung, `ki-tagesanalyse`, `heizplaner` (Schattenbetrieb) und `ana
 ### K1 – Alter Übertemperatur-Schutz blockiert das Abschalten vom 09.11. (hoch)
 - **Was:** Stufe 10 läuft vor dem Tagesmodus. Liegt das Soll schon auf Eco oder darunter, nimmt sie an, „das Thermostat hört von selbst auf“. Sie schickt dann keinen Befehl und bricht ab. Die Regel vom 09.11. („Ziel + 0,3 erreicht → Thermostat aus, sonst heizt es bis Ziel + Band“) kommt nie zum Zug.
 - **Beleg:** In 24 h 271 × `[CALL-SKIP]` bei 7 Räumen. Toilette Eingang 152 ×, Bad Uli 41 ×, Wohnzimmer 27 ×, Wirtschaftsraum 18 ×, Zimmer Luis 17 ×, Zimmer Uli 14 ×, Flur 2 ×. Die Toilette meldet seit über 24 h „heizt“ bei 21,8 °C und Soll 21 °C.
-- **Folge:** Thermostate heizen über das Ziel hinaus. Die Räume zählen als Nachlauf zur Leistungsgrenze und lösen K2 aus.
+- **Folge:** Thermostate heizen bis Soll + Band (DP 101) weiter, statt am Ziel abgeschaltet zu werden. Die Räume zählen als Nachlauf zur Leistungsgrenze und lösen K2 aus.
+- **Nachtrag 10.11.:** Das Weiterheizen bis Soll + Band ist das normale Verhalten aller Geräte (Auswertung 3 Tage), kein Gerätefehler. Fehler war nur, dass die Abschaltung nicht ankam. Umgesetzt in `doc/FIX-REGELN-A-B-C-2026-11-10.md`.
 
 ### K2 – Vorrang-Reservierung plus Nachlauf: Kein Raum heizt mehr (hoch)
 - **Was:** Das Wohnzimmer (5550 W, mehr als die Grenze von 4000 W) wartet seit 11:30. Nach 60 min **reserviert** es: Alle anderen warten, bis es „allein“ heizen kann. „Allein“ verlangt aber `usedW === 0` (Zeile 212). Die nachlaufende Toilette (100 W, wegen K1) macht `usedW` nie 0.
@@ -104,10 +105,11 @@ Die Leistungsmessung, `ki-tagesanalyse`, `heizplaner` (Schattenbetrieb) und `ana
 
 ### K6 – Die Thermostate sind nicht gleich eingestellt (mittel)
 Die Logik setzt voraus, dass alle Geräte gleich regeln: Raumfühler, kein Geräte-Nachtprogramm, Korrektur 0.
+**Nachtrag 10.11.:** In 3 Tagen zeigt keine der Abweichungen eine Wirkung auf das Heizen (0 Fälle „heizt nicht unter Soll − Band“, Überschreitungen nur bis Soll + Band). Ein Vereinheitlichen ist Ordnung, keine Reparatur. Die Uhr ist bei einem Teil der Geräte um etwa 12 h verschoben (Uli); ohne Wirkung, da Modus „home“ und das Nachtprogramm nachweislich nicht eingreift.
 
 | DP | Erwartet | Abweichend |
 |---|---|---|
-| 110 Fühlerwahl | 1 (Raumfühler) | **3** bei Toilette Eingang und Bad Uli – genau die beiden mit den meisten Übertemperatur-Treffern. Seit 01.11. laut DP-Protokoll unverändert, niemand hat es umgestellt; die Doku vom 01.11. („alle 1“) war falsch. |
+| 110 Fühlerwahl | 1 (Raumfühler) | **3** bei Toilette Eingang und Bad Uli. Seit 01.11. laut DP-Protokoll unverändert, niemand hat es umgestellt; die Doku vom 01.11. („alle 1“) war falsch. **Nachtrag 10.11.:** Die Auswertung aller Lesungen über 3 Tage zeigt **kein** anderes Regelverhalten – alle Geräte heizen bis Soll + Band, wie DP 101 es vorgibt. |
 | 111 Nachtmodus Gerät | aus | **an** bei Büro, Toilette Eingang, Wirtschaftsraum, Wohnzimmer, Zimmer Luis, Zimmer Uli |
 | 19 Korrektur | 0 | **−10** bei Kinder Bad (K3) |
 | 107 / 106 | 1 / 3 | 107 = 3 bei Toilette Eingang und Wirtschaftsraum; 106 = 1 bei Haustür (Bedeutung unbekannt) |
