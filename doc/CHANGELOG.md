@@ -15,6 +15,8 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Changed
 - Auto-Steuerung: Reihenfolge Verlauf und Wirkung · Steuerung · Plan. Alle Abschnitte in Auto-Steuerung, KI und Analyse klappbar.
+- Analyse › Tag ohne Doppeltes: Kacheln, PV-Verlauf, Kosten und Zeitraum-Umschalter entfernt (stehen in Auto-Steuerung › Verlauf).
+- SQL 36 + `fetch-energy-prices`: Grundgebühr 161,30 €/Jahr lt. Jahresabrechnung (Messentgelt fehlte).
 - Doppelte entfernt: Planer-Einstellungen in Einstellungen › Haus (nur noch Auto-Steuerung), Protokoll › Raummodell (jetzt im Plan).
 - Analyse › Woche/Monat/Jahr verweisen auf den Verlauf (alte Grafiken rechneten mit um Faktor 10 falschen Tageswerten).
 
