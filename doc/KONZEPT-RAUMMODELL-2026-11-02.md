@@ -1,6 +1,10 @@
 # Konzept: Eco als Ziel und Raummodell (Auskühlen je Raum)
 
 **Stand:** 2. November 2026 · **Status:** FREIGEGEBEN (Uli, 02.11.2026: „Wir machen alle 3“) – umgesetzt
+> **12.11.2026:** Das Nacht-Modell (Stufe 2, `raum_abkuehlung`/`raum_modell`) ist ersetzt durch das Heizmodell des Planers
+> (`heizmodell`). Die Vorausschau (Stufe 3) rechnet daraus; Tabellen bleiben, werden nicht mehr gefüllt.
+> `doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md`
+
 **Supabase:** `pflnniklvqbwjwrjswaz` · **SQL:** `17_eco_ziel.sql`, `18_raummodell.sql`
 **Betrifft:** `pv-automation`, `fetch-weather`, Tagesnote (`tag_bewerten`), App › Protokoll › Raummodell
 **Baut auf:** `KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`, `KONZEPT-LERNSCHLEIFE-2026-11-01.md`

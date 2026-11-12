@@ -1,4 +1,4 @@
-// Tab "KI" – prüfen und entscheiden (Stand 06.11.2026: Abschnitt 2 „Planer“, Schattenbetrieb).
+// Tab "KI" – prüfen und entscheiden (Stand 06.11.2026: Abschnitt 2 „Planer“, Schattenbetrieb; 12.11.2026 bereinigt).
 // Alle KI-Bausteine an einem Ort; vorher verteilt auf Energie, Heizung & KI und Verlauf & Muster.
 // 04.11.2026: „Zu entscheiden“ zeigt alle Vorschläge an einem Platz in einfachen Worten (ZuEntscheiden.tsx).
 // Die frühere Parameter-Liste (stündliche Gemini-Vorschläge) steht nur noch als Protokoll unter 3.
@@ -11,9 +11,7 @@ import { EnergyReading } from '@/types/energy';
 import { useKiPending } from '@/hooks/useKiPending';
 import { AIStatusWidget } from '@/components/heating/AIStatusWidget';
 import { AIShadowDecisions } from '@/components/heating/AIShadowDecisions';
-import { AIDailyPlanCard } from '@/components/heating/AIDailyPlanCard';
 import { LearningProgress } from '@/components/heating/LearningProgress';
-import { MLFollowRateWidget } from '@/components/heating/MLFollowRateWidget';
 import { AutomationStatusCard } from '@/components/heating/AutomationStatusCards';
 import { ZuEntscheiden } from './ZuEntscheiden';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
@@ -79,16 +77,14 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         <PlanerView />
       </Section>
 
-      <Section n={3} title="Heute" question="Was plant die KI für heute – und warum?">
-        <AIDailyPlanCard />
+      {/* 12.11.2026: „KI-Tagesplan“ (ai-daily-planner) und „ML-Folgerate“ (gelernte Policies) entfernt – beides ersetzt
+          durch den Planer (Abschnitt 2). doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md */}
+      <Section n={3} title="Heute" question="Was macht die Automatik gerade?">
         <AutomationStatusCard />
       </Section>
 
-      <Section n={4} title="Lernen & Qualität" question="Lernt die KI richtig? Folgt die Automatik ihren Empfehlungen?">
-        <div className="grid lg:grid-cols-3 gap-4">
-          <div className="lg:col-span-2"><LearningProgress /></div>
-          <MLFollowRateWidget />
-        </div>
+      <Section n={4} title="Lernen & Qualität" question="Welche Daten hat die KI gesammelt?">
+        <LearningProgress />
         <details className="rounded-lg border bg-card p-4">
           <summary className="cursor-pointer text-sm font-semibold select-none">Frühere Parameter-Vorschläge (Protokoll bis 04.11.2026)</summary>
           <div className="mt-3"><AIShadowDecisions /></div>
