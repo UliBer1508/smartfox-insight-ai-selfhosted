@@ -56,6 +56,9 @@ Die Nummern unten beschreiben die Inhalte, nicht die Reihenfolge.
 - **Heizung** = „heizt“ × gemessene Raumleistung, zeitgewichtet. Erst ab 29.10. vorhanden, weil die Raumdaten vorher gelöscht wurden.
 - **Warmwasser + Auto** = Verbrauch − Heizung − Grundlast (gemessen 240 W), bis Wallbox- und Warmwasser-Werte gemessen werden.
 - **Kosten** werden mit dem Preis gerechnet, der an dem Tag galt (`energy_price_history`, sonst Einstellungen). Grundgebühr je Tag = Jahresgebühr / 365.
+  - Preise ab 01.01.2026 nach Jahresabrechnung Salzburg AG vom 15.10.2026 (SQL 36): 29,9351 ct/kWh brutto, Grundgebühr 161,2992 €/Jahr brutto inkl. Messentgelt (vorher fehlte es: 128,18 €). Einspeisung 6,772 ct (ÖMAG-Richtwert).
+  - Nicht abgebildet: Strompreisdeckel, Frei-Tage-Gutschriften, SNAP-Sommertarif. Herleitung in `supabase/SQL/36_strompreis_rechnung_2026.sql`.
+  - Gegenprobe Zähler: Nov. 2025 lt. Rechnung 786 kWh Netz; Nov. 2026 bis 12.11. laut `energie_tag` 296 kWh – passt zur Größenordnung.
 - **Vorjahr** gibt es ab November 2027. Für 2025 wäre nur ein Solar.web-Export möglich.
 
 ## Ersetzt (Arbeitsregel „neu ersetzt alt im selben PR“)
@@ -64,6 +67,7 @@ Die Nummern unten beschreiben die Inhalte, nicht die Reihenfolge.
 |---|---|
 | KI › Planer (Abschnitt 2) | Auto-Steuerung › Plan (gleiche Komponente) |
 | Protokoll › Raummodell und die kleinere Raumtabelle im Plan | eine Ansicht `RaumModellView` im Plan |
+| Analyse › Tag: Kacheln, PV-Verlauf, Kosten, „Tageswertung der KI“ (`ProgressCockpit`, falsche Tageswerte), Zeitraum-Umschalter | Auto-Steuerung › Verlauf (Tag). In der Analyse bleiben nur Teile ohne Gegenstück: „Das Wichtigste“ mit Vorschlägen, Batterie-Reserve, Heizung je Raum, Prognose & Wetter, Räume & Sonne |
 | Einstellungen › Haus: Höchstleistung ohne Sonne, Planer-Modus, Gewicht Ziel, Sicherheitsabstand | nur noch Auto-Steuerung › Steuerung (Gewicht Untergrenze bleibt in Einstellungen) |
 | Analyse › Woche/Monat/Jahr: `ProgressCockpit`, `YearTrendChart` auf `daily_pattern_scores`, `EnergyCostWidget` auf `energy_daily_costs` | Auto-Steuerung › Verlauf auf `energie_tag`; Analyse zeigt dort einen Verweis. Die Tagesansicht der Analyse bleibt. |
 | `hourly_aggregates`, `daily_patterns`, `daily_pattern_scores`, `energy_daily_costs` (Tabellen) | `energie_stunde`, `energie_tag`. Die alten Tabellen und ihre Funktionen (`aggregate-energy-data`, `compute-daily-score`, `analysis-summary`) werden mit Bereinigung Stufe 2 abgeschaltet, weil das Mustergedächtnis sie noch liest. |
