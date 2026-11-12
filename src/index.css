@@ -6,7 +6,7 @@
 
 @layer base {
   :root {
-    --background: 220 20% 97%;
+    --background: 140 30% 96.5%; /* ganz leichtes Grün (12.11.2026), = Fensterrand #f3f9f5 */
     --foreground: 220 20% 10%;
 
     --card: 0 0% 100%;
@@ -46,7 +46,7 @@
 
     --radius: 0.875rem; /* runder wie Heizung München */
 
-    --sidebar-background: 220 20% 97%;
+    --sidebar-background: 140 30% 96.5%;
     --sidebar-foreground: 220 20% 20%;
     --sidebar-primary: 187 80% 42%;
     --sidebar-primary-foreground: 0 0% 100%;
