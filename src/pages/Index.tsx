@@ -69,7 +69,7 @@ const Index = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col bg-background grid-pattern overflow-x-hidden">
+    <div className="flex-1 flex flex-col bg-background overflow-x-hidden">
       <SEO title={meta.title} description={meta.description} path="/" />
       <Header activeTab={activeTab} onTabChange={navigate} />
 

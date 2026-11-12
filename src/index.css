@@ -44,7 +44,7 @@
     --input: 220 15% 88%;
     --ring: 187 80% 42%;
 
-    --radius: 0.5rem;
+    --radius: 0.875rem; /* runder wie Heizung München */
 
     --sidebar-background: 220 20% 97%;
     --sidebar-foreground: 220 20% 20%;
@@ -120,7 +120,9 @@
 
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    /* Darstellung wie Heizung München (12.11.2026) – Farben bleiben Venediger */
+    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-variant-numeric: tabular-nums;
   }
 }
 
