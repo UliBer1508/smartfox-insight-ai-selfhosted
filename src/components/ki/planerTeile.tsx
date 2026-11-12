@@ -1,4 +1,4 @@
-// Gemeinsame Bausteine der Planer-Ansichten (KI › Planer, KI › Verlauf) – 12.11.2026.
+// Gemeinsame Bausteine der Planer-Ansichten (Auto-Steuerung › Plan und › Verlauf) – 12.11.2026.
 // Aus PlanerView.tsx herausgelöst, damit beide Ansichten gleich aussehen (Uli: „die Art und Weise des Planers verwenden“).
 export const TZ = 'Europe/Vienna';
 export const hm = (ms: number) => new Date(ms).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });

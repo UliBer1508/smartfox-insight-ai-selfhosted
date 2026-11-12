@@ -5,6 +5,17 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.26.0] - 2026-11-12
+
+### Added (`doc/VERLAUF-UND-WIRKUNG-2026-11-12.md`)
+- Neuer erster Tab **Auto-Steuerung** (Startseite): Modus und Eingriffe, Plan (umgezogen aus KI), Verlauf und Wirkung.
+- Verlauf Tag/Woche/Monat/Jahr mit Vergleich Vorperiode/Vorjahr, Netzkosten, Batterie, Haus unter Eco,
+  KI-Vorschläge als Marken im Zeitstrahl und ihre Wirkung (3 Tage vorher/nachher).
+- SQL 35: dauerhafte Ablage `energie_stunde` / `energie_tag` (nie gelöscht), stündlich gefüllt, nachgetragen ab 13.10.2026.
+
+### Changed
+- Analyse › Woche/Monat/Jahr verweisen auf den Verlauf (alte Grafiken rechneten mit um Faktor 10 falschen Tageswerten).
+
 ## [2.25.0] - 2026-11-12
 
 ### Removed (`doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md`, Stufe 1)

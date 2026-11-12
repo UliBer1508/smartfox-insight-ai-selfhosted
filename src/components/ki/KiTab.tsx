@@ -16,7 +16,6 @@ import { AutomationStatusCard } from '@/components/heating/AutomationStatusCards
 import { ZuEntscheiden } from './ZuEntscheiden';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { KiAnalysisRuns } from './KiAnalysisRuns';
-import { PlanerView } from './PlanerView';
 
 function Section({ n, title, question, children, right }: { n: number; title: string; question: string; children: React.ReactNode; right?: React.ReactNode }) {
   return (
@@ -73,17 +72,15 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         <PriceSuggestionBanner />
       </Section>
 
-      <Section n={2} title="Planer" question="Was würde der rechnende Planer tun – und wäre es besser? (Schattenbetrieb, steuert noch nicht)">
-        <PlanerView />
-      </Section>
+      {/* 12.11.2026: Planer umgezogen in den Tab „Auto-Steuerung“ (Abschnitt 2 „Plan“). */}
 
       {/* 12.11.2026: „KI-Tagesplan“ (ai-daily-planner) und „ML-Folgerate“ (gelernte Policies) entfernt – beides ersetzt
           durch den Planer (Abschnitt 2). doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md */}
-      <Section n={3} title="Heute" question="Was macht die Automatik gerade?">
+      <Section n={2} title="Heute" question="Was macht die Automatik gerade?">
         <AutomationStatusCard />
       </Section>
 
-      <Section n={4} title="Lernen & Qualität" question="Welche Daten hat die KI gesammelt?">
+      <Section n={3} title="Lernen & Qualität" question="Welche Daten hat die KI gesammelt?">
         <LearningProgress />
         <details className="rounded-lg border bg-card p-4">
           <summary className="cursor-pointer text-sm font-semibold select-none">Frühere Parameter-Vorschläge (Protokoll bis 04.11.2026)</summary>
@@ -91,7 +88,7 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         </details>
       </Section>
 
-      <Section n={5} title="Auswertungen" question="Musteranalyse für Tag, Woche, Monat – auf Knopfdruck.">
+      <Section n={4} title="Auswertungen" question="Musteranalyse für Tag, Woche, Monat – auf Knopfdruck.">
         <Card>
           <CardContent className="p-4">
             <KiAnalysisRuns readings={readings} analysis={pattern.analysis} isAnalyzing={pattern.isAnalyzing}

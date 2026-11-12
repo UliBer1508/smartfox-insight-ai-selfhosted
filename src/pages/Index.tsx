@@ -1,4 +1,5 @@
-// Hauptseite: 4 Tabs nach Zweck (seit 26.10.2026)
+// Hauptseite: Tabs nach Zweck (seit 26.10.2026)
+//   Auto-Steuerung – Modus und Eingriffe, Plan (Planer), Verlauf Tag/Woche/Monat/Jahr mit Kosten und Wirkung (12.11.2026, Startseite)
 //   Übersicht      – ansehen, jetzt (Status, Fehler, Energiefluss, Räume, kurz übersteuern)
 //   Analyse        – Rückblick Tag/Woche/Monat/Jahr, mit Einstellungs-Vorschlägen nach Bestätigung
 //   KI             – prüfen und entscheiden (Vorschläge, Tagesplan, Lernstatus, Auswertungen)
@@ -13,6 +14,7 @@ import { SettingsPanel } from '@/components/energy/SettingsPanel';
 import { HouseOverview } from '@/components/overview/HouseOverview';
 import { AnalysisTab } from '@/components/analysis/AnalysisTab';
 import { KiTab } from '@/components/ki/KiTab';
+import { AutoSteuerung } from '@/components/ki/AutoSteuerung';
 import { ProtokollTab } from '@/components/protokoll/ProtokollTab';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
@@ -22,7 +24,7 @@ import { useEnergyCalculation } from '@/hooks/useEnergyCalculation';
 import { useRooms } from '@/hooks/useRooms';
 
 const Index = () => {
-  const [activeTab, setActiveTab] = useState<AppTab>('overview');
+  const [activeTab, setActiveTab] = useState<AppTab>('auto');
   const { settings } = useSmartfoxSettings();
   const { settings: heatingSettings } = useHeatingSettings();
   const { currentReading, readings, totalCount, isConnected } = useSmartfoxData();
@@ -35,6 +37,10 @@ const Index = () => {
   }, [loadDailyPatterns]);
 
   const tabMeta: Record<AppTab, { title: string; description: string }> = {
+    auto: {
+      title: 'Auto-Steuerung — Heizung Venediger',
+      description: 'Wer steuert, wie eingreifen, Plan der nächsten 24 h und Verlauf mit Kosten und Wirkung der KI-Vorschläge.',
+    },
     overview: {
       title: 'Übersicht — Heizung Venediger',
       description: 'Betriebsmodus, Energie, Wetter- und PV-Prognose sowie alle Räume auf einen Blick.',
@@ -68,6 +74,8 @@ const Index = () => {
       <Header activeTab={activeTab} onTabChange={navigate} />
 
       <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 md:pb-6">
+        {activeTab === 'auto' && <AutoSteuerung rooms={rooms} onNavigate={navigate} />}
+
         {activeTab === 'overview' && (
           <HouseOverview
             currentReading={currentReading}

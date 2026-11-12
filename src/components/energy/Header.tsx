@@ -1,4 +1,4 @@
-import { Home, Zap, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut, ScrollText } from 'lucide-react';
+import { Home, Zap, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut, ScrollText, LineChart } from 'lucide-react';
 import { useKiPending } from '@/hooks/useKiPending';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -11,7 +11,8 @@ import { SystemStatusButton } from '@/components/layout/SystemStatus';
 
 // Tabs nach Zweck (seit 26.10.2026): ansehen · rückblicken · prüfen/entscheiden · einstellen
 // + Protokoll (01.11.2026): was die Steuerung und die Thermostate tun – Test- und Protokoll-Modul
-export type AppTab = 'overview' | 'analysis' | 'ki' | 'protokoll' | 'settings';
+// + Auto-Steuerung (12.11.2026, ganz vorne – Uli: „vor Übersicht, da sie die Hauptsteuerungskomponente werden soll“)
+export type AppTab = 'auto' | 'overview' | 'analysis' | 'ki' | 'protokoll' | 'settings';
 
 interface HeaderProps {
   activeTab: AppTab;
@@ -19,6 +20,7 @@ interface HeaderProps {
 }
 
 const tabs = [
+  { key: 'auto' as const, icon: LineChart, label: 'Auto-Steuerung' },
   { key: 'overview' as const, icon: Home, label: 'Übersicht' },
   { key: 'analysis' as const, icon: BarChart3, label: 'Analyse' },
   { key: 'ki' as const, icon: Brain, label: 'KI' },

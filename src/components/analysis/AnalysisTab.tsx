@@ -16,13 +16,12 @@ import { addDays, viennaDateString, DayAnalysis } from '@/lib/dayAnalysis';
 import { buildFindings, Finding, Proposal } from '@/lib/analysisFindings';
 import { loadWhitelist, WhitelistRow } from '@/lib/aiParameters';
 import { ProposalDialog } from './ProposalDialog';
-import { ProgressCockpit } from '@/components/energy/stats/ProgressCockpit';
-import { YearTrendChart } from '@/components/energy/stats/YearTrendChart';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
 import { BatteryReserveStatus } from '@/components/heating/BatteryReserveStatus';
 import { HeatingHistoryChart } from '@/components/heating/HeatingHistoryChart';
 import { HeatingOverviewCard } from '@/components/heating/HeatingOverviewCard';
+import { ProgressCockpit } from '@/components/energy/stats/ProgressCockpit';
 import { PvForecastCard } from '@/components/heating/PvForecastCard';
 import { PvAccuracyChart } from '@/components/heating/PvAccuracyChart';
 import { SolarGainChart } from '@/components/heating/SolarGainChart';
@@ -204,7 +203,7 @@ export function AnalysisTab({ rooms, settings, todayEnergy, onNavigate }: {
   settings: HeatingSettings;
   /** Werte von HEUTE für das Kosten-Widget (es speichert den heutigen Tag – nie einen anderen übergeben). */
   todayEnergy: { energyIn: number; energyOut: number; pvEnergy: number };
-  onNavigate: (tab: 'ki' | 'settings') => void;
+  onNavigate: (tab: 'ki' | 'settings' | 'auto') => void;
 }) {
   const today = viennaDateString();
   const [period, setPeriod] = useState<Period>('day');
@@ -374,15 +373,18 @@ export function AnalysisTab({ rooms, settings, todayEnergy, onNavigate }: {
         </>
       )}
 
+      {/* 12.11.2026: Woche/Monat/Jahr und Kosten hier ersetzt durch den Tab „Auto-Steuerung“ › Verlauf (energie_tag, SQL 35).
+          Die alten Grafiken rechneten mit daily_pattern_scores (etwa Faktor 10 zu niedrig) und energy_daily_costs
+          (füllt sich nur beim Öffnen der Seite). doc/VERLAUF-UND-WIRKUNG-2026-11-12.md */}
       {period !== 'day' && (
         <>
-          {period === 'year' ? <YearTrendChart /> : <ProgressCockpit range={period} />}
+          <Card>
+            <CardContent className="p-4 md:p-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">Woche, Monat und Jahr – mit Vergleich zur Vorperiode und zum Vorjahr, Kosten und der Wirkung der KI-Vorschläge – stehen jetzt im Tab <b>Auto-Steuerung</b> unter „Verlauf und Wirkung“.</div>
+              <Button size="sm" onClick={() => onNavigate('auto')}>Zur Auto-Steuerung</Button>
+            </CardContent>
+          </Card>
           <Card><CardContent className="p-4 md:p-5"><HeatingOverviewCard rooms={rooms} /></CardContent></Card>
-          <EnergyCostWidget
-            energyIn={todayEnergy.energyIn} energyOut={todayEnergy.energyOut} pvEnergy={todayEnergy.pvEnergy}
-            electricityPriceCent={price} feedInPriceCent={feedIn}
-            baseFeePerYearEur={settings.electricity_base_fee_year_eur ?? 36}
-          />
         </>
       )}
 

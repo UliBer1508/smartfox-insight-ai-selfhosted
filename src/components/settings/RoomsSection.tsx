@@ -276,7 +276,7 @@ function RoomCard({ room, onSave, onDelete }: {
             {/* 12.11.2026: alte Schätzungen (calculated_power_w, Solar-Analyse) ersetzt – Leistung wird gemessen
                 (measure-room-power), Auskühlen/Aufheizen/Sonne lernt das Heizmodell des Planers. */}
             <div>Heizleistung gemessen: {room.heating_power_w ? `${room.heating_power_w} W` : '–'}</div>
-            <div>Auskühlen, Aufheizen und Sonne lernt das Heizmodell: <strong>KI › Planer</strong> (Modell je Raum).</div>
+            <div>Auskühlen, Aufheizen und Sonne lernt das Heizmodell: <strong>Auto-Steuerung › Plan</strong> (Modell je Raum).</div>
             <div>Priorität: P{room.priority} – ändern im Abschnitt <strong>Heiz-Reihenfolge</strong> unten.</div>
           </div>
 

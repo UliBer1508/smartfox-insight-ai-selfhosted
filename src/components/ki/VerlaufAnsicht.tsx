@@ -1,4 +1,4 @@
-// Verlauf und Wirkung (12.11.2026) – gleiche Darstellung wie KI › Planer, aber für die Vergangenheit.
+// Verlauf und Wirkung (12.11.2026) – gleiche Darstellung wie der Planer (Auto-Steuerung › Plan), aber für die Vergangenheit.
 // Uli: „PV-Produktion und Verbrauch, % Eigennutzung, Batterie Ladung und Verbrauch, Netzstrom, Auto und Warmwasser,
 // Hausstrom, Optimierung über Zeit, KI-Vorschläge im Zeitstrahl genehmigt und Erfolg dieser Anpassung.“ –
 // „Tag, Woche, Monat, Jahr, Vergleich Vorwoche, Vormonat, Vorjahr.“ – „Ich möchte die Kosten sehen für den Netzbezug.“
