@@ -2227,37 +2227,15 @@ Deno.serve(async (req) => {
       const batteryNeedWhForDay = Math.max(0, batteryNeedKwh * 1000);
       const surplusAfterBatteryWh = Math.max(0, remainingPvForHeatingWh - batteryNeedWhForDay);
       let dayRatio: number | null = null;
-      let dayThreshold = 1.0;
-      let kiAdjust = 0;
-      let kiInfo = 'kein Muster';
+      const dayThreshold = 1.0;
+      const kiAdjust = 0;
+      const kiInfo = 'aus (seit 12.11.2026)';
       if (!afterSunset) {
         dayRatio = totalEcoEnergyNeededWh > 0
           ? surplusAfterBatteryWh / totalEcoEnergyNeededWh
           : (surplusAfterBatteryWh > 0 ? 99 : 0);
-        try {
-          const strength = Math.max(0, Math.min(100, Number((settings as any)?.pattern_recall_strength ?? 50)));
-          const { data: bmDayRow } = await supabase
-            .from('system_settings')
-            .select('value')
-            .eq('key', 'best_match_today')
-            .maybeSingle();
-          const bmDay = bmDayRow?.value as any;
-          if (strength > 0 && bmDay?.computed_at && Date.now() - new Date(bmDay.computed_at).getTime() < 24 * 60 * 60 * 1000) {
-            const quality = String(bmDay.match_quality || 'none');
-            const qFactor = quality === 'exact' ? 1.0 : quality === 'partial' ? 0.6 : 0;
-            const top = Array.isArray(bmDay.top_days) && bmDay.top_days.length > 0 ? bmDay.top_days[0] : null;
-            const cov = Number(top?.kpi_pv_heating_coverage);
-            if (qFactor > 0 && Number.isFinite(cov) && cov > 0) {
-              const delta = Math.round((strength / 100) * 0.3 * qFactor * 100) / 100;
-              if (cov >= 0.6) kiAdjust = -delta;       // ähnlicher Tag wurde gut aus PV gedeckt → eher Sonnentag
-              else if (cov < 0.3) kiAdjust = delta;    // ähnlicher Tag kaum PV-Deckung → eher schlechter Tag
-              kiInfo = `${quality} ${top?.date ?? ''} PV-Deckung ${Math.round(cov * 100)}% → Schwelle ${kiAdjust >= 0 ? '+' : ''}${kiAdjust}`;
-            }
-          }
-        } catch (e) {
-          console.warn('[TAGESART] best_match_today nicht lesbar:', e);
-        }
-        dayThreshold = Math.max(0.5, Math.min(1.5, 1.0 + kiAdjust));
+        // 12.11.2026 (Bereinigung Stufe 2, Mustergedächtnis): keine Verschiebung der Schwelle mehr durch
+        // best_match_today – feste Schwelle 1,0. doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md §4.3
       }
       const sunnyDay = dayRatio !== null && dayRatio >= dayThreshold;
       console.log(`[TAGESART] ${sunnyDay ? 'Sonnentag' : (afterSunset ? 'nach Sonnenuntergang' : 'schlechter Tag')} | PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh − Batterie ${(batteryNeedWhForDay / 1000).toFixed(1)} kWh = ${(surplusAfterBatteryWh / 1000).toFixed(1)} kWh für Räume, Eco-Bedarf ${(totalEcoEnergyNeededWh / 1000).toFixed(1)} kWh, Ratio ${dayRatio === null ? '–' : dayRatio.toFixed(2)} / Schwelle ${dayThreshold} | KI: ${kiInfo}`);
@@ -2347,94 +2325,13 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ============= PRE-HEAT-SIGNAL aus analyze-patterns =============
-      // Wenn ein Peak in ≤90 min ansteht (preheat) oder bald endet (store_heat),
-      // dürfen Eco/Komfort-Budgets temporär angehoben werden.
-      // Hard-Locks (SOC-Gate, harter PV-Gate) bleiben unberührt.
-      let preheatSignal: { type?: string; minutes_to_peak?: number; expected_peak_w?: number; advice_text?: string } | null = null;
-      try {
-        const { data: psRow } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'preheating_signal')
-          .maybeSingle();
-        const v = psRow?.value as any;
-        if (v?.computed_at && Date.now() - new Date(v.computed_at).getTime() < 30 * 60 * 1000 && v?.type && v.type !== 'none') {
-          preheatSignal = v;
-          if (v.type === 'preheat' && batterySoc >= heatingMinSoc) {
-            const bonus = 800;
-            availableBudget = Math.max(availableBudget, bonus);
-            console.log(`[PRE-HEAT] 🔥 preheat aktiv (Peak in ~${v.minutes_to_peak}min, ${v.expected_peak_w}W) → Eco-Budget min ${bonus}W`);
-          } else if (v.type === 'store_heat' && pvPower > 4000) {
-            comfortBudget = comfortBudget + 500;
-            console.log(`[PRE-HEAT] 💾 store_heat aktiv (Peak endet bald, PV ${pvPower}W) → Komfort +500W → ${comfortBudget}W`);
-          }
-        }
-      } catch (e) {
-        console.warn('[PRE-HEAT] Could not read preheating_signal:', e);
-      }
-
-      // Wochenbasierte Einsicht (TTL 7 Tage): top_grid_import_hours → Pre-Heat-Bonus,
-      // niedrige Eigenverbrauchsquote → Komfort-Bonus reduzieren.
-      try {
-        const { data: wiRow } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'weekly_insight')
-          .maybeSingle();
-        const wi = wiRow?.value as any;
-        if (wi?.computed_at && Date.now() - new Date(wi.computed_at).getTime() < 7 * 24 * 60 * 60 * 1000) {
-          const hourStr = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false });
-          const hour = parseInt(hourStr, 10);
-          const importHours: number[] = Array.isArray(wi.top_grid_import_hours) ? wi.top_grid_import_hours : [];
-          if (importHours.some(h => h - hour >= 1 && h - hour <= 2) && batterySoc >= heatingMinSoc && pvPower > 1500) {
-            availableBudget = Math.max(availableBudget, 600);
-            console.log(`[WEEKLY] 📅 Vor-Spitzen-Vorheizen aktiv (Spitze in ${importHours.join(',')}h) → Eco-Budget min 600W`);
-          }
-          const scr = Number(wi.avg_self_consumption_ratio);
-          if (Number.isFinite(scr) && scr < 0.6 && comfortBudget > 0) {
-            const before = comfortBudget;
-            comfortBudget = Math.max(0, Math.round(comfortBudget * 0.7));
-            console.log(`[WEEKLY] ⚠️ Eigenverbrauch ${Math.round(scr * 100)}% < 60% → Komfort-Budget gedrosselt ${before}W → ${comfortBudget}W`);
-          }
-        }
-      } catch (e) {
-        console.warn('[WEEKLY] Could not read weekly_insight:', e);
-      }
-
-      // Pattern-Recall (TTL 24h): best_match_today * pattern_recall_strength → Komfort-Bonus + Pre-Heat-Fenster
-      try {
-        const { data: bmRow } = await supabase
-          .from('system_settings')
-          .select('value')
-          .eq('key', 'best_match_today')
-          .maybeSingle();
-        const bm = bmRow?.value as any;
-        const strength = Math.max(0, Math.min(100, Number((settings as any)?.pattern_recall_strength ?? 50)));
-        if (bm?.computed_at && Date.now() - new Date(bm.computed_at).getTime() < 24 * 60 * 60 * 1000 && strength > 0) {
-          const quality = String(bm.match_quality || 'none');
-          const qFactor = quality === 'exact' ? 1.0 : quality === 'partial' ? 0.6 : 0;
-          if (qFactor > 0) {
-            const bonus = Math.round((strength / 100) * 400 * qFactor);
-            if (bonus > 0 && comfortBudget > 0) {
-              comfortBudget += bonus;
-              console.log(`[PATTERN-RECALL] ✨ ${quality} match (strength ${strength}%) → Komfort +${bonus}W → ${comfortBudget}W`);
-            }
-            // Pre-Heat-Fenster aus Winner-Tag (falls gute Coverage)
-            const top = Array.isArray(bm.top_days) && bm.top_days.length > 0 ? bm.top_days[0] : null;
-            const cov = Number(top?.kpi_pv_heating_coverage ?? 0);
-            const hourStr = new Date().toLocaleString('de-DE', { timeZone: 'Europe/Vienna', hour: '2-digit', hour12: false });
-            const hour = parseInt(hourStr, 10);
-            // Heuristik: 10–14 Uhr typisches PV-Heizfenster
-            if (cov >= 0.6 && hour >= 10 && hour <= 14 && batterySoc >= heatingMinSoc && pvPower > 1500) {
-              availableBudget = Math.max(availableBudget, 600);
-              console.log(`[PATTERN-RECALL] 🔥 Winner-Tag ${top?.date} (Coverage ${Math.round(cov*100)}%) → Eco-Budget min 600W`);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[PATTERN-RECALL] Could not read best_match_today:', e);
-      }
+      // 12.11.2026 (Bereinigung Stufe 2, Mustergedächtnis §4.3) entfernt: Zuschläge aus analyze-patterns –
+      //   preheating_signal (Eco-Budget min 800 W / Komfort +500 W, Pre-Heat-Override je Raum),
+      //   weekly_insight (Eco-Budget min 600 W vor Netzspitzen; Komfort ×0,7 bei „Eigenverbrauch < 60 %“ –
+      //   die Quote kam aus daily_pattern_scores und lag bei 3,4 % statt ~97 %),
+      //   best_match_today (Komfort bis +400 W, Eco-Budget min 600 W am „Winner-Tag“).
+      // Die Werte schreibt analyze-patterns weiter; ai-parameter-advisor liest sie nur als Hinweis.
+      // Ersatz: Heizplaner (Modus „steuern“). Zurück: git revert dieses Commits.
 
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
@@ -3171,8 +3068,7 @@ Deno.serve(async (req) => {
       //                  Summe der Raumleistungen ≤ max_grid_heating_power_w
       // Räume unter ihrer Mindesttemperatur werden in jedem Modus zuerst bis zur Mindesttemperatur
       // geheizt, ebenfalls nach Priorität innerhalb der Netzgrenze.
-      // KI (Mustergedächtnis best_match_today × pattern_recall_strength) verschiebt nur die Schwelle
-      // zwischen wait und grid, max. ±0,3.
+      // Seit 12.11.2026 keine KI-Verschiebung der Schwelle mehr (Mustergedächtnis abgeschaltet, Bereinigung Stufe 2)
       const maxGridHeatingW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
       let dayMode: 'wait' | 'grid' | 'battery_gate' | 'evening' = 'grid';
       if (afterSunset) {
@@ -3722,16 +3618,6 @@ Deno.serve(async (req) => {
               }
             }
 
-            // Pre-Heat-Override: Wenn preheat-Signal aktiv und Raum ist unter eco → activate forcieren
-            if (preheatSignal?.type === 'preheat' && action !== 'activate' && action !== 'deactivate') {
-              const tempDeficit = ecoTemp - (room.current_temp ?? ecoTemp);
-              if (tempDeficit > 0.2 && batterySoc >= heatingMinSoc && !room.comfort_saturated_at) {
-                action = 'activate';
-                targetTemp = ecoTemp;
-                reasoning = `🔥 Pre-Heat (Peak in ~${preheatSignal.minutes_to_peak}min) → Eco vorheizen`;
-                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              }
-            }
 
             // (Solar-Gain-Erkennung und Morgen-Sperre entfernt — Thermostate regeln passiven Solargewinn selbst)
 

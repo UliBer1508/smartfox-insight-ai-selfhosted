@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.27.0] - 2026-11-12
+
+### Removed (`doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md`, Stufe 2a)
+- `pv-automation`: Zuschläge des Mustergedächtnisses (Tagesart-Schwelle, Pre-Heat-Signal, Wochen-Hinweis mit falscher
+  Eigenverbrauchsquote 3,4 %, Pattern-Recall-Bonus). Einstellungen › KI: Regler „Stärke“ entfernt.
+
+### Fixed
+- SQL 36 ausgeführt: Grundgebühr 161,30 €/Jahr, `energie_tag` nachgerechnet.
+
 ## [2.26.0] - 2026-11-12
 
 ### Added (`doc/VERLAUF-UND-WIRKUNG-2026-11-12.md`)

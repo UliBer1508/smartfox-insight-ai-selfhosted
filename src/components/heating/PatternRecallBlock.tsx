@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Slider } from '@/components/ui/slider';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -85,7 +84,6 @@ export function PatternRecallBlock() {
 
   const enabled = Boolean(get('analysis_match_today_enabled'));
   const time = String(get('analysis_match_today_time') ?? '').slice(0, 5);
-  const strength = Number(get('pattern_recall_strength') ?? 50);
   const topDays = Array.isArray(match?.top_days) ? match!.top_days : undefined;
   const matchError =
     match?.top_days && !Array.isArray(match.top_days) ? (match.top_days as { message?: string }).message : null;
@@ -103,7 +101,8 @@ export function PatternRecallBlock() {
           Pattern-Recall
         </CardTitle>
         <CardDescription className="text-xs">
-          Wendet Erkenntnisse aus den besten vergangenen Tagen mit ähnlichen PV/Wetter-Bedingungen an.
+          Sucht die ähnlichsten vergangenen Tage (PV/Wetter). Seit 12.11.2026 nur noch ein Hinweis für den KI-Berater –
+          es verändert das Heizen nicht mehr (Zuschläge abgeschaltet, Bereinigung Stufe 2).
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -151,23 +150,6 @@ export function PatternRecallBlock() {
                     onChange={(e) => set({ analysis_match_today_time: e.target.value })}
                   />
                 </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <Label className="text-muted-foreground">Stärke (Komfort-Bonus-Skalierung)</Label>
-                  <span className="font-mono">{strength}%</span>
-                </div>
-                <Slider
-                  value={[strength]}
-                  min={0}
-                  max={100}
-                  step={5}
-                  onValueChange={([v]) => set({ pattern_recall_strength: v })}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  0% = aus, 100% = +400 W Komfort-Bonus bei exaktem Match (×0,6 bei partial).
-                </p>
               </div>
             </>
           )}
