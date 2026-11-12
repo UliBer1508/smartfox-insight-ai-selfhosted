@@ -261,7 +261,8 @@ async function saveWaitState(supabase: any, rooms: Record<string, string>, grant
   } catch (e) { console.log(`[GRENZE] Wartezustand nicht gespeichert: ${e}`); }
 }
 
-const roomPowerW = (room: any) => Number(room?.calculated_power_w) || Number(room?.heating_power_w) || 800;
+// Gemessene/eingetragene Leistung (heating_power_w, Messung 06.11.) vor der alten Schätzung calculated_power_w (10.11.2026)
+const roomPowerW = (room: any) => Number(room?.heating_power_w) || Number(room?.calculated_power_w) || 800;
 
 // Nicht steuerbar (10.11.2026, C, doc/FIX-REGELN-A-B-C-2026-11-10.md): SQL 30 setzt rooms.nicht_steuerbar_seit, wenn
 // ≥ 4 ausgeführte Befehle den Sollwert am Gerät nicht geändert haben. Solche Räume bekommen keine Befehle mehr –
@@ -702,6 +703,19 @@ Deno.serve(async (req) => {
 
     // POST /check - ML-based automation with SKIP LOGIC and NIGHT PAUSE
     if ((path === '/check' || path === '') && req.method === 'POST') {
+      // K7 (10.11.2026, SQL 33): höchstens ein Lauf pro 60 s – drei Aufrufer (Cron, Fronius-Collector, Thermostat-Dienst).
+      // Fehlt die Funktion oder schlägt der Aufruf fehl, läuft die Runde wie bisher (fail-open).
+      try {
+        const { data: darf, error: sperrFehler } = await supabase.rpc('pv_automation_lauf_starten', { p_abstand_s: 60 });
+        if (!sperrFehler && darf === false) {
+          console.log('[PV-Automation] Übersprungen: letzter Lauf < 60 s her');
+          return new Response(JSON.stringify({ success: true, skipped: 'letzter Lauf < 60 s her' }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+        if (sperrFehler) console.log(`[PV-Automation] Lauf-Sperre nicht verfügbar → Lauf ohne Sperre: ${sperrFehler.message}`);
+      } catch (e) { console.log(`[PV-Automation] Lauf-Sperre Fehler → Lauf ohne Sperre: ${e}`); }
+
       console.log('[PV-Automation] Starting ML-based check...');
 
       // Load control mode FIRST
@@ -1831,7 +1845,7 @@ Deno.serve(async (req) => {
         if (currentTemp >= ecoTemp) continue;
         
         const tempDiff = ecoTemp - currentTemp;
-        const heatingPower = room.calculated_power_w || room.heating_power_w || 800;
+        const heatingPower = room.heating_power_w || room.calculated_power_w || 800;
         
         // ML-Features für genauere Schätzung nutzen
         const mlFeature = mlFeatures.find(f => f.room_id === room.id);
@@ -1980,7 +1994,7 @@ Deno.serve(async (req) => {
       // Aktuell heizende Leistung — im äußeren Scope, weil später in Logs/Phase-1-Header referenziert
       const currentlyHeatingPower = rooms
         .filter(r => r.is_heating)
-        .reduce((sum, r) => sum + (r.calculated_power_w || r.heating_power_w || 800), 0);
+        .reduce((sum, r) => sum + (r.heating_power_w || r.calculated_power_w || 800), 0);
 
       if (powerBudgetEnabled) {
         if (pvPower > 500) {
@@ -2020,6 +2034,15 @@ Deno.serve(async (req) => {
             console.log(`[PV-Automation] 🔋 Batterie-Ladereserve: ${batteryReserve}W abgezogen (SOC ${batterySoc}% < Gate ${heatingMinSoc}%, lädt ${Math.round(batteryPower)}W, Priorität ${(batteryPriority*100).toFixed(0)}%) → Budget ${Math.round(baseBudget)}W`);
           }
           
+          // Netzbezug abziehen (10.11.2026, doc/FIX-PRUEFUNG-REST-2026-11-10.md): Das Budget zählt die Leistung aller gerade
+          // heizenden Räume mit. Kommt ein Teil davon aus dem Netz, ist das keine Sonne – sonst behält ein Raum sein
+          // „PV-Budget“, heizt aus dem Netz und zählt dabei nicht zur Leistungsgrenze des Tagesmodus.
+          const netzBezugW = Math.max(0, Number(reading.power_io) || 0);
+          if (netzBezugW > 50) {
+            baseBudget = Math.max(0, baseBudget - netzBezugW);
+            console.log(`[PV-Automation] 🔌 Netzbezug-Korrektur: ${Math.round(netzBezugW)}W Bezug → Eco-Budget reduziert auf ${Math.round(baseBudget)}W`);
+          }
+
           // Batterie-Schutz: Wenn Batterie entlädt, Budget reduzieren
           // ABER: Tagsüber immer aktiv, nach Sunset nur für Komfort (nicht für Eco)
           if (batteryPower < 0) {
@@ -2529,7 +2552,7 @@ Deno.serve(async (req) => {
         const comfortTemp = room.comfort_temp || settings?.comfort_temp || 21;
         const currentTemp = room.current_temp || ecoTemp;
         const tempDeficit = ecoTemp - currentTemp;
-        const heatingPower = room.calculated_power_w || room.heating_power_w || 800;
+        const heatingPower = room.heating_power_w || room.calculated_power_w || 800;
         
         // ML-Features: energy_per_degree_wh für diesen Raum nachschlagen
         const mlFeature = latestMlFeatures.find((f: any) => f.room_id === room.id);
@@ -3339,7 +3362,7 @@ Deno.serve(async (req) => {
 
             // Prüfe signifikante Änderungen
             // SOC: absolute Trigger statt relative %-Schwankung (vermeidet unnötige ML-Calls bei normaler Tagesentladung 80%→48%)
-            const heatingMinSocLocal = (heatingSettings as Record<string, unknown>)?.heating_min_battery_soc as number ?? 80;
+            const heatingMinSocLocal = (settings as Record<string, unknown>)?.heating_min_battery_soc as number ?? 80; // vorher undefinierte Variable heatingSettings (10.11.2026)
             const socCrossedGate = (cachedSoc >= heatingMinSocLocal && batterySoc < heatingMinSocLocal) ||
                                    (cachedSoc < heatingMinSocLocal && batterySoc >= heatingMinSocLocal);
             const socCrossedFull = (cachedSoc < 90 && batterySoc >= 90) || (cachedSoc >= 90 && batterySoc < 90);
@@ -3908,10 +3931,12 @@ Deno.serve(async (req) => {
         // Sequenzielles Heizen: Aktive Räume auf Comfort, Wartende auf Night-Temp
         // Das verhindert dass wartende Thermostate autonom heizen
         // Budget-Logik auch nachts bei leerem Akku aktiv (verhindert Netz-Heizen)
+        let budgetOverrideApplied = false;  // K4: überschreibt Policy/LLM-Entscheidung
         if (powerBudgetEnabled && (budgetMode === 'pv_optimized' || budgetMode === 'grid_sequential')) {
           const budgetStatus = roomBudgetStatus.get(room.id);
           
           if (budgetStatus) {
+            budgetOverrideApplied = true;
             if (budgetStatus.shouldRotate) {
               // Rotation: Raum hat zu lange geheizt, pausieren für andere
               // Tag → eco_temp (Raum bleibt komfortabel, Thermostat regelt selbst)
@@ -4197,14 +4222,21 @@ Deno.serve(async (req) => {
           previous_state: room.pv_auto_active,
           ml_based: usedMlDecision && !!mlDecision,
         };
+        // K4 (10.11.2026): Wer hat das ausgeführte Ziel wirklich bestimmt? Policy/LLM setzen Aktion und Ziel früh in der
+        // Raumschleife; Budget-Override und Tagesmodus überschreiben das danach. Vorher stand dann trotzdem
+        // ml_followed = true im Lern-Ereignis – die KI „lernte“ aus Entscheidungen, die gar nicht ausgeführt wurden.
+        eventAction.entschieden_von = dayModeApplied ? 'tagesmodus'
+          : budgetOverrideApplied ? 'budget' : (mlFollowedDecision ? 'policy' : 'regel');
         if (mlRecommendationForTracking) {
           eventAction.ml_recommendation = mlRecommendationForTracking;
-          eventAction.ml_followed = mlFollowedDecision === true;
+          eventAction.ml_followed = mlFollowedDecision === true && !dayModeApplied && !budgetOverrideApplied;
         }
 
         // Learning-Event nur bei tatsächlichen Aktionen oder ML-Entscheidungen anlegen.
         // Vermeidet ~80% Volumen (skip/keep ohne Reward-Information).
-        const shouldLogEvent = action === 'activate' || action === 'deactivate' || (usedMlDecision && !!mlDecision);
+        // K4: Prüfbefehl an ein nicht steuerbares Thermostat ist keine Entscheidung, aus der gelernt werden kann
+        const shouldLogEvent = !room.nicht_steuerbar_seit
+          && (action === 'activate' || action === 'deactivate' || (usedMlDecision && !!mlDecision));
         let eventData: { id: string } | null = null;
         if (shouldLogEvent) {
           const { data, error: eventError } = await supabase
@@ -4384,7 +4416,7 @@ Deno.serve(async (req) => {
             }
 
             // Calculate energy based on room power
-            const effectivePower = room.calculated_power_w || room.heating_power_w || 
+            const effectivePower = room.heating_power_w || room.calculated_power_w || 
               (room.floor_area_m2 ? room.floor_area_m2 * 60 : 800);
             energyEstimateWh = Math.round((effectivePower * durationMinutes) / 60);
 

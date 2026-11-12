@@ -25,7 +25,7 @@ eigenen Gerät geprüft.
 | 107 | window_state / leave_temp | – | – | unklar | "1" |
 | 108 | zhufan | bool | – | Ausgang umkehren | false |
 | 109 | sound | bool | – | Tastenton | true |
-| 110 | sensor_choose | Text | "1", "2", "3" | Fühlerwahl (1 = Raumfühler im Gerät, vermutlich 2 = Boden, 3 = beide) | "1" |
+| 110 | sensor_choose | Text | "1", "2", "3" | Fühlerwahl (1 = Raumfühler im Gerät, vermutlich 2 = Boden, 3 = beide) | "1"; **"3" bei Toilette Eingang und Bad Uli** (Korrektur 10.11.2026: laut DP-Protokoll seit 01.11. unverändert, stand also schon damals so) |
 | **111** | **dormant_switch** | bool | – | **Nachtmodus des Geräts ein/aus** | **an:** Toilette Eingang, Wirtschaftsraum, Zimmer Uli, Büro, Wohnzimmer, Zimmer Luis · **aus:** Rest |
 
 ## Was das für die Steuerung heißt
@@ -46,7 +46,7 @@ eigenen Gerät geprüft.
 - **DP 111 Nachtmodus** ist bei 6 Räumen an. Das Gerät hat damit ein eigenes Nachtprogramm (DP 105) – mit
   seiner falschen Uhr (~12 h versetzt). Es kann Sollwerte zu falschen Zeiten ändern. Die Nacht regelt
   `pv-automation`; der Gerätenachtmodus sollte **überall aus** sein (DP 111 = 0).
-- **DP 110 = "1":** Es regelt der Raumfühler im Gerät, kein Bodenfühler.
+- **DP 110 = "1":** Es regelt der Raumfühler im Gerät, kein Bodenfühler. **Ausnahme Toilette Eingang und Bad Uli: "3"** – die beiden heizen über Soll weiter (siehe `doc/PRUEFUNG-REGELN-WECHSELWIRKUNGEN-2026-11-10.md`, K1/K6).
 - **DP 102 = 60 °C** Fühlergrenze ist für Fußbodenheizung hoch, wirkt bei Fühlerwahl „1“ aber nicht.
 
 Ändern: Tab **Protokoll › Thermostate › Thermostat-Einstellung testen** (freigegeben: DP 19, 101, 103, 111).
