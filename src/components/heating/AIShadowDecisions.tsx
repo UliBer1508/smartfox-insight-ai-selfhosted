@@ -360,7 +360,7 @@ export function AIShadowDecisions() {
                       : 'bg-muted/30 hover:bg-muted'
                   }`}
                 >
-                  <span className="font-mono">{k}</span>{' '}
+                  <span className="tabular-nums">{k}</span>{' '}
                   <span className={active ? 'opacity-80' : 'text-muted-foreground'}>×{v.total}</span>
                   {v.evaluated > 0 && v.avgScore != null && (
                     <span className="ml-1">· Ø {v.avgScore.toFixed(2)}</span>
@@ -448,7 +448,7 @@ export function AIShadowDecisions() {
                     className="rounded-lg border bg-card p-3 active:bg-muted/50 cursor-pointer"
                   >
                     <div className="flex items-start justify-between gap-2">
-                      <div className="font-mono text-xs break-all">{d.parameter_key}</div>
+                      <div className="tabular-nums text-xs break-all">{d.parameter_key}</div>
                       <div className="shrink-0 flex items-center gap-1">
                         {statusCell(d)}
                         {isOpen ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
@@ -556,7 +556,7 @@ export function AIShadowDecisions() {
                         <TableCell className="text-xs">
                           {formatDistanceToNow(new Date(d.created_at), { addSuffix: true, locale: de })}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">{d.parameter_key}</TableCell>
+                        <TableCell className="tabular-nums text-xs">{d.parameter_key}</TableCell>
                         <TableCell className="text-xs">{roomName(d.room_id)}</TableCell>
                         <TableCell className="text-xs">
                           <span className="text-muted-foreground">{d.current_value ?? '—'}</span>

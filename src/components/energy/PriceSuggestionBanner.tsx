@@ -33,7 +33,7 @@ export function PriceSuggestionBanner() {
             <div className="text-sm">
               <span className="font-medium">{SOURCE_LABEL[s.source]}:</span>{" "}
               Neuer {FIELD_LABEL[s.field]}{" "}
-              <span className="font-mono">
+              <span className="tabular-nums">
                 {Number(s.new_value).toFixed(2)} {FIELD_UNIT[s.field]}
               </span>
               {s.old_value !== null && (

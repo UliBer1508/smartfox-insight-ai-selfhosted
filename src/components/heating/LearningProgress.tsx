@@ -323,13 +323,13 @@ export function LearningProgress() {
               {/* Compact stats */}
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs">
                 <span className="text-muted-foreground">
-                  <span className="font-mono font-medium text-foreground">{totalSamples}</span> Samples
+                  <span className="tabular-nums font-medium text-foreground">{totalSamples}</span> Samples
                 </span>
                 <span className="text-muted-foreground">
-                  <span className="font-mono font-medium text-foreground">{Math.round(avgConfidence * 100)}%</span> Conf
+                  <span className="tabular-nums font-medium text-foreground">{Math.round(avgConfidence * 100)}%</span> Conf
                 </span>
                 <span className="text-muted-foreground">
-                  <span className={`font-mono font-medium ${avgReward !== null && avgReward > 0 ? 'text-green-500' : avgReward !== null && avgReward < 0 ? 'text-red-500' : 'text-foreground'}`}>
+                  <span className={`tabular-nums font-medium ${avgReward !== null && avgReward > 0 ? 'text-green-500' : avgReward !== null && avgReward < 0 ? 'text-red-500' : 'text-foreground'}`}>
                     {avgReward !== null ? (avgReward > 0 ? '+' : '') + avgReward.toFixed(2) : '—'}
                   </span> Ø
                 </span>
@@ -413,13 +413,13 @@ export function LearningProgress() {
                         <div className="grid grid-cols-2 gap-3">
                           <div className="text-center p-2 bg-muted/30 rounded">
                             <span className="text-[10px] text-muted-foreground block mb-1">Aktuelle Einstellung</span>
-                            <span className="text-sm font-mono">
+                            <span className="text-sm tabular-nums">
                               {heatingSettings?.hotwater_schedule_start || '10:00'} - {heatingSettings?.hotwater_schedule_end || '14:00'}
                             </span>
                           </div>
                           <div className="text-center p-2 bg-blue-500/20 rounded border border-blue-500/40">
                             <span className="text-[10px] text-blue-600 dark:text-blue-400 block mb-1">KI-Empfehlung</span>
-                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400 font-mono">
+                            <span className="text-lg font-bold text-blue-600 dark:text-blue-400 tabular-nums">
                               {analysisResult.hotwater_recommendation.recommended_start} - {analysisResult.hotwater_recommendation.recommended_end}
                             </span>
                           </div>
@@ -457,11 +457,11 @@ export function LearningProgress() {
                         <div className="grid grid-cols-[auto_1fr_auto_auto] gap-x-3 gap-y-0.5 text-xs">
                           {analysisResult.thermostat_schedule.map((period) => (
                             <div key={period.period} className="contents">
-                              <div className="bg-primary/10 px-2 py-1.5 font-mono font-medium text-primary">
+                              <div className="bg-primary/10 px-2 py-1.5 tabular-nums font-medium text-primary">
                                 P{period.period}
                               </div>
                               <div className="flex items-center gap-1 py-1.5">
-                                <span className="font-mono">{period.start_time}-{period.end_time}</span>
+                                <span className="tabular-nums">{period.start_time}-{period.end_time}</span>
                               </div>
                               <div className="flex items-center gap-1 py-1.5">
                                 <span className="text-lg font-bold">{period.temperature}°C</span>

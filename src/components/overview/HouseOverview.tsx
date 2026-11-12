@@ -274,7 +274,7 @@ function EnergyTiles({ r, surplus }: { r: EnergyReading | null; surplus: number 
         <Card key={t.k}>
           <CardContent className="p-3">
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{t.k}</div>
-            <div className={`text-xl font-bold font-mono ${t.cls}`}>{t.v}</div>
+            <div className={`text-xl font-bold tabular-nums ${t.cls}`}>{t.v}</div>
             <div className="text-xs text-muted-foreground">{t.s}</div>
           </CardContent>
         </Card>
@@ -282,7 +282,7 @@ function EnergyTiles({ r, surplus }: { r: EnergyReading | null; surplus: number 
       <Card className="col-span-2 sm:col-span-1 border-2 border-energy-export/50 bg-energy-export/5">
         <CardContent className="p-3">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Überschuss</div>
-          <div className="text-xl font-bold font-mono text-energy-export">{fmtW(surplus)}</div>
+          <div className="text-xl font-bold tabular-nums text-energy-export">{fmtW(surplus)}</div>
           <div className="text-xs text-muted-foreground">nutzbar für Heizung</div>
         </CardContent>
       </Card>
@@ -299,7 +299,7 @@ function EnergyTiles({ r, surplus }: { r: EnergyReading | null; surplus: number 
         <Card key={t.k}>
           <CardContent className="p-3">
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{t.k}</div>
-            <div className="text-xl font-bold font-mono">{t.v}</div>
+            <div className="text-xl font-bold tabular-nums">{t.v}</div>
             <div className="text-xs text-muted-foreground">{t.s}</div>
           </CardContent>
         </Card>
@@ -423,7 +423,7 @@ function Forecast({ kwp }: { kwp: number }) {
               {pvSlots.map(x => (
                 <div key={x.d.toISOString()} className="rounded-md bg-energy-export/10 px-2.5 py-1.5">
                   <div className="text-xs text-muted-foreground">{label(x.d)}</div>
-                  <div className="font-semibold font-mono text-energy-export">{fmtW(x.w)}</div>
+                  <div className="font-semibold tabular-nums text-energy-export">{fmtW(x.w)}</div>
                 </div>
               ))}
             </div>

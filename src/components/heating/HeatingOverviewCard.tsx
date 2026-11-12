@@ -71,15 +71,15 @@ export function HeatingOverviewCard({ rooms }: HeatingOverviewCardProps) {
           <>
             <div className="grid grid-cols-3 gap-1 sm:gap-2 text-center">
               <div>
-                <div className="text-xl sm:text-2xl font-bold font-mono text-orange-500">{data.cycles}</div>
+                <div className="text-xl sm:text-2xl font-bold tabular-nums text-orange-500">{data.cycles}</div>
                 <p className="text-[10px] sm:text-xs text-muted-foreground">Zyklen</p>
               </div>
               <div>
-                <div className="text-xl sm:text-2xl font-bold font-mono text-blue-500">{formatDuration(data.durationMin)}</div>
+                <div className="text-xl sm:text-2xl font-bold tabular-nums text-blue-500">{formatDuration(data.durationMin)}</div>
                 <p className="text-[10px] sm:text-xs text-muted-foreground">Dauer</p>
               </div>
               <div>
-                <div className="text-xl sm:text-2xl font-bold font-mono text-yellow-500">{formatEnergy(data.energyWh)}</div>
+                <div className="text-xl sm:text-2xl font-bold tabular-nums text-yellow-500">{formatEnergy(data.energyWh)}</div>
                 <p className="text-[10px] sm:text-xs text-muted-foreground">Energie</p>
               </div>
             </div>
@@ -101,7 +101,7 @@ export function HeatingOverviewCard({ rooms }: HeatingOverviewCardProps) {
                   {data.topConsumers.map(({ roomId, roomName, energyWh }) => (
                     <div key={roomId} className="flex justify-between text-[10px] sm:text-xs">
                       <span className="truncate mr-2">{roomName}</span>
-                      <span className="font-mono shrink-0">{formatEnergy(energyWh)}</span>
+                      <span className="tabular-nums shrink-0">{formatEnergy(energyWh)}</span>
                     </div>
                   ))}
                 </div>

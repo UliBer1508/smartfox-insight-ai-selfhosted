@@ -134,7 +134,7 @@ export function ApiErrorBanner({ onRetry, className, criticalOnly = false }: Api
             )}
           </div>
           {(quotaErrors[0]?.error_message || noChannelErrors[0]?.error_message || nightFailedErrors[0]?.error_message) && (
-            <div className="text-xs text-red-500 dark:text-red-400 mt-1 font-mono">
+            <div className="text-xs text-red-500 dark:text-red-400 mt-1 tabular-nums">
               {(quotaErrors[0] || noChannelErrors[0] || nightFailedErrors[0])?.error_message}
             </div>
           )}

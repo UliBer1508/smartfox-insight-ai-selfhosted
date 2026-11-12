@@ -50,7 +50,7 @@ export function PowerGauge({ power, maxPower = 10000, className }: PowerGaugePro
              isImport ? <ArrowDown className="w-6 h-6" /> : 
              <Minus className="w-6 h-6" />}
           </div>
-          <span className="text-3xl font-bold font-mono">
+          <span className="text-3xl font-bold tabular-nums">
             {Math.abs(power).toLocaleString('de-DE')}
           </span>
           <span className="text-sm text-muted-foreground">Watt</span>

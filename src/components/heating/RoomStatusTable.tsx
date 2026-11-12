@@ -216,27 +216,27 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                             <div className="font-semibold border-b pb-1">Parallele Heiz-Kapazität</div>
                             <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
                               <span className="text-muted-foreground">Komfort-Budget:</span>
-                              <span className="font-mono text-right">{(capacity.comfort_budget_w / 1000).toFixed(2)} kW</span>
+                              <span className="tabular-nums text-right">{(capacity.comfort_budget_w / 1000).toFixed(2)} kW</span>
                               <span className="text-muted-foreground">→ parallele Räume:</span>
-                              <span className="font-mono text-right">{capacity.max_parallel_comfort} / {capacity.comfort_candidates.length}</span>
+                              <span className="tabular-nums text-right">{capacity.max_parallel_comfort} / {capacity.comfort_candidates.length}</span>
                               <span className="text-muted-foreground">Eco-Budget:</span>
-                              <span className="font-mono text-right">{(capacity.eco_budget_w / 1000).toFixed(2)} kW</span>
+                              <span className="tabular-nums text-right">{(capacity.eco_budget_w / 1000).toFixed(2)} kW</span>
                               <span className="text-muted-foreground">→ parallele Räume:</span>
-                              <span className="font-mono text-right">{capacity.max_parallel_eco} / {capacity.eco_candidates.length}</span>
+                              <span className="tabular-nums text-right">{capacity.max_parallel_eco} / {capacity.eco_candidates.length}</span>
                             </div>
                             <div className="border-t pt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11px]">
                               <span className="text-muted-foreground">Gridexport:</span>
-                              <span className="font-mono text-right">{(capacity.grid_export_w / 1000).toFixed(2)} kW</span>
+                              <span className="tabular-nums text-right">{(capacity.grid_export_w / 1000).toFixed(2)} kW</span>
                               <span className="text-muted-foreground">Baseload-Puffer:</span>
-                              <span className="font-mono text-right">−{capacity.baseload_buffer_w} W</span>
+                              <span className="tabular-nums text-right">−{capacity.baseload_buffer_w} W</span>
                               <span className="text-muted-foreground">PV-Trend (5 min):</span>
-                              <span className="font-mono text-right">{capacity.trend_w_per_5min >= 0 ? '+' : ''}{capacity.trend_w_per_5min} W</span>
+                              <span className="tabular-nums text-right">{capacity.trend_w_per_5min >= 0 ? '+' : ''}{capacity.trend_w_per_5min} W</span>
                               <span className="text-muted-foreground">Trend-Bonus:</span>
-                              <span className="font-mono text-right">{capacity.trend_bonus_w >= 0 ? '+' : ''}{capacity.trend_bonus_w} W</span>
+                              <span className="tabular-nums text-right">{capacity.trend_bonus_w >= 0 ? '+' : ''}{capacity.trend_bonus_w} W</span>
                               <span className="text-muted-foreground">Lookahead Stunde+1:</span>
-                              <span className="font-mono text-right">{(capacity.next_hour_forecast_w / 1000).toFixed(1)} kW</span>
+                              <span className="tabular-nums text-right">{(capacity.next_hour_forecast_w / 1000).toFixed(1)} kW</span>
                               <span className="text-muted-foreground">Lookahead-Bonus:</span>
-                              <span className="font-mono text-right">+{capacity.lookahead_bonus_w} W</span>
+                              <span className="tabular-nums text-right">+{capacity.lookahead_bonus_w} W</span>
                             </div>
                             {capacity.lookahead_factor === 'cloud_warning' && (
                               <div className="text-amber-600 dark:text-amber-400 text-[11px] pt-1">⛅ Wolkenfront — Komfort gedrosselt</div>
@@ -324,7 +324,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                           Key {room.local_key ? <Check className="w-3 h-3 text-success" /> : <X className="w-3 h-3 text-destructive" />}
                         </span>
                         {room.thermostat_local_ip && (
-                          <span className="font-mono text-[10px]">{room.thermostat_local_ip}</span>
+                          <span className="tabular-nums text-[10px]">{room.thermostat_local_ip}</span>
                         )}
                       </div>
                       {(() => {
@@ -454,7 +454,7 @@ export const RoomStatusTable = ({ rooms, onSavePriority }: RoomStatusTableProps)
                                   <span className="flex items-center gap-1">
                                     Local Key: {room.local_key ? <Check className="w-3.5 h-3.5 text-success" /> : <X className="w-3.5 h-3.5 text-destructive" />}
                                   </span>
-                                  <span className="font-mono">
+                                  <span className="tabular-nums">
                                     IP: {room.thermostat_local_ip || '—'}
                                   </span>
                                   {room.heating_power_w && (

@@ -137,13 +137,13 @@ export function BatteryHistoryChart() {
         <p className="text-sm font-medium text-foreground mb-2">{label} Uhr</p>
         {socPoint?.value != null && (
           <p className="text-sm text-muted-foreground">
-            Ladezustand: <span className="font-mono text-foreground">{socPoint.value.toFixed(0)}%</span>
+            Ladezustand: <span className="tabular-nums text-foreground">{socPoint.value.toFixed(0)}%</span>
           </p>
         )}
         {power !== 0 && (
           <p className="text-sm text-muted-foreground">
             {isCharging ? 'Laden' : 'Entladen'}:{' '}
-            <span className={`font-mono ${isCharging ? 'text-energy-export' : 'text-amber-500'}`}>
+            <span className={`tabular-nums ${isCharging ? 'text-energy-export' : 'text-amber-500'}`}>
               {formatPower(Math.abs(power))}
             </span>
           </p>
@@ -368,17 +368,17 @@ export function BatteryHistoryChart() {
             <div className="flex flex-wrap gap-4">
               {selectedPoint.soc != null && (
                 <span>
-                  SOC: <span className="font-mono font-medium">{selectedPoint.soc.toFixed(0)}%</span>
+                  SOC: <span className="tabular-nums font-medium">{selectedPoint.soc.toFixed(0)}%</span>
                 </span>
               )}
               {selectedPoint.charging != null && selectedPoint.charging > 0 && (
                 <span className="text-energy-export">
-                  Laden: <span className="font-mono">{formatPower(selectedPoint.charging)}</span>
+                  Laden: <span className="tabular-nums">{formatPower(selectedPoint.charging)}</span>
                 </span>
               )}
               {selectedPoint.discharging != null && selectedPoint.discharging < 0 && (
                 <span className="text-amber-500">
-                  Entladen: <span className="font-mono">{formatPower(Math.abs(selectedPoint.discharging))}</span>
+                  Entladen: <span className="tabular-nums">{formatPower(Math.abs(selectedPoint.discharging))}</span>
                 </span>
               )}
               {!selectedPoint.charging && !selectedPoint.discharging && (

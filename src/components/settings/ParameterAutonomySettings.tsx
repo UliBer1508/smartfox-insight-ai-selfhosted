@@ -43,7 +43,7 @@ export function ParameterAutonomySettings() {
           <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
             <div className="min-w-0">
               <div className="text-sm font-medium">{r.description || r.parameter_key}</div>
-              <div className="text-xs text-muted-foreground font-mono">
+              <div className="text-xs text-muted-foreground tabular-nums">
                 {r.parameter_key}{r.scope === 'room' ? ' · je Raum' : ''} · {r.min_value ?? '–'} … {r.max_value ?? '–'}
               </div>
             </div>

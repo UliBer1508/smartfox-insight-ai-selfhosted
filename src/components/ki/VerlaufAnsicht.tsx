@@ -54,9 +54,9 @@ function KachelV({ k, v, s, d, vglName }: { k: string; v: string; s?: string; d:
   return (
     <div className="rounded-lg border bg-card p-3">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k}</div>
-      <div className="text-xl font-bold font-mono">{v}</div>
+      <div className="text-xl font-bold tabular-nums">{v}</div>
       {s && <div className="text-xs text-muted-foreground">{s}</div>}
-      {d && <div className={`text-xs font-mono font-semibold ${d.gut ? 'text-success' : 'text-destructive'}`}>{d.text} <span className="font-normal text-muted-foreground">je Tag gegenüber {vglName}</span></div>}
+      {d && <div className={`text-xs tabular-nums font-semibold ${d.gut ? 'text-success' : 'text-destructive'}`}>{d.text} <span className="font-normal text-muted-foreground">je Tag gegenüber {vglName}</span></div>}
     </div>
   );
 }
@@ -158,26 +158,33 @@ export function VerlaufAnsicht(p: {
   const besser = ([a, b]: readonly [number | null, number | null]) => (a == null || b == null ? null : b < a);
   const farbe = (x: boolean | null) => (x == null ? '' : x ? 'text-success' : 'text-destructive');
 
+  // Segment-Leiste wie Heizung München (12.11.2026): graue Leiste, aktiver Teil hell hervorgehoben
+  const Leiste = ({ children }: { children: React.ReactNode }) => (
+    <div className="inline-flex flex-wrap items-center gap-0.5 rounded-full bg-secondary p-1">{children}</div>
+  );
   const Knopf = ({ an, onClick, children }: { an: boolean; onClick: () => void; children: React.ReactNode }) => (
-    <button type="button" onClick={onClick} aria-pressed={an} className={`px-3 py-1 rounded-full border text-xs font-medium ${an ? 'bg-foreground text-background' : ''}`}>{children}</button>
+    <button type="button" onClick={onClick} aria-pressed={an}
+      className={`px-3.5 py-1 rounded-full text-sm transition-colors ${an ? 'bg-card text-foreground shadow-sm font-medium' : 'text-muted-foreground hover:text-foreground'}`}>{children}</button>
   );
 
   return (
     <div className={`space-y-4 ${FARBEN}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap gap-2">
+        <Leiste>
           {(['tag', 'woche', 'monat', 'jahr'] as Periode[]).map(x => <Knopf key={x} an={periode === x} onClick={() => p.setPeriode(x)}>{{ tag: 'Tag', woche: 'Woche', monat: 'Monat', jahr: 'Jahr' }[x]}</Knopf>)}
-        </div>
+        </Leiste>
         <div className="flex items-center gap-2 text-sm">
-          <button type="button" onClick={p.zurueck} aria-label="Zeitraum zurück" className="px-2 py-1 rounded border">◀</button>
-          <span className="font-semibold min-w-[11rem] text-center">{p.titel}</span>
-          <button type="button" onClick={p.vor ?? undefined} disabled={!p.vor} aria-label="Zeitraum vor" className="px-2 py-1 rounded border disabled:opacity-40">▶</button>
+          <button type="button" onClick={p.zurueck} aria-label="Zeitraum zurück" className="px-3 py-1.5 rounded-lg border bg-card">◀</button>
+          <span className="font-medium min-w-[11rem] text-center px-3 py-1.5 rounded-lg border bg-card">{p.titel}</span>
+          <button type="button" onClick={p.vor ?? undefined} disabled={!p.vor} aria-label="Zeitraum vor" className="px-3 py-1.5 rounded-lg border bg-card disabled:opacity-40">▶</button>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">Vergleich:</span>
+          <Leiste>
           <Knopf an={vergleich === 'vor'} onClick={() => p.setVergleich('vor')}>{({ tag: 'Vortag', woche: 'Vorwoche', monat: 'Vormonat', jahr: 'Vorjahr' } as const)[periode]}</Knopf>
           {periode !== 'jahr' && <Knopf an={vergleich === 'vorjahr'} onClick={() => p.setVergleich('vorjahr')}>Vorjahr</Knopf>}
           <Knopf an={vergleich === 'aus'} onClick={() => p.setVergleich('aus')}>aus</Knopf>
+          </Leiste>
         </div>
       </div>
       {sv && <div className="text-xs text-muted-foreground">Vergleich mit {p.vglTitel}{sv.tage === 0 ? ' – dafür gibt es noch keine Daten (Ablage seit 13.10.2026)' : sv.tage < s.tage ? ` – dort nur ${sv.tage} Tage vorhanden` : ''}. Prozent = Unterschied je Tag. Grau gestrichelt in den Grafiken.</div>}
@@ -294,11 +301,11 @@ export function VerlaufAnsicht(p: {
                     <tr key={w.n} className="border-t align-top">
                       <td className="py-1 pr-3 font-bold" style={{ color: 'var(--c-ki)' }}>▼{w.n}</td>
                       <td className="pr-3 whitespace-nowrap">{new Date(w.ts * 1000).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: TZ })}</td>
-                      <td className="pr-3">{w.titel}<br /><span className="text-xs text-muted-foreground font-mono">{w.wert}</span></td>
-                      <td className={`pr-3 font-mono whitespace-nowrap ${farbe(b[0])}`}>{pfeil(w.netz, 'kWh')}</td>
-                      <td className={`pr-3 font-mono whitespace-nowrap ${farbe(besser(w.kosten))}`}>{pfeil(w.kosten, '€', 2)}</td>
-                      <td className={`pr-3 font-mono whitespace-nowrap ${farbe(b[1])}`}>{pfeil(w.eco, 'h', 0)}</td>
-                      <td className={`pr-3 font-mono whitespace-nowrap ${farbe(b[2])}`}>{pfeil(w.leer, 'kWh')}</td>
+                      <td className="pr-3">{w.titel}<br /><span className="text-xs text-muted-foreground tabular-nums">{w.wert}</span></td>
+                      <td className={`pr-3 tabular-nums whitespace-nowrap ${farbe(b[0])}`}>{pfeil(w.netz, 'kWh')}</td>
+                      <td className={`pr-3 tabular-nums whitespace-nowrap ${farbe(besser(w.kosten))}`}>{pfeil(w.kosten, '€', 2)}</td>
+                      <td className={`pr-3 tabular-nums whitespace-nowrap ${farbe(b[1])}`}>{pfeil(w.eco, 'h', 0)}</td>
+                      <td className={`pr-3 tabular-nums whitespace-nowrap ${farbe(b[2])}`}>{pfeil(w.leer, 'kWh')}</td>
                       <td className="text-muted-foreground">{urteil}</td>
                     </tr>
                   );

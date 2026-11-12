@@ -14,7 +14,7 @@ export function Kachel({ k, v, s }: { k: string; v: string; s?: string }) {
   return (
     <div className="rounded-lg border bg-card p-3">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k}</div>
-      <div className="text-xl font-bold font-mono">{v}</div>
+      <div className="text-xl font-bold tabular-nums">{v}</div>
       {s && <div className="text-xs text-muted-foreground">{s}</div>}
     </div>
   );

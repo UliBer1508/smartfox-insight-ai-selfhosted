@@ -79,7 +79,7 @@ export function PvForecastCard({
                 {getWeatherIcon(todayForecast.expected_kwh)}
               </div>
             </div>
-            <div className="text-xl sm:text-2xl font-bold font-mono text-energy-export">
+            <div className="text-xl sm:text-2xl font-bold tabular-nums text-energy-export">
               {todayForecast.expected_kwh.toFixed(1)} kWh
             </div>
             <p className="text-[10px] sm:text-xs text-muted-foreground">
@@ -123,7 +123,7 @@ export function PvForecastCard({
                 <div className="scale-75 sm:scale-100 origin-right">
                   {getWeatherIcon(tomorrowForecast.expected_kwh)}
                 </div>
-                <span className="font-mono font-medium text-xs sm:text-sm">
+                <span className="tabular-nums font-medium text-xs sm:text-sm">
                   {tomorrowForecast.expected_kwh.toFixed(1)} kWh
                 </span>
               </div>
