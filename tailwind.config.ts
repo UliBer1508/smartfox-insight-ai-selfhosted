@@ -14,7 +14,9 @@ export default {
     },
     extend: {
       fontFamily: {
-        mono: ['JetBrains Mono', 'SF Mono', 'Fira Code', 'monospace'],
+        // Schrift wie Heizung München (12.11.2026): IBM Plex Sans für Text, IBM Plex Mono für Zahlen/Code
+        sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+        mono: ['IBM Plex Mono', 'SF Mono', 'Fira Code', 'monospace'],
       },
       colors: {
         border: "hsl(var(--border))",

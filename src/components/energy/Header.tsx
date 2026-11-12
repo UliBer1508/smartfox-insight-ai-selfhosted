@@ -58,94 +58,80 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
 
   return (
     <>
-      {/* Top Header */}
-      <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50 safe-area-top">
-        <div className="w-full max-w-7xl mx-auto px-3 md:px-4 py-3 md:py-4 space-y-3">
-          {/* Title row */}
-          <div className="flex items-center gap-2 md:gap-3 min-w-0">
-            <div className="p-1.5 md:p-2 rounded-lg bg-primary/10 energy-glow flex-shrink-0">
-              <Zap className="w-5 h-5 md:w-6 md:h-6 text-primary" />
+      {/* Top Header – aufgebaut wie Heizung München (12.11.2026): eine Zeile mit Logo, Name, Tabs als Pillen,
+          rechts Systemstatus/Modus/Abmelden. Farben bleiben Venediger. Build-Zeit steht im Fuß und als Tooltip am Namen. */}
+      <header className="border-b bg-background/90 backdrop-blur-sm sticky top-0 z-50 safe-area-top">
+        <div className="w-full max-w-7xl mx-auto px-3 md:px-5 py-2.5 md:py-3 flex items-center gap-3 md:gap-4 min-w-0">
+          <div
+            className="flex items-center gap-2.5 min-w-0 flex-shrink-0"
+            title={typeof __BUILD_TIME__ !== 'undefined'
+              ? `Build ${new Date(__BUILD_TIME__).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}`
+              : undefined}
+          >
+            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Zap className="w-[18px] h-[18px] text-primary" />
             </div>
-            <div className="min-w-0 flex-1">
-              <h1 className="text-base md:text-xl font-bold tracking-tight truncate">Heizung Venediger</h1>
-              <p className="text-[10px] md:text-xs text-muted-foreground truncate">
-                Energie-Management & KI-Analyse
-                {typeof __BUILD_TIME__ !== 'undefined' && (
-                  <span className="ml-2 opacity-60">
-                    · Build {new Date(__BUILD_TIME__).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}
-                  </span>
-                )}
-              </p>
-            </div>
-            {!isOnline && (
-              <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive text-[10px] flex-shrink-0">
-                <WifiOff className="w-3 h-3" />
-                <span>Offline{offlineMinutes ? ` (${offlineMinutes}m)` : ''}</span>
-              </div>
-            )}
-            {/* Mobile-only quick actions on the right */}
-            {isMobile && (
-              <div className="flex items-center gap-1 flex-shrink-0">
-                <SystemStatusButton compact />
-                <ControlModeBadge onClick={() => onTabChange('settings')} />
-                {isInstallable && !isInstalled && (
-                  <Button variant="outline" size="icon" onClick={handleInstall} className="h-8 w-8">
-                    <Download className="w-4 h-4" />
-                  </Button>
-                )}
-                <Button variant="ghost" size="icon" onClick={() => setIsDark(!isDark)} className="h-8 w-8">
-                  {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-                </Button>
-                <Button variant="ghost" size="icon" onClick={signOut} title="Abmelden" className="h-8 w-8">
-                  <LogOut className="w-4 h-4" />
-                </Button>
-              </div>
-            )}
+            <h1 className="text-base md:text-lg font-semibold tracking-tight truncate">Heizung Venediger</h1>
           </div>
 
-          {/* Nav row (Desktop only — Mobile uses bottom tab bar) */}
-          {!isMobile && (
-            <nav className="flex items-center gap-1 md:gap-2 flex-wrap">
-              {tabs.map(tab => (
-                <Button
-                  key={tab.key}
-                  variant={activeTab === tab.key ? 'default' : 'ghost'}
-                  size="sm"
-                  onClick={() => onTabChange(tab.key)}
-                >
-                  <tab.icon className="w-4 h-4 mr-2" />
-                  {tab.label}
-                  {tab.key === 'ki' && <PendingDot n={pending.total} />}
-                </Button>
-              ))}
+          {!isOnline && (
+            <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-destructive/10 text-destructive text-[11px] flex-shrink-0">
+              <WifiOff className="w-3 h-3" />
+              <span>Offline{offlineMinutes ? ` (${offlineMinutes}m)` : ''}</span>
+            </div>
+          )}
 
-              <div className="flex-1" />
+          {/* Tabs (Desktop) – Mobile nutzt die Leiste unten */}
+          {!isMobile ? (
+            <nav className="flex items-center gap-1 flex-1 min-w-0 overflow-x-auto" role="tablist">
+              {tabs.map(tab => {
+                const isActive = activeTab === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => onTabChange(tab.key)}
+                    className={`inline-flex items-center whitespace-nowrap rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors touch-manipulation ${
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.key === 'ki' && <PendingDot n={pending.total} />}
+                  </button>
+                );
+              })}
+            </nav>
+          ) : (
+            <div className="flex-1" />
+          )}
 
-              {/* Systemstatus: laufen alle Prozesse? (05.11.2026, doc/SYSTEMSTATUS-2026-11-05.md) */}
-              <SystemStatusButton />
-
-              <ControlModeBadge onClick={() => onTabChange('settings')} />
-
-              <div className="w-px h-6 bg-border mx-1" />
-
-              {isInstallable && !isInstalled && (
-                <Button variant="outline" size="sm" onClick={handleInstall} className="gap-1.5">
-                  <Download className="w-4 h-4" />
-                  <span className="hidden md:inline">Installieren</span>
-                </Button>
-              )}
-
-              <Button variant="ghost" size="icon" onClick={() => setIsDark(!isDark)} className="h-8 w-8 md:h-9 md:w-9">
-                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+            {/* Systemstatus: laufen alle Prozesse? (05.11.2026, doc/SYSTEMSTATUS-2026-11-05.md) */}
+            <SystemStatusButton compact={isMobile} />
+            <ControlModeBadge onClick={() => onTabChange('settings')} />
+            {isInstallable && !isInstalled && (
+              <Button variant="outline" size={isMobile ? 'icon' : 'sm'} onClick={handleInstall} className={isMobile ? 'h-8 w-8' : 'gap-1.5'}>
+                <Download className="w-4 h-4" />
+                {!isMobile && <span>Installieren</span>}
               </Button>
-
-              <Button variant="ghost" size="icon" onClick={signOut} title="Abmelden" className="h-8 w-8 md:h-9 md:w-9">
+            )}
+            <Button variant="ghost" size="icon" onClick={() => setIsDark(!isDark)} className="h-8 w-8 md:h-9 md:w-9" title={isDark ? 'Hell' : 'Dunkel'}>
+              {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </Button>
+            {isMobile ? (
+              <Button variant="ghost" size="icon" onClick={signOut} title="Abmelden" className="h-8 w-8">
                 <LogOut className="w-4 h-4" />
               </Button>
-            </nav>
-          )}
+            ) : (
+              <Button variant="outline" size="sm" onClick={signOut} className="rounded-full">
+                Abmelden
+              </Button>
+            )}
+          </div>
         </div>
-
       </header>
 
       {/* Mobile Bottom Tab Bar */}
