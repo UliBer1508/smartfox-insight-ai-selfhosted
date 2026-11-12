@@ -1,4 +1,4 @@
-import { Home, Zap, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut, ScrollText, LineChart } from 'lucide-react';
+import { Home, Settings, BarChart3, Moon, Sun, Brain, Download, WifiOff, LogOut, ScrollText, LineChart } from 'lucide-react';
 import { useKiPending } from '@/hooks/useKiPending';
 import { Button } from '@/components/ui/button';
 import { useState, useEffect } from 'react';
@@ -82,9 +82,8 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
               ? `Build ${new Date(__BUILD_TIME__).toLocaleString('de-AT', { dateStyle: 'short', timeStyle: 'short' })}`
               : undefined}
           >
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Zap className="w-[18px] h-[18px] text-primary" />
-            </div>
+            {/* App-Symbol als Logo wie in Heizung München */}
+            <img src="/pwa-192x192.png" alt="" className="w-8 h-8 rounded-lg flex-shrink-0 bg-card border" />
             <h1 className="text-base md:text-lg font-semibold tracking-tight truncate">Heizung Venediger</h1>
           </div>
 
@@ -125,7 +124,8 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
           <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
             {/* Systemstatus: laufen alle Prozesse? (05.11.2026, doc/SYSTEMSTATUS-2026-11-05.md) */}
             <SystemStatusButton compact={isMobile} />
-            <ControlModeBadge onClick={() => onTabChange('settings')} />
+            {/* Modus-Anzeige nur bei breitem Fenster – sonst nimmt sie den Tabs den Platz (München hat sie nicht) */}
+            <span className="hidden lg:inline-flex"><ControlModeBadge onClick={() => onTabChange('settings')} /></span>
             {isInstallable && !isInstalled && (
               <Button variant="outline" size={isMobile ? 'icon' : 'sm'} onClick={handleInstall} className={isMobile ? 'h-8 w-8' : 'gap-1.5'}>
                 <Download className="w-4 h-4" />
