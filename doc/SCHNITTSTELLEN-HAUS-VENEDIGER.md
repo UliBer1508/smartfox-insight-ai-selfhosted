@@ -9,8 +9,8 @@ führt alles an einer Stelle zusammen. **Vor jeder neuen Datenquelle hier nachse
 | Gerät | IP | Schnittstelle | Wer regelt es | Heizung liest heute | geplant |
 |---|---|---|---|---|---|
 | Fronius Wechselrichter + Batterie 13,8 kWh | .64 | HTTP `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` | Fronius/Smartfox | **ja** – PV, Verbrauch, Netz, Batterie, SOC (`energy_readings`) | – |
-| Smartfox Pro (Energiemanager) | .45 | HTTP `/values.xml` (auch `/all`), ohne Anmeldung | Smartfox selbst: Überschuss → Batterie, dann Warmwasser und Auto | nein | Warmwasser-Leistung `htPowerMeasValue` (kW) |
-| Warmwasser-Heizstab | – | über Smartfox (Analogausgang) | Smartfox, mit Überschuss; ohne Sonne bei Bedarf aus dem Netz | nein | über Smartfox |
+| Smartfox Pro (Energiemanager) | .45 | **keine funktionierende Schnittstelle gefunden** (Uli, 12.11.2026) – siehe §1a | Smartfox selbst: Überschuss → Batterie, dann Warmwasser und Auto | nein | Warmwasser-Leistung, falls §1a gelingt |
+| Warmwasser-Heizstab | – | über Smartfox (Analogausgang); Verbrauch sichtbar im **Smartfox-Webportal** | Smartfox, mit Überschuss; ohne Sonne bei Bedarf aus dem Netz | nein | über Smartfox (§1a) |
 | Keba P30C – Gäste-Wallbox | .36 | Modbus TCP 502, Unit 255 | **Wallbox-Backend** (Freigabe nach Bezahlung) | nein | Leistung über Wallbox-Backend |
 | Keba P30X – Tesla | .63 | Modbus TCP 502 | Smartfox (PV-Überschuss) + eCarUp; ohne Sonne bei Bedarf Netz | nein | Leistung über Wallbox-Backend |
 | 12 × Thermostat TGP508 | siehe `rooms.thermostat_local_ip` / `config.json` des Dienstes | Tuya lokal v3.5, TCP 6668, **eine** Verbindung je Gerät | **Heizung** (einziger Steuerweg) | ja (SmartfoxTuya) | – |
@@ -18,6 +18,32 @@ führt alles an einer Stelle zusammen. **Vor jeder neuen Datenquelle hier nachse
 
 Grundsatz (Uli, 01.11.2026): Die Heizung steuert nur über die Thermostate. Smartfox, Fronius und die Wallboxen werden
 nur **gelesen**.
+
+## 1a. Smartfox: Stand der Schnittstelle
+
+- **Bisher (Uli, 12.11.2026):** Es wurde **keine Smartfox-Schnittstelle gefunden**, über die wir Werte bekommen.
+  Darum liest der Fronius-Collector den Smartfox nicht (`config.json`: `"smartfox": {"ip": "192.168.188.45",
+  "enabled": false}` – der Collector-Code hat dafür keinen Teil). Welche Wege damals probiert wurden, ist nicht
+  festgehalten – das war der Fehler.
+- Den Warmwasser-Verbrauch sieht Uli nur im **Smartfox-Webportal**.
+- **Noch nicht geprüft:** Laut evcc-Doku liefert der Smartfox Pro lokal `http://<IP>/values.xml`, darin die
+  Warmwasser-Leistung `htPowerMeasValue` in kW ([evcc SMARTFOX Pro](https://docs.evcc.io/de/nightly/meters/smartfox-pro),
+  Vorlage `templates/definition/meter/smartfox-em2.yaml` im evcc-Repo). Ob das bei diesem Gerät/dieser Firmware geht,
+  ist offen.
+
+**Test (am Österreich-PC, nur lesen):**
+1. Browser: `http://192.168.188.45/values.xml`
+2. Browser: `http://192.168.188.45/all`
+3. Browser: `http://192.168.188.45/` (Startseite des Geräts)
+
+**Ergebnis hier eintragen** (Datum, welche Adresse, was kam – Werteliste, Anmeldeseite, Fehler, keine Antwort):
+
+| Datum | Adresse | Ergebnis |
+|---|---|---|
+| | | |
+
+Falls nichts davon geht: Warmwasser aus der Differenz schätzen (Verbrauch Fronius − Heizung − Auto − Grundlast)
+oder prüfen, ob das Webportal einen Export/API hat.
 
 ## 2. Dienste auf dem Österreich-PC (NSSM)
 
@@ -51,6 +77,6 @@ nur **gelesen**.
 
 ## 5. Nächster Schritt (offen, Entscheidung Uli)
 
-Fronius-Collector liest jede Minute zusätzlich Smartfox `/values.xml` (Warmwasser) und Wallbox-Backend `/api/state`
-(Auto, je Box) und schreibt sie als eigene Spalten neben PV/Netz/Batterie. Daraus lernt der Planer die Muster.
-Am Wallbox-Backend und am Smartfox ändert sich nichts.
+Fronius-Collector liest jede Minute zusätzlich Wallbox-Backend `/api/state` (Auto, je Box) und – wenn der Test in §1a
+gelingt – die Warmwasser-Leistung vom Smartfox. Er schreibt sie als eigene Spalten neben PV/Netz/Batterie. Daraus
+lernt der Planer die Muster. Am Wallbox-Backend und am Smartfox ändert sich nichts.

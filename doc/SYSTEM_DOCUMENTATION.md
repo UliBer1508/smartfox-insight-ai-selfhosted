@@ -61,7 +61,7 @@
 |---|---|---|
 | **PV-Anlage** | 15.8 kWp, Süd, 35° Neigung | Forecast.Solar API |
 | **Batterie** | 13.8 kWh (Fronius-verwaltet) | Fronius API (P_Akku, SOC) |
-| **Smartfox Pro Energiemanager** | 192.168.188.45 | `/values.xml` bzw. `/all` HTTP (lokal); Warmwasser-Leistung `htPowerMeasValue`. Daten bisher nicht gelesen; regelt Batterie, Warmwasser, Auto selbst |
+| **Smartfox Pro Energiemanager** | 192.168.188.45 | **keine funktionierende Schnittstelle gefunden** (Stand 12.11.2026; Test `/values.xml` offen, `doc/SCHNITTSTELLEN-HAUS-VENEDIGER.md` §1a); regelt Batterie, Warmwasser, Auto selbst |
 | **Keba P30C** (Gäste-Wallbox) | 192.168.188.36 | Modbus TCP 502 – gelesen und gesteuert vom **Wallbox-Backend** (eigenes Repo `UliBer1508/Wallbox-Backend`) |
 | **Keba P30X** (Tesla) | 192.168.188.63 | lädt mit PV-Überschuss über den Smartfox; Wallbox-Backend liest Leistung/kWh |
 | **Wallbox-Backend** | Österreich-PC 192.168.188.34, Port 8080 | `GET /api/state` (Leistung je Box), `GET /api/sessions` (Ladevorgänge) – ohne Anmeldung, nur im LAN |
