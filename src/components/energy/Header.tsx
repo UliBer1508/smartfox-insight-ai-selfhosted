@@ -75,7 +75,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
       {/* Top Header – aufgebaut wie Heizung München (12.11.2026): eine Zeile mit Logo, Name, Tabs als Pillen,
           rechts Systemstatus/Modus/Abmelden. Farben bleiben Venediger. Build-Zeit steht im Fuß und als Tooltip am Namen. */}
       <header className="border-b bg-background/90 backdrop-blur-sm sticky top-0 z-50 safe-area-top">
-        <div className="w-full max-w-7xl mx-auto px-3 md:px-5 py-2.5 md:py-3 flex items-center gap-3 md:gap-4 min-w-0">
+        <div className="w-full px-3 md:px-5 py-2.5 md:py-3 flex items-center gap-3 md:gap-4 min-w-0">
           <div
             className="flex items-center gap-2.5 min-w-0 flex-shrink-0"
             title={typeof __BUILD_TIME__ !== 'undefined'
