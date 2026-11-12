@@ -16,21 +16,12 @@ import { AutomationStatusCard } from '@/components/heating/AutomationStatusCards
 import { ZuEntscheiden } from './ZuEntscheiden';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
 import { KiAnalysisRuns } from './KiAnalysisRuns';
+import { Klappabschnitt } from '@/components/layout/Klappabschnitt';
 
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9äöü]+/g, '-');
+// 12.11.2026: klappbar (Klappabschnitt)
 function Section({ n, title, question, children, right }: { n: number; title: string; question: string; children: React.ReactNode; right?: React.ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-full bg-violet-600 text-white flex items-center justify-center font-bold shrink-0" aria-hidden="true">{n}</div>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold leading-tight">{title}</h2>
-          <div className="text-sm text-muted-foreground">{question}</div>
-        </div>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
+  return <Klappabschnitt id={`ki-${slug(title)}`} n={n} titel={title} frage={question} rechts={right}>{children}</Klappabschnitt>;
 }
 
 export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: {

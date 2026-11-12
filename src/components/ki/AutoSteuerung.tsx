@@ -1,7 +1,7 @@
 // Tab „Auto-Steuerung“ (12.11.2026) – erstes Fenster, vor der Übersicht.
 // Uli: „Die Auto-Steuerung soll das erste Fenster vor Übersicht sein. Wo sind die Steuerungselemente, und wie kann
 // ich eingreifen, wenn die KI nicht richtig optimiert?“
-// Aufbau: 1 Steuerung (Modus + Eingriffe) · 2 Plan jetzt (PlanerView) · 3 Verlauf und Wirkung (VerlaufView).
+// Aufbau (Uli 12.11.: Verlauf zuerst): 1 Verlauf und Wirkung (VerlaufView) · 2 Steuerung (Modus + Eingriffe) · 3 Plan (PlanerView).
 // Die Eingriffe sind die vorhandenen Einstellungen, hier an einem Platz – keine neuen Werte.
 import { useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -12,18 +12,7 @@ import { useKiPending } from '@/hooks/useKiPending';
 import { PlanerView } from './PlanerView';
 import { VerlaufView } from './VerlaufView';
 import { num } from './planerTeile';
-
-function Abschnitt({ n, titel, frage, children }: { n: number; titel: string; frage: string; children: React.ReactNode }) {
-  return (
-    <section className="space-y-3">
-      <div className="flex items-start gap-3">
-        <div className="w-8 h-8 rounded-full bg-violet-600 text-white flex items-center justify-center font-bold shrink-0" aria-hidden="true">{n}</div>
-        <div><h2 className="text-base font-semibold leading-tight">{titel}</h2><div className="text-sm text-muted-foreground">{frage}</div></div>
-      </div>
-      {children}
-    </section>
-  );
-}
+import { Klappabschnitt } from '@/components/layout/Klappabschnitt';
 
 type Modus = 'aus' | 'schatten' | 'steuern';
 
@@ -71,7 +60,7 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
         </div>
         <div className={`rounded-lg px-3 py-2 text-sm ${modus === 'aus' ? 'bg-muted' : 'bg-primary/10'}`}>
           {modus === 'aus' && 'Planer aus – die Regeln der heutigen Steuerung entscheiden allein.'}
-          {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min und vergleicht, die heutige Steuerung setzt die Sollwerte. „Steuern“ wird gebaut, sobald du das Mockup freigibst.'}
+          {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Thermostaten ändert er nichts. Die heutige Regel-Steuerung (pv-automation) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob der Plan besser wäre, bevor er steuern darf.'}
           {modus === 'steuern' && 'Der Planer setzt die Sollwerte. Sicherheitsregeln gelten weiter; ist der Plan älter als 30 min, übernimmt die heutige Steuerung.'}
         </div>
 
@@ -122,9 +111,9 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
 export function AutoSteuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'overview' | 'ki' | 'settings') => void }) {
   return (
     <div className="space-y-6">
-      <Abschnitt n={1} titel="Steuerung" frage="Wer entscheidet – und wie greife ich ein?"><Steuerung rooms={rooms} onNavigate={onNavigate} /></Abschnitt>
-      <Abschnitt n={2} titel="Plan" frage="Was macht der Planer in den nächsten 24 Stunden?"><PlanerView /></Abschnitt>
-      <Abschnitt n={3} titel="Verlauf und Wirkung" frage="Wird es besser – Netz, Haus, Batterie, Kosten – und was haben die KI-Vorschläge bewirkt?"><VerlaufView /></Abschnitt>
+      <Klappabschnitt id="auto-verlauf" n={1} titel="Verlauf und Wirkung" frage="Wird es besser – Netz, Haus, Batterie, Kosten – und was haben die KI-Vorschläge bewirkt?"><VerlaufView /></Klappabschnitt>
+      <Klappabschnitt id="auto-steuerung" n={2} titel="Steuerung" frage="Wer entscheidet – und wie greife ich ein?"><Steuerung rooms={rooms} onNavigate={onNavigate} /></Klappabschnitt>
+      <Klappabschnitt id="auto-plan" n={3} titel="Plan" frage="Was macht der Planer in den nächsten 24 Stunden?"><PlanerView rooms={rooms} /></Klappabschnitt>
     </div>
   );
 }

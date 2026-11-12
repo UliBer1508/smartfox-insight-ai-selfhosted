@@ -4,9 +4,11 @@
 //   2. Jetzt: je Raum Planer vs. heutige Steuerung
 //   3. Zeitleiste je Raum (halbe Stunden)
 //   4. Gegenrechnung der Vortage: heutige Steuerung vs. Planer bei gleicher Sonne
-//   5. Raummodell: was der Planer über jeden Raum gelernt hat und wie gut es stimmt
+//   5. Raummodell: was der Planer über jeden Raum gelernt hat (RaumModellView, früher auch Protokoll › Raummodell)
 // Farben (geprüft mit dataviz/validate_palette, hell und dunkel, inkl. Farbenblindheit):
 //   PV #c77a05 / #c47f0e · Heizung #3c83f6 / #4a8ef0 · Netz #df3a3a / #e45050
+import { RaumModellView } from './RaumModellView';
+import { Room } from '@/types/room';
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
@@ -21,32 +23,28 @@ type Jetzt = { room_id: string; name: string; t: number; plan_heizt: boolean; st
 type PlanZeile = { erstellt_at: string; modus: string; plan: Plan; jetzt: Jetzt[]; pv_kwh: number; heiz_kwh: number; netz_kwh: number; einspeis_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; nachfuehrung: number };
 type Werte = { heiz_kwh: number; netz_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; faktor?: number };
 type Vergleich = { tag: string; netz_gemessen_kwh: number; steuerung: Werte; planer: Werte; planer_gleich: Werte | null; modell_abw: number };
-type Modell = { room_id: string; raum: string; param: { k: number; g: number; s: number; c: number; tau: number }; fehler_12h: number | null; gleich_12h: number | null; heiz_std: number; prior: boolean; gelernt_at: string };
 
 function usePlaner() {
   const [plan, setPlan] = useState<PlanZeile | null>(null);
   const [vergleich, setVergleich] = useState<Vergleich[]>([]);
-  const [modell, setModell] = useState<Modell[]>([]);
   const [fehler, setFehler] = useState<string | null>(null);
   useEffect(() => {
     let alive = true;
     const load = async () => {
-      const [p, v, m] = await Promise.all([
+      const [p, v] = await Promise.all([
         db.from('heizplan').select('*').order('erstellt_at', { ascending: false }).limit(1),
         db.from('heizplan_vergleich').select('*').order('tag', { ascending: false }).limit(7),
-        db.from('heizmodell').select('*'),
       ]);
       if (!alive) return;
       if (p.error) setFehler(p.error.message.includes('heizplan') ? 'SQL 25 ist noch nicht ausgeführt.' : p.error.message);
       setPlan((p.data ?? [])[0] ?? null);
       setVergleich(v.data ?? []);
-      setModell(m.data ?? []);
     };
     load();
     const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5 * 60_000);
     return () => { alive = false; clearInterval(id); };
   }, []);
-  return { plan, vergleich, modell, fehler };
+  return { plan, vergleich, fehler };
 }
 
 function PlanChart({ plan }: { plan: Plan }) {
@@ -118,8 +116,8 @@ function Zeitleiste({ plan }: { plan: Plan }) {
   );
 }
 
-export function PlanerView() {
-  const { plan, vergleich, modell, fehler } = usePlaner();
+export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
+  const { plan, vergleich, fehler } = usePlaner();
   if (fehler) return <Card><CardContent className="p-4 text-sm text-muted-foreground">{fehler}</CardContent></Card>;
   if (!plan) return <Card><CardContent className="p-4 text-sm text-muted-foreground">Noch kein Plan – der Planer rechnet alle 15 Minuten.</CardContent></Card>;
   const alt = Date.now() - new Date(plan.erstellt_at).getTime() > 40 * 60_000;
@@ -209,28 +207,7 @@ export function PlanerView() {
 
       <details className="rounded-lg border bg-card p-4">
         <summary className="cursor-pointer text-sm font-semibold select-none">Was der Planer über jeden Raum gelernt hat</summary>
-        <div className="mt-3 overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="text-xs text-muted-foreground text-left">
-              <tr><th className="py-1 pr-3 font-normal">Raum</th><th className="pr-3 font-normal">kühlt ab*</th><th className="pr-3 font-normal">heizt auf</th><th className="pr-3 font-normal">Vorhersage 12 h</th><th className="font-normal">Daten</th></tr>
-            </thead>
-            <tbody>
-              {[...modell].sort((a, b) => a.raum.localeCompare(b.raum)).map(m => {
-                const besser = m.fehler_12h != null && m.gleich_12h != null && m.fehler_12h < m.gleich_12h;
-                return (
-                  <tr key={m.room_id} className="border-t">
-                    <td className="py-1 pr-3">{m.raum}</td>
-                    <td className="pr-3 font-mono whitespace-nowrap">{num(m.param.k * 15, 2)} °C/h</td>
-                    <td className="pr-3 font-mono whitespace-nowrap">+{num(m.param.g, 2)} °C/h</td>
-                    <td className="pr-3">± {num(m.fehler_12h, 2)} °C <span className={`text-xs ${besser ? 'text-muted-foreground' : 'text-warning'}`}>({besser ? 'besser' : 'nicht besser'} als „bleibt gleich“ ± {num(m.gleich_12h, 2)})</span></td>
-                    <td className="text-muted-foreground">{num(m.heiz_std, 0)} h geheizt{m.prior ? ' · an andere Räume angelehnt' : ''}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          <div className="text-xs text-muted-foreground mt-2">* bei 15 °C Unterschied zwischen innen und außen, ohne Heizen und ohne Sonne. Das Modell lernt jede Nacht um 03:00 mit den letzten 30 Tagen neu.</div>
-        </div>
+        <div className="mt-3"><RaumModellView rooms={rooms} /></div>
       </details>
     </div>
   );

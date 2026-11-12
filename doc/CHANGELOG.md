@@ -14,6 +14,8 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 - SQL 35: dauerhafte Ablage `energie_stunde` / `energie_tag` (nie gelöscht), stündlich gefüllt, nachgetragen ab 13.10.2026.
 
 ### Changed
+- Auto-Steuerung: Reihenfolge Verlauf und Wirkung · Steuerung · Plan. Alle Abschnitte in Auto-Steuerung, KI und Analyse klappbar.
+- Doppelte entfernt: Planer-Einstellungen in Einstellungen › Haus (nur noch Auto-Steuerung), Protokoll › Raummodell (jetzt im Plan).
 - Analyse › Woche/Monat/Jahr verweisen auf den Verlauf (alte Grafiken rechneten mit um Faktor 10 falschen Tageswerten).
 
 ## [2.25.0] - 2026-11-12

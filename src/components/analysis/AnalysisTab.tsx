@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Klappabschnitt } from '@/components/layout/Klappabschnitt';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Lightbulb, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
@@ -59,21 +60,10 @@ function Tile({ label, value, sub, tone }: { label: string; value: string; sub?:
   );
 }
 
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9äöü]+/g, '-');
+// 12.11.2026: klappbar (Klappabschnitt)
 function Section({ n, title, question, children }: { n: number; title: string; question: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardContent className="p-4 md:p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center font-bold shrink-0" aria-hidden="true">{n}</div>
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold leading-tight">{title}</h2>
-            <div className="text-sm text-muted-foreground">{question}</div>
-          </div>
-        </div>
-        {children}
-      </CardContent>
-    </Card>
-  );
+  return <Klappabschnitt id={`analyse-${slug(title)}`} n={n} titel={title} frage={question} karte farbe="bg-foreground text-background">{children}</Klappabschnitt>;
 }
 
 function SplitBar({ parts, label }: { parts: { label: string; wh: number; color: string }[]; label: string }) {

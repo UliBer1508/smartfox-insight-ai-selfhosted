@@ -11,6 +11,15 @@
 
 ## Tab „Auto-Steuerung“ (erster Tab, Startseite)
 
+Reihenfolge seit 12.11.2026 (Uli): **1 Verlauf und Wirkung · 2 Steuerung · 3 Plan.** Alle Abschnitte sind klappbar
+(`components/layout/Klappabschnitt.tsx`, auch in KI und Analyse); auf/zu merkt sich je Gerät.
+
+**Modus „Schatten“:** Der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte
+(`heizplan`, `heizplan_vergleich`). An den Thermostaten ändert er nichts – die Sollwerte setzt weiter `pv-automation`.
+So zeigt der Vergleich, ob der Plan besser wäre, bevor er steuern darf.
+
+Die Nummern unten beschreiben die Inhalte, nicht die Reihenfolge.
+
 1. **Steuerung**
    - Modus: Aus / Schatten / Steuern. „Steuern“ ist noch gesperrt und wird nach der Freigabe des Mockups gebaut.
    - Eingriffe (bestehende Einstellungen, hier an einem Platz):
@@ -19,7 +28,7 @@
      - Sicherheit unter Untergrenze (`planer_sicherheit_abstand`)
    - Hinweise zu einzelnen Räumen: manuell übersteuert, Automatik aus, Thermostat nicht steuerbar.
    - KI-Vorschläge (Verweis auf KI › Zu entscheiden).
-2. **Plan:** Die bisherige Ansicht „KI › Planer“, unverändert und hierher umgezogen.
+2. **Plan:** Die bisherige Ansicht „KI › Planer“, hierher umgezogen. „Was der Planer über jeden Raum gelernt hat“ zeigt jetzt das Raummodell aus dem Protokoll (`RaumModellView`, mit Vorausschau „abends nötig / morgen ohne Heizen“).
 3. **Verlauf und Wirkung** (`VerlaufView` / `VerlaufAnsicht`), dieselben Bausteine wie der Planer (`planerTeile.tsx`).
    - **Zeitraum:** Tag, Woche (Mo–So), Monat oder Jahr, mit ◀ ▶ zum Blättern.
    - **Vergleich:** Vorperiode, Vorjahr oder aus. Er ist nach Position im Zeitraum ausgerichtet und erscheint grau gestrichelt.
@@ -54,5 +63,7 @@
 | alt | neu |
 |---|---|
 | KI › Planer (Abschnitt 2) | Auto-Steuerung › Plan (gleiche Komponente) |
+| Protokoll › Raummodell und die kleinere Raumtabelle im Plan | eine Ansicht `RaumModellView` im Plan |
+| Einstellungen › Haus: Höchstleistung ohne Sonne, Planer-Modus, Gewicht Ziel, Sicherheitsabstand | nur noch Auto-Steuerung › Steuerung (Gewicht Untergrenze bleibt in Einstellungen) |
 | Analyse › Woche/Monat/Jahr: `ProgressCockpit`, `YearTrendChart` auf `daily_pattern_scores`, `EnergyCostWidget` auf `energy_daily_costs` | Auto-Steuerung › Verlauf auf `energie_tag`; Analyse zeigt dort einen Verweis. Die Tagesansicht der Analyse bleibt. |
 | `hourly_aggregates`, `daily_patterns`, `daily_pattern_scores`, `energy_daily_costs` (Tabellen) | `energie_stunde`, `energie_tag`. Die alten Tabellen und ihre Funktionen (`aggregate-energy-data`, `compute-daily-score`, `analysis-summary`) werden mit Bereinigung Stufe 2 abgeschaltet, weil das Mustergedächtnis sie noch liest. |
