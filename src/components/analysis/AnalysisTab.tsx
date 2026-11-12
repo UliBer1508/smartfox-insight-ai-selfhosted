@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Klappabschnitt } from '@/components/layout/Klappabschnitt';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Area, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { ChevronDown, ChevronLeft, ChevronRight, Loader2, Lightbulb, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
@@ -16,13 +17,12 @@ import { addDays, viennaDateString, DayAnalysis } from '@/lib/dayAnalysis';
 import { buildFindings, Finding, Proposal } from '@/lib/analysisFindings';
 import { loadWhitelist, WhitelistRow } from '@/lib/aiParameters';
 import { ProposalDialog } from './ProposalDialog';
-import { ProgressCockpit } from '@/components/energy/stats/ProgressCockpit';
-import { YearTrendChart } from '@/components/energy/stats/YearTrendChart';
 import { BatteryHistoryChart } from '@/components/energy/BatteryHistoryChart';
 import { BatterySocHistoryCard } from '@/components/heating/AutomationStatusCards';
 import { BatteryReserveStatus } from '@/components/heating/BatteryReserveStatus';
 import { HeatingHistoryChart } from '@/components/heating/HeatingHistoryChart';
 import { HeatingOverviewCard } from '@/components/heating/HeatingOverviewCard';
+import { ProgressCockpit } from '@/components/energy/stats/ProgressCockpit';
 import { PvForecastCard } from '@/components/heating/PvForecastCard';
 import { PvAccuracyChart } from '@/components/heating/PvAccuracyChart';
 import { SolarGainChart } from '@/components/heating/SolarGainChart';
@@ -60,21 +60,10 @@ function Tile({ label, value, sub, tone }: { label: string; value: string; sub?:
   );
 }
 
+const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9äöü]+/g, '-');
+// 12.11.2026: klappbar (Klappabschnitt)
 function Section({ n, title, question, children }: { n: number; title: string; question: string; children: React.ReactNode }) {
-  return (
-    <Card>
-      <CardContent className="p-4 md:p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <div className="w-8 h-8 rounded-full bg-foreground text-background flex items-center justify-center font-bold shrink-0" aria-hidden="true">{n}</div>
-          <div className="min-w-0">
-            <h2 className="text-base font-semibold leading-tight">{title}</h2>
-            <div className="text-sm text-muted-foreground">{question}</div>
-          </div>
-        </div>
-        {children}
-      </CardContent>
-    </Card>
-  );
+  return <Klappabschnitt id={`analyse-${slug(title)}`} n={n} titel={title} frage={question} karte farbe="bg-foreground text-background">{children}</Klappabschnitt>;
 }
 
 function SplitBar({ parts, label }: { parts: { label: string; wh: number; color: string }[]; label: string }) {
@@ -204,7 +193,7 @@ export function AnalysisTab({ rooms, settings, todayEnergy, onNavigate }: {
   settings: HeatingSettings;
   /** Werte von HEUTE für das Kosten-Widget (es speichert den heutigen Tag – nie einen anderen übergeben). */
   todayEnergy: { energyIn: number; energyOut: number; pvEnergy: number };
-  onNavigate: (tab: 'ki' | 'settings') => void;
+  onNavigate: (tab: 'ki' | 'settings' | 'auto') => void;
 }) {
   const today = viennaDateString();
   const [period, setPeriod] = useState<Period>('day');
@@ -374,15 +363,18 @@ export function AnalysisTab({ rooms, settings, todayEnergy, onNavigate }: {
         </>
       )}
 
+      {/* 12.11.2026: Woche/Monat/Jahr und Kosten hier ersetzt durch den Tab „Auto-Steuerung“ › Verlauf (energie_tag, SQL 35).
+          Die alten Grafiken rechneten mit daily_pattern_scores (etwa Faktor 10 zu niedrig) und energy_daily_costs
+          (füllt sich nur beim Öffnen der Seite). doc/VERLAUF-UND-WIRKUNG-2026-11-12.md */}
       {period !== 'day' && (
         <>
-          {period === 'year' ? <YearTrendChart /> : <ProgressCockpit range={period} />}
+          <Card>
+            <CardContent className="p-4 md:p-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">Woche, Monat und Jahr – mit Vergleich zur Vorperiode und zum Vorjahr, Kosten und der Wirkung der KI-Vorschläge – stehen jetzt im Tab <b>Auto-Steuerung</b> unter „Verlauf und Wirkung“.</div>
+              <Button size="sm" onClick={() => onNavigate('auto')}>Zur Auto-Steuerung</Button>
+            </CardContent>
+          </Card>
           <Card><CardContent className="p-4 md:p-5"><HeatingOverviewCard rooms={rooms} /></CardContent></Card>
-          <EnergyCostWidget
-            energyIn={todayEnergy.energyIn} energyOut={todayEnergy.energyOut} pvEnergy={todayEnergy.pvEnergy}
-            electricityPriceCent={price} feedInPriceCent={feedIn}
-            baseFeePerYearEur={settings.electricity_base_fee_year_eur ?? 36}
-          />
         </>
       )}
 
