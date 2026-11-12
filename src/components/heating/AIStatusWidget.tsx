@@ -99,7 +99,7 @@ export function AIStatusWidget({ rooms, pvPower, soc }: AIStatusWidgetProps) {
       <CardContent className="space-y-3">
         {/* Aktueller Status */}
         <div>
-          <div className="text-xl sm:text-2xl font-bold font-mono">
+          <div className="text-xl sm:text-2xl font-bold tabular-nums">
             {status.icon} {status.status}
           </div>
           <p className="text-xs text-muted-foreground">{status.detail}</p>

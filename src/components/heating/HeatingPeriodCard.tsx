@@ -35,7 +35,7 @@ export function HeatingPeriodCard({ period }: HeatingPeriodCardProps) {
           <Icon className="w-5 h-5" />
         </div>
         
-        <div className="text-lg font-mono font-bold">
+        <div className="text-lg tabular-nums font-bold">
           {period.startTime} - {period.endTime}
         </div>
         

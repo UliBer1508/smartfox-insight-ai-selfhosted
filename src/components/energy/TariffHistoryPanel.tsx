@@ -195,13 +195,13 @@ export function TariffHistoryPanel() {
                         ? new Date(h.valid_to).toLocaleDateString("de-AT")
                         : "heute"}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
+                    <TableCell className="text-right tabular-nums text-xs">
                       {Number(h.electricity_price_cent).toFixed(2)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
+                    <TableCell className="text-right tabular-nums text-xs">
                       {Number(h.feed_in_price_cent).toFixed(2)}
                     </TableCell>
-                    <TableCell className="text-right font-mono text-xs">
+                    <TableCell className="text-right tabular-nums text-xs">
                       {Number(h.electricity_base_fee_year_eur).toFixed(2)}
                     </TableCell>
                     <TableCell>

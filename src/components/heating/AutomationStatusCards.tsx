@@ -353,7 +353,7 @@ function HistoryRow({
       <span className="text-muted-foreground whitespace-nowrap tabular-nums">
         {format(new Date(item.created_at), 'dd.MM. HH:mm', { locale: de })}
       </span>
-      <span className="font-mono whitespace-nowrap">
+      <span className="tabular-nums whitespace-nowrap">
         {item.old_value}% → {item.new_value}%
       </span>
       {showReason && item.reason_text && (

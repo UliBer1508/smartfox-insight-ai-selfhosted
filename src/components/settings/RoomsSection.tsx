@@ -260,7 +260,7 @@ function RoomCard({ room, onSave, onDelete }: {
                 key={f.k as string}
                 label={f.l}
                 placeholder={f.placeholder}
-                className="font-mono"
+                className="tabular-nums"
                 value={String(value(f.k as string) ?? '')}
                 onChange={(e) => set(f.k as string, e.target.value)}
               />
@@ -388,7 +388,7 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
               ))}
             </div>
             {TEXT_FIELDS.slice(1).map((f) => (
-              <LabeledInput key={f.k as string} label={f.l} placeholder={f.placeholder} className="font-mono"
+              <LabeledInput key={f.k as string} label={f.l} placeholder={f.placeholder} className="tabular-nums"
                 value={String(d[f.k as string] ?? '')} onChange={(e) => set(f.k as string, e.target.value)} />
             ))}
             {errs.length > 0 && <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm">{errs.map((e) => <div key={e}>{e}</div>)}</div>}

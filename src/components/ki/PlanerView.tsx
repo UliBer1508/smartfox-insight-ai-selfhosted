@@ -159,7 +159,7 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
                   return (
                     <tr key={j.room_id} className={`border-t ${anders ? 'bg-warning/10' : ''}`}>
                       <td className="py-1 pr-3">{j.name}</td>
-                      <td className="pr-3 font-mono">{num(j.t)} °C</td>
+                      <td className="pr-3 tabular-nums">{num(j.t)} °C</td>
                       <td className="pr-3">{j.plan_heizt ? 'heizt' : '–'}</td>
                       <td className="pr-3">{j.manuell ? 'manuell' : !j.auto ? 'Automatik aus' : j.steuerung_heizt ? 'heizt' : '–'}</td>
                       <td className="text-muted-foreground">
@@ -191,7 +191,7 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
                   {vergleich.map(v => (
                     <tr key={v.tag} className="border-t align-top">
                       <td className="py-1 pr-3 whitespace-nowrap">{tagKurz(v.tag)}</td>
-                      <td className="pr-3 font-mono">{num(v.netz_gemessen_kwh)} kWh</td>
+                      <td className="pr-3 tabular-nums">{num(v.netz_gemessen_kwh)} kWh</td>
                       <td className="pr-3">{num(v.steuerung.heiz_kwh)} kWh Heizen · {num(v.steuerung.netz_kwh)} Netz<br /><span className="text-xs text-muted-foreground">unter Ziel {num(v.steuerung.unter_ziel_gradstd, 0)} · unter Untergrenze {num(v.steuerung.unter_grenze_gradstd, 0)} °C·h</span></td>
                       <td className="pr-3">{num(v.planer.heiz_kwh)} kWh Heizen · {num(v.planer.netz_kwh)} Netz<br /><span className="text-xs text-muted-foreground">unter Ziel {num(v.planer.unter_ziel_gradstd, 0)} · unter Untergrenze {num(v.planer.unter_grenze_gradstd, 0)} °C·h</span></td>
                       <td>{v.planer_gleich ? <>{num(v.planer_gleich.netz_kwh)} kWh Netz<br /><span className="text-xs text-muted-foreground">statt {num(v.steuerung.netz_kwh)} kWh</span></> : '–'}</td>

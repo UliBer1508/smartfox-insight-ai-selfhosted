@@ -109,17 +109,17 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast }: {
         <div className="grid grid-cols-3 gap-2">
           <div>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">gemessen</div>
-            <div className={`text-2xl font-bold font-mono ${gemessen && gemessen > 300 ? 'text-energy-import' : ''}`}>{gemessen == null ? '–' : fmtKW(gemessen)}</div>
+            <div className={`text-2xl font-bold tabular-nums ${gemessen && gemessen > 300 ? 'text-energy-import' : ''}`}>{gemessen == null ? '–' : fmtKW(gemessen)}</div>
             <div className="text-xs text-muted-foreground">Verbrauch − Grundlast {Math.round(base)} W</div>
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">laut Thermostaten</div>
-            <div className="text-2xl font-bold font-mono">{fmtKW(lautThermostat)}</div>
+            <div className="text-2xl font-bold tabular-nums">{fmtKW(lautThermostat)}</div>
             <div className="text-xs text-muted-foreground">{heizend.length} {heizend.length === 1 ? 'Raum heizt' : 'Räume heizen'}</div>
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Grenze</div>
-            <div className="text-2xl font-bold font-mono">{grenze && grenze.cap > 0 ? fmtKW(grenze.cap) : '–'}</div>
+            <div className="text-2xl font-bold tabular-nums">{grenze && grenze.cap > 0 ? fmtKW(grenze.cap) : '–'}</div>
             <div className="text-xs text-muted-foreground">{grenze ? `${grenze.text} · verplant ${fmtKW(grenze.used)}` : 'keine aktuelle Angabe'}</div>
           </div>
         </div>
