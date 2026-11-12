@@ -10,13 +10,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
+import { Kachel, hm, num, tagKurz } from './planerTeile';
 import { Area, CartesianGrid, ComposedChart, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 
 const db = supabase as any; // Tabellen aus SQL 25 noch nicht in types.ts
-const TZ = 'Europe/Vienna';
-const hm = (ms: number) => new Date(ms).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: TZ });
-const num = (v: number | null | undefined, d = 1) => (v == null || Number.isNaN(Number(v)) ? '–' : Number(v).toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }));
-const tagKurz = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' });
 
 type PlanRaum = { id: string; name: string; p: number; h: string; t: number[]; ziel: number[]; unter: number };
 type Plan = { start: number; pv: number[]; heiz: number[]; netz: number[]; einsp: number[]; bat: number[]; raeume: PlanRaum[] };
@@ -50,16 +47,6 @@ function usePlaner() {
     return () => { alive = false; clearInterval(id); };
   }, []);
   return { plan, vergleich, modell, fehler };
-}
-
-function Kachel({ k, v, s }: { k: string; v: string; s?: string }) {
-  return (
-    <div className="rounded-lg border bg-card p-3">
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground">{k}</div>
-      <div className="text-xl font-bold font-mono">{v}</div>
-      {s && <div className="text-xs text-muted-foreground">{s}</div>}
-    </div>
-  );
 }
 
 function PlanChart({ plan }: { plan: Plan }) {

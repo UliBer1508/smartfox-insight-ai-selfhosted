@@ -31,3 +31,4 @@ _alt/
 supabase/.temp/
 
 local-collector/**/config.json
+preview/
