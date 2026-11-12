@@ -16,12 +16,6 @@ verify_jwt = false
 verify_jwt = false
 
 
-[functions.calculate-heating-power]
-verify_jwt = false
-
-[functions.analyze-solar-gain]
-verify_jwt = false
-
 [functions.ml-feature-extraction]
 verify_jwt = false
 
@@ -31,19 +25,10 @@ verify_jwt = false
 [functions.fetch-weather]
 verify_jwt = false
 
-[functions.monitor-solar-heating]
-verify_jwt = false
-
-[functions.update-learned-policies]
-verify_jwt = false
-
 [functions.ai-parameter-advisor]
 verify_jwt = false
 
 [functions.ai-parameter-evaluator]
-verify_jwt = false
-
-[functions.ai-daily-planner]
 verify_jwt = false
 
 # Systemstatus (05.11.2026, doc/SYSTEMSTATUS-2026-11-05.md)

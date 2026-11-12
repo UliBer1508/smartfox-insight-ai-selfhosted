@@ -5,6 +5,20 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.25.0] - 2026-11-12
+
+### Removed (`doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md`, Stufe 1)
+- Doppelte Teile ohne Wirkung auf die Steuerung durch die neuere Variante ersetzt:
+  KI-Tagesplaner (`ai-daily-planner`) und gelernte Policies (`update-learned-policies`) → Heizplaner;
+  Nacht-Raummodell (`raum_abkuehlung`) → Heizmodell (Vorausschau in `pv-automation`, Protokoll › Raummodell);
+  `monitor-solar-heating`, `analyze-solar-gain` → Heizmodell + „Fühler in der Sonne“; `calculate-heating-power` → `measure-room-power`.
+- App: KI › „KI-Tagesplan“, „ML-Folgerate“, Einstellungen › Räume „Solar-Analyse“ entfernt.
+- SQL 34: Zeitpläne der ersetzten Functions entfernt, Nacht-Protokoll ohne altes Raummodell. Keine Daten gelöscht.
+
+### Documented
+- Liste aller doppelten Teile mit Wirkung, Stufe 2 (PV-Prognose, Energiebedarf, Mustergedächtnis, Bewertung) zur Entscheidung.
+- Arbeitsregel: Ein neues Teil entfernt das alte im selben PR.
+
 ## [2.24.0] - 2026-11-10
 
 ### Fixed (`doc/PRUEFUNG-REGELN-WECHSELWIRKUNGEN-2026-11-10.md`, `doc/FIX-REGELN-A-B-C-2026-11-10.md`, `doc/FIX-PRUEFUNG-REST-2026-11-10.md`)

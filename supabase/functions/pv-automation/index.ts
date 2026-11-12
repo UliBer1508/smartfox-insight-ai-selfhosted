@@ -1567,51 +1567,9 @@ Deno.serve(async (req) => {
       const ausserhalbHeizW = [...fuehlerSonne, ...nichtSteuerbar]
         .filter((r: any) => r.is_heating === true).reduce((a: number, r: any) => a + roomPowerW(r), 0);
 
-      // 3a. Load AI daily plan (if exists) for secondary sorting within same priority
-      let aiPlanRanks: Record<string, number> = {};
-      try {
-        const { data: planRecs } = await supabase
-          .from('heating_recommendations')
-          .select('reasoning,priority_rank')
-          .eq('ai_source', 'daily_planner')
-          .eq('valid_for_date', todayStr);
-        if (planRecs && planRecs.length > 0) {
-          for (const pr of planRecs) {
-            // Map by reasoning prefix (contains room name) — simple heuristic
-            // Actually: the plan doesn't have room_id. We'll match by room name in reasoning.
-          }
-        }
-      } catch (e) {
-        console.warn('[PV-Automation] Could not load AI daily plan:', e);
-      }
-
-      // 3b. Better: load plan with room matching via reasoning text
-      // Since heating_recommendations has no room_id for planner, we use a lightweight approach:
-      // The ai-daily-planner stores room-specific plans in a structured way.
-      // For now, we create the aiPlanRanks map from the plan records.
-      // NOTE: We'll enhance the planner to store room_id in a future iteration.
-      // Current workaround: the planner's `reasoning` contains room names.
-      try {
-        const { data: planRows } = await supabase
-          .from('heating_recommendations')
-          .select('*')
-          .eq('ai_source', 'daily_planner')
-          .eq('valid_for_date', todayStr);
-        if (planRows && planRows.length > 1) {
-          for (const r of planRows) {
-            const rec = r as any;
-            if (rec.reasoning) {
-              const nameMatch = rooms.find((room: any) => rec.reasoning.includes(room.name));
-              if (nameMatch) {
-                aiPlanRanks[nameMatch.id] = rec.priority_rank ?? 99;
-              }
-            }
-          }
-          console.log(`[PV-Automation] AI daily plan loaded: ${Object.keys(aiPlanRanks).length} rooms ranked`);
-        }
-      } catch (e) {
-        console.warn('[PV-Automation] AI plan load error:', e);
-      }
+      // 12.11.2026: KI-Tagesplaner (ai-daily-planner) entfernt – ersetzt durch den rechnenden Heizplaner (heizplaner).
+      // Sein Rang wurde nie gelesen (heating_recommendations leer) und hätte nur bei gleicher Priorität gewirkt
+      // (rooms.priority ist eindeutig). doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md
 
       // ============= PRE-SYNC: Frische Thermostatdaten vor Automationsrunde =============
       // Throttle: nur alle 15 Minuten syncen um Tuya API Quota zu schonen
@@ -2481,15 +2439,14 @@ Deno.serve(async (req) => {
       // Räume nach Priorität, Effizienz und Temperatur-Defizit sortieren
       // ML-Features (energy_per_degree_wh) werden für Effizienz-Sortierung genutzt
       const now = new Date();
-      // ============= RAUMMODELL / VORAUSSCHAU (02.11.2026, doc/KONZEPT-RAUMMODELL-2026-11-02.md) =============
-      // Je Raum gelernt: k [1/h] aus Nächten ohne Heizen (Tabelle raum_abkuehlung, View raum_modell).
-      // Mit der Außentemperatur-Prognose für die kommende Nacht:
-      //   nötig abends   = T_außen + (Eco − T_außen) · e^(k·h_Nacht)   → so warm muss der Raum bei Nachtbeginn sein,
-      //                                                                   damit er morgens ohne Heizen noch Eco hat
-      //   morgen ohne Heizen = T_außen + (T_jetzt − T_außen) · e^(−k·h_bis_Morgen)
-      // Wirkung: Bei gleicher Priorität bekommt der Raum mit dem größten Nachtbedarf die PV zuerst (Komfort-Runde =
-      // Estrich laden). Vorsichtig gerechnet mit dem 75-%-Quantil von k. Ohne Modell (zu wenige Nächte) keine Wirkung.
-      const vorausschau = new Map<string, { k: number; noetigAbends: number; morgenOhneHeizen: number; nachtBedarf: number }>();
+      // ============= RAUMMODELL / VORAUSSCHAU (02.11.2026; seit 12.11.2026 aus dem Heizmodell des Planers) =============
+      // Je Raum gelernt (heizplaner, täglich 03:00, Tabelle heizmodell): ohne Heizen gilt dT/dt = −k·(T − T_außen) + c
+      // (k Auskühlen [1/h], c innere Wärme/Nachbarräume [°C/h]). Ersetzt das alte Nacht-Modell (raum_abkuehlung/raum_modell),
+      // das nur aus wenigen Nächten ohne Heizen gelernt hat. Mit T∞ = T_außen + c/k und der Außentemperatur der Nacht:
+      //   nötig abends       = T∞ + (Eco − T∞) · e^(k·h_Nacht)      → so warm muss der Raum bei Nachtbeginn sein
+      //   morgen ohne Heizen = T∞ + (T_jetzt − T∞) · e^(−k·h_bis_Morgen)
+      // Wirkung: nur Anzeige (Protokoll › Raummodell) und Sortierung bei gleicher Priorität – rooms.priority ist eindeutig.
+      const vorausschau = new Map<string, { k: number; c: number; prior: boolean; noetigAbends: number; morgenOhneHeizen: number; nachtBedarf: number }>();
       let vorausAussen: number | null = null;
       let vorausHNacht = 10;
       try {
@@ -2507,21 +2464,23 @@ Deno.serve(async (req) => {
           .lt('timestamp', `${tomorrow}T${pad(neT.hour)}:${pad(neT.minute)}:00Z`);
         const temps = (wRows || []).map((w: any) => Number(w.temperature_c)).filter((x: number) => Number.isFinite(x));
         vorausAussen = temps.length > 0 ? temps.reduce((a: number, b: number) => a + b, 0) / temps.length : null;
-        const { data: modell } = await supabase.from('raum_modell').select('room_id, naechte, k_vorsichtig');
+        const { data: modell } = await supabase.from('heizmodell').select('room_id, param, prior');
         const nowWienH = currentWienHour;
         const hBisMorgen = (24 - nowWienH) + neT.hour;
         if (vorausAussen !== null) {
           for (const m of (modell || []) as any[]) {
-            const k = Number(m.k_vorsichtig);
-            if (!Number.isFinite(k) || k <= 0 || Number(m.naechte) < 3) continue;
+            const k = Number(m.param?.k);
+            const c = Number(m.param?.c) || 0;
+            if (!Number.isFinite(k) || k <= 0) continue;
             const room = rooms.find((r: any) => r.id === m.room_id);
             if (!room) continue;
             const eco = Number(room.eco_temp) || Number(settings?.eco_temp) || 19;
             const cur = Number(room.current_temp) || 0;
-            const noetig = vorausAussen + (eco - vorausAussen) * Math.exp(k * vorausHNacht);
-            const morgen = cur > 0 ? vorausAussen + (cur - vorausAussen) * Math.exp(-k * hBisMorgen) : NaN;
+            const tInf = vorausAussen + c / k;
+            const noetig = tInf + (eco - tInf) * Math.exp(k * vorausHNacht);
+            const morgen = cur > 0 ? tInf + (cur - tInf) * Math.exp(-k * hBisMorgen) : NaN;
             vorausschau.set(room.id, {
-              k,
+              k, c, prior: m.prior === true,
               noetigAbends: Math.round(noetig * 10) / 10,
               morgenOhneHeizen: Math.round(morgen * 10) / 10,
               nachtBedarf: cur > 0 ? Math.round((noetig - cur) * 10) / 10 : 0,
@@ -2531,12 +2490,13 @@ Deno.serve(async (req) => {
         console.log(`[VORAUSSCHAU] Nacht ${vorausHNacht.toFixed(1)} h, außen Ø ${vorausAussen === null ? '–' : vorausAussen.toFixed(1)} °C, Modell für ${vorausschau.size}/${rooms.length} Räume`);
         for (const r of rooms) {
           const v = vorausschau.get(r.id);
-          if (v) console.log(`[VORAUSSCHAU] ${r.name}: abends nötig ${v.noetigAbends} °C für Eco am Morgen, ohne Heizen morgen ${v.morgenOhneHeizen} °C, Nachtbedarf ${v.nachtBedarf >= 0 ? '+' : ''}${v.nachtBedarf} °C (k ${v.k})`);
+          if (v) console.log(`[VORAUSSCHAU] ${r.name}: abends nötig ${v.noetigAbends} °C für Eco am Morgen, ohne Heizen morgen ${v.morgenOhneHeizen} °C, Nachtbedarf ${v.nachtBedarf >= 0 ? '+' : ''}${v.nachtBedarf} °C (k ${v.k}, c ${v.c}${v.prior ? ', Modell angelehnt' : ''})`);
         }
         await supabase.from('system_settings').upsert({
           key: 'raum_vorausschau',
           value: {
             computed_at: new Date().toISOString(),
+            quelle: 'heizmodell',
             aussen_nacht: vorausAussen === null ? null : Math.round(vorausAussen * 10) / 10,
             stunden_nacht: Math.round(vorausHNacht * 10) / 10,
             rooms: rooms.map((r: any) => ({ room_id: r.id, name: r.name, current: r.current_temp, eco: r.eco_temp, ...(vorausschau.get(r.id) ?? {}) })),
@@ -2582,7 +2542,6 @@ Deno.serve(async (req) => {
           console.log(`[PV-Automation] ${room.name}: braucht ~${estimatedEnergyWh?.toFixed(0)} Wh für +${tempToTarget.toFixed(1)}°C (${energyPerDegreeWh.toFixed(0)} Wh/°C), geschätzte Dauer: ${estimatedDurationMin?.toFixed(0)} Min bei ${heatingPower}W`);
         }
         
-        const aiPlanRank = aiPlanRanks[room.id] ?? null;
         
         return {
           room,
@@ -2594,21 +2553,15 @@ Deno.serve(async (req) => {
           waitTimeMinutes,
           isCurrentlyHeating,
           heatingDurationMinutes,
-          aiPlanRank,
           nachtBedarf: vorausschau.get(room.id)?.nachtBedarf ?? null,
         };
       });
       
-      // Sortierung: 1. Priorität, 2. KI-Tagesplan (priority_rank innerhalb gleicher Prio),
-      // 3. Temperatur-Defizit (>0.5°C Unterschied), 
-      // 4. Effizienz (niedrigeres energy_per_degree_wh = schneller fertig → bevorzugt),
-      // 5. Wartezeit (längste zuerst als Tiebreaker)
+      // Sortierung: 1. Priorität (eindeutig je Raum, Index rooms_priority_unique – die weiteren Schlüssel greifen
+      // daher nur, falls zwei Räume je dieselbe Priorität bekommen), 2. Temperatur-Defizit (>0.5°C Unterschied),
+      // 3. Nachtbedarf, 4. Effizienz (energy_per_degree_wh), 5. Wartezeit (längste zuerst als Tiebreaker)
       roomsWithPriority.sort((a, b) => {
         if (a.priority !== b.priority) return a.priority - b.priority;
-        // KI-Tagesplan als sekundärer Sortierschlüssel (nur wenn beide einen Plan-Rank haben)
-        if (a.aiPlanRank !== null && b.aiPlanRank !== null) {
-          return a.aiPlanRank - b.aiPlanRank;
-        }
         if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
         // Raummodell (02.11.2026): größerer Nachtbedarf zuerst – dieser Raum braucht die PV-Wärme heute Nacht am meisten
         if (a.nachtBedarf !== null && b.nachtBedarf !== null && Math.abs(a.nachtBedarf - b.nachtBedarf) > 0.3) {
@@ -3517,28 +3470,9 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ============= LEARNED POLICIES LADEN =============
-      // Epsilon-Greedy: Nutze gelernte Policies wenn genügend Daten vorhanden
-      const policyNightStart = settings?.night_start_time || '22:00';
-      const policyNightEnd = settings?.night_end_time || '08:00';
-      const { wienHour: policyWienHour } = isNightTime(policyNightStart, policyNightEnd);
-      
-      let learnedPolicies: Map<string, any> = new Map();
-      try {
-        const { data: policies } = await supabase
-          .from('learned_policies')
-          .select('*')
-          .eq('hour_of_day', policyWienHour);
-        
-        if (policies && policies.length > 0) {
-          for (const p of policies) {
-            learnedPolicies.set(p.room_id, p);
-          }
-          console.log(`[PV-Automation] Loaded ${policies.length} learned policies for hour ${policyWienHour}`);
-        }
-      } catch (policyError) {
-        console.warn('[PV-Automation] Could not load learned policies:', policyError);
-      }
+      // 12.11.2026: Gelernte Policies (learned_policies / update-learned-policies) entfernt – ersetzt durch den
+      // rechnenden Heizplaner. Im Lokal-Modus haben Budget-Override und Tagesmodus ihr Ziel immer überschrieben (K4).
+      // doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md
 
       // 8. Process decisions
       const results: Record<string, unknown>[] = [];
@@ -3703,7 +3637,7 @@ Deno.serve(async (req) => {
         const inCooldown = minutesSinceChange < (settings?.min_switch_interval_min || DEFAULT_MIN_SWITCH_INTERVAL_MIN);
         // Cooldown wird erst NACH der Entscheidung angewendet (s.u.), nicht als blindes continue
 
-        let action: 'activate' | 'deactivate' | 'keep' = 'keep';
+        let action = 'keep' as 'activate' | 'deactivate' | 'keep'; // as: Typ nicht auf 'keep' einengen (Zweige weiter unten)
         let targetTemp = room.target_temp || settings?.eco_temp || 19;
         let solarLimitTemp: number | null = null; // Solar-Limit: erlaubte Max-Temp bei Sonneneinstrahlung
         let reasoning = '';
@@ -3770,68 +3704,9 @@ Deno.serve(async (req) => {
             }
             // Sonst: keep, Eco-Setpoint wird beibehalten
           } else {
-            // ML decision: Erst Learned Policy mit Konfidenz-Gating prüfen, dann LLM
-            const learnedPolicy = useMLDecisions ? learnedPolicies.get(room.id) : null;
-            const policyConfidence = Number(learnedPolicy?.learning_confidence ?? 0);
-
-            // Safety-Clamp für recommended_temp: Innerhalb [night_temp, comfort_temp]
-            const clampPolicyTemp = (t: number | null | undefined): number | null => {
-              if (t == null) return null;
-              return Math.max(nightTemp, Math.min(comfortTemp, Number(t)));
-            };
-
-            // Map ML-Recommendation für Tracking (immer, unabhängig ob gefolgt)
-            mlRecommendationForTracking = learnedPolicy ? {
-              action: learnedPolicy.recommended_action,
-              temp: clampPolicyTemp(learnedPolicy.recommended_temp),
-              confidence: policyConfidence,
-              sample_count: learnedPolicy.sample_count
-            } : null;
-
-            // Stufe 1: HIGH confidence → Exploitation
-            if (learnedPolicy && policyConfidence >= 0.7 && learnedPolicy.success_rate > 0.4) {
-              action = learnedPolicy.recommended_action === 'activate' ? 'activate' :
-                       learnedPolicy.recommended_action === 'deactivate' ? 'deactivate' : 'keep';
-              const clampedTemp = clampPolicyTemp(learnedPolicy.recommended_temp);
-              if (clampedTemp != null) targetTemp = clampedTemp;
-              reasoning = `📊 Policy HIGH (conf ${policyConfidence.toFixed(2)}, ${learnedPolicy.sample_count}S, ${(learnedPolicy.success_rate*100).toFixed(0)}% Erfolg)`;
-              mlFollowedDecision = true;
-              console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-
-              if (action === 'activate' && pvPower < 500) {
-                console.log(`[PV-Automation] ${room.name}: ⚠️ Policy will activate, aber PV nur ${pvPower}W → BLOCKIERT`);
-                action = 'keep';
-                reasoning += ' → BLOCKIERT (kein PV)';
-                mlFollowedDecision = false;
-              }
-            }
-            // Stufe 2: MEDIUM confidence → Soft-Hint, nur folgen wenn budgetkompatibel
-            else if (learnedPolicy && policyConfidence >= 0.4) {
-              const policyAction = learnedPolicy.recommended_action;
-              const compatible =
-                (policyAction === 'activate' && availableBudget > 0 && pvPower >= 500) ||
-                (policyAction === 'deactivate' && !room.comfort_saturated_at) ||
-                (policyAction === 'keep');
-
-              if (compatible) {
-                action = policyAction === 'activate' ? 'activate' :
-                         policyAction === 'deactivate' ? 'deactivate' : 'keep';
-                const clampedTemp = clampPolicyTemp(learnedPolicy.recommended_temp);
-                if (clampedTemp != null) targetTemp = clampedTemp;
-                reasoning = `📊 Policy MED-Soft (conf ${policyConfidence.toFixed(2)}, ${learnedPolicy.sample_count}S, kompatibel)`;
-                mlFollowedDecision = true;
-                console.log(`[PV-Automation] ${room.name}: ${reasoning}`);
-              } else {
-                console.log(`[PV-Automation] ${room.name}: Policy MED nicht kompatibel (${policyAction}, conf ${policyConfidence.toFixed(2)}) → Standard-Pfad`);
-                mlFollowedDecision = false;
-              }
-            }
-            // Stufe 3: LOW confidence → Policy ignorieren, LLM-Exploration
-            else {
-              if (learnedPolicy) {
-                console.log(`[PV-Automation] ${room.name}: Policy LOW (conf ${policyConfidence.toFixed(2)}, ${learnedPolicy.sample_count}S) → ignoriert, LLM-Exploration`);
-                mlFollowedDecision = false;
-              }
+            // ML decision (nur Cloud-Modus mit Tuya-Schlüsseln: LLM über analyze-patterns, gedrosselt).
+            // 12.11.2026: Stufe „gelernte Policy“ entfernt (siehe oben).
+            {
               const lastExpStr = mlExplorationMap[room.id];
               const lastExpMs = lastExpStr ? new Date(lastExpStr).getTime() : 0;
               const minsSinceLastExp = (Date.now() - lastExpMs) / 60000;

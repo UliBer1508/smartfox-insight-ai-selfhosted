@@ -63,20 +63,20 @@ export interface Room {
 }
 
 // Helper function to get effective heating power
+// 12.11.2026: gemessene Leistung (heating_power_w, measure-room-power) zuerst – wie pv-automation seit L2 (10.11.).
+// calculated_power_w stammt aus der entfernten Funktion calculate-heating-power und ist überall leer.
 export function getEffectiveHeatingPower(room: Room): number {
-  // Use calculated power if confidence is >= 70% and at least 5 samples
+  if (room.heating_power_w) {
+    return room.heating_power_w;
+  }
   if (
-    room.calculated_power_w && 
-    room.power_calculation_confidence && 
+    room.calculated_power_w &&
+    room.power_calculation_confidence &&
     room.power_samples &&
-    room.power_calculation_confidence >= 0.7 && 
+    room.power_calculation_confidence >= 0.7 &&
     room.power_samples >= 5
   ) {
     return room.calculated_power_w;
-  }
-  // Fallback to manual/estimated value
-  if (room.heating_power_w) {
-    return room.heating_power_w;
   }
   // Last resort: estimate from floor area (80W/m²)
   if (room.floor_area_m2) {

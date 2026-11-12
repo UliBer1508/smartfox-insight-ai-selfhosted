@@ -107,6 +107,11 @@ Gemessen am 05.11.: 21,9 kWh Netz. Mit fast gleichem Strom wären die Räume kau
   Rotation – das entscheidet die Rechnung.
 
 ## 6. Offene Punkte
+
+> **12.11.2026:** Doppelte Teile bereinigt (Stufe 1): KI-Tagesplaner, Policies, Nacht-Modell, Solar-Analyse entfernt.
+> Stufe 2 (PV-Prognose der Steuerung, Energiebedarf, Mustergedächtnis) und Modus „steuern“ (zuerst Mockup):
+> `doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md`.
+
 - Wünsche je Raum und Uhrzeit (Belegung).
 - Estrich-Verzögerung τ beobachten (bisher 0 gewählt).
 - Modus „steuern“ bauen, sobald der Schattenbetrieb überzeugt.

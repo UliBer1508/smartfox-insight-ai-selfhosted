@@ -28,8 +28,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
 import { sameValue } from '@/lib/safeSave';
-import { useSolarGainAnalysis } from '@/hooks/useSolarGainAnalysis';
-import { Home, Thermometer, Plus, BarChart3, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench, AlertTriangle } from 'lucide-react';
+import { Home, Thermometer, Plus, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench, AlertTriangle } from 'lucide-react';
 import { SectionCard, Eyebrow, LabeledInput } from './SettingsBits';
 
 const TEMP_MIN = 5;
@@ -274,14 +273,10 @@ function RoomCard({ room, onSave, onDelete }: {
 
           <div className="rounded-lg bg-muted/50 p-3 text-xs text-muted-foreground space-y-1">
             <div className="font-medium text-foreground flex items-center gap-1"><Info className="w-3.5 h-3.5" />Gelernt (nur Anzeige)</div>
-            <div>
-              Heizleistung berechnet: {room.calculated_power_w ? `${room.calculated_power_w} W` : '–'}
-              {room.power_calculation_confidence != null && ` (${Math.round(room.power_calculation_confidence * 100)} % sicher, ${room.power_samples ?? 0} Zyklen)`}
-            </div>
-            <div>
-              Solargewinn: {room.calculated_solar_gain_factor != null ? `${(room.calculated_solar_gain_factor * 5).toFixed(1)} °C/h bei 5 kW PV` : '–'}
-              {room.solar_gain_confidence != null && ` (${Math.round(room.solar_gain_confidence * 100)} % sicher)`}
-            </div>
+            {/* 12.11.2026: alte Schätzungen (calculated_power_w, Solar-Analyse) ersetzt – Leistung wird gemessen
+                (measure-room-power), Auskühlen/Aufheizen/Sonne lernt das Heizmodell des Planers. */}
+            <div>Heizleistung gemessen: {room.heating_power_w ? `${room.heating_power_w} W` : '–'}</div>
+            <div>Auskühlen, Aufheizen und Sonne lernt das Heizmodell: <strong>KI › Planer</strong> (Modell je Raum).</div>
             <div>Priorität: P{room.priority} – ändern im Abschnitt <strong>Heiz-Reihenfolge</strong> unten.</div>
           </div>
 
@@ -418,7 +413,6 @@ export function RoomsSection({ rooms, isLoading, onSave, onCreate, onDelete, onR
   onReload: () => void;
 }) {
   const [newOpen, setNewOpen] = useState(false);
-  const { isAnalyzing, runAnalysis } = useSolarGainAnalysis();
 
   return (
     <SectionCard
@@ -428,10 +422,6 @@ export function RoomsSection({ rooms, isLoading, onSave, onCreate, onDelete, onR
       description="Jede Karte speichert nur ihre eigenen Änderungen. Sollwert, Ist-Temperatur und Heizstatus setzt weiterhin die Automatik."
       right={
         <div className="flex gap-2 shrink-0">
-          <Button variant="outline" size="sm" onClick={async () => { await runAnalysis(); onReload(); }} disabled={isAnalyzing || rooms.length === 0}>
-            {isAnalyzing ? <Loader2 className="h-4 w-4 sm:mr-1 animate-spin" /> : <BarChart3 className="h-4 w-4 sm:mr-1" />}
-            <span className="hidden sm:inline">Solar-Analyse</span>
-          </Button>
           <Button size="sm" onClick={() => setNewOpen(true)}>
             <Plus className="h-4 w-4 sm:mr-1" /><span className="hidden sm:inline">Raum hinzufügen</span>
           </Button>
