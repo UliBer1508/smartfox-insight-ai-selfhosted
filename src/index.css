@@ -6,13 +6,13 @@
 
 @layer base {
   :root {
-    --background: 140 30% 96.5%; /* ganz leichtes Grün (12.11.2026), = Fensterrand #f3f9f5 */
+    --background: 140 30% 95.5%; /* leichtes Grün, = Fensterrand #f0f7f2 */
     --foreground: 220 20% 10%;
 
-    --card: 140 40% 99%; /* wie München: Karten leicht getönt, etwas heller als der Hintergrund (#fbfdfc) */
+    --card: 140 45% 98.5%; /* Karten grün getönt, heller als Hintergrund (#f9fdfb) – wie München beige */
     --card-foreground: 220 20% 10%;
 
-    --popover: 140 40% 99%;
+    --popover: 140 45% 98.5%;
     --popover-foreground: 220 20% 10%;
 
     --primary: 187 80% 42%;
@@ -46,7 +46,7 @@
 
     --radius: 0.875rem; /* runder wie Heizung München */
 
-    --sidebar-background: 140 30% 96.5%;
+    --sidebar-background: 140 30% 95.5%;
     --sidebar-foreground: 220 20% 20%;
     --sidebar-primary: 187 80% 42%;
     --sidebar-primary-foreground: 0 0% 100%;
