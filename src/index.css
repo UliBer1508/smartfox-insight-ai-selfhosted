@@ -9,10 +9,10 @@
     --background: 140 30% 96.5%; /* ganz leichtes Grün (12.11.2026), = Fensterrand #f3f9f5 */
     --foreground: 220 20% 10%;
 
-    --card: 0 0% 100%;
+    --card: 140 40% 99%; /* wie München: Karten leicht getönt, etwas heller als der Hintergrund (#fbfdfc) */
     --card-foreground: 220 20% 10%;
 
-    --popover: 0 0% 100%;
+    --popover: 140 40% 99%;
     --popover-foreground: 220 20% 10%;
 
     --primary: 187 80% 42%;
