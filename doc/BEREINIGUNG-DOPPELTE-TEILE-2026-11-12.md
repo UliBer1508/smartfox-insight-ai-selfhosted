@@ -96,6 +96,20 @@ Diese Teile verändern das Heizen. Ersetzen nur nach Nachrechnung mit echten Dat
   in 14 Tagen, also ~97 %). Mit diesem Wert drosselt die Steuerung das Komfort-Budget um 30 %, sobald eines vergeben
   wird – am 11.11. einmal (131 → 92 W). Gilt bis zum nächsten Wochenlauf (TTL 7 Tage).
 - Ersetzen: mit dem Modus „steuern“ entfällt die Schicht; bis dahin Vorschlag: diese drei Zuschläge abschalten.
+- **Umgesetzt 12.11.2026 (Stufe 2a, Uli: „ausführen“):** in `pv-automation` entfernt – Tagesart-Schwelle aus `best_match_today`
+  (jetzt fest 1,0), `preheating_signal` (inkl. Pre-Heat-Override je Raum), `weekly_insight` (Vorheizen und Komfort ×0,7),
+  Pattern-Recall-Bonus. Einstellungen › KI: Regler „Stärke“ entfernt (wirkte nur auf diese Zuschläge).
+  `analyze-patterns` schreibt die Werte weiter (Hinweis für `ai-parameter-advisor`); Abschalten mit Stufe 2c.
+  Zur Wirkung: Am 12.11. lag die Tagesart-Ratio den ganzen Morgen bei 0,00 – die Schwelle (0,91 statt 1,0) war ohne Einfluss.
+
+### Zeitplan Stufe 2 (festgelegt 12.11.2026)
+
+| | Was | Wann | Bedingung |
+|---|---|---|---|
+| 2a | Mustergedächtnis-Zuschläge (§4.3) | 12.11.2026 | erledigt |
+| 2b | PV-Prognose tauschen (§4.1) | Nachrechnung 16.11.2026, Umbau danach | Nachrechnung zeigt: Planer-Prognose näher an der Messung |
+| 2c | Bewertung (§4.4), Status-Karten (§4.6), alte Tabellen und `analyze-patterns` | mit Modus „steuern“ | Planer steuert |
+| 2d | Energiebedarf je Raum (§4.2) | Prüfung 23.11.2026 | Heizmodell für alle Räume plausibel (Fehler 12 h besser als „bleibt gleich“) |
 
 ### 4.4 Bewertung (Nr. 10)
 - `learning_events`/`evaluate-decision` bewerten Einzelentscheidungen für die (entfernten) Policies. Die Tagesnote und die
