@@ -105,6 +105,11 @@ Diese Teile verändern das Heizen. Ersetzen nur nach Nachrechnung mit echten Dat
 ### 4.5 Batterie und Tagesart (Nr. 9)
 Gehört zum Modus „steuern“ (Mockup zuerst, Uli 12.11.). K5 erledigt sich damit.
 
+### 4.6 Status-Karten im KI-Tab (entschieden 12.11.2026: mit Stufe 2 entfernen)
+
+`AutomationStatusCard` und `AIStatusWidget` zeigen den Zustand der alten Regel- und Lernteile (Policies, Lernereignisse).
+Sie werden zusammen mit 4.3/4.4 entfernt; der Status der heutigen Steuerung steht in Auto-Steuerung › Steuerung und im Systemstatus der Kopfleiste.
+
 ## 5. Einspielen Stufe 1
 
 1. PR mergen → `pv-automation` wird per GitHub-Aktion deployt, App per Vercel.

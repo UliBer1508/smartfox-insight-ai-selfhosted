@@ -91,7 +91,6 @@ const Index = () => {
           <AnalysisTab
             rooms={rooms}
             settings={heatingSettings}
-            todayEnergy={{ energyIn, energyOut, pvEnergy }}
             onNavigate={navigate}
           />
         )}

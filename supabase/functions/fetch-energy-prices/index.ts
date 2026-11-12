@@ -57,8 +57,9 @@ async function fetchOemag(): Promise<FetchResult[]> {
 async function fetchSalzburgAg(): Promise<FetchResult[]> {
   const STROM_PRIVAT_24 = {
     arbeitspreis_cent_brutto: 29.9351,      // Gesamtpreis Arbeitspreis ct/kWh brutto
-    grundentgelt_eur_jahr_brutto: 128.1792, // Gesamtpreis Grundentgelt €/Jahr brutto
-    stand: "gültig ab 1.1.2026 (Produktblatt Salzburg AG)",
+    // 161,2992 lt. Jahresabrechnung 15.10.2026 (vorher 128,1792 ohne Messentgelt 27,60 € netto) – SQL 36
+    grundentgelt_eur_jahr_brutto: 161.2992, // Gesamtpreis Grundentgelt €/Jahr brutto inkl. Messentgelt
+    stand: "gültig ab 1.1.2026 (Jahresabrechnung Salzburg AG 15.10.2026)",
   };
 
   return [
