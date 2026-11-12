@@ -73,7 +73,7 @@ const Index = () => {
       <SEO title={meta.title} description={meta.description} path="/" />
       <Header activeTab={activeTab} onTabChange={navigate} />
 
-      <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 md:pb-6">
+      <main className="w-full max-w-7xl mx-auto px-3 md:px-4 py-4 md:py-6 space-y-4 md:space-y-6 overflow-x-hidden box-border pb-24 sm:pb-6">
         {activeTab === 'auto' && <AutoSteuerung rooms={rooms} onNavigate={navigate} />}
 
         {activeTab === 'overview' && (

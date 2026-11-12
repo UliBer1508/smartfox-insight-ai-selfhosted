@@ -5,7 +5,6 @@ import { useState, useEffect } from 'react';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAuth } from '@/hooks/useAuth';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { ControlModeBadge } from '@/components/layout/ControlModeBadge';
 import { SystemStatusButton } from '@/components/layout/SystemStatus';
 
@@ -28,6 +27,21 @@ const tabs = [
   { key: 'settings' as const, icon: Settings, label: 'Einstellungen' },
 ];
 
+// Handy-Ansicht (Tabs unten) erst unter 640 px – wie Heizung München (12.11.2026).
+// Vorher 768 px: in schmalen Desktop-Fenstern verschwanden die Tabs aus der Kopfleiste.
+const HANDY_BREITE = 640;
+function useHandy() {
+  const [handy, setHandy] = useState(() => typeof window !== 'undefined' && window.innerWidth < HANDY_BREITE);
+  useEffect(() => {
+    const mql = window.matchMedia(`(max-width: ${HANDY_BREITE - 1}px)`);
+    const onChange = () => setHandy(window.innerWidth < HANDY_BREITE);
+    mql.addEventListener('change', onChange);
+    onChange();
+    return () => mql.removeEventListener('change', onChange);
+  }, []);
+  return handy;
+}
+
 function PendingDot({ n, mobile }: { n: number; mobile?: boolean }) {
   if (n <= 0) return null;
   return (
@@ -43,7 +57,7 @@ export function Header({ activeTab, onTabChange }: HeaderProps) {
   const { isInstallable, isInstalled, promptInstall } = usePWAInstall();
   const { isOnline, getOfflineMinutes } = useOnlineStatus();
   const { signOut } = useAuth();
-  const isMobile = useIsMobile();
+  const isMobile = useHandy();
   const pending = useKiPending();
 
   useEffect(() => {
