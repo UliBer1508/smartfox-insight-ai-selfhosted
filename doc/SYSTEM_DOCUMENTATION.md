@@ -61,7 +61,10 @@
 |---|---|---|
 | **PV-Anlage** | 15.8 kWp, Süd, 35° Neigung | Forecast.Solar API |
 | **Batterie** | 13.8 kWh (Fronius-verwaltet) | Fronius API (P_Akku, SOC) |
-| **Smartfox Pro Energiemanager** | 192.168.188.45 | `/all` HTTP-Endpoint (Daten nicht mehr genutzt); regelt Batterie, Warmwasser, Auto selbst |
+| **Smartfox Pro Energiemanager** | 192.168.188.45 | `/values.xml` bzw. `/all` HTTP (lokal); Warmwasser-Leistung `htPowerMeasValue`. Daten bisher nicht gelesen; regelt Batterie, Warmwasser, Auto selbst |
+| **Keba P30C** (Gäste-Wallbox) | 192.168.188.36 | Modbus TCP 502 – gelesen und gesteuert vom **Wallbox-Backend** (eigenes Repo `UliBer1508/Wallbox-Backend`) |
+| **Keba P30X** (Tesla) | 192.168.188.63 | lädt mit PV-Überschuss über den Smartfox; Wallbox-Backend liest Leistung/kWh |
+| **Wallbox-Backend** | Österreich-PC 192.168.188.34, Port 8080 | `GET /api/state` (Leistung je Box), `GET /api/sessions` (Ladevorgänge) – ohne Anmeldung, nur im LAN |
 | **Fronius Wechselrichter** | 192.168.188.64 | `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` |
 | **Tuya Thermostate** | 12 × TGP508 (MAC 3C:0B:59), **per LAN (Kabel) angebunden, nicht WLAN** | Tuya Cloud (Cloud-Modus) ODER Port 6668 (Lokal-Modus) |
 | **Standort** | 47.24983°N, 12.25415°E (Österreich), Europe/Vienna | — |
@@ -91,6 +94,8 @@ Wechselrichters (Mindest-SOC), den wir weder steuern noch ändern. **Seit 02.11.
 Batterie/Netz (fester Tarif, Grundlast ≈ 0). Konzept `doc/KONZEPT-RAUMMODELL-2026-11-02.md`.
 
 **Thermostat-Inventar:** 11 statische IPs (192.168.188.42, .43, .61–.69, .79). 10 Local Keys verfügbar.
+
+**Alle Geräte, Schnittstellen und welche Daten die Heizung davon nutzt:** `doc/SCHNITTSTELLEN-HAUS-VENEDIGER.md` (seit 12.11.2026).
 
 ---
 
