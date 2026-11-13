@@ -6,6 +6,7 @@ import {
   prognoseFehler, pvVorhersage,
   type Batterie, type Fenster, type Gewichte, type PlanRaum, type PlanSlot, type PvModell, type RaumParam,
 } from './modell.ts';
+import { neuerStand, pruefePlan, type Messwert, type PruefStand, type RaumPruefung } from './pruefung.ts';
 
 export const PLAN_AUFBEWAHREN_TAGE = 3;
 
@@ -30,6 +31,8 @@ export interface Daten {
   samples15: Record<string, [number, number, number][]> | null;
   wetter: [string, number, number, number][];
   pv_h: [string, number][];
+  messwerte?: Record<string, Messwert> | null;      // raum_messwerte (SQL 38)
+  pruefung?: { stand?: PruefStand } | null;          // letzter Stand der Plan-Prüfung (system_settings planer_pruefung)
 }
 export function aufbereiten(d: Daten) {
   const wet = new Map<string, { dir: number; dif: number; t: number }>((d.wetter ?? []).map(w => [w[0], { dir: Number(w[1]) || 0, dif: Number(w[2]) || 0, t: Number(w[3]) }]));
@@ -68,7 +71,11 @@ export function gewichte(s: any): Gewichte {
            einspeiseFaktor: Math.min(1, feed / buy), batterieRest: 0.9,
            // 13.11.2026: Wärme im Estrich am Planende zählt wie Restladung der Batterie – sonst „spart“ der Plan, indem er
            // den Wärmespeicher des Hauses leert (Gegenrechnung 12.11.: 12,8 statt 40,9 kWh Heizen bei wärmeren Räumen).
-           waermeRest: 0.9 };
+           waermeRest: 0.9,
+           // 13.11.2026 abends: MEHR Wärme am Planende zählt nur wie PV-Strom, der sonst eingespeist würde (+ kleiner
+           // Aufschlag). Mit 0,9 kostete Heizen aus dem Netz in den Estrich rechnerisch nur 10 % – der Plan heizte den
+           // Wirtschaftsraum 23 h und das Wohnzimmer aus dem Netz über das Ziel (doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
+           waermeMehr: Math.min(0.9, Math.min(1, feed / buy) + 0.05) };
 }
 
 /** Räume und Slots für einen Plan ab `start` aufbauen. pvVon(ep) liefert die PV je Slot (W). */
@@ -143,6 +150,10 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
     if (r.auto === false) return (ep === start && r.heizt) ? 1 : 0;                                        // Automatik aus: nicht planen
     if (nichtSteuerbar.has(r.id)) return r.heizt ? 1 : 0;                                                  // nimmt keine Befehle an
     if (r.manuell_bis && new Date(r.manuell_bis).getTime() > ep * 1000) return r.heizt ? 1 : 0;          // manuell: so lassen
+    // Plan-Prüfung (13.11.2026): auffälliger Raum – die Regel-Steuerung heizt ihn bis zum Ende der Sperre; der Plan rechnet
+    // mit seinem jetzigen Zustand (wie bei „nicht steuerbar“), damit Leistungsgrenze und Batterie stimmen.
+    const sp = d.pruefung?.stand?.[r.id];
+    if (sp && sp.bis > ep) return r.heizt ? 1 : 0;
     return null;
   };
   const abwesend = (ep: number) => abw.some(([v, b]) => ep >= v && ep < b);
@@ -150,6 +161,11 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
   const bat = batterieVon(d, letzterSoc(a, d.jetzt));
   const g = gewichte(d.settings);
   const erg = plane(raeume, slots, bat, g);
+  // Plan-Prüfung je Raum gegen die Messwerte (13.11.2026): auffällige Räume steuert die Regel-Steuerung
+  const pruefung: Record<string, RaumPruefung> = d.messwerte
+    ? pruefePlan(raeume, erg.heizen, erg.temp, slots, erg.heizW, d.messwerte, d.pruefung?.stand, d.jetzt)
+    : {};
+  const stand = neuerStand(pruefung, d.pruefung?.stand, d.jetzt);
 
   const jetzt = raeume.map((r, i) => {
     const room = d.raeume.find((x: any) => x.id === r.id);
@@ -164,6 +180,8 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
       naechst_an: naechstAn >= 0 ? new Date(eps[naechstAn] * 1000).toISOString() : null,
       bis: naechstAus > 0 ? new Date(eps[naechstAus] * 1000).toISOString() : null,
       t_min: r1(Math.min(...erg.temp[i])), t_max: r1(Math.max(...erg.temp[i])),
+      pruefung_ok: pruefung[r.id]?.ok ?? true, pruefung: pruefung[r.id]?.gruende ?? [], hinweis: pruefung[r.id]?.hinweis ?? null,
+      geplant_h: pruefung[r.id]?.geplant_h ?? null, erlaubt_h: pruefung[r.id]?.erlaubt_h ?? null,
     };
   });
   const plan = {
@@ -173,7 +191,9 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
     raeume: raeume.map((r, i) => ({ id: r.id, name: r.name, p: r.p, h: erg.heizen[i].join(''), t: erg.temp[i].map(r1),
       ziel: r.ziel.map(r1), unter: r1(r.unter[0]),
       // m2: Raummodell der neuen Form gelernt (13.11.2026). Ohne (Standardwerte) setzt pv-automation den Plan nicht um.
-      m2: istV2(d.modell?.[r.id]?.param) })),
+      m2: istV2(d.modell?.[r.id]?.param),
+      // Plan-Prüfung (13.11.2026): false → pv-automation steuert diesen Raum nach dem Regelwerk, nicht nach dem Plan
+      pruefung_ok: pruefung[r.id]?.ok ?? true })),
     gewichte: g, batterie_start: r1(bat.eKwh), schritte: erg.schritte, waerme_kwh: r1(erg.waermeKwh),
   };
   const pvKwh = slots.reduce((s, x) => s + x.pv, 0) / 4000;
@@ -185,7 +205,7 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
   const antwort = { ok: true, start: wall(start), pv_kwh: r1(pvKwh), heiz_kwh: r1(erg.heizKwh), netz_kwh: r1(erg.netzKwh),
            waerme_kwh: r1(erg.waermeKwh), nachfuehrung: f,
            jetzt: jetzt.filter(j => j.plan_heizt || j.steuerung_heizt).map(j => `${j.name}: Planer ${j.plan_heizt ? 'heizt' : '–'}, Steuerung ${j.steuerung_heizt ? 'heizt' : '–'}`) };
-  return { zeile, antwort, erg, raeume };
+  return { zeile, antwort, erg, raeume, pruefung, stand };
 }
 
 /** Lernen ohne Schreiben (auch für die Prüfung „pruefen“). */

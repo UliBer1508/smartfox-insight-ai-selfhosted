@@ -227,8 +227,17 @@ export interface PlanSlot { pv: number; base: number; tout: number; pvkw: number
 export interface Batterie { eKwh: number; capKwh: number; minKwh: number; maxLadenW: number; maxEntladenW: number; eta: number }
 export interface Gewichte {
   ziel: number; unter: number; sicher: number; ueber: number; einspeiseFaktor: number; batterieRest: number;
-  waermeRest: number;   // Wert der im Haus gespeicherten Wärme am Planende je kWh (wie Batterie-Restladung)
+  waermeRest: number;   // Wert je kWh, die am Planende WENIGER im Haus gespeichert ist (Estrich leeren wird bestraft)
+  waermeMehr: number;   // Wert je kWh, die am Planende MEHR gespeichert ist (13.11.2026 abends: nur so viel wie PV-Strom,
+                        // den man sonst einspeisen würde – sonst ist Heizen aus dem Netz in den Estrich fast gratis)
 }
+
+/** Wert der Wärme am Planende (asymmetrisch, doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
+ *  Weniger Wärme als zu Beginn kostet waermeRest – aber nur, wenn der Raum am Ende unter seinem Ziel liegt. Endet er
+ *  am oder über dem Ziel, war die verlorene Wärme Überschuss (z. B. Waschraum 20 °C bei Ziel 19 °C) und zählt nur
+ *  wie PV-Strom (waermeMehr). Mehr Wärme als zu Beginn zählt immer nur waermeMehr. */
+export const waermeWert = (g: Gewichte, ende: number, ueberZiel = false) =>
+  (ende < 0 && !ueberZiel ? g.waermeRest : (g.waermeMehr ?? g.waermeRest)) * ende;
 
 export interface Ergebnis {
   heizen: number[][];             // [raum][slot] 0/1
@@ -239,7 +248,7 @@ export interface Ergebnis {
   kosten: number; schritte: number;
 }
 
-interface Sim { pen: number[]; T: number[]; S: number[]; ende: number }
+interface Sim { pen: number[]; T: number[]; S: number[]; ende: number; wert: number }
 
 function simRaum(r: PlanRaum, h: number[], slots: PlanSlot[], g: Gewichte, ab = 0, start?: { T: number; S: number }): Sim {
   const N = slots.length;
@@ -253,7 +262,7 @@ function simRaum(r: PlanRaum, h: number[], slots: PlanSlot[], g: Gewichte, ab = 
       g.sicher * Math.max(0, r.sicher[i] - T) + g.ueber * Math.max(0, T - r.max[i]));
   }
   const ende = waermeKwh(r.param, r.p, T - r.T0, S - r.S0);
-  return { pen, T: Tv, S: Sv, ende };
+  return { pen, T: Tv, S: Sv, ende, wert: waermeWert(g, ende, T >= r.ziel[N - 1]) };
 }
 
 function simEnergie(heizW: number[], slots: PlanSlot[], b: Batterie, g: Gewichte, ab = 0, e0?: number):
@@ -293,7 +302,7 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
   const penSum = (p: number[], ab: number) => { let s = 0; for (let i = ab; i < p.length; i++) s += p[i]; return s; };
   const batEnde = (e: number[]) => e[N - 1] ?? bat.eKwh;
   const gesamt = () => en.kosten - g.batterieRest * (batEnde(en.e) - bat.eKwh)
-    + rs.reduce((s, x) => s + penSum(x.pen, 0) - g.waermeRest * x.ende, 0);
+    + rs.reduce((s, x) => s + penSum(x.pen, 0) - x.wert, 0);
 
   const versuche = (r: number, blk: number, an: 0 | 1) => {
     const i0 = blk * BLOCK, i1 = Math.min(N, i0 + BLOCK);
@@ -311,7 +320,7 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
     const ne = simEnergie(hw, slots, bat, g, i0, e0);
     const vorherEnergie = (() => { let s = 0; for (let i = i0; i < N; i++) s += DT_H / 1000 * (en.netz[i] - g.einspeiseFaktor * en.einsp[i]); return s; })();
     const d = (ne.kosten - vorherEnergie) - g.batterieRest * (batEnde(ne.e) - batEnde(en.e))
-      + (penSum(nr.pen, i0) - penSum(rs[r].pen, i0)) - g.waermeRest * (nr.ende - rs[r].ende);
+      + (penSum(nr.pen, i0) - penSum(rs[r].pen, i0)) - (nr.wert - rs[r].wert);
     return { d, hn, hw, nr, ne, i0 };
   };
   const uebernehme = (r: number, x: NonNullable<ReturnType<typeof versuche>>) => {

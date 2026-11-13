@@ -314,6 +314,9 @@ async function ladePlanerPlan(supabase: any, settings: any): Promise<PlanStand> 
       const h = String(r.h ?? '');
       if (h.length <= idx) continue;
       if (r.m2 === false) continue;   // Raummodell noch nicht neu gelernt → Regelwerk für diesen Raum
+      // 13.11.2026: Plan-Prüfung (heizplaner/pruefung.ts) hat den Raum als auffällig markiert → Regelwerk für diesen Raum
+      // (doc/FIX-PLANER-PRUEFUNG-2026-11-13.md). Der Modus bleibt „steuern“, nur dieser Raum fällt zurück.
+      if (r.pruefung_ok === false) continue;
       map.set(r.id, { heizt: h[idx] === '1', ziel: Number(r.ziel?.[idx]), unter: Number(r.unter) });
     }
     return { map, grund: `Plan von ${new Date(data.erstellt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' })}` };
