@@ -5,6 +5,13 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.29.0] - 2026-11-13
+
+### Changed
+- Einstellungen: Abschnitte sehen aus wie in Heizung München (Uli: „ich bevorzuge die Münchner Darstellung“):
+  Karte ohne abgesetzte graue Kopfleiste, Titel groß, Beschreibung grau daneben, Kurzinfo rechts, Pfeil ▶ rechts
+  (dreht beim Öffnen), kein Symbol vor dem Titel. Ein Baustein: `SectionCard` in `SettingsBits.tsx`.
+
 ## [2.28.0] - 2026-11-13
 
 ### Changed
