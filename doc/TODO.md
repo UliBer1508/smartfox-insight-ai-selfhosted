@@ -1,10 +1,18 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-09
+Stand: 2026-11-13
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Planer steuert (13.11., `FIX-PLANER-MODELL-2026-11-13.md`)
+- [ ] SQL 37 ausführen, PR mergen
+- [ ] Lernen anstoßen (`analysis-scheduler` force `heizplaner_lernen`), `heizmodell.param.v = 2` für alle Räume
+- [ ] Gegenrechnung prüfen, dann Auto-Steuerung › „Steuern“
+- [ ] Nach 2–3 Tagen: Gegenrechnung, Verlauf, Befehle je Stunde; dann Regelwerk abbauen (eigener PR)
+- [ ] Dashboard: `analyze-patterns`, `analysis-summary`, `heizplaner-pruefung` löschen; Secrets `GOOGLE_AI_API_KEY`, `ANTHROPIC_API_KEY` löschen
+- [ ] Kinder Bad vor Ort (nimmt keine Befehle an) – kostet ~36 °C·h am Tag unter Untergrenze
 
 ### Sonne auf dem Fühler + DP 19 (09.11., `FIX-FUEHLER-SONNE-UND-DP19-2026-11-09.md`)
 - [x] SQL `28_fuehler_plausibel.sql` ausgeführt 09.11. 18:28 (Wohnzimmer 3 Spitzen / 58 Werte, sonst 0; 37.611 Werte DP-19-korrigiert; erste Live-Lesung 18:28 ok)

@@ -1416,6 +1416,7 @@ Deno.serve(async (req) => {
                 computed_at: new Date().toISOString(),
                 cap_w: nightCapW,
                 used_w: nightCap.usedW,
+                planer: nachtPlan.map ? { steuert: true, stand: nachtPlan.grund } : { steuert: false, stand: nachtPlan.grund },
                 rooms: nightPlan.map(p => ({ room_id: p.room.id, name: p.room.name, target: p.target, why: p.why })),
               },
               updated_at: new Date().toISOString(),

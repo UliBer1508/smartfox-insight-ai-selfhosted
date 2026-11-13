@@ -16,7 +16,7 @@
 //   pv_lernen         – PV-Vorhersage je Stunde lernen (03:00)
 //   vergleich tag=…   – Gegenrechnung eines Tages (Standard: gestern)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { PLAN_AUFBEWAHREN_TAGE, lerneAus, planAus, pvLernenAus, vergleichAus } from './rechnen.ts';
+import { PLAN_AUFBEWAHREN_TAGE, lerneAus, planAus, pvLernenAus, vergleichAus, type Abwesenheit } from './rechnen.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -48,11 +48,25 @@ async function planen(sb: any) {
   // Räume, die keine Befehle annehmen (SQL 30), plant der Planer nicht – sie heizen, wie sie gerade heizen.
   const { data: zusatz } = await sb.from('rooms').select('id, nicht_steuerbar_seit');
   const nichtSteuerbar = new Set(((zusatz ?? []) as any[]).filter(x => x.nicht_steuerbar_seit).map(x => x.id));
-  const { zeile, antwort } = planAus(d, nichtSteuerbar);
+  const abw = await abwesenheiten(sb);
+  const { zeile, antwort } = planAus(d, nichtSteuerbar, abw);
   const { error: insErr } = await sb.from('heizplan').insert(zeile);
   if (insErr) throw new Error(`heizplan: ${insErr.message}`);
   await sb.from('heizplan').delete().lt('erstellt_at', new Date(Date.now() - PLAN_AUFBEWAHREN_TAGE * 86400000).toISOString());
   return antwort;
+}
+
+/** Abwesenheiten wie in pv-automation (getPresence): Kalender-Einträge = Haus leer, Vorlauf vor der Rückkehr = anwesend.
+ *  Fail-safe: Steuerung aus oder Kalender nicht lesbar → keine Abwesenheit. */
+async function abwesenheiten(sb: any): Promise<Abwesenheit> {
+  try {
+    const { data: hs } = await sb.from('heating_settings').select('presence_control_enabled, presence_lead_hours').limit(1).maybeSingle();
+    if (hs?.presence_control_enabled === false) return [];
+    const leadH = Math.max(0, Math.min(72, Number(hs?.presence_lead_hours ?? 6) || 0));
+    const { data } = await sb.from('presence_periods').select('start_at, end_at').gt('end_at', new Date().toISOString()).limit(50);
+    return ((data ?? []) as any[]).map(r => [new Date(r.start_at).getTime() / 1000, new Date(r.end_at).getTime() / 1000 - leadH * 3600] as [number, number])
+      .filter(([v, b]) => b > v);
+  } catch { return []; }
 }
 
 async function lernen(sb: any, raumId: string, tage: number) {

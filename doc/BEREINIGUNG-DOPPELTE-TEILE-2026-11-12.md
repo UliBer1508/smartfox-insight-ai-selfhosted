@@ -5,6 +5,8 @@ alten nicht ersetzt?“ – „Ich möchte, dass wir die doppelt entwickelten Te
 – „Du solltest als erstes die doppelten Entwicklungen bereinigen.“
 
 **Stand:** Stufe 1 umgesetzt (PR, SQL 34 nach Freigabe). Stufe 2 vorbereitet, Entscheidung Uli je Punkt.
+**13.11.2026:** Modus „steuern“ gebaut, Mustergedächtnis (`analyze-patterns`) und alle Sprach-KI entfernt
+(`doc/FIX-PLANER-MODELL-2026-11-13.md`). Damit erledigt: Nr. 8 und 11; Nr. 6, 7, 9 wirken im Modus „steuern“ nur noch im Rückfall.
 
 ---
 
@@ -108,7 +110,7 @@ Diese Teile verändern das Heizen. Ersetzen nur nach Nachrechnung mit echten Dat
 |---|---|---|---|
 | 2a | Mustergedächtnis-Zuschläge (§4.3) | 12.11.2026 | erledigt |
 | 2b | PV-Prognose tauschen (§4.1) | Nachrechnung 16.11.2026, Umbau danach | Nachrechnung zeigt: Planer-Prognose näher an der Messung |
-| 2c | Bewertung (§4.4), Status-Karten (§4.6), alte Tabellen und `analyze-patterns` | mit Modus „steuern“ | Planer steuert |
+| 2c | Bewertung (§4.4), Status-Karten (§4.6), alte Tabellen und `analyze-patterns` | mit Modus „steuern“ | Planer steuert – `analyze-patterns` entfernt 13.11.2026, Rest offen |
 | 2d | Energiebedarf je Raum (§4.2) | Prüfung 23.11.2026 | Heizmodell für alle Räume plausibel (Fehler 12 h besser als „bleibt gleich“) |
 
 ### 4.4 Bewertung (Nr. 10)

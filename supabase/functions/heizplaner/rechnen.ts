@@ -73,7 +73,8 @@ export function gewichte(s: any): Gewichte {
 
 /** Räume und Slots für einen Plan ab `start` aufbauen. pvVon(ep) liefert die PV je Slot (W). */
 export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: number) => number,
-              T0: (r: any) => number | null, festVon?: (r: any, ep: number, i: number) => 0 | 1 | null) {
+              T0: (r: any) => number | null, festVon?: (r: any, ep: number, i: number) => 0 | 1 | null,
+              abwesend?: (ep: number) => boolean) {
   const s = d.settings ?? {};
   const ns = minuten(s.night_start_time, '22:00'), ne = minuten(s.night_end_time, '08:00');
   const base = Number(d.grundlast) || 240;
@@ -99,7 +100,9 @@ export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: nu
     const nachtZiel = Math.max(Number(r.nacht ?? s.night_temp ?? unter), unter);
     raeume.push({
       id: r.id, name: r.name, p: Number(r.p) || 800, T0: t0, S0, param,
-      ziel: nacht.map(n => (n ? nachtZiel : eco)), unter: eps.map(() => unter), sicher: eps.map(() => unter - abst),
+      // Abwesend (Kalender, wie pv-automation „jeder Tag ein Wartetag“): tagsüber Ziel = Untergrenze; PV-Überschuss
+      // darf trotzdem bis Komfort laden (das entscheidet die Rechnung über den Einspeisewert).
+      ziel: nacht.map((n, i) => (n ? nachtZiel : (abwesend?.(eps[i]) ? unter : eco))), unter: eps.map(() => unter), sicher: eps.map(() => unter - abst),
       max: eps.map(() => Number(r.komfort ?? eco + 1)),   // 07.11.2026: Komfort ist das Maximum (kein eigener Estrich-Wert mehr)
       gewicht: 1 + (12 - (Number(r.prio) || 12)) / 12,
       fest: eps.map((ep, i) => (festVon ? festVon(r, ep, i) : null)),
@@ -116,7 +119,9 @@ export const letzterSoc = (a: Aufb, bis: number) => { let best = -1, soc = 50; f
 export const r1 = (x: number) => Math.round(x * 10) / 10;
 
 /** Plan rechnen ohne Schreiben (auch für die Prüfung). */
-export function planAus(d: Daten, nichtSteuerbar: Set<string>) {
+/** Abwesenheiten (presence_periods) als Zeiträume [von, bis − Vorlauf] in Epoch-Sekunden. */
+export type Abwesenheit = [number, number][];
+export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit = []) {
   const a = aufbereiten(d);
   const start = Math.floor(d.jetzt / 900) * 900;
   const pvm: PvModell = d.pv_modell?.coef ?? lernePv(a.pvIst, a.wet);
@@ -140,7 +145,8 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>) {
     if (r.manuell_bis && new Date(r.manuell_bis).getTime() > ep * 1000) return r.heizt ? 1 : 0;          // manuell: so lassen
     return null;
   };
-  const { slots, raeume, eps } = baue(d, a, start, pvVon, r => (r.t == null ? null : Number(r.t)), fest);
+  const abwesend = (ep: number) => abw.some(([v, b]) => ep >= v && ep < b);
+  const { slots, raeume, eps } = baue(d, a, start, pvVon, r => (r.t == null ? null : Number(r.t)), fest, abwesend);
   const bat = batterieVon(d, letzterSoc(a, d.jetzt));
   const g = gewichte(d.settings);
   const erg = plane(raeume, slots, bat, g);
