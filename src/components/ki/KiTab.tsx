@@ -11,11 +11,9 @@ import { EnergyReading } from '@/types/energy';
 import { useKiPending } from '@/hooks/useKiPending';
 import { AIStatusWidget } from '@/components/heating/AIStatusWidget';
 import { AIShadowDecisions } from '@/components/heating/AIShadowDecisions';
-import { LearningProgress } from '@/components/heating/LearningProgress';
 import { AutomationStatusCard } from '@/components/heating/AutomationStatusCards';
 import { ZuEntscheiden } from './ZuEntscheiden';
 import { PriceSuggestionBanner } from '@/components/energy/PriceSuggestionBanner';
-import { KiAnalysisRuns } from './KiAnalysisRuns';
 import { Klappabschnitt } from '@/components/layout/Klappabschnitt';
 
 const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9äöü]+/g, '-');
@@ -24,16 +22,11 @@ function Section({ n, title, question, children, right }: { n: number; title: st
   return <Klappabschnitt id={`ki-${slug(title)}`} n={n} titel={title} frage={question} rechts={right}>{children}</Klappabschnitt>;
 }
 
-export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: {
+// 13.11.2026: Sprach-KI entfernt – „Lernen & Qualität“ (Gemini-Analyse, Lern-Ereignisse der entfernten Policies) und
+// „Auswertungen“ (Gemini-Musteranalyse Tag/Woche/Monat). Muster lernt der Heizplaner (Tab Auto-Steuerung).
+export function KiTab({ rooms, currentReading, onNavigate }: {
   rooms: Room[];
   currentReading: EnergyReading | null;
-  readings: EnergyReading[];
-  pattern: {
-    analysis: string | null;
-    isAnalyzing: boolean;
-    analyzeDailyPattern: (r: EnergyReading[]) => void;
-    analyzeWeeklyComparison: () => void;
-  };
   onNavigate: (tab: 'settings') => void;
 }) {
   const pending = useKiPending();
@@ -71,21 +64,11 @@ export function KiTab({ rooms, currentReading, readings, pattern, onNavigate }: 
         <AutomationStatusCard />
       </Section>
 
-      <Section n={3} title="Lernen & Qualität" question="Welche Daten hat die KI gesammelt?">
-        <LearningProgress />
+      <Section n={3} title="Protokoll" question="Frühere Parameter-Vorschläge">
         <details className="rounded-lg border bg-card p-4">
           <summary className="cursor-pointer text-sm font-semibold select-none">Frühere Parameter-Vorschläge (Protokoll bis 04.11.2026)</summary>
           <div className="mt-3"><AIShadowDecisions /></div>
         </details>
-      </Section>
-
-      <Section n={4} title="Auswertungen" question="Musteranalyse für Tag, Woche, Monat – auf Knopfdruck.">
-        <Card>
-          <CardContent className="p-4">
-            <KiAnalysisRuns readings={readings} analysis={pattern.analysis} isAnalyzing={pattern.isAnalyzing}
-              onAnalyzeDaily={pattern.analyzeDailyPattern} onAnalyzeWeekly={pattern.analyzeWeeklyComparison} />
-          </CardContent>
-        </Card>
       </Section>
     </div>
   );

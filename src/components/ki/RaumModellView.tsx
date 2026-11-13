@@ -16,18 +16,22 @@ function Hint({ children }: { children: React.ReactNode }) {
 // ================================================================ Raummodell (02.11.2026; seit 12.11.2026 = Heizmodell des Planers)
 // Vorher: eigenes Nacht-Modell (raum_abkuehlung / raum_modell, SQL 18) – nur aus wenigen Nächten ohne Heizen gelernt.
 // Ersetzt durch das Heizmodell des Planers (heizmodell, täglich 03:00 aus 30 Tagen, doc/KONZEPT-PLANER-2026-11-06.md):
-// ΔT je Stunde = −k·(T − T_außen) + g·Estrich + s·PV_kW + c. doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md
-type HeizModell = { room_id: string; raum: string; param: { k: number; g: number; s: number; c: number; tau: number } | null;
+// Seit 13.11.2026 mit zwei Wärmespeichern (Estrich und Raumluft, param.v = 2): doc/FIX-PLANER-MODELL-2026-11-13.md.
+// Altes Modell (ohne v): ΔT je Stunde = −k·(T − T_außen) + g·Estrich + s·PV_kW + c.
+type HeizModell = { room_id: string; raum: string; param: { v?: number; k: number; g: number; s: number; c: number; tau?: number; r?: number; auf?: number } | null;
   fehler_12h: number | null; gleich_12h: number | null; heiz_std: number | null; prior: boolean | null; tage: number | null; gelernt_at: string | null };
 type Voraus = { computed_at?: string; quelle?: string; aussen_nacht?: number | null; stunden_nacht?: number;
   rooms?: { room_id: string; name: string; current?: number; eco?: number; k?: number; c?: number; noetigAbends?: number; morgenOhneHeizen?: number; nachtBedarf?: number }[] };
 
-// Abfall in h Stunden ohne Heizen ab T bei Außentemperatur a: Ziel ist T∞ = a + c/k
+// Abfall in h Stunden ohne Heizen ab T bei Außentemperatur a: Ziel ist T∞ = a + c/k.
+// Neues Modell: Raumluft und Estrich kühlen gemeinsam aus, also langsamer (k / (1 + r)).
 const abfall = (p: HeizModell['param'], t: number, a: number, h = 10) => {
   if (!p || !(p.k > 0)) return null;
   const tInf = a + (p.c || 0) / p.k;
-  return (t - tInf) * (1 - Math.exp(-p.k * h));
+  const rate = p.v === 2 ? p.k / (1 + (p.r ?? 0)) : p.k;
+  return (t - tInf) * (1 - Math.exp(-rate * h));
 };
+const aufheizen = (p: HeizModell['param']) => (p ? (p.v === 2 ? p.auf ?? null : p.g) : null);
 
 export function RaumModellView({ rooms }: { rooms: Room[] }) {
   const db = supabase as any;
@@ -59,9 +63,10 @@ export function RaumModellView({ rooms }: { rooms: Room[] }) {
           {gelernt && <span className="text-xs text-muted-foreground">gelernt {new Date(gelernt).toLocaleDateString('de-DE')} {timeOf(gelernt)}</span>}
         </div>
         <Hint>
-          Das Heizmodell des Planers lernt jede Nacht um 3 Uhr aus den letzten 30 Tagen je Raum: wie schnell er nach draußen
-          auskühlt (k), wie schnell er beim Heizen wärmer wird (Aufheizen), wie viel die Sonne bringt und wie viel Wärme aus
-          Nachbarräumen kommt. Räume mit wenig Heizdaten lehnen sich an die anderen Räume an. Daraus rechnet die Steuerung,
+          Das Heizmodell des Planers lernt jede Nacht um 3 Uhr aus den Messwerten je Raum: wie viel Wärme der Estrich
+          speichert, wie schnell er sie an den Raum abgibt, wie schnell der Raum nach draußen auskühlt, wie schnell er beim
+          Heizen wärmer wird (Aufheizen) und wie viel die Sonne bringt. Räume mit wenig Heizdaten lehnen sich an die anderen
+          Räume an. Daraus rechnet die Steuerung,
           wie warm ein Raum abends sein muss, damit er morgens ohne Heizen noch Eco hat.
         </Hint>
         {voraus?.computed_at && (
@@ -100,7 +105,7 @@ export function RaumModellView({ rooms }: { rooms: Room[] }) {
                       </td>
                       <td className="py-2 px-2 text-right">{abfall(m.param, eco, 0) == null ? '–' : `${num(abfall(m.param, eco, 0))} °C`}</td>
                       <td className="py-2 px-2 text-right">{abfall(m.param, eco, -10) == null ? '–' : `${num(abfall(m.param, eco, -10))} °C`}</td>
-                      <td className="py-2 px-2 text-right">{m.param ? `${num(m.param.g)} °C/h` : '–'}</td>
+                      <td className="py-2 px-2 text-right">{aufheizen(m.param) == null ? '–' : `${num(aufheizen(m.param))} °C/h`}</td>
                       <td className="py-2 px-2 text-right" title={`Modell ${num(m.fehler_12h)} °C · „bleibt gleich“ ${num(m.gleich_12h)} °C`}>
                         {m.fehler_12h == null ? '–' : `${num(m.fehler_12h)} °C`}{m.gleich_12h != null && <span className={`ml-1 text-[11px] ${besser ? 'text-success' : 'text-muted-foreground'}`}>({num(m.gleich_12h)})</span>}
                       </td>
@@ -114,7 +119,7 @@ export function RaumModellView({ rooms }: { rooms: Room[] }) {
             </table>
             <Hint>
               „−10 h“: so viel kühlt der Raum in 10 Stunden ohne Heizen ab Eco aus. „Aufheizen“: so schnell wird er beim Heizen
-              wärmer (über den Estrich verzögert). „Fehler 12 h“: mittlere Abweichung der Vorhersage über 12 Stunden, in Klammern
+              wärmer, Estrich und Raum zusammen (der Raum folgt dem Estrich verzögert). „Fehler 12 h“: mittlere Abweichung der Vorhersage über 12 Stunden, in Klammern
               zum Vergleich „Temperatur bleibt gleich“ – grün, wenn das Modell besser ist.
             </Hint>
           </div>

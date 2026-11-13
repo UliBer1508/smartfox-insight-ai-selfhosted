@@ -165,7 +165,9 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>) {
     pv: slots.map(s => Math.round(s.pv)), heiz: erg.heizW.map(Math.round), netz: erg.netzW.map(Math.round),
     einsp: erg.einspeisW.map(Math.round), bat: erg.batKwh.map(r1), tout: slots.map(s => r1(s.tout)),
     raeume: raeume.map((r, i) => ({ id: r.id, name: r.name, p: r.p, h: erg.heizen[i].join(''), t: erg.temp[i].map(r1),
-      ziel: r.ziel.map(r1), unter: r1(r.unter[0]) })),
+      ziel: r.ziel.map(r1), unter: r1(r.unter[0]),
+      // m2: Raummodell der neuen Form gelernt (13.11.2026). Ohne (Standardwerte) setzt pv-automation den Plan nicht um.
+      m2: istV2(d.modell?.[r.id]?.param) })),
     gewichte: g, batterie_start: r1(bat.eKwh), schritte: erg.schritte, waerme_kwh: r1(erg.waermeKwh),
   };
   const pvKwh = slots.reduce((s, x) => s + x.pv, 0) / 4000;
@@ -228,13 +230,6 @@ export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>)
   const heizIst = b.raeume.map(r => b.eps.map(ep => a.smp.get(r.id)?.get(ep)?.h ?? 0));
   const eIst = bewerte(b.raeume, b.slots, bat, g, heizIst);
   const ePlan = plane(b.raeume, b.slots, bat, g);
-  // Planer bei gleichem Komfort wie die Steuerung: Komfort-Gewicht skalieren (Bisektion, logarithmisch)
-  let lo = 0.02, hi = 4, gleich: any = null;
-  for (let it = 0; it < 6; it++) {
-    const m = Math.sqrt(lo * hi);
-    const e = plane(b.raeume, b.slots, bat, { ...g, ziel: g.ziel * m, unter: g.unter * m });
-    if (e.komfortGradStd > eIst.komfortGradStd) lo = m; else { hi = m; gleich = { m, e }; }
-  }
   // Modellprüfung: Simulation mit echter Heizung gegen gemessene Temperaturen
   let abw = 0, n = 0;
   b.raeume.forEach((r, i) => b.eps.forEach((ep, j) => { const t = a.smp.get(r.id)?.get(ep + 900)?.t; if (t != null) { abw += Math.abs(eIst.temp[i][j] - t); n++; } }));
@@ -243,8 +238,12 @@ export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>)
   // aber den Speicher leert, ist nicht besser – deshalb steht die Wärme dabei (13.11.2026).
   const kurz = (e: any) => ({ heiz_kwh: r1(e.heizKwh), netz_kwh: r1(e.netzKwh), einspeis_kwh: r1(e.einspeisKwh),
     unter_ziel_gradstd: r1(e.komfortGradStd), unter_grenze_gradstd: r1(e.unterGradStd), waerme_kwh: r1(e.waermeKwh) });
-  return { ok: true, tag, netz_gemessen_kwh: r1(netzGem), steuerung: kurz(eIst), planer: kurz(ePlan),
-    planer_gleich: gleich ? { ...kurz(gleich.e), faktor: Math.round(gleich.m * 100) / 100 } : null,
+  // Fairer Vergleich (13.11.2026): Netz des Planers, bereinigt um die Wärme, die er am Tagesende mehr (oder weniger) im
+  // Haus gespeichert hat als die Steuerung. Die frühere Spalte „Planer bei gleichem Komfort“ (Komfort-Gewicht skaliert)
+  // entfällt: Mit dem Wert der Restwärme leerte sie den Estrich und war nicht mehr vergleichbar.
+  const planer = { ...kurz(ePlan), netz_bereinigt_kwh: r1(ePlan.netzKwh - (ePlan.waermeKwh - eIst.waermeKwh)) };
+  return { ok: true, tag, netz_gemessen_kwh: r1(netzGem), steuerung: kurz(eIst), planer,
+    planer_gleich: null,
     modell_abw: n ? Math.round(abw / n * 100) / 100 : null, erstellt_at: new Date().toISOString() };
 }
 
