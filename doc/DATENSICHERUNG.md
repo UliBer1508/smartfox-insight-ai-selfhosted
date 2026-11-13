@@ -25,8 +25,12 @@ Gesichert wird **nur die Datenbank** — das Projekt nutzt keinen Supabase-Datei
 
 Einstellungen → Bereich **„Datensicherung“**
 (`src/components/settings/BackupSettingsSection.tsx`):
-letzte Sicherung mit Status, Größe, Rechner, Uhrzeit, Ordner, Verlauf, rote
-Warnung, wenn die letzte gelungene Sicherung älter als die Warnschwelle ist.
+je PC (PC München = sichert jede Nacht, PC Österreich = Ersatz) letzter Lauf
+mit Status bzw. „Übersprungen“, letzte gelungene Sicherung, Größe, Uhrzeit, Ordner;
+Verlauf 14 Tage mit Rechner; rote Warnung, wenn die letzte gelungene Sicherung
+älter als die Warnschwelle ist; gelbe Warnung, wenn PC München ausfällt (Ersatz
+eingesprungen) oder der Ersatz sich nicht mehr meldet (`system_settings.backup_standby`).
+Stand 13.11.2026, gleiche Regeln wie Heizung München (`frontend/src/Datensicherung.jsx`).
 Einstellbar: Sicherung aktiv/pausiert, Aufbewahrung (Tage), Warnschwelle (Stunden).
 
 Datenquellen:

@@ -5,6 +5,15 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.28.0] - 2026-11-13
+
+### Changed
+- Einstellungen › Datensicherung zeigt **beide Sicherungs-PCs** (wie Heizung München, `Datensicherung.jsx`):
+  PC München „sichert jede Nacht“, PC Österreich „Ersatz – sichert nur, wenn nötig“, je PC letzter Lauf
+  (auch „Übersprungen“ aus `system_settings.backup_standby`), letzte gelungene Sicherung, Größe, Uhrzeit, Ordner.
+  Verlauf 14 Tage mit Rechner je Lauf. Gelbe Warnung, wenn München ausfällt (Österreich eingesprungen)
+  oder der Ersatz sich nicht meldet. Texte „PN40“ ersetzt.
+
 ## [2.27.0] - 2026-11-12
 
 ### Removed (`doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md`, Stufe 2a)

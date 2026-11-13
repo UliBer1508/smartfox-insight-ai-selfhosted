@@ -672,6 +672,10 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
 
+### 2026-11-13 — Datensicherung: beide PCs sichtbar
+- Uli: „es ist doch wichtig, dass ich beide PCs sehe und weiß, wer was gemacht hat.“ Die Karte zeigte nur die neueste Sicherung (heute die Test-Sicherung von PC Österreich) und sprach vom „PN40“.
+- Neu: Stand je PC, Ersatz-Lebenszeichen `backup_standby`, Rechner im Verlauf, gelbe Warnungen. Logik `bewerteSicherung()` in `lib/backupStatus.ts`, gleiche Regeln wie München. Version 2.28.0.
+
 ### 2026-11-09 — Vorrang behalten, Schaltband der Thermostate
 - Befund: Wohnzimmer verlor „heizt allein“ nach einem Lauf (sechsmal am 09.11.); Thermostate schalten bei Soll ± 1,0 °C – „wartet → Ist − 0,5“ stoppte nichts (5,5 kW über der Grenze), zugeteilte Räume im Band heizten nicht, belegten aber die Grenze.
 - `pv-automation`: behalten bis Ziel, Reservierung für Vorrang, Warten = Ist − Band − 0,5, Anstoß und Abschalten am Ziel (Lokal). SQL 29, Einstellungen › Haus › Verteilung. DP 101 Wohnzimmer → 0,5 °C (Test).
