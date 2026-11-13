@@ -2,8 +2,8 @@
 //
 // Reine Funktionen ohne Datenbank, damit sie mit echten Daten geprüft werden können.
 //   1. Raummodell   – je Raum gelernt, zwei Wärmespeicher: Estrich (S) und Raumluft (T), 15-Minuten-Schritte.
-//                     Wärme kommt aus der Heizung in den Estrich, vom Estrich in den Raum, geht nach draußen (k) und
-//                     zu den Nachbarräumen (m, gegen das Mittel der anderen Räume). Sonne (s), kleine innere Wärme (c).
+//                     Wärme kommt aus der Heizung in den Estrich, vom Estrich in den Raum und geht nach draußen (k).
+//                     Sonne (s), kleine innere Wärme (c).
 //   2. PV-Modell    – je Stunde des Tages gelernt aus Strahlung (direkt/diffus) → echte PV (inkl. Bergschatten),
 //                     tagsüber an der gerade gemessenen PV nachgeführt.
 //   3. Batterie     – Laden aus Überschuss, Entladen bei Bedarf, sonst Netz (Fronius „0 W Netz“).
@@ -14,6 +14,11 @@
 // Warum zwei Speicher (13.11.2026): Das alte Modell hatte nur die Raumluft und eine feste „innere Wärme“ c. Gelernt
 // wurden in Summe ~8 kW innere Wärme bei 240 W Grundlast – in Wahrheit Wärme aus dem Estrich und aus beheizten
 // Nachbarräumen. Heizte der Planer weniger, blieb diese Wärme im Modell trotzdem da, und er hätte das Haus auskühlen lassen.
+// Geprüft 13.11.2026 mit 14 Tagen Messwerten: neu zusammen ~2,2 kW Verlust bei 18 °C Unterschied (gemessen ~40 kWh Heizen
+// am Tag), innere Wärme ~60 W; Fehler nach 12 h in 9 von 12 Räumen kleiner als beim alten Modell.
+// Bewusst ohne Kopplung an die Nachbarräume: Mit dem gemessenen Mittel der anderen Räume als Eingang „lernte“ das Modell,
+// dass die Räume kaum nach draußen verlieren und einfach den anderen folgen (k an der Untergrenze) – im Plan wäre das Haus
+// dann nie ausgekühlt.
 
 export const DT_H = 0.25;            // 15 Minuten
 export const SLOTS = 96;             // 24 h
@@ -22,28 +27,28 @@ export const BLOCK = 2;              // Entscheidung je 30 min (2 Slots)
 // ---------------------------------------------------------------- 1. Raummodell
 /**
  *   dS/dt = g·h − u·(S − T)                                          Estrich (°C)
- *   dT/dt = r·u·(S − T) − k·(T − T_außen) − m·(T − T_haus) + s·PV_kW + c     Raumluft (°C)
+ *   dT/dt = r·u·(S − T) − k·(T − T_außen) + s·PV_kW + c                Raumluft (°C)
  * h: heizt 0…1 · g: Aufheizen des Estrichs beim Heizen (°C/h) · u: Austausch Estrich→Raum (1/h)
- * r: Estrich-Wärmespeicher / Luft-Wärmespeicher · k: nach draußen (1/h) · m: zu den Nachbarräumen (1/h)
+ * r: Estrich-Wärmespeicher / Luft-Wärmespeicher · k: nach draußen (1/h)
  * s: Sonne (°C/h je kW PV) · c: innere Wärme (°C/h, klein)
  */
-export interface RaumParam { v: 2; k: number; m: number; g: number; u: number; r: number; s: number; c: number }
+export interface RaumParam { v: 2; k: number; g: number; u: number; r: number; s: number; c: number }
 
 export interface Fenster {
   T0: number;
   histT: number[]; histH: number[];         // 12 h vor dem Start (älteste zuerst), für den Estrich-Zustand
-  h: number[]; tout: number[]; pvkw: number[]; tn: number[];   // je Schritt
+  h: number[]; tout: number[]; pvkw: number[];   // je Schritt
   tIst: (number | null)[];                   // gemessene Temperatur am Schrittende
 }
 
 // Grenzen der Parameter (physikalisch sinnvoll). c ist bewusst klein: Grundlast ~240 W für das ganze Haus.
 export const GRENZEN: Record<Exclude<keyof RaumParam, 'v'>, [number, number]> = {
-  k: [0.0005, 0.08], m: [0, 0.2], g: [0.05, 4], u: [0.05, 2], r: [0.5, 20], s: [-0.05, 0.3], c: [-0.03, 0.04],
+  k: [0.0005, 0.08], g: [0.05, 4], u: [0.05, 2], r: [0.5, 20], s: [-0.05, 0.3], c: [-0.03, 0.04],
 };
-const SCHLUESSEL = ['k', 'm', 'g', 'u', 'r', 's', 'c'] as const;
+const SCHLUESSEL = ['k', 'g', 'u', 'r', 's', 'c'] as const;
 const RU_MAX = 2.5;                  // r·u·DT < 1 für eine stabile Rechnung
 
-export const STANDARD_PARAM: RaumParam = { v: 2, k: 0.006, m: 0.02, g: 0.6, u: 0.3, r: 4, s: 0.02, c: 0 };
+export const STANDARD_PARAM: RaumParam = { v: 2, k: 0.01, g: 0.45, u: 0.25, r: 6, s: 0.08, c: 0 };
 
 export function istV2(p: any): p is RaumParam {
   return !!p && p.v === 2 && SCHLUESSEL.every(s => Number.isFinite(Number(p[s])));
@@ -60,18 +65,16 @@ export function estrichStart(p: RaumParam, histT: number[], histH: number[], T0:
 }
 
 /** Ein Schritt: neue Raumtemperatur und neuer Estrich-Zustand. */
-export function schritt(p: RaumParam, T: number, S: number, h: number, tout: number, pvkw: number, tn: number): [number, number] {
+export function schritt(p: RaumParam, T: number, S: number, h: number, tout: number, pvkw: number): [number, number] {
   const fluss = S - T;
   const Sn = S + DT_H * (p.g * h - p.u * fluss);
-  const Tn = T + DT_H * (p.r * p.u * fluss - p.k * (T - tout) - p.m * (T - tn) + p.s * pvkw + p.c);
+  const Tn = T + DT_H * (p.r * p.u * fluss - p.k * (T - tout) + p.s * pvkw + p.c);
   return [Tn, Sn];
 }
 
 /** Ohne Heizen: wohin strebt der Raum (T∞) und wie schnell (je h) – Luft und Estrich zusammen. */
-export function ohneHeizen(p: RaumParam, tout: number, tHaus: number): { tInf: number; rate: number } {
-  const kk = p.k + p.m;
-  const tInf = kk > 0 ? (p.k * tout + p.m * tHaus + p.c) / kk : tHaus;
-  return { tInf, rate: kk / (1 + p.r) };
+export function ohneHeizen(p: RaumParam, tout: number): { tInf: number; rate: number } {
+  return { tInf: tout + p.c / p.k, rate: p.k / (1 + p.r) };
 }
 
 /** Aufheizen, wenn Estrich und Raum gemeinsam warm werden (°C/h) – für die Anzeige. */
@@ -89,7 +92,7 @@ export function simFehler(p: RaumParam, wins: Fenster[]): number {
     let S = estrichStart(p, w.histT, w.histH, w.T0);
     let T = w.T0;
     for (let i = 0; i < w.h.length; i++) {
-      [T, S] = schritt(p, T, S, w.h[i], w.tout[i], w.pvkw[i], w.tn[i]);
+      [T, S] = schritt(p, T, S, w.h[i], w.tout[i], w.pvkw[i]);
       const ist = w.tIst[i];
       if (ist != null && (i + 1) % 4 === 0) { se += (T - ist) ** 2; n++; }
     }
@@ -104,7 +107,7 @@ export function prognoseFehler(p: RaumParam, wins: Fenster[], idx: number): { mo
     if (w.h.length <= idx || w.tIst[idx] == null) continue;
     let S = estrichStart(p, w.histT, w.histH, w.T0);
     let T = w.T0;
-    for (let i = 0; i <= idx; i++) [T, S] = schritt(p, T, S, w.h[i], w.tout[i], w.pvkw[i], w.tn[i]);
+    for (let i = 0; i <= idx; i++) [T, S] = schritt(p, T, S, w.h[i], w.tout[i], w.pvkw[i]);
     em += Math.abs(T - (w.tIst[idx] as number));
     eg += Math.abs(w.T0 - (w.tIst[idx] as number));
     n++;
@@ -161,12 +164,12 @@ export function lerneRaum(wins: Fenster[], prior: RaumParam | null, pw: number, 
     let e = simFehler(p, wins);
     if (p.r * p.u > RU_MAX) e += 10 * (p.r * p.u - RU_MAX);
     if (prior && pw > 0) {
-      e += pw * (((p.k - prior.k) / 0.005) ** 2 + ((p.m - prior.m) / 0.02) ** 2 + (Math.log(p.g / prior.g) / 0.5) ** 2
+      e += pw * (((p.k - prior.k) / 0.005) ** 2 + (Math.log(p.g / prior.g) / 0.5) ** 2
         + (Math.log(p.u / prior.u) / 0.7) ** 2 + (Math.log(p.r / prior.r) / 0.7) ** 2 + ((p.c - prior.c) / 0.02) ** 2);
     }
     return e;
   };
-  const starts: RaumParam[] = [STANDARD_PARAM, { ...STANDARD_PARAM, u: 1, r: 2, g: 0.4 }];
+  const starts: RaumParam[] = [STANDARD_PARAM, { ...STANDARD_PARAM, u: 1, r: 2, g: 0.6 }];
   if (prior) starts.push(prior);
   let best: { x: number[]; v: number } | null = null;
   for (const s0 of starts) {
@@ -238,17 +241,12 @@ export interface Ergebnis {
 
 interface Sim { pen: number[]; T: number[]; S: number[]; ende: number }
 
-/** Mittel der anderen Räume je Slot (aus der Summe aller simulierten Temperaturen). */
-function nachbarn(sumT: number[], eigen: number[], R: number, T0mittel: number): number[] {
-  return sumT.map((s, i) => (R > 1 ? (s - eigen[i]) / (R - 1) : T0mittel));
-}
-
-function simRaum(r: PlanRaum, h: number[], slots: PlanSlot[], g: Gewichte, tn: number[], ab = 0, start?: { T: number; S: number }): Sim {
+function simRaum(r: PlanRaum, h: number[], slots: PlanSlot[], g: Gewichte, ab = 0, start?: { T: number; S: number }): Sim {
   const N = slots.length;
   const pen = new Array(N).fill(0), Tv = new Array(N), Sv = new Array(N);
   let T = start ? start.T : r.T0, S = start ? start.S : r.S0;
   for (let i = ab; i < N; i++) {
-    [T, S] = schritt(r.param, T, S, h[i], slots[i].tout, slots[i].pvkw, tn[i]);
+    [T, S] = schritt(r.param, T, S, h[i], slots[i].tout, slots[i].pvkw);
     Tv[i] = T; Sv[i] = S;
     pen[i] = DT_H * r.gewicht * (
       g.ziel * Math.max(0, r.ziel[i] - T) + g.unter * Math.max(0, r.unter[i] - T) +
@@ -284,26 +282,13 @@ function simEnergie(heizW: number[], slots: PlanSlot[], b: Batterie, g: Gewichte
  * Gierige Verbesserung: Start ohne Heizen (außer fest), dann jeweils die halbe Stunde und den Raum
  * einschalten, die die Gesamtkosten (Netz-kWh + Komfort − Wert der Restwärme und Restladung) am meisten senken –
  * solange es etwas bringt und die Leistungsgrenze je Slot hält. Danach ein Durchgang, der Überflüssiges wieder ausschaltet.
- * Nachbarräume: Jeder Raum rechnet mit dem Mittel der anderen Räume aus dem aktuellen Stand des Plans;
- * nach jeder Änderung werden alle Räume mit dem neuen Mittel nachgerechnet.
  */
 export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: Gewichte, maxSchritte = 600): Ergebnis {
   const N = slots.length, R = raeume.length, B = Math.ceil(N / BLOCK);
   const h = raeume.map(r => r.fest.map(f => (f == null ? 0 : f)));
   const heizW = new Array(N).fill(0);
   for (let i = 0; i < N; i++) for (let r = 0; r < R; r++) heizW[i] += h[r][i] * raeume[r].p;
-  const T0mittel = R ? raeume.reduce((s, r) => s + r.T0, 0) / R : 20;
-
-  // Nachbar-Mittel: zwei Durchgänge (Start mit den Anfangstemperaturen)
-  let sumT = new Array(N).fill(raeume.reduce((s, r) => s + r.T0, 0));
-  let rs: Sim[] = [];
-  const allesRechnen = () => {
-    for (let pass = 0; pass < 2; pass++) {
-      rs = raeume.map((r, i) => simRaum(r, h[i], slots, g, nachbarn(sumT, rs[i]?.T ?? new Array(N).fill(r.T0), R, T0mittel)));
-      sumT = new Array(N).fill(0).map((_, j) => rs.reduce((s, x) => s + x.T[j], 0));
-    }
-  };
-  allesRechnen();
+  const rs: Sim[] = raeume.map((r, i) => simRaum(r, h[i], slots, g));
   let en = simEnergie(heizW, slots, bat, g);
   const penSum = (p: number[], ab: number) => { let s = 0; for (let i = ab; i < p.length; i++) s += p[i]; return s; };
   const batEnde = (e: number[]) => e[N - 1] ?? bat.eKwh;
@@ -320,20 +305,20 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
       if (an === 1 && hw[i] > slots[i].capW + 1) return null;
     }
     const start = i0 > 0 ? { T: rs[r].T[i0 - 1], S: rs[r].S[i0 - 1] } : undefined;
-    const nr = simRaum(raeume[r], hn, slots, g, nachbarn(sumT, rs[r].T, R, T0mittel), i0, start);
+    const nr = simRaum(raeume[r], hn, slots, g, i0, start);
     for (let i = 0; i < i0; i++) { nr.T[i] = rs[r].T[i]; nr.S[i] = rs[r].S[i]; nr.pen[i] = rs[r].pen[i]; }
     const e0 = i0 > 0 ? en.e[i0 - 1] : undefined;
     const ne = simEnergie(hw, slots, bat, g, i0, e0);
     const vorherEnergie = (() => { let s = 0; for (let i = i0; i < N; i++) s += DT_H / 1000 * (en.netz[i] - g.einspeiseFaktor * en.einsp[i]); return s; })();
     const d = (ne.kosten - vorherEnergie) - g.batterieRest * (batEnde(ne.e) - batEnde(en.e))
       + (penSum(nr.pen, i0) - penSum(rs[r].pen, i0)) - g.waermeRest * (nr.ende - rs[r].ende);
-    return { d, hn, hw, i0 };
+    return { d, hn, hw, nr, ne, i0 };
   };
   const uebernehme = (r: number, x: NonNullable<ReturnType<typeof versuche>>) => {
     h[r] = x.hn;
     for (let i = 0; i < N; i++) heizW[i] = x.hw[i];
-    allesRechnen();
-    en = simEnergie(heizW, slots, bat, g);
+    rs[r] = x.nr;
+    for (let i = x.i0; i < N; i++) { en.netz[i] = x.ne.netz[i]; en.einsp[i] = x.ne.einsp[i]; en.e[i] = x.ne.e[i]; }
   };
 
   let schritte = 0;
@@ -354,6 +339,7 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
     if (x && x.d < -1e-4) uebernehme(r, x);
   }
 
+  en = simEnergie(heizW, slots, bat, g);
   let komfort = 0, unterStd = 0;
   for (let r = 0; r < R; r++) for (let i = 0; i < N; i++) {
     komfort += DT_H * Math.max(0, raeume[r].ziel[i] - rs[r].T[i]);

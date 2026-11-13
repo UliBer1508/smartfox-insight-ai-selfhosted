@@ -37,20 +37,7 @@ export function aufbereiten(d: Daten) {
   const pvIst = new Map<string, number>((d.pv_h ?? []).map(r => [r[0], Number(r[1])]));
   const smp = new Map<string, Map<number, { t: number; h: number }>>();
   for (const [rid, arr] of Object.entries(d.samples15 ?? {})) smp.set(rid, new Map(arr.map(a => [Number(a[0]), { t: Number(a[1]), h: Number(a[2]) }])));
-  // Summe und Anzahl der gemessenen Raumtemperaturen je 15 min → Mittel der anderen Räume (Nachbarräume)
-  const haus = new Map<number, { s: number; n: number }>();
-  for (const m of smp.values()) for (const [ep, v] of m) {
-    if (!Number.isFinite(v.t)) continue;
-    const x = haus.get(ep) ?? { s: 0, n: 0 }; x.s += v.t; x.n++; haus.set(ep, x);
-  }
-  return { wet, e15, pvIst, smp, haus };
-}
-/** Gemessenes Mittel der anderen Räume zu einem Zeitpunkt (ohne den Raum selbst). */
-function andereMittel(a: { haus: Map<number, { s: number; n: number }> }, ep: number, eigen: number | undefined): number | null {
-  const x = a.haus.get(ep);
-  if (!x) return null;
-  if (eigen != null && Number.isFinite(eigen) && x.n > 1) return (x.s - eigen) / (x.n - 1);
-  return x.n ? x.s / x.n : null;
+  return { wet, e15, pvIst, smp };
 }
 export type Aufb = ReturnType<typeof aufbereiten>;
 
@@ -61,14 +48,14 @@ export function fensterFuer(a: Aufb, rid: string, alleH: number, laengeH: number
   for (const t0 of [...m.keys()].sort((x, y) => x - y)) {
     if (t0 % (alleH * 3600) !== 0) continue;
     const st = Array.from({ length: laengeH * 4 }, (_, i) => t0 + 900 * i);
-    if (!st.every(x => m.has(x) && a.e15.has(x) && a.wet.has(wkey(x)) && andereMittel(a, x, m.get(x)!.t) != null)) continue;
+    if (!st.every(x => m.has(x) && a.e15.has(x) && a.wet.has(wkey(x)))) continue;
     const T0 = m.get(t0)!.t;
     const hz = Array.from({ length: 48 }, (_, i) => t0 - 900 * (48 - i));
     out.push({
       T0,
       histT: hz.map(x => m.get(x)?.t ?? T0), histH: hz.map(x => m.get(x)?.h ?? 0),
       h: st.map(x => m.get(x)!.h), tout: st.map(x => a.wet.get(wkey(x))!.t),
-      pvkw: st.map(x => a.e15.get(x)![2] / 1000), tn: st.map(x => andereMittel(a, x, m.get(x)!.t)!),
+      pvkw: st.map(x => a.e15.get(x)![2] / 1000),
       tIst: st.map(x => m.get(x + 900)?.t ?? null),
     });
   }
@@ -208,7 +195,7 @@ export function lerneAus(d: Daten, raumId: string, tage: number, priorVon?: Reco
   const gute = quelle.filter(([id, m]) => id !== raumId && !m.prior && Number(m.heiz_std) >= 15 && istV2(m.param)).map(([, m]) => m.param);
   const med = (xs: number[]) => { const s = [...xs].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
   const prior: RaumParam = gute.length >= 2
-    ? { v: 2, k: med(gute.map(p => p.k)), m: med(gute.map(p => p.m)), g: med(gute.map(p => p.g)), u: med(gute.map(p => p.u)),
+    ? { v: 2, k: med(gute.map(p => p.k)), g: med(gute.map(p => p.g)), u: med(gute.map(p => p.u)),
         r: med(gute.map(p => p.r)), s: 0, c: med(gute.map(p => p.c)) }
     : STANDARD_PARAM;
   const pw = heizStd >= 15 ? 0 : heizStd >= 3 ? 0.02 : 0.2;
@@ -217,7 +204,7 @@ export function lerneAus(d: Daten, raumId: string, tage: number, priorVon?: Reco
   const rund = (x: number, n: number) => +x.toFixed(n);
   const zeile = {
     room_id: raumId, raum: r.name,
-    param: { v: 2 as const, k: rund(p.k, 5), m: rund(p.m, 5), g: rund(p.g, 4), u: rund(p.u, 4), r: rund(p.r, 3), s: rund(p.s, 4), c: rund(p.c, 4),
+    param: { v: 2 as const, k: rund(p.k, 5), g: rund(p.g, 4), u: rund(p.u, 4), r: rund(p.r, 3), s: rund(p.s, 4), c: rund(p.c, 4),
              // zur Anzeige: Aufheizen von Estrich + Raum zusammen (°C/h)
              auf: rund(aufheizen(p), 3) },
     fehler_12h: Number.isFinite(fe.modell) ? +fe.modell.toFixed(2) : null, gleich_12h: Number.isFinite(fe.gleich) ? +fe.gleich.toFixed(2) : null,
