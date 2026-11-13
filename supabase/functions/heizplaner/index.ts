@@ -17,6 +17,7 @@
 //   vergleich tag=…   – Gegenrechnung eines Tages (Standard: gestern)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { PLAN_AUFBEWAHREN_TAGE, lerneAus, planAus, pvLernenAus, vergleichAus, type Abwesenheit } from './rechnen.ts';
+import type { PruefStand, RaumPruefung } from './pruefung.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -49,11 +50,60 @@ async function planen(sb: any) {
   const { data: zusatz } = await sb.from('rooms').select('id, nicht_steuerbar_seit');
   const nichtSteuerbar = new Set(((zusatz ?? []) as any[]).filter(x => x.nicht_steuerbar_seit).map(x => x.id));
   const abw = await abwesenheiten(sb);
-  const { zeile, antwort } = planAus(d, nichtSteuerbar, abw);
+  const { zeile, antwort, pruefung, stand } = planAus(d, nichtSteuerbar, abw);
   const { error: insErr } = await sb.from('heizplan').insert(zeile);
   if (insErr) throw new Error(`heizplan: ${insErr.message}`);
   await sb.from('heizplan').delete().lt('erstellt_at', new Date(Date.now() - PLAN_AUFBEWAHREN_TAGE * 86400000).toISOString());
-  return antwort;
+  await pruefungMelden(sb, d, pruefung, stand);
+  return { ...antwort, auffaellig: Object.entries(pruefung).filter(([, p]) => !p.ok).map(([id, p]) => `${name(d, id)}: ${p.gruende.join('; ')}`) };
+}
+
+const name = (d: any, id: string) => (d.raeume ?? []).find((r: any) => r.id === id)?.name ?? id;
+
+/**
+ * Plan-Prüfung (13.11.2026, doc/FIX-PLANER-PRUEFUNG-2026-11-13.md): Stand merken, Wechsel ins Protokoll,
+ * Hinweise nach KI › Zu entscheiden. Der Modus (aus/schatten/steuern) wird NIE geändert – den schaltet nur Uli.
+ * Fehler hier dürfen den Plan nicht verhindern.
+ */
+async function pruefungMelden(sb: any, d: any, pruefung: Record<string, RaumPruefung>, stand: PruefStand) {
+  try {
+    const vorher: PruefStand = d.pruefung?.stand ?? {};
+    const steuert = (d.settings?.planer_modus ?? 'schatten') === 'steuern';
+    const wer = steuert ? 'Regel-Steuerung übernimmt diesen Raum' : 'im Modus „steuern“ übernähme die Regel-Steuerung';
+    for (const [id, p] of Object.entries(pruefung)) {
+      const neu = !p.ok && !vorher[id], frei = p.ok && !!vorher[id];
+      if (neu) await sb.rpc('protokoll_add', { p_kind: 'modus', p_room: id, p_title: `Planer-Prüfung: auffällig → ${wer}`,
+        p_detail: p.gruende.join(' · '), p_data: { geplant_h: p.geplant_h, erlaubt_h: p.erlaubt_h, arten: p.arten } });
+      if (frei) await sb.rpc('protokoll_add', { p_kind: 'modus', p_room: id, p_title: 'Planer-Prüfung: wieder unauffällig → Planer steuert',
+        p_detail: `vorher: ${(vorher[id].gruende ?? []).join(' · ')}`, p_data: null });
+    }
+    await sb.from('system_settings').upsert({ key: 'planer_pruefung',
+      value: { stand, at: new Date().toISOString(),
+               raeume: Object.fromEntries(Object.entries(pruefung).map(([id, p]) => [id, { ok: p.ok, gruende: p.gruende, hinweis: p.hinweis ?? null, geplant_h: p.geplant_h, erlaubt_h: p.erlaubt_h }])) },
+      updated_at: new Date().toISOString() }, { onConflict: 'key' });
+    // Hinweise und neue Sperren als Info unter KI › Zu entscheiden – je Raum und Tag nur einmal
+    const tag = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+    const { data: schon } = await sb.from('ki_vorschlaege').select('room_id, titel').eq('quelle', 'planer_pruefung').eq('tag', tag);
+    const gibt = new Set(((schon ?? []) as any[]).map(x => `${x.room_id}|${x.titel}`));
+    const zeilen: any[] = [];
+    for (const [id, p] of Object.entries(pruefung)) {
+      const raum = name(d, id);
+      if (!p.ok && !p.arten.every(a => a === 'wartezeit')) {
+        const titel = `${raum}: Plan passt nicht – Regel-Steuerung übernimmt`;
+        if (!gibt.has(`${id}|${titel}`)) zeilen.push({ tag, quelle: 'planer_pruefung', art: 'info', titel, room_id: id,
+          was: 'Der Planer steuert diesen Raum vorerst nicht, die Regel-Steuerung übernimmt (mindestens 2 h, bis der Plan wieder passt).',
+          warum: p.gruende.join(' · '), belege: { geplant_h: p.geplant_h, erlaubt_h: p.erlaubt_h, arten: p.arten }, status: 'offen' });
+      }
+      if (p.hinweis) {
+        const titel = `${raum}: erreicht sein Ziel nicht`;
+        if (!gibt.has(`${id}|${titel}`)) zeilen.push({ tag, quelle: 'planer_pruefung', art: 'info', titel, room_id: id,
+          was: 'Bitte prüfen: Heizleistung, Lage des Fühlers oder Eco-Wert dieses Raums.', warum: p.hinweis, status: 'offen' });
+      }
+    }
+    if (zeilen.length) await sb.from('ki_vorschlaege').insert(zeilen);
+  } catch (e) {
+    console.error('pruefungMelden:', e);
+  }
 }
 
 /** Abwesenheiten wie in pv-automation (getPresence): Kalender-Einträge = Haus leer, Vorlauf vor der Rückkehr = anwesend.
@@ -98,6 +148,21 @@ async function vergleich(sb: any, tag: string) {
   const { ok: _ok, ...daten } = zeile;
   const { error: upErr } = await sb.from('heizplan_vergleich').upsert(daten, { onConflict: 'tag' });
   if (upErr) throw new Error(`heizplan_vergleich: ${upErr.message}`);
+  // Tagesprüfung (13.11.2026): braucht der Planer mehr Netz als die Steuerung, ohne wärmer zu sein → Hinweis
+  try {
+    const pl = zeile.planer, st = zeile.steuerung;
+    const netzPl = Number(pl?.netz_bereinigt_kwh ?? pl?.netz_kwh), netzSt = Number(st?.netz_kwh);
+    if (Number.isFinite(netzPl) && Number.isFinite(netzSt) && netzPl > netzSt * 1.1 + 1
+        && Number(pl?.unter_ziel_gradstd) >= Number(st?.unter_ziel_gradstd) * 0.9) {
+      const heute = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+      await sb.from('ki_vorschlaege').delete().eq('quelle', 'planer_pruefung').eq('tag', heute).is('room_id', null);
+      await sb.from('ki_vorschlaege').insert({ tag: heute, quelle: 'planer_pruefung', art: 'info', status: 'offen',
+        titel: `Planer am ${tag}: mehr Netzstrom als die Regel-Steuerung`,
+        was: 'Der Modus bleibt, wie du ihn eingestellt hast. Prüfen, ob der Planer weiter steuern soll.',
+        warum: `Gegenrechnung ${tag}: Planer ${netzPl.toFixed(1)} kWh Netz, Regel-Steuerung ${netzSt.toFixed(1)} kWh – bei nicht besserem Komfort.`,
+        belege: { planer: pl, steuerung: st } });
+    }
+  } catch (e) { console.error('Tagesprüfung:', e); }
   return zeile;
 }
 

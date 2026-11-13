@@ -1,4 +1,4 @@
-// Planer (Schattenbetrieb) – 06.11.2026, doc/KONZEPT-PLANER-2026-11-06.md
+// Planer – 06.11.2026, doc/KONZEPT-PLANER-2026-11-06.md; Modus-Etikett und Plan-Prüfung 13.11.2026 (doc/FIX-PLANER-PRUEFUNG-2026-11-13.md)
 // Zeigt, was der rechnende Planer (Edge Function heizplaner) tun würde, ohne dass er steuert:
 //   1. Plan der nächsten 24 h: PV-Vorhersage, geplante Heizung, Netzbezug (eine Einheit, eine Achse) + Batterie
 //   2. Jetzt: je Raum Planer vs. heutige Steuerung
@@ -9,7 +9,7 @@
 //   PV #c77a05 / #c47f0e · Heizung #3c83f6 / #4a8ef0 · Netz #df3a3a / #e45050
 import { RaumModellView } from './RaumModellView';
 import { Room } from '@/types/room';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { supabase } from '@/integrations/supabase/client';
 import { Kachel, hm, num, tagKurz } from './planerTeile';
@@ -19,7 +19,9 @@ const db = supabase as any; // Tabellen aus SQL 25 noch nicht in types.ts
 
 type PlanRaum = { id: string; name: string; p: number; h: string; t: number[]; ziel: number[]; unter: number };
 type Plan = { start: number; pv: number[]; heiz: number[]; netz: number[]; einsp: number[]; bat: number[]; raeume: PlanRaum[] };
-type Jetzt = { room_id: string; name: string; t: number; plan_heizt: boolean; steuerung_heizt: boolean; manuell: boolean; auto: boolean; naechst_an: string | null; bis: string | null; t_min: number; t_max: number };
+type Jetzt = { room_id: string; name: string; t: number; plan_heizt: boolean; steuerung_heizt: boolean; manuell: boolean; auto: boolean; naechst_an: string | null; bis: string | null; t_min: number; t_max: number;
+  // Plan-Prüfung (13.11.2026): false → Regel-Steuerung für diesen Raum; Gründe/Hinweis in einfachen Worten
+  pruefung_ok?: boolean; pruefung?: string[]; hinweis?: string | null; geplant_h?: number | null; erlaubt_h?: number | null };
 type PlanZeile = { erstellt_at: string; modus: string; plan: Plan; jetzt: Jetzt[]; pv_kwh: number; heiz_kwh: number; netz_kwh: number; einspeis_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; nachfuehrung: number };
 type Werte = { heiz_kwh: number; netz_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; faktor?: number; waerme_kwh?: number; netz_bereinigt_kwh?: number };
 type Vergleich = { tag: string; netz_gemessen_kwh: number; steuerung: Werte; planer: Werte; planer_gleich: Werte | null; modell_abw: number };
@@ -121,7 +123,8 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
   if (fehler) return <Card><CardContent className="p-4 text-sm text-muted-foreground">{fehler}</CardContent></Card>;
   if (!plan) return <Card><CardContent className="p-4 text-sm text-muted-foreground">Noch kein Plan – der Planer rechnet alle 15 Minuten.</CardContent></Card>;
   const alt = Date.now() - new Date(plan.erstellt_at).getTime() > 40 * 60_000;
-  const uneinig = plan.jetzt.filter(j => j.auto && !j.manuell && j.plan_heizt !== j.steuerung_heizt).length;
+  const uneinig = plan.jetzt.filter(j => j.auto && !j.manuell && j.pruefung_ok !== false && j.plan_heizt !== j.steuerung_heizt).length;
+  const auffaellig = plan.jetzt.filter(j => j.pruefung_ok === false).length;
   const v0 = vergleich[0];
 
   return (
@@ -130,7 +133,11 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
         <CardContent className="p-4 space-y-3">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
             <div className="text-sm">
-              <span className="px-2 py-0.5 rounded-full border text-xs font-medium mr-2">Schattenbetrieb · steuert nicht</span>
+              {/* 13.11.2026: Etikett nach dem Modus, mit dem der Plan gerechnet wurde (vorher fest „Schattenbetrieb“) */}
+              <span className={`px-2 py-0.5 rounded-full border text-xs font-medium mr-2 ${plan.modus === 'steuern' ? 'border-primary text-primary' : ''}`}>
+                {plan.modus === 'steuern' ? 'Steuert' : plan.modus === 'aus' ? 'Aus' : 'Schatten · steuert nicht'}
+              </span>
+              {auffaellig > 0 && <span className="text-warning font-medium mr-2">{auffaellig} {auffaellig === 1 ? 'Raum' : 'Räume'} auffällig → Regel-Steuerung ·</span>}
               Plan von {hm(new Date(plan.erstellt_at).getTime())}{alt && <span className="text-warning font-medium"> · veraltet</span>}
             </div>
             <div className="text-xs text-muted-foreground">PV nachgeführt ×{num(plan.nachfuehrung, 2)}</div>
@@ -155,18 +162,29 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
               </thead>
               <tbody>
                 {plan.jetzt.map(j => {
-                  const anders = j.auto && !j.manuell && j.plan_heizt !== j.steuerung_heizt;
+                  const geprueft = j.pruefung_ok !== false;
+                  const anders = j.auto && !j.manuell && geprueft && j.plan_heizt !== j.steuerung_heizt;
                   return (
-                    <tr key={j.room_id} className={`border-t ${anders ? 'bg-warning/10' : ''}`}>
+                    <Fragment key={j.room_id}>
+                    <tr className={`border-t ${anders ? 'bg-warning/10' : ''} ${!geprueft ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}`}>
                       <td className="py-1 pr-3">{j.name}</td>
                       <td className="pr-3 tabular-nums">{num(j.t)} °C</td>
                       <td className="pr-3">{j.plan_heizt ? 'heizt' : '–'}</td>
-                      <td className="pr-3">{j.manuell ? 'manuell' : !j.auto ? 'Automatik aus' : j.steuerung_heizt ? 'heizt' : '–'}</td>
+                      <td className="pr-3">{j.manuell ? 'manuell' : !j.auto ? 'Automatik aus' : j.steuerung_heizt ? 'heizt' : '–'}{!geprueft && <span className="text-xs text-warning"> · Regel-Steuerung</span>}</td>
                       <td className="text-muted-foreground">
                         {j.plan_heizt ? (j.bis ? `heizt bis ${hm(new Date(j.bis).getTime())}` : 'heizt durch') : j.naechst_an ? `heizt ab ${hm(new Date(j.naechst_an).getTime())}` : 'heizt in 24 h nicht'}
                         {` · ${num(j.t_min)}–${num(j.t_max)} °C`}
                       </td>
                     </tr>
+                    {(!geprueft || j.hinweis) && (
+                      <tr className={!geprueft ? 'bg-amber-50/60 dark:bg-amber-950/20' : ''}>
+                        <td colSpan={5} className="pb-2 pl-3 text-xs text-muted-foreground">
+                          {!geprueft && <>Prüfung: {(j.pruefung ?? []).join(' · ')}</>}
+                          {j.hinweis && <>{!geprueft ? ' · ' : ''}Hinweis: {j.hinweis}</>}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>

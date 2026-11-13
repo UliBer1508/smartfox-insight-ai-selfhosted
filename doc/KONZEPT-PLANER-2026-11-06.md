@@ -120,3 +120,10 @@ Gemessen am 05.11.: 21,9 kWh Netz. Mit fast gleichem Strom wären die Räume kau
 - Estrich-Verzögerung τ beobachten (bisher 0 gewählt).
 - ~~Modus „steuern“ bauen~~ (13.11.2026). Danach: Regelwerk schrittweise abbauen, wenn „steuern“ einige Tage läuft.
 - PV: Forecast.Solar zusätzlich als Eingang prüfen; Schnee auf den Modulen erkennen (30.10.: wolkenlos, aber 11 statt 38 kWh).
+
+## Nachtrag 13.11.2026 abends: Plan-Prüfung und Wärme am Planende
+
+Siehe `doc/FIX-PLANER-PRUEFUNG-2026-11-13.md`. Kurz: Mehr Wärme im Estrich am Planende zählt nur noch wie PV-Strom
+(nicht mehr 90 % von Netzstrom). Jeder Plan wird je Raum gegen die gemessenen Werte geprüft (Heizzeit, Heizen aus dem
+Netz über das Ziel, häufiges Übersteuern); auffällige Räume steuert mindestens 2 h die Regel-Steuerung, mit Eintrag im
+Protokoll und unter KI › Zu entscheiden. Den Modus schaltet nur Uli.

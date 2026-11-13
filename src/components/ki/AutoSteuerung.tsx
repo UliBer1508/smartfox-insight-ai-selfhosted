@@ -3,7 +3,9 @@
 // ich eingreifen, wenn die KI nicht richtig optimiert?“
 // Aufbau (Uli 12.11.: Verlauf zuerst): 1 Verlauf und Wirkung (VerlaufView) · 2 Steuerung (Modus + Eingriffe) · 3 Plan (PlanerView).
 // Die Eingriffe sind die vorhandenen Einstellungen, hier an einem Platz – keine neuen Werte.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { supabase } from '@/integrations/supabase/client';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Room } from '@/types/room';
@@ -25,13 +27,39 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
   const geaendert = Object.keys(entwurf).filter(k => entwurf[k] !== Number(s[k]));
   const modus: Modus = (s.planer_modus ?? 'schatten') as Modus;
 
+  // Plan-Prüfung (13.11.2026): welche Räume der Planer gerade nicht steuert und warum (system_settings planer_pruefung)
+  const [pruef, setPruef] = useState<Record<string, { ok: boolean; gruende: string[] }>>({});
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const { data } = await (supabase as any).from('system_settings').select('value').eq('key', 'planer_pruefung').maybeSingle();
+      if (alive) setPruef(data?.value?.raeume ?? {});
+    };
+    load();
+    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
+
   const jetzt = Date.now();
   const besonders = useMemo(() => rooms.map(r => {
     const manuell = r.manual_override_until && new Date(r.manual_override_until).getTime() > jetzt;
+    const p = pruef[r.id];
     const grund = r.nicht_steuerbar_seit ? 'Thermostat nimmt keine Befehle an' : r.automation_enabled === false ? 'Automatik aus' : manuell
-      ? `manuell bis ${new Date(r.manual_override_until as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}` : null;
+      ? `manuell bis ${new Date(r.manual_override_until as string).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
+      : p && !p.ok ? `Regel-Steuerung, Plan passt nicht (${p.gruende[0] ?? 'Prüfung'})` : null;
     return { id: r.id, name: r.name, grund };
-  }).filter(x => x.grund), [rooms, jetzt]);
+  }).filter(x => x.grund), [rooms, jetzt, pruef]);
+
+  // 13.11.2026: Modus schaltet nur Uli. Beim Umschalten rechnet der Planer sofort neu (nicht erst in bis zu 15 min),
+  // damit „Steuern“ gleich mit einem frischen Plan beginnt und das Etikett im Plan stimmt.
+  const modusSetzen = async (m: Modus) => {
+    if (m === modus) return;
+    const ok = await saveSettings({ planer_modus: m } as any);
+    if (!ok || m === 'aus') return;
+    const { error } = await supabase.functions.invoke('heizplaner', { body: { aktion: 'planen' } });
+    if (error) toast.error('Neuer Plan konnte nicht sofort gerechnet werden – kommt mit dem nächsten 15-Minuten-Lauf.');
+    else toast.success(m === 'steuern' ? 'Neuer Plan gerechnet – der Planer steuert ab dem nächsten Lauf (≤ 5 min).' : 'Neuer Plan gerechnet – Schattenbetrieb.');
+  };
 
   const regler = [
     { k: 'planer_gewicht_ziel', def: 0.6, min: 0.1, max: 3, step: 0.1, l: 'Sparsamer ↔ wärmer',
@@ -53,7 +81,7 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
           <div role="group" aria-label="Modus der Auto-Steuerung" className="flex bg-muted rounded-lg p-1 gap-0.5">
             {([['aus', 'Aus'], ['schatten', 'Schatten'], ['steuern', 'Steuern']] as [Modus, string][]).map(([m, l]) => (
               <button key={m} type="button"
-                onClick={() => m !== modus && saveSettings({ planer_modus: m } as any)}
+                onClick={() => modusSetzen(m)}
                 className={`px-4 py-2 rounded-md text-sm disabled:opacity-50 ${modus === m ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground'}`}>{l}</button>
             ))}
           </div>
@@ -61,7 +89,7 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
         <div className={`rounded-lg px-3 py-2 text-sm ${modus === 'aus' ? 'bg-muted' : 'bg-primary/10'}`}>
           {modus === 'aus' && 'Planer aus – die Regeln der heutigen Steuerung entscheiden allein.'}
           {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Thermostaten ändert er nichts. Die heutige Regel-Steuerung (pv-automation) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob der Plan besser wäre, bevor er steuern darf.'}
-          {modus === 'steuern' && 'Der Planer setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min). Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Untergrenze − Sicherheitsabstand, keiner wird über Komfort geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Zurück jederzeit mit „Schatten“.'}
+          {modus === 'steuern' && 'Der Planer setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min). Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Untergrenze − Sicherheitsabstand, keiner wird über Komfort geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Jeder Plan wird je Raum gegen die Messwerte geprüft: Heizt er länger als nötig, aus dem Netz über das Ziel, oder übersteuerst du den Raum oft, steuert die Regel-Steuerung diesen Raum (mindestens 2 h) – der Modus bleibt. Zurück jederzeit mit „Schatten“.'}
         </div>
 
         <div>
