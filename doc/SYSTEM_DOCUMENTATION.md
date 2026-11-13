@@ -672,6 +672,10 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
 
+### 2026-11-13 — Einstellungs-Abschnitte wie München
+- Uli: „warum sehen die Abschnitte in Venediger mit Header aus und in München übergangslos … ich bevorzuge die Münchner Darstellung.“
+- `SectionCard` (SettingsBits.tsx) nachgebaut wie München `Klappkarte` (Klapp.jsx): keine Kopfleiste, Titel + graue Beschreibung, Kurzinfo rechts, ▶. Gilt für alle Einstellungs-Abschnitte. Version 2.29.0.
+
 ### 2026-11-13 — Datensicherung: beide PCs sichtbar
 - Uli: „es ist doch wichtig, dass ich beide PCs sehe und weiß, wer was gemacht hat.“ Die Karte zeigte nur die neueste Sicherung (heute die Test-Sicherung von PC Österreich) und sprach vom „PN40“.
 - Neu: Stand je PC, Ersatz-Lebenszeichen `backup_standby`, Rechner im Verlauf, gelbe Warnungen. Logik `bewerteSicherung()` in `lib/backupStatus.ts`, gleiche Regeln wie München. Version 2.28.0.

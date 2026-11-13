@@ -2,15 +2,19 @@
 // Abschnitts-Karte, Gruppen-Überschrift, beschriftete Felder mit Einheit.
 import { ReactNode, useState } from 'react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 
 /**
- * Ausklappbarer Abschnitt (wie die frühere Accordion-Ansicht). Der Auf/Zu-Zustand wird pro
- * Abschnitt im Browser gemerkt (localStorage, rein kosmetisch – fehlt er, gilt defaultOpen).
+ * Ausklappbarer Abschnitt der Einstellungen. Der Auf/Zu-Zustand wird pro Abschnitt im Browser
+ * gemerkt (localStorage, rein kosmetisch – fehlt er, gilt defaultOpen).
+ *
+ * Darstellung wie Heizung München (13.11.2026, Uli: „ich bevorzuge die Münchner Darstellung“,
+ * dort Klapp.jsx / .collapse-head): eine Karte ohne abgesetzte Kopfleiste, Titel groß,
+ * Beschreibung grau daneben, Kurzinfo (badge) rechts, Pfeil ▶ ganz rechts (dreht beim Öffnen).
+ * Kein Symbol vor dem Titel – `icon` wird aus Kompatibilität noch angenommen, aber nicht gezeigt.
  */
-export function SectionCard({ id, title, icon, description, right, badge, defaultOpen = false, children }: {
+export function SectionCard({ id, title, description, right, badge, defaultOpen = false, children }: {
   id: string; title: string; icon?: ReactNode; description?: string; right?: ReactNode; badge?: ReactNode;
   defaultOpen?: boolean; children: ReactNode;
 }) {
@@ -26,20 +30,25 @@ export function SectionCard({ id, title, icon, description, right, badge, defaul
     try { localStorage.setItem(key, o ? '1' : '0'); } catch { /* egal */ }
   };
   return (
-    <Collapsible open={open} onOpenChange={toggle} className="rounded-lg border bg-card overflow-hidden">
-      <div className={`flex items-center gap-2 px-4 py-3 bg-muted/50 ${open ? 'border-b' : ''}`}>
-        <CollapsibleTrigger className="flex items-center gap-2 flex-1 min-w-0 text-left group">
-          {icon}
-          <span className="font-semibold">{title}</span>
-          {badge}
-          <ChevronDown className="w-4 h-4 ml-auto shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+    <Collapsible open={open} onOpenChange={toggle} className="rounded-xl border bg-card px-4 py-4 sm:px-[18px] sm:py-[18px]">
+      <div className="flex items-start gap-3">
+        <CollapsibleTrigger className="flex items-center gap-3 flex-1 min-w-0 text-left rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <span className="min-w-0">
+            <span className="text-base sm:text-lg font-semibold">{title}</span>
+            {description && (
+              <span className="block sm:inline text-[13px] font-normal text-muted-foreground mt-0.5 sm:mt-0 sm:ml-1.5">{description}</span>
+            )}
+          </span>
+          {badge && (
+            <span className="ml-auto shrink-0 flex items-center text-[13px] font-normal text-muted-foreground [&>*]:ml-0">{badge}</span>
+          )}
+          <span className={`${badge ? '' : 'ml-auto'} shrink-0 text-[13px] text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">▶</span>
         </CollapsibleTrigger>
         {open && right}
       </div>
       {/* forceMount: Eingaben bleiben beim Zuklappen erhalten */}
       <CollapsibleContent forceMount className="data-[state=closed]:hidden">
-        <div className="p-4 sm:p-5 space-y-4">
-          {description && <p className="text-xs text-muted-foreground -mt-1">{description}</p>}
+        <div className="pt-3 space-y-4">
           {children}
         </div>
       </CollapsibleContent>
