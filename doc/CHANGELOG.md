@@ -5,6 +5,24 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [2.30.0] - 2026-11-13
+
+### Added (`doc/FIX-PLANER-MODELL-2026-11-13.md`)
+- Modus **„steuern“**: `pv-automation` setzt die Sollwerte nach dem jüngsten Heizplan (≤ 30 min), Tag und Nacht;
+  Regelwerk nur Rückfall, Sicherheitsregeln bleiben. Auto-Steuerung: Knopf „Steuern“ frei; Übersicht „Planer steuert“.
+- Planer: Abwesenheit (Kalender) und nicht steuerbare Räume berücksichtigt.
+- SQL 37: Verlauf rechnet „Netz mit Planer“ wärme-ausgeglichen.
+
+### Changed
+- Raummodell mit zwei Wärmespeichern (Estrich + Luft) statt einem; innere Wärme begrenzt. Wärme am Planende zählt wie
+  Batterie-Restladung. Gegenrechnung: „Planer, Wärme ausgeglichen“ statt „Planer bei gleichem Komfort“.
+- Heizplaner-Rechnung in `rechnen.ts` (ohne Datenbank, für Betrieb und Prüfung).
+
+### Removed
+- Sprach-KI: `analyze-patterns`, `analysis-summary`, Gemini-Hauptpfad `ai-parameter-advisor` (Batterie-Vorschlag bleibt),
+  LLM-Zweig `pv-automation`; App: KI › Lernen & Qualität, Auswertungen, Einstellungen › Mustergedächtnis,
+  `ProgressCockpit`, `useAnalysisSummary`, `usePatternAnalysis`.
+
 ## [2.29.0] - 2026-11-13
 
 ### Changed

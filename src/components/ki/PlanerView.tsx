@@ -21,7 +21,7 @@ type PlanRaum = { id: string; name: string; p: number; h: string; t: number[]; z
 type Plan = { start: number; pv: number[]; heiz: number[]; netz: number[]; einsp: number[]; bat: number[]; raeume: PlanRaum[] };
 type Jetzt = { room_id: string; name: string; t: number; plan_heizt: boolean; steuerung_heizt: boolean; manuell: boolean; auto: boolean; naechst_an: string | null; bis: string | null; t_min: number; t_max: number };
 type PlanZeile = { erstellt_at: string; modus: string; plan: Plan; jetzt: Jetzt[]; pv_kwh: number; heiz_kwh: number; netz_kwh: number; einspeis_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; nachfuehrung: number };
-type Werte = { heiz_kwh: number; netz_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; faktor?: number };
+type Werte = { heiz_kwh: number; netz_kwh: number; unter_ziel_gradstd: number; unter_grenze_gradstd: number; faktor?: number; waerme_kwh?: number; netz_bereinigt_kwh?: number };
 type Vergleich = { tag: string; netz_gemessen_kwh: number; steuerung: Werte; planer: Werte; planer_gleich: Werte | null; modell_abw: number };
 
 function usePlaner() {
@@ -180,12 +180,12 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
       <Card>
         <CardContent className="p-4 space-y-2">
           <div className="text-sm font-medium">Gegenrechnung: Was hätte der Planer an den letzten Tagen gemacht?</div>
-          <div className="text-xs text-muted-foreground">Gleiche Sonne, gleiches Wetter, gleiche Temperaturen um Mitternacht. Beide im selben Raummodell gerechnet; „unter Ziel“ = Grad·Stunden unter Eco (tags) bzw. Nachtwert (nachts), summiert über alle Räume.</div>
+          <div className="text-xs text-muted-foreground">Gleiche Sonne, gleiches Wetter, gleiche Temperaturen um Mitternacht. Beide im selben Raummodell gerechnet; „unter Ziel“ = Grad·Stunden unter Eco (tags) bzw. Nachtwert (nachts), summiert über alle Räume. „Wärme ausgeglichen“: Netz des Planers abzüglich der Wärme, die er am Tagesende mehr im Estrich hat als die Steuerung (oder zuzüglich, wenn weniger).</div>
           {vergleich.length === 0 ? <div className="text-sm text-muted-foreground">Noch keine Gegenrechnung – kommt jede Nacht um 03:00.</div> : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted-foreground text-left">
-                  <tr><th className="py-1 pr-3 font-normal">Tag</th><th className="pr-3 font-normal">Netz gemessen</th><th className="pr-3 font-normal">Heutige Steuerung</th><th className="pr-3 font-normal">Planer</th><th className="font-normal">Planer bei gleichem Komfort</th></tr>
+                  <tr><th className="py-1 pr-3 font-normal">Tag</th><th className="pr-3 font-normal">Netz gemessen</th><th className="pr-3 font-normal">Heutige Steuerung</th><th className="pr-3 font-normal">Planer</th><th className="font-normal">Planer, Wärme ausgeglichen</th></tr>
                 </thead>
                 <tbody>
                   {vergleich.map(v => (
@@ -194,7 +194,9 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
                       <td className="pr-3 tabular-nums">{num(v.netz_gemessen_kwh)} kWh</td>
                       <td className="pr-3">{num(v.steuerung.heiz_kwh)} kWh Heizen · {num(v.steuerung.netz_kwh)} Netz<br /><span className="text-xs text-muted-foreground">unter Ziel {num(v.steuerung.unter_ziel_gradstd, 0)} · unter Untergrenze {num(v.steuerung.unter_grenze_gradstd, 0)} °C·h</span></td>
                       <td className="pr-3">{num(v.planer.heiz_kwh)} kWh Heizen · {num(v.planer.netz_kwh)} Netz<br /><span className="text-xs text-muted-foreground">unter Ziel {num(v.planer.unter_ziel_gradstd, 0)} · unter Untergrenze {num(v.planer.unter_grenze_gradstd, 0)} °C·h</span></td>
-                      <td>{v.planer_gleich ? <>{num(v.planer_gleich.netz_kwh)} kWh Netz<br /><span className="text-xs text-muted-foreground">statt {num(v.steuerung.netz_kwh)} kWh</span></> : '–'}</td>
+                      <td>{v.planer.netz_bereinigt_kwh != null
+                        ? <>{num(v.planer.netz_bereinigt_kwh)} kWh Netz<br /><span className="text-xs text-muted-foreground">statt {num(v.steuerung.netz_kwh)} kWh · Estrich am Abend {num((v.planer.waerme_kwh ?? 0) - (v.steuerung.waerme_kwh ?? 0))} kWh {((v.planer.waerme_kwh ?? 0) - (v.steuerung.waerme_kwh ?? 0)) >= 0 ? 'wärmer' : 'kühler'}</span></>
+                        : v.planer_gleich ? <>{num(v.planer_gleich.netz_kwh)} kWh Netz<br /><span className="text-xs text-muted-foreground">statt {num(v.steuerung.netz_kwh)} kWh (alte Rechnung)</span></> : '–'}</td>
                     </tr>
                   ))}
                 </tbody>

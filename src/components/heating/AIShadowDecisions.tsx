@@ -334,9 +334,7 @@ export function AIShadowDecisions() {
                 {f === 'open' ? `Zu entscheiden (${decisions.filter(isOpenDecision).length})` : f === 'all' ? 'Alle' : f === 'unevaluated' ? 'Unbewertet' : 'Bewertet'}
               </Button>
             ))}
-            <Button size="sm" onClick={triggerRun} disabled={running}>
-              {running ? 'KI denkt …' : 'Jetzt analysieren'}
-            </Button>
+            {/* 13.11.2026: „Jetzt analysieren“ entfernt – der Gemini-Hauptpfad von ai-parameter-advisor ist abgeschaltet. */}
           </div>
         </div>
       </CardHeader>

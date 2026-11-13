@@ -14,7 +14,6 @@ import {
 import { Server, CheckCircle, AlertCircle, Database, DatabaseBackup, Plug, Cloud, MonitorSmartphone, Euro, Power, Brain, ListOrdered } from 'lucide-react';
 import { RoomPriorityList } from '@/components/settings/RoomPriorityList';
 import { AIAutopilotToggle } from '@/components/heating/AIAutopilotToggle';
-import { PatternRecallBlock } from '@/components/heating/PatternRecallBlock';
 import { ParameterAutonomySettings } from '@/components/settings/ParameterAutonomySettings';
 import { AnalysisScheduleSettings } from '@/components/settings/AnalysisScheduleSettings';
 import { DataRetentionSettings } from './DataRetentionSettings';
@@ -140,10 +139,7 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
             <div className="text-sm font-semibold">Modus je Parameter</div>
             <ParameterAutonomySettings />
           </div>
-          <div className="space-y-2">
-            <div className="text-sm font-semibold">Mustergedächtnis</div>
-            <PatternRecallBlock />
-          </div>
+          {/* 13.11.2026: „Mustergedächtnis“ (Gemini, analyze-patterns) entfernt – Muster lernt der Heizplaner. */}
           <div className="space-y-2">
             <div className="text-sm font-semibold">Zeitplan der Auswertungen &amp; Datenpflege</div>
             <AnalysisScheduleSettings settings={settings} onSave={saveSettings} />

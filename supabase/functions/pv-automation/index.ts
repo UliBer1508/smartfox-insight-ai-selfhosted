@@ -290,6 +290,68 @@ async function attachBands(supabase: any, rooms: any[]): Promise<void> {
   } catch (e) { console.log(`[SCHALTBAND] thermostat_state nicht lesbar → Band 1,0 °C: ${e}`); }
 }
 
+// ============= HEIZPLANER STEUERT (13.11.2026, doc/FIX-PLANER-MODELL-2026-11-13.md) =============
+// Modus „steuern“ (heating_settings.planer_modus): Der Heizplaner (alle 15 min) entscheidet je Raum und halbe Stunde,
+// ob geheizt wird. Diese Funktion setzt das in Sollwerte um. Das Regelwerk (Tagesmodus, Budgets, Nacht-Verteilung)
+// bleibt nur Rückfall, wenn der Plan älter als PLAN_MAX_ALTER_MIN ist oder ein Raum im Plan fehlt.
+// Sicherheit bleibt immer: manuell übersteuert, Automatik aus, Fühler in der Sonne, nicht steuerbar (werden vorher
+// aussortiert), nie unter Untergrenze − Sicherheitsabstand, nie über Komfort + 0,3 °C.
+const PLAN_MAX_ALTER_MIN = 30;
+type PlanEintrag = { heizt: boolean; ziel: number; unter: number };
+type PlanStand = { map: Map<string, PlanEintrag> | null; grund: string };
+
+async function ladePlanerPlan(supabase: any, settings: any): Promise<PlanStand> {
+  if ((settings?.planer_modus ?? 'schatten') !== 'steuern') return { map: null, grund: `Planer-Modus ${settings?.planer_modus ?? 'schatten'}` };
+  try {
+    const { data } = await supabase.from('heizplan').select('erstellt_at, plan').order('erstellt_at', { ascending: false }).limit(1).maybeSingle();
+    if (!data?.plan) return { map: null, grund: 'kein Plan vorhanden → Regelwerk' };
+    const alterMin = (Date.now() - new Date(data.erstellt_at).getTime()) / 60_000;
+    if (alterMin > PLAN_MAX_ALTER_MIN) return { map: null, grund: `Plan ${Math.round(alterMin)} min alt (> ${PLAN_MAX_ALTER_MIN}) → Regelwerk` };
+    const idx = Math.floor((Date.now() / 1000 - Number(data.plan.start)) / 900);
+    if (!(idx >= 0 && idx < 96)) return { map: null, grund: `Plan passt nicht zur Uhrzeit (Slot ${idx}) → Regelwerk` };
+    const map = new Map<string, PlanEintrag>();
+    for (const r of (data.plan.raeume ?? []) as any[]) {
+      const h = String(r.h ?? '');
+      if (h.length <= idx) continue;
+      if (r.m2 === false) continue;   // Raummodell noch nicht neu gelernt → Regelwerk für diesen Raum
+      map.set(r.id, { heizt: h[idx] === '1', ziel: Number(r.ziel?.[idx]), unter: Number(r.unter) });
+    }
+    return { map, grund: `Plan von ${new Date(data.erstellt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' })}` };
+  } catch (e) {
+    return { map: null, grund: `Plan nicht lesbar (${e}) → Regelwerk` };
+  }
+}
+
+/** Reine Funktion: Sollwert für einen Raum nach dem Plan. Thermostat-Schaltband beachten (an bei Ist ≤ Soll − Band,
+ *  aus bei Ist ≥ Soll + Band). Wo der jetzige Sollwert schon das Richtige bewirkt, bleibt er (keine unnötigen Befehle). */
+function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: number; why: string; heizt: boolean } {
+  const cur = Number(room.current_temp) || 0;
+  const soll = Number(room.target_temp) || 0;
+  const band = bandOf(room);
+  const komfort = Number(room.comfort_temp) || (Number.isFinite(e.ziel) ? e.ziel + 1 : 22);
+  const abst = Math.max(0, Number(settings?.planer_sicherheit_abstand ?? 1.5));
+  const ziel = Number.isFinite(e.ziel) ? e.ziel : komfort;
+  const sicher = Number.isFinite(e.unter) ? e.unter - abst : -Infinity;
+  const notfall = cur > 0 && cur < sicher;
+  if (cur > 0 && cur >= komfort + 0.3) {
+    return { temp: holdBelow(cur, 99, band), heizt: false, why: `Planer: über Komfort (${cur.toFixed(1)} ≥ ${komfort} + 0,3 °C) → Thermostat aus` };
+  }
+  if (e.heizt || notfall) {
+    const grund = notfall ? `Sicherheit: unter Untergrenze − ${abst} °C (${cur.toFixed(1)} < ${sicher.toFixed(1)} °C) → heizt`
+                          : `Planer: heizen (Ziel ${ziel} °C, Ist ${cur.toFixed(1)} °C)`;
+    if (room.is_heating === true && soll > 0 && soll >= cur - band + 0.1 && soll <= komfort + band) {
+      return { temp: soll, heizt: true, why: `${grund}, läuft` };
+    }
+    const an = Math.min(komfort + band, Math.max(ziel, Math.ceil((cur + band + 0.2) * 2) / 2));
+    return { temp: an, heizt: true, why: `${grund} → ${an} °C (schaltet sicher ein, Schaltband ±${band} °C)` };
+  }
+  if (room.is_heating !== true && soll > 0 && soll <= cur - 0.3) {
+    return { temp: soll, heizt: false, why: `Planer: nicht heizen (Ist ${cur.toFixed(1)} °C, Ziel ${ziel} °C)` };
+  }
+  const aus = holdBelow(cur, 99, band);
+  return { temp: aus, heizt: false, why: `Planer: nicht heizen → ${aus} °C (Thermostat aus)` };
+}
+
 // Tagesmodus-Zuteilung (Konzept 27.10.2026 §2/§3). Reine Funktion, testbar.
 // rooms: Räume OHNE Budget, nach Priorität sortiert.
 // Schritt 0: Räume, die noch nachlaufen (heizen, obwohl schon über dem Ziel), zählen zur Leistung.
@@ -1331,6 +1393,21 @@ Deno.serve(async (req) => {
           });
           console.log(`[NACHT-GRENZE] ${nightCap.usedW}/${nightCapW} W · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size}`);
 
+          // Planer steuert (13.11.2026): auch nachts entscheidet der Plan; die Nacht-Verteilung oben bleibt Rückfall.
+          const nachtPlan = await ladePlanerPlan(supabase, settings);
+          if (nachtPlan.map) {
+            let n = 0;
+            for (const p of nightPlan) {
+              const e = nachtPlan.map.get(p.room.id);
+              if (!e) continue;
+              const z = planerSollwert(p.room, e, settings);
+              p.target = z.temp; p.why = z.why; n++;
+            }
+            console.log(`[PLANER-STEUERT] Nacht, ${nachtPlan.grund}: ${n} Räume nach Plan`);
+          } else if ((settings?.planer_modus ?? 'schatten') === 'steuern') {
+            console.log(`[PLANER-STEUERT] Nacht: ${nachtPlan.grund}`);
+          }
+
           // Für die App: Begründung je Raum auch nachts (Übersicht › Raumkarte „Automatik: …“)
           try {
             await supabase.from('system_settings').upsert({
@@ -1339,6 +1416,7 @@ Deno.serve(async (req) => {
                 computed_at: new Date().toISOString(),
                 cap_w: nightCapW,
                 used_w: nightCap.usedW,
+                planer: nachtPlan.map ? { steuert: true, stand: nachtPlan.grund } : { steuert: false, stand: nachtPlan.grund },
                 rooms: nightPlan.map(p => ({ room_id: p.room.id, name: p.room.name, target: p.target, why: p.why })),
               },
               updated_at: new Date().toISOString(),
@@ -2366,8 +2444,11 @@ Deno.serve(async (req) => {
         const hBisMorgen = (24 - nowWienH) + neT.hour;
         if (vorausAussen !== null) {
           for (const m of (modell || []) as any[]) {
-            const k = Number(m.param?.k);
-            const c = Number(m.param?.c) || 0;
+            // Seit 13.11.2026 (param.v = 2) kühlen Raumluft und Estrich gemeinsam aus: wirksame Rate k / (1 + r),
+            // Ziel T∞ = T_außen + c/k (doc/FIX-PLANER-MODELL-2026-11-13.md).
+            const kRoh = Number(m.param?.k);
+            const k = m.param?.v === 2 ? kRoh / (1 + (Number(m.param?.r) || 0)) : kRoh;
+            const c = (Number(m.param?.c) || 0) * (k / (kRoh || 1));
             if (!Number.isFinite(k) || k <= 0) continue;
             const room = rooms.find((r: any) => r.id === m.room_id);
             if (!room) continue;
@@ -3114,6 +3195,28 @@ Deno.serve(async (req) => {
       await saveWaitState(supabase, nextWaitState(dayWaitPrev, dayWaiting, nowIsoDay),
         nextGrantState(dayState.granted, dayCapGranted, nowIsoDay), 'tag');
 
+      // Planer steuert (13.11.2026): Seine Entscheidung ersetzt Tagesmodus und PV-Budget für alle Räume im Plan.
+      // Räume ohne Planeintrag behalten das Ziel aus dem Regelwerk (Rückfall).
+      const planStand = await ladePlanerPlan(supabase, settings);
+      const planerRaeume = new Set<string>();
+      if (planStand.map) {
+        const ohneOverride = roomsWithPriority.filter(rp => !(rp.room.manual_override_until && new Date(rp.room.manual_override_until).getTime() > nowMsDay));
+        await attachBands(supabase, ohneOverride.map((rp: any) => rp.room));
+        let heizW = 0;
+        for (const rp of ohneOverride) {
+          const e = planStand.map.get(rp.room.id);
+          if (!e) continue;
+          const z = planerSollwert(rp.room, e, settings);
+          dayFallback.set(rp.room.id, { temp: z.temp, why: z.why });
+          roomBudgetStatus.delete(rp.room.id);
+          planerRaeume.add(rp.room.id);
+          if (z.heizt) heizW += rp.heatingPower;
+        }
+        console.log(`[PLANER-STEUERT] ${planStand.grund}: ${planerRaeume.size} Räume nach Plan, heizen ${heizW} W`);
+      } else if ((settings?.planer_modus ?? 'schatten') === 'steuern') {
+        console.log(`[PLANER-STEUERT] ${planStand.grund}`);
+      }
+
       console.log(`[TAGESMODUS] ${dayMode} | Ratio=${dayRatio === null ? '–' : dayRatio.toFixed(2)} Schwelle=${dayThreshold} | KI: ${kiInfo} | Netz ${gridUsedW}/${dayCapW}W | ${unbudgetedRooms.length} Räume ohne Budget`);
       for (const rp of unbudgetedRooms) {
         const fb = dayFallback.get(rp.room.id);
@@ -3137,7 +3240,8 @@ Deno.serve(async (req) => {
             away: isAway,
             presence_reason: presence.reason,
             presence_next_start: presence.nextStart,
-            rooms: unbudgetedRooms.map(rp => ({
+            planer: planStand.map ? { steuert: true, stand: planStand.grund, raeume: planerRaeume.size } : { steuert: false, stand: planStand.grund },
+            rooms: roomsWithPriority.filter((rp: any) => planerRaeume.has(rp.room.id) || unbudgetedRooms.includes(rp)).map((rp: any) => ({
               room_id: rp.room.id,
               name: rp.room.name,
               target: dayFallback.get(rp.room.id)?.temp ?? null,
@@ -3183,188 +3287,11 @@ Deno.serve(async (req) => {
       });
       console.log(`[PV-Automation] Alle Räume auf Komfort: ${allRoomsAtComfort}, Batterie: ${batterySoc}%, WW aktiv: ${hotwaterActive}`);
 
-      // 7. Call analyze-patterns with optimize_decision (THROTTLED: max alle 60 Min)
-      let mlDecisions: MLDecision[] = [];
-      let usedMlDecision = false;
-
-      if (tuyaAccessId && tuyaAccessSecret) {
-        const ML_CACHE_KEY = 'last_ml_cache';
-        const ML_CACHE_TTL_MS = 60 * 60 * 1000; // 60 Minuten
-        const SIGNIFICANT_CHANGE_THRESHOLD = 0.40; // 40% Änderung
-
-        let useCache = false;
-        try {
-          // Lade ML-Cache aus system_settings
-          const { data: cacheRow } = await supabase
-            .from('system_settings')
-            .select('value')
-            .eq('key', ML_CACHE_KEY)
-            .single();
-
-          if (cacheRow?.value) {
-            const cache = cacheRow.value as Record<string, unknown>;
-            const cacheTime = cache.timestamp as number;
-            const cacheAge = Date.now() - cacheTime;
-            const cachedSoc = cache.battery_soc as number;
-            const cachedPvPower = cache.pv_power as number;
-            const cachedDecisions = cache.decisions as MLDecision[];
-
-            // Prüfe signifikante Änderungen
-            // SOC: absolute Trigger statt relative %-Schwankung (vermeidet unnötige ML-Calls bei normaler Tagesentladung 80%→48%)
-            const heatingMinSocLocal = (settings as Record<string, unknown>)?.heating_min_battery_soc as number ?? 80; // vorher undefinierte Variable heatingSettings (10.11.2026)
-            const socCrossedGate = (cachedSoc >= heatingMinSocLocal && batterySoc < heatingMinSocLocal) ||
-                                   (cachedSoc < heatingMinSocLocal && batterySoc >= heatingMinSocLocal);
-            const socCrossedFull = (cachedSoc < 90 && batterySoc >= 90) || (cachedSoc >= 90 && batterySoc < 90);
-            const socAbsoluteJump = Math.abs(batterySoc - cachedSoc) >= 15;
-            const socChange = (socCrossedGate || socCrossedFull || socAbsoluteJump) ? 1 : 0;
-            const pvChange = cachedPvPower > 100 ? Math.abs(pvPower - cachedPvPower) / cachedPvPower : (pvPower > 100 ? 1 : 0);
-            // PV-Abfall von >500W auf <500W ist IMMER signifikant (Gate-Grenze!)
-            const pvDroppedBelowGate = cachedPvPower >= 500 && pvPower < 500;
-            const significantChange = socChange > SIGNIFICANT_CHANGE_THRESHOLD || pvChange > SIGNIFICANT_CHANGE_THRESHOLD || pvDroppedBelowGate;
-            if (pvDroppedBelowGate) {
-              console.log(`[PV-Automation] 🔄 ML-Cache INVALIDIERT: PV fiel unter Gate-Grenze (${cachedPvPower}W → ${pvPower}W)`);
-            }
-            if (socCrossedGate || socCrossedFull) {
-              console.log(`[PV-Automation] 🔄 ML-Cache INVALIDIERT: SOC kreuzt Schwelle (${cachedSoc}% → ${batterySoc}%, gate=${heatingMinSocLocal}%)`);
-            }
-
-            if (cacheAge < ML_CACHE_TTL_MS && !significantChange && cachedDecisions?.length > 0) {
-              mlDecisions = cachedDecisions;
-              usedMlDecision = true;
-              useCache = true;
-              console.log(`[PV-Automation] ♻️ ML-Cache verwendet (${Math.round(cacheAge / 60000)} Min alt, SOC-Δ=${(socChange*100).toFixed(0)}%, PV-Δ=${(pvChange*100).toFixed(0)}%)`);
-            } else {
-              console.log(`[PV-Automation] 🔄 ML-Cache ungültig: Alter=${Math.round(cacheAge / 60000)}min, SOC-Δ=${(socChange*100).toFixed(0)}%, PV-Δ=${(pvChange*100).toFixed(0)}%, significantChange=${significantChange}`);
-            }
-          }
-        } catch (cacheError) {
-          console.log(`[PV-Automation] ML-Cache nicht vorhanden, rufe AI auf`);
-        }
-
-        // Nur AI aufrufen wenn Cache ungültig
-        if (!useCache) {
-          try {
-            const mlResponse = await fetch(`${supabaseUrl}/functions/v1/analyze-patterns`, {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${supabaseKey}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                type: 'optimize_decision',
-                readings: [reading],
-                rooms: rooms,
-                heatingSettings: settings,
-                mlFeatures: latestMlFeatures,
-                weatherData: weatherData,
-                recentRewards: recentEvents
-              })
-            });
-
-            console.log(`[PV-Automation] ML Response status: ${mlResponse.status}, ok: ${mlResponse.ok}`);
-            
-            if (mlResponse.ok) {
-              const mlResult: MLDecisionResponse = await mlResponse.json();
-              console.log(`[PV-Automation] ML Result received, decisions: ${mlResult.decisions?.length || 0}, error: ${mlResult.error || 'none'}`);
-              
-              if (mlResult.decisions && mlResult.decisions.length > 0) {
-                mlDecisions = mlResult.decisions;
-                usedMlDecision = true;
-                console.log(`[PV-Automation] ✅ ML decisions: ${mlDecisions.length}, Strategy: ${mlResult.overall_strategy?.substring(0, 100)}...`);
-
-                // Speichere in ML-Cache
-                try {
-                  await supabase
-                    .from('system_settings')
-                    .upsert({
-                      key: ML_CACHE_KEY,
-                      value: {
-                        timestamp: Date.now(),
-                        battery_soc: batterySoc,
-                        pv_power: pvPower,
-                        decisions: mlDecisions
-                      },
-                      updated_at: new Date().toISOString()
-                    }, { onConflict: 'key' });
-                  console.log(`[PV-Automation] 💾 ML-Cache gespeichert`);
-                } catch (saveError) {
-                  console.warn(`[PV-Automation] ML-Cache speichern fehlgeschlagen:`, saveError);
-                }
-              } else {
-                console.warn(`[PV-Automation] ⚠️ ML returned empty decisions array, overall_strategy: ${mlResult.overall_strategy?.substring(0, 50) || 'none'}`);
-              }
-            } else {
-              const errorText = await mlResponse.text();
-              console.warn(`[PV-Automation] ❌ ML decision failed (${mlResponse.status}): ${errorText.substring(0, 200)}`);
-            }
-          } catch (mlError) {
-            console.error('[PV-Automation] ❌ ML error:', mlError);
-          }
-        }
-
-        // ============= PERSISTIERE ML-ENTSCHEIDUNGEN IN DATENBANK =============
-        // Damit das Frontend die Empfehlungen anzeigen kann (useRooms, RoomRecommendations)
-        if (mlDecisions && mlDecisions.length > 0) {
-          try {
-            // WICHTIG: Wien-Zeit für korrektes Datum (nicht UTC!)
-            const persistNow = new Date(); // Eigene Date-Instanz für Persistierung
-            const wienDateFormatter = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Vienna' });
-            const wienTimeFormatter = new Intl.DateTimeFormat('de-AT', {
-              timeZone: 'Europe/Vienna',
-              hour: '2-digit',
-              minute: '2-digit',
-              hour12: false
-            });
-            
-            const todayLocal = wienDateFormatter.format(persistNow); // YYYY-MM-DD in Wien-Zeit
-            const wienTimeStr = wienTimeFormatter.format(persistNow);
-            const [wienHourStr] = wienTimeStr.split(':');
-            const currentHour = parseInt(wienHourStr, 10);
-            
-            // 8 Tagesperioden à 3 Stunden (0-3, 3-6, 6-9, ...)
-            const periodNumber = Math.floor(currentHour / 3);
-            const startHour = periodNumber * 3;
-            const endHour = Math.min((periodNumber + 1) * 3, 24);
-            const startTime = `${String(startHour).padStart(2, '0')}:00`;
-            const endTime = `${String(endHour).padStart(2, '0')}:00`;
-            
-            console.log(`[PV-Automation] Persistiere ${mlDecisions.length} ML-Entscheidungen für ${todayLocal}, Periode ${periodNumber} (${startTime}-${endTime})`);
-            
-            for (const decision of mlDecisions) {
-              // Map ML action to priority string
-              const priorityMap: Record<string, string> = {
-                'activate': 'heat_now',
-                'deactivate': 'reduce',
-                'keep': 'hold'
-              };
-              const priority = priorityMap[decision.action] || 'hold';
-              
-              const { error: upsertError } = await supabase
-                .from('room_recommendations')
-                .upsert({
-                  room_id: decision.room_id,
-                  date: todayLocal,
-                  period_number: periodNumber,
-                  start_time: startTime,
-                  end_time: endTime,
-                  recommended_temp: decision.target_temp,
-                  reason: decision.reasoning || `ML: ${decision.action}`,
-                  priority: priority,
-                }, {
-                  onConflict: 'room_id,date,period_number'
-                });
-              
-              if (upsertError) {
-                console.error(`[PV-Automation] Fehler beim Speichern für ${decision.room_name}:`, upsertError.message);
-              }
-            }
-            
-            console.log(`[PV-Automation] ✅ ${mlDecisions.length} ML-Entscheidungen in room_recommendations gespeichert`);
-          } catch (persistError) {
-            console.error('[PV-Automation] Fehler beim Persistieren der ML-Entscheidungen:', persistError);
-          }
-        }
-      }
+      // 13.11.2026: LLM-Entscheidung je Raum (Gemini über analyze-patterns, lief nur im Cloud-Modus mit Tuya-Schlüsseln)
+      // entfernt – eine Sprach-KI steuert keine Thermostate (Uli 13.11.2026). Rechnen und Optimieren macht der Heizplaner.
+      // doc/FIX-PLANER-MODELL-2026-11-13.md §Sprach-KI
+      const mlDecisions: MLDecision[] = [];
+      const usedMlDecision = false;
 
       // 12.11.2026: Gelernte Policies (learned_policies / update-learned-policies) entfernt – ersetzt durch den
       // rechnenden Heizplaner. Im Lokal-Modus haben Budget-Override und Tagesmodus ihr Ziel immer überschrieben (K4).
@@ -3813,14 +3740,14 @@ Deno.serve(async (req) => {
         // Rotation, Phase-2-wartet, Standard). Raum-Ziel kommt aus dem Tagesmodus (siehe oben).
         let dayModeApplied = false;
         const dayFb = dayFallback.get(room.id);
-        if (!isNight && powerBudgetEnabled && dayFb && !roomBudgetStatus.get(room.id)?.budgeted) {
+        if (!isNight && (powerBudgetEnabled || planerRaeume.has(room.id)) && dayFb && !roomBudgetStatus.get(room.id)?.budgeted) {
           dayModeApplied = true;
           targetTemp = dayFb.temp;
           solarLimitTemp = null;
           if (dayFb.temp < currentTargetTemp - 0.05) action = 'deactivate';
           else if (dayFb.temp > currentTargetTemp + 0.05) action = 'activate';
           else action = 'keep';
-          reasoning = `🗓️ Tagesmodus ${dayMode}: ${dayFb.why} → ${dayFb.temp}°C`;
+          reasoning = planerRaeume.has(room.id) ? `🧮 ${dayFb.why} → ${dayFb.temp}°C` : `🗓️ Tagesmodus ${dayMode}: ${dayFb.why} → ${dayFb.temp}°C`;
           console.log(`[PV-Automation] ${room.name}: ${reasoning} (Sollwert bisher ${currentTargetTemp}°C, Aktion ${action})`);
         }
 

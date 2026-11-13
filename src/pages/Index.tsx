@@ -7,7 +7,7 @@
 //   Einstellungen  – wie das System arbeiten soll (inkl. Abschnitt KI)
 // Die früheren Tabs Energie, Heizung & KI und Verlauf & Muster sind darin aufgegangen
 // (Umzugsliste: doc/NEUE-TAB-STRUKTUR-2026-10-26.md).
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { SEO } from '@/components/SEO';
 import { Header, AppTab } from '@/components/energy/Header';
 import { SettingsPanel } from '@/components/energy/SettingsPanel';
@@ -18,7 +18,6 @@ import { AutoSteuerung } from '@/components/ki/AutoSteuerung';
 import { ProtokollTab } from '@/components/protokoll/ProtokollTab';
 import { useSmartfoxSettings } from '@/hooks/useSmartfoxSettings';
 import { useSmartfoxData } from '@/hooks/useSmartfoxData';
-import { usePatternAnalysis } from '@/hooks/usePatternAnalysis';
 import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useEnergyCalculation } from '@/hooks/useEnergyCalculation';
 import { useRooms } from '@/hooks/useRooms';
@@ -28,13 +27,8 @@ const Index = () => {
   const { settings } = useSmartfoxSettings();
   const { settings: heatingSettings } = useHeatingSettings();
   const { currentReading, readings, totalCount, isConnected } = useSmartfoxData();
-  const { analysis, isAnalyzing, analyzeDailyPattern, analyzeWeeklyComparison, loadDailyPatterns } = usePatternAnalysis();
   const { energyIn, energyOut, pvEnergy } = useEnergyCalculation(readings);
   const { rooms, updateRoomLocally } = useRooms();
-
-  useEffect(() => {
-    loadDailyPatterns();
-  }, [loadDailyPatterns]);
 
   const tabMeta: Record<AppTab, { title: string; description: string }> = {
     auto: {
@@ -99,8 +93,6 @@ const Index = () => {
           <KiTab
             rooms={rooms}
             currentReading={currentReading}
-            readings={readings}
-            pattern={{ analysis, isAnalyzing, analyzeDailyPattern, analyzeWeeklyComparison }}
             onNavigate={navigate}
           />
         )}

@@ -72,7 +72,7 @@ export interface HeatingSettings {
   fuehler_ende_abstand_c?: number;
   fuehler_max_stunden?: number;
   // Heizplaner (06.11.2026, Schattenbetrieb)
-  planer_modus?: 'aus' | 'schatten';
+  planer_modus?: 'aus' | 'schatten' | 'steuern';
   planer_gewicht_ziel?: number;
   planer_gewicht_unter?: number;
   planer_sicherheit_abstand?: number;

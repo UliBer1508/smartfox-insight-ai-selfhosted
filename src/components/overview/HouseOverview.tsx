@@ -131,7 +131,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   // nachts heating_night_mode (seit 06.11.2026). Nur Anzeige – keine Änderung an der Steuerung.
   type StatusRoom = { room_id: string; name?: string; target: number | null; why: string | null };
   type ModeStatus = {
-    mode?: string; computed_at?: string; ki_info?: string; away?: boolean;
+    mode?: string; computed_at?: string; ki_info?: string; away?: boolean; planer?: { steuert?: boolean; stand?: string };
     grid_used_w?: number; grid_cap_w?: number; used_w?: number; cap_w?: number; rooms?: StatusRoom[];
   };
   const [dayMode, setDayMode] = useState<ModeStatus | null>(null);
@@ -151,12 +151,16 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   const capW = dayMode?.grid_cap_w ?? dayMode?.cap_w ?? null;
   const usedW = dayMode?.grid_used_w ?? dayMode?.used_w ?? null;
   // Name des Betriebsmodus wie in Heizung München, direkt aus dem Tagesmodus der pv-automation (10.11.2026)
+  // 13.11.2026: Modus „steuern“ – der Heizplaner setzt die Sollwerte, das Regelwerk ist nur Rückfall.
+  const planerSteuert = dayModeFresh && dayMode?.planer?.steuert === true;
   const dayLabel = !dayModeFresh || night || evening ? null
+    : planerSteuert ? 'Planer steuert'
     : dayMode?.mode === 'wait' ? (dayMode?.away ? 'Wartetag · abwesend' : 'Wartetag')
     : dayMode?.mode === 'battery_gate' ? 'Batterie-Schutz'
     : dayMode?.mode === 'grid' ? 'Tag ohne PV'
     : null;
   const dayModeText = !dayLabel ? null
+    : planerSteuert ? `Der Heizplaner setzt die Sollwerte (${dayMode?.planer?.stand ?? 'aktueller Plan'}) – mit möglichst wenig Netzstrom, Sicherheitsregeln gelten weiter`
     : dayMode?.mode === 'wait' && dayMode?.away ? 'Abwesend – Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort'
     : dayMode?.mode === 'wait' ? 'Heute kommt laut Prognose noch Überschuss – Räume halten ihre „Untergrenze“'
     : dayMode?.mode === 'battery_gate' ? 'Batterie unter Mindest-Ladestand – Räume halten ihre „Untergrenze“'

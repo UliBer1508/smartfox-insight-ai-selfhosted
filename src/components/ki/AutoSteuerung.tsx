@@ -52,7 +52,7 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
           </div>
           <div role="group" aria-label="Modus der Auto-Steuerung" className="flex bg-muted rounded-lg p-1 gap-0.5">
             {([['aus', 'Aus'], ['schatten', 'Schatten'], ['steuern', 'Steuern']] as [Modus, string][]).map(([m, l]) => (
-              <button key={m} type="button" disabled={m === 'steuern'} title={m === 'steuern' ? 'Noch nicht gebaut – kommt nach der Freigabe des Mockups' : undefined}
+              <button key={m} type="button"
                 onClick={() => m !== modus && saveSettings({ planer_modus: m } as any)}
                 className={`px-4 py-2 rounded-md text-sm disabled:opacity-50 ${modus === m ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground'}`}>{l}</button>
             ))}
@@ -61,7 +61,7 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
         <div className={`rounded-lg px-3 py-2 text-sm ${modus === 'aus' ? 'bg-muted' : 'bg-primary/10'}`}>
           {modus === 'aus' && 'Planer aus – die Regeln der heutigen Steuerung entscheiden allein.'}
           {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Thermostaten ändert er nichts. Die heutige Regel-Steuerung (pv-automation) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob der Plan besser wäre, bevor er steuern darf.'}
-          {modus === 'steuern' && 'Der Planer setzt die Sollwerte. Sicherheitsregeln gelten weiter; ist der Plan älter als 30 min, übernimmt die heutige Steuerung.'}
+          {modus === 'steuern' && 'Der Planer setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min). Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Untergrenze − Sicherheitsabstand, keiner wird über Komfort geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Zurück jederzeit mit „Schatten“.'}
         </div>
 
         <div>

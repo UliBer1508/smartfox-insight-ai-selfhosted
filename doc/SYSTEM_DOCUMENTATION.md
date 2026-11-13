@@ -27,7 +27,7 @@
 > 5. Ergebnis als Abschnitt **„Nebenwirkungen geprüft“** in die FIX-/Konzept-Doku. Was bewusst nicht geändert
 >    wird, steht mit Grund dort und im TODO.
 >
-> **Letzte Aktualisierung:** 2026-11-09 · **Version:** 3.7 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> **Letzte Aktualisierung:** 2026-11-13 · **Version:** 3.8 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -162,9 +162,15 @@ Frontend (15–60 s Polling, KEIN Realtime)
 
 ---
 
-## 4a. Heizplaner (Schattenbetrieb, seit 06.11.2026)
+## 4a. Heizplaner (seit 06.11.2026; steuert seit 13.11.2026, wenn `planer_modus = steuern`)
 
-Rechnender Planer statt fester Regeln, Konzept `doc/KONZEPT-PLANER-2026-11-06.md`. Edge Function `heizplaner`: alle 15 min (über `analysis-scheduler`) ein 24-h-Plan je Raum und halbe Stunde, der Netzstrom + Komfortabweichung minimiert (gelerntes Raummodell `heizmodell`, gelernte PV-Vorhersage `system_settings.planer_pv_modell` mit Nachführung, Batterie, Leistungsgrenze). Täglich 03:00: Raummodell je Raum lernen, PV lernen, Vortag gegenrechnen (`heizplan_vergleich`). **Steuert noch nicht** (`heating_settings.planer_modus = schatten`); Anzeige KI › Planer. Gewichte: `planer_gewicht_ziel` (0,6 kWh je °C·h unter Ziel), `planer_gewicht_unter` (2), `planer_sicherheit_abstand` (1,5 °C). SQL 25.
+> **13.11.2026** (`doc/FIX-PLANER-MODELL-2026-11-13.md`): Raummodell mit zwei Wärmespeichern (Estrich + Luft,
+> `param.v = 2`), Wärme am Planende zählt wie Batterie-Restladung, nicht steuerbare Räume und Abwesenheit berücksichtigt.
+> **Modus „steuern“:** `pv-automation` setzt die Sollwerte nach dem jüngsten Plan (≤ 30 min), Tag und Nacht
+> („Nachtwert halten“). Das Regelwerk unten (§4–§9) ist dann nur Rückfall. Sicherheit bleibt: manuell, Automatik aus,
+> Fühler in der Sonne, nicht steuerbar, nie unter Untergrenze − Sicherheitsabstand, nie über Komfort + 0,3 °C.
+
+Rechnender Planer statt fester Regeln, Konzept `doc/KONZEPT-PLANER-2026-11-06.md`. Edge Function `heizplaner`: alle 15 min (über `analysis-scheduler`) ein 24-h-Plan je Raum und halbe Stunde, der Netzstrom + Komfortabweichung minimiert (gelerntes Raummodell `heizmodell`, gelernte PV-Vorhersage `system_settings.planer_pv_modell` mit Nachführung, Batterie, Leistungsgrenze). Täglich 03:00: Raummodell je Raum lernen, PV lernen, Vortag gegenrechnen (`heizplan_vergleich`). Modus `aus` / `schatten` (rechnet nur) / `steuern` (seit 13.11.2026); Anzeige und Umschalter Auto-Steuerung. Gewichte: `planer_gewicht_ziel` (0,6 kWh je °C·h unter Ziel), `planer_gewicht_unter` (2), `planer_sicherheit_abstand` (1,5 °C). SQL 25.
 
 ## 4. PV-Automation: 4-Stufen-Logik
 
@@ -472,10 +478,16 @@ Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 > 01.11.2026 gelöscht bzw. geleert (SQL `15_altdaten_loeschen.sql`); berechnete Raumleistungen werden aus sauberen
 > Heizzyklen neu berechnet, bis dahin gilt `heating_power_w`.
 
-**AI-Provider:** **Direkte Google Gemini API** (`gemini-2.5-flash`). Keine Lovable AI Gateway. Secret: `GOOGLE_AI_API_KEY`.
+> **13.11.2026: Keine Sprach-KI mehr** (Uli: „Die KI soll Muster erkennen – wie kann das eine Sprachsteuerung machen?“).
+> Entfernt: `analyze-patterns`, `analysis-summary`, Gemini-Hauptpfad von `ai-parameter-advisor`, LLM-Zweig in
+> `pv-automation`. Die „KI“ der Heizung ist der Heizplaner: gelerntes Raummodell + PV-Modell + Optimierung (§4a).
+> Vorschläge: `ki-tagesanalyse` (feste Regeln mit Messwerten), Leistungsmessung, Batterie-Vorschlag (feste Rechnung).
+> Die Abschnitte unten beschreiben den Stand davor. `doc/FIX-PLANER-MODELL-2026-11-13.md` §5.
+
+**AI-Provider (bis 13.11.2026):** Google Gemini API (`gemini-2.5-flash`). Secret `GOOGLE_AI_API_KEY` wird nicht mehr gelesen.
 
 ### Komponenten
-- **`analyze-patterns`** — generiert Empfehlungen, im Nachtfenster suppressed
+- ~~**`analyze-patterns`** — generiert Empfehlungen, im Nachtfenster suppressed~~ (entfernt 13.11.2026)
 - **`ml-feature-extraction`** (täglich) — rekonstruiert Heizzyklen aus `room_heating_logs`, schreibt `room_ml_features`
 - **`evaluate-decision`** — bewertet vergangene Entscheidungen (Reward-Funktion)
 - **`update-learned-policies`** (täglich 19:30 UTC) — aggregiert zu `learned_policies`, seit 01.11.2026 nur aus Ereignissen ab `learning_data_since`
@@ -531,7 +543,7 @@ Speichert in `pv_forecasts`:
 | `fetch-pv-forecast` | Forecast.Solar | pg_cron 06:00 | service_role |
 | `fetch-weather` | Open-Meteo | regelmäßig | service_role |
 | `aggregate-energy-data` | Daten-Cleanup | pg_cron 03:00 UTC | service_role |
-| `analyze-patterns` | ML-Empfehlungen | manuell + cron | hybrid |
+| ~~`analyze-patterns`~~ | entfernt 13.11.2026 (Gemini) | – | – |
 | `apply-recommendations` | Policy → Thermostat | nach analyze-patterns | hybrid |
 | `ml-feature-extraction` | Zyklus-Features | täglich | service_role |
 | `evaluate-decision` | Reward-Berechnung | pro Decision | service_role |
@@ -540,7 +552,7 @@ Speichert in `pv_forecasts`:
 | `monitor-solar-heating` | Solar-Event-Erkennung | regelmäßig | service_role |
 | `analyze-solar-gain` | Passiver Solargewinn | regelmäßig | service_role |
 | `calculate-heating-power` | Power-Kalibrierung (alt, lief nie – kein Cron) | – | service_role |
-| `heizplaner` | Planer (Schattenbetrieb): `planen` alle 15 min, `lernen` je Raum + `pv_lernen` + `vergleich` täglich 03:00 | `analysis-scheduler` | service_role |
+| `heizplaner` | Planer (Schatten oder steuern, 13.11.2026): `planen` alle 15 min, `lernen` je Raum + `pv_lernen` + `vergleich` täglich 03:00 | `analysis-scheduler` | service_role |
 | `measure-room-power` | Heizleistung je Raum messen (Regression Verbrauch ohne PV ~ „heizt“), Vorschläge in KI › Zu entscheiden | `analysis-scheduler` täglich 09:30 | service_role |
 
 **Routing-Robustheit:** `/check` und Root-Pfad beide unterstützt.
@@ -671,6 +683,13 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-13 — Planer steuert, neues Raummodell, Sprach-KI entfernt
+- Befund: altes Raummodell rechnete mit ~8 kW „innerer Wärme“ (verzögerte Estrich-Wärme) und ohne Wert für die Wärme am Planende – der Planer hätte das Haus auskühlen lassen (Gegenrechnung 12.11.: 12,8 statt 40,9 kWh bei wärmeren Räumen).
+- Neu: Estrich + Luft als zwei Speicher, Wärme am Planende zählt, nicht steuerbare Räume und Abwesenheit im Plan; Gegenrechnung „Wärme ausgeglichen“: gleicher Netzbezug, halb so lange unter Ziel (10.–12.11.).
+- Modus „steuern“ in `pv-automation` (Tag + Nacht), Regelwerk nur Rückfall. App: Knopf „Steuern“ frei, Übersicht „Planer steuert“.
+- Entfernt: `analyze-patterns`, `analysis-summary`, Gemini in `ai-parameter-advisor` und `pv-automation`, App-Teile dazu. SQL 37.
+- Details `doc/FIX-PLANER-MODELL-2026-11-13.md`.
 
 ### 2026-11-13 — Einstellungs-Abschnitte wie München
 - Uli: „warum sehen die Abschnitte in Venediger mit Header aus und in München übergangslos … ich bevorzuge die Münchner Darstellung.“

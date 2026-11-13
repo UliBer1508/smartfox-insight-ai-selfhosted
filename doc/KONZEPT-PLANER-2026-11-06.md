@@ -1,6 +1,7 @@
 # Konzept: Heizplaner statt fester Regeln (06.11.2026)
 
-**Status:** umgesetzt im **Schattenbetrieb** (rechnet und zeigt, steuert nicht).
+**Status:** umgesetzt; seit 13.11.2026 **Modus „steuern“** gebaut (Uli: „effektive Automation, kein Mockup“), neues
+Raummodell mit Estrich-Speicher – `doc/FIX-PLANER-MODELL-2026-11-13.md`.
 **Code:** `supabase/functions/heizplaner/` (`modell.ts` Rechenkern, `index.ts` Aufrufe), SQL `25_heizplaner.sql`,
 `analysis-scheduler` (Zeitplan), App `src/components/ki/PlanerView.tsx` (KI › 2 Planer), Einstellungen › Haus › Verteilung.
 
@@ -36,6 +37,8 @@ jeden Tag neu. Uli legt nur fest, **was** er will – nicht, **wie**.
 ## 3. Bausteine
 
 ### 3.1 Raummodell (je Raum gelernt, täglich 03:00, letzte 30 Tage)
+> **Ersetzt 13.11.2026** durch zwei Speicher (Estrich S, Luft T): dS = g·h − u·(S − T), dT = r·u·(S − T) − k·(T − T_außen)
+> + s·PV + c, c klein begrenzt. Das Modell unten hatte ~8 kW „innere Wärme“ gelernt. `doc/FIX-PLANER-MODELL-2026-11-13.md` §2.
 `ΔT je 15 min = −k·(T − T_außen) + g·Estrich + s·PV_kW + c`, Estrich = Heizen über τ Stunden verzögert (0/1/2 h geprüft).
 - k: Auskühlen, g: Aufheizen beim Heizen (°C/h), s: Sonne, c: innere Wärme/Nachbarräume.
 - Gelernt so, dass die **24-h-Simulation** die gemessenen Temperaturen am besten trifft (Nelder-Mead), nicht Schritt für Schritt.
@@ -93,7 +96,8 @@ Gemessen am 05.11.: 21,9 kWh Netz. Mit fast gleichem Strom wären die Räume kau
 1. **Jetzt (Schatten):** `heizplan` alle 15 min, `heizplan_vergleich` täglich. App: KI › Planer zeigt Plan, „Jetzt:
    Planer und heutige Steuerung“, Zeitleiste, Gegenrechnung, Modell je Raum.
 2. **Beobachten (einige Tage):** stimmt die Gegenrechnung jeden Tag? Ist der Plan plausibel? Gewichte passend?
-3. **Freigabe durch Uli** → Planer steuert: `planer_modus = steuern` (noch nicht gebaut). Dann setzt `pv-automation`
+3. **Freigabe durch Uli** → Planer steuert: `planer_modus = steuern` (**gebaut 13.11.2026**, Umsetzung siehe
+   `doc/FIX-PLANER-MODELL-2026-11-13.md` §4 – heizen → Sollwert, der sicher einschaltet; nicht heizen → Ist − Band − 0,5). Dann setzt `pv-automation`
    die Sollwerte nach dem Plan (heizen → Sollwert über Ist bis Ziel, nicht heizen → Ist − 0,5 °C), die Sicherheitsregeln
    (Manuell, Übertemperatur, Frostschutz, Thermostat-Fehler) bleiben. Das Regelwerk wird danach schrittweise abgebaut.
 
@@ -114,5 +118,5 @@ Gemessen am 05.11.: 21,9 kWh Netz. Mit fast gleichem Strom wären die Räume kau
 
 - Wünsche je Raum und Uhrzeit (Belegung).
 - Estrich-Verzögerung τ beobachten (bisher 0 gewählt).
-- Modus „steuern“ bauen, sobald der Schattenbetrieb überzeugt.
+- ~~Modus „steuern“ bauen~~ (13.11.2026). Danach: Regelwerk schrittweise abbauen, wenn „steuern“ einige Tage läuft.
 - PV: Forecast.Solar zusätzlich als Eingang prüfen; Schnee auf den Modulen erkennen (30.10.: wolkenlos, aber 11 statt 38 kWh).
