@@ -161,9 +161,9 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
     : null;
   const dayModeText = !dayLabel ? null
     : planerSteuert ? `Der Heizplaner setzt die Sollwerte (${dayMode?.planer?.stand ?? 'aktueller Plan'}) – mit möglichst wenig Netzstrom, Sicherheitsregeln gelten weiter`
-    : dayMode?.mode === 'wait' && dayMode?.away ? 'Abwesend – Räume halten „Untergrenze“, Sonne heizt bis Eco, dann Komfort'
-    : dayMode?.mode === 'wait' ? 'Heute kommt laut Prognose noch Überschuss – Räume halten ihre „Untergrenze“'
-    : dayMode?.mode === 'battery_gate' ? 'Batterie unter Mindest-Ladestand – Räume halten ihre „Untergrenze“'
+    : dayMode?.mode === 'wait' && dayMode?.away ? 'Abwesend – Räume halten Min, Sonne heizt bis Normal, dann PV-Max'
+    : dayMode?.mode === 'wait' ? 'Heute kommt laut Prognose noch Überschuss – Räume halten Min'
+    : dayMode?.mode === 'battery_gate' ? 'Batterie unter Mindest-Ladestand – Räume halten Min'
     : `Räume nach Priorität auf Eco, höchstens ${fmtW(capW)} aus dem Netz`;
 
   // Zeile wie in Heizung München: wer heizt (Ist → Ziel), wie viele warten, Leistungsgrenze.
@@ -193,7 +193,7 @@ function ModeHero({ rooms, settings, surplus, reading }: { rooms: Room[]; settin
   let reason: string;
   if (evening) {
     tone = 'night'; label = 'Abend'; Icon = Moon;
-    reason = 'Abend wie Nacht – Räume halten den Nachtwert, kein Eco aus der Batterie';
+    reason = 'Abend wie Nacht – Räume halten Min, kein Normal aus der Batterie';
   } else if (night) {
     tone = 'night'; label = 'Nacht'; Icon = Moon;
     reason = settings.night_heating_mode === 'frost_only'
@@ -612,7 +612,7 @@ function RoomCard({ room, night, dayRoom, heute, onChanged }: { room: Room; nigh
 
         <div className="text-xs text-muted-foreground flex items-center gap-1 flex-wrap">
           {room.automation_enabled === false && <PauseCircle className="w-3.5 h-3.5" />}
-          Nacht {fmtT(room.night_temp)}{room.wait_min_temp != null && <> · Untergrenze {fmtT(room.wait_min_temp)}</>} · Eco {fmtT(room.eco_temp)} · Komfort {fmtT(room.comfort_temp)}
+          Min {fmtT(room.wait_min_temp ?? room.night_temp)} · Normal {fmtT(room.eco_temp)} · PV-Max {fmtT(room.comfort_temp)}
         </div>
       </CardContent>
     </Card>

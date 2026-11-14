@@ -27,7 +27,7 @@ const WIRKUNG_TAGE = 3;
 const UNTER_ECO_SCHWELLE_MIN = 120;   // „lange unter Eco“ = mehr als 2 Stunden am Tag
 
 const LABEL: Record<string, string> = {
-  wait_min_temp: 'Untergrenze',
+  wait_min_temp: 'Min',
   max_grid_heating_power_w: 'Heizleistung ohne Sonne',
   heating_min_battery_soc: 'Batterie-Grenze fürs Heizen',
 };
@@ -207,7 +207,7 @@ Deno.serve(async (req) => {
     if (haeltNicht.length) {
       haeltNicht.sort((a, b) => (a.morgen - a.grenze) - (b.morgen - b.grenze));
       infos.push({ quelle: 'tagesanalyse', art: 'info', gewicht: 50,
-        titel: `Nicht einmal die Untergrenze gehalten (an mindestens ${MIN_TAGE} der letzten ${n} Tage morgens darunter): `
+        titel: `Nicht einmal Min gehalten (an mindestens ${MIN_TAGE} der letzten ${n} Tage morgens darunter): `
           + haeltNicht.slice(0, 5).map((h) => `${h.name} morgens ${zahl(h.morgen)} °C statt ${zahl(h.grenze)} °C`).join(', ')
           + `${haeltNicht.length > 5 ? ` und ${haeltNicht.length - 5} weitere` : ''}. Ein höherer Wert hilft hier nicht – Ursache prüfen `
           + '(Nacht auf Frostschutz? Heizleistung ohne Sonne zu klein? Thermostat offline?).' });
@@ -288,8 +288,8 @@ Deno.serve(async (req) => {
       const pv = g.pv != null ? ` (${zahl(g.pv, 0)} kWh Sonne)` : '';
       teile.push(g.art === 'sonnig' ? `Sonnentag${pv}.` : g.art === 'trueb' ? `Trüber Tag, kaum Sonnen-Überschuss${pv}.` : `Wechselhafter Tag${pv}.`);
       const nachtMin = Number(b.nacht_min_unter ?? 0);
-      teile.push(nachtMin <= 0 ? 'Die Nacht war gut, alle Räume blieben über ihrer Untergrenze.'
-        : `In der Nacht lagen Räume zusammen ${stunden(nachtMin)} Stunden unter ihrer Untergrenze.`);
+      teile.push(nachtMin <= 0 ? 'Die Nacht war gut, alle Räume blieben über Min.'
+        : `In der Nacht lagen Räume zusammen ${stunden(nachtMin)} Stunden unter Min.`);
       const kalt = g.raeume.filter((x) => x.min_unter_eco >= 60).sort((x, y) => y.min_unter_eco - x.min_unter_eco);
       teile.push(kalt.length === 0 ? 'Tagsüber waren alle Räume auf Eco.'
         : `Länger unter Eco: ${kalt.slice(0, 4).map((x) => `${x.raum} (${stunden(x.min_unter_eco)} h)`).join(', ')}${kalt.length > 4 ? ` und ${kalt.length - 4} weitere` : ''}.`);

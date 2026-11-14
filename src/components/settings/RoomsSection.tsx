@@ -11,9 +11,11 @@
 //   Nacht-/Frostschutz-Befehl). Seit 26.10.2026 hier statt in der alten Thermostat-Karte.
 // - Komfort ist das Maximum (07.11.2026, Uli). Den alten Wert „Batterie voll“ (pv_boost_max_temp) gibt es nicht
 //   mehr; bei voller Batterie bleiben Räume nur dann auf Komfort, wenn ALLE Räume auf Komfort sind.
-// - "Untergrenze" (wait_min_temp, seit 27.10.2026, bis 01.11.2026 „Ohne PV“): so weit darf der Raum
-//   unter Eco fallen, solange auf PV-Überschuss gewartet wird. Ziel am
-//   Wartetag, beim Batterie-Gate und für Räume ohne Budget (doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md).
+// - Seit 14.11.2026 (Uli) nur noch drei Temperaturen je Raum (doc/FIX-DREI-TEMPERATUREN-2026-11-14.md):
+//     Min    = wait_min_temp – darf nie unterschritten werden, Tag und Nacht (früher „Untergrenze“ und „Nacht“)
+//     Normal = eco_temp      – Ziel tagsüber
+//     PV-Max = comfort_temp  – bis hierhin wird mit PV-Überschuss geheizt
+//   night_temp wird nicht mehr bearbeitet; die Datenbank hält sie per Trigger gleich Min (SQL 39).
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +30,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Room, OrientationType, ORIENTATION_LABELS } from '@/types/room';
 import { sameValue } from '@/lib/safeSave';
-import { Home, Thermometer, Plus, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Moon, Battery, Info, Wrench, AlertTriangle } from 'lucide-react';
+import { Home, Thermometer, Plus, Loader2, ChevronDown, Save, Trash2, Sun, Leaf, Shield, Battery, Info, Wrench, AlertTriangle } from 'lucide-react';
 import { SectionCard, Eyebrow, LabeledInput } from './SettingsBits';
 
 const TEMP_MIN = 5;
@@ -41,10 +43,9 @@ const fmt = (t: number | null | undefined) =>
 
 // Editierbare Felder je Raum (alles andere wird nie geschrieben)
 const NUM_FIELDS: { k: keyof Room; l: string; unit?: string; step?: number; min?: number; max?: number; temp?: boolean }[] = [
-  { k: 'night_temp', l: 'Nacht', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
-  { k: 'wait_min_temp', l: 'Untergrenze', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
-  { k: 'eco_temp', l: 'Eco', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
-  { k: 'comfort_temp', l: 'Komfort', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
+  { k: 'wait_min_temp', l: 'Min', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
+  { k: 'eco_temp', l: 'Normal', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
+  { k: 'comfort_temp', l: 'PV-Max', unit: '°C', step: 0.5, min: TEMP_MIN, max: TEMP_MAX, temp: true },
   { k: 'floor_area_m2', l: 'Fläche', unit: 'm²', step: 1, min: 0, max: 500 },
   { k: 'heating_power_w', l: 'Heizleistung', unit: 'W', step: 50, min: 0, max: 20000 },
 ];
@@ -69,9 +70,8 @@ function validate(values: Draft): string[] {
     if (f.max != null && n > f.max) errs.push(`${f.l}: höchstens ${f.max} ${f.unit ?? ''}`.trim());
   }
   const n = (k: string) => Number(String(values[k] ?? '').replace(',', '.'));
-  if (n('night_temp') > n('eco_temp')) errs.push('Nacht darf nicht wärmer sein als Eco');
-  if (n('wait_min_temp') > n('eco_temp')) errs.push('„Untergrenze“ darf nicht wärmer sein als Eco');
-  if (n('eco_temp') > n('comfort_temp')) errs.push('Eco darf nicht wärmer sein als Komfort');
+  if (n('wait_min_temp') > n('eco_temp')) errs.push('Min darf nicht wärmer sein als Normal');
+  if (n('eco_temp') > n('comfort_temp')) errs.push('Normal darf nicht wärmer sein als PV-Max');
   if (!String(values.name ?? '').trim()) errs.push('Name fehlt');
   return errs;
 }
@@ -158,28 +158,24 @@ function RoomCard({ room, onSave, onDelete }: {
       </div>
 
       <div className="space-y-2">
-        <Eyebrow>Solltemperatur je Modus</Eyebrow>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Eyebrow>Temperaturen</Eyebrow>
+        <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1">
-            <div className="flex items-center gap-1 text-xs text-indigo-500"><Moon className="w-3.5 h-3.5" />Nacht</div>
-            {tempInput('night_temp', 'Nacht')}
+            <div className="flex items-center gap-1 text-xs text-indigo-500" title="Darf nie unterschritten werden – Tag und Nacht"><Shield className="w-3.5 h-3.5" />Min</div>
+            {tempInput('wait_min_temp', 'Min')}
           </div>
           <div className="space-y-1">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground" title="Untergrenze bis Sonne: Ist PV-Überschuss zu erwarten, darf der Raum bis hierhin unter Eco fallen, statt aus Batterie/Netz zu heizen. Gleich Eco = nie warten."><Battery className="w-3.5 h-3.5" />Untergrenze</div>
-            {tempInput('wait_min_temp', 'Untergrenze')}
+            <div className="flex items-center gap-1 text-xs text-success" title="Ziel tagsüber (in Planer und Auswertungen „Eco“)"><Leaf className="w-3.5 h-3.5" />Normal</div>
+            {tempInput('eco_temp', 'Normal')}
           </div>
           <div className="space-y-1">
-            <div className="flex items-center gap-1 text-xs text-success"><Leaf className="w-3.5 h-3.5" />Eco</div>
-            {tempInput('eco_temp', 'Eco')}
-          </div>
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 text-xs text-energy-export"><Sun className="w-3.5 h-3.5" />Komfort</div>
-            {tempInput('comfort_temp', 'Komfort')}
+            <div className="flex items-center gap-1 text-xs text-energy-export" title="Bis hierhin mit PV-Überschuss (in Planer und Auswertungen „Komfort“)"><Sun className="w-3.5 h-3.5" />PV-Max</div>
+            {tempInput('comfort_temp', 'PV-Max')}
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
-          <b>Untergrenze bis Sonne:</b> Ist PV-Überschuss zu erwarten, darf der Raum bis hierhin unter Eco fallen –
-          nachgeheizt wird dann mit Sonne statt aus Batterie/Netz. Gleich Eco = nie warten. Üblich: Eco − 1 °C.
+          <b>Min</b> darf nie unterschritten werden, auch nachts. <b>Normal</b> ist das Ziel tagsüber.
+          <b> PV-Max</b>: bis hierhin wird mit Sonnen-Überschuss geheizt (Estrich als Speicher).
         </p>
       </div>
 
@@ -187,7 +183,7 @@ function RoomCard({ room, onSave, onDelete }: {
         <div className="flex items-center justify-between gap-3 p-3">
           <div>
             <div className="text-sm font-medium">Automatik</div>
-            <div className="text-xs text-muted-foreground">Raum wird von der Heizungsautomatik gesteuert (Nacht, Eco, Komfort)</div>
+            <div className="text-xs text-muted-foreground">Raum wird von der Heizungsautomatik gesteuert (Min, Normal, PV-Max)</div>
           </div>
           <Switch
             checked={value('automation_enabled') === true}
@@ -209,14 +205,14 @@ function RoomCard({ room, onSave, onDelete }: {
         {value('automation_enabled') !== true && (
           <div className="flex items-start gap-2 p-3 text-xs text-warning">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>Automatik aus: Dieser Raum bekommt keine Befehle mehr – auch nicht abends für Nacht oder Frostschutz. Das Thermostat behält seinen letzten Sollwert.</span>
+            <span>Automatik aus: Dieser Raum bekommt keine Befehle mehr – auch nicht, um Min zu halten. Das Thermostat behält seinen letzten Sollwert.</span>
           </div>
         )}
       </div>
 
       <div className="flex items-start gap-2 text-xs text-muted-foreground">
         <Battery className="w-3.5 h-3.5 mt-0.5 shrink-0 text-primary" />
-        <span>Mit Sonnen-Überschuss heizt dieser Raum höchstens bis Komfort. Darüber nur, wenn alle Räume auf Komfort sind und die Batterie voll ist.</span>
+        <span>Mit Sonnen-Überschuss heizt dieser Raum höchstens bis PV-Max. Darüber nur, wenn alle Räume auf PV-Max sind und die Batterie voll ist.</span>
       </div>
 
       <Collapsible>
@@ -342,7 +338,7 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
 }) {
   const used = new Set(rooms.map((r) => r.priority));
   const free = Array.from({ length: 12 }, (_, i) => i + 1).filter((p) => !used.has(p));
-  const [d, setD] = useState<Draft>({ name: '', night_temp: 18, wait_min_temp: 17.5, eco_temp: 19, comfort_temp: 21, thermostat_type: 'TGP508' });
+  const [d, setD] = useState<Draft>({ name: '', wait_min_temp: 20, eco_temp: 21, comfort_temp: 23, thermostat_type: 'TGP508' });
   const [errs, setErrs] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => { setD((x) => ({ ...x, [k]: v })); setErrs([]); };
@@ -356,7 +352,7 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
       // Automatik an: ohne sie würde ein neuer Raum nie gesteuert (DB-Standard ist false).
       priority: Number(d.priority ?? free[0]), has_solar_gain: false, pv_auto_enabled: false, automation_enabled: true,
     };
-    for (const k of ['night_temp', 'wait_min_temp', 'eco_temp', 'comfort_temp', 'floor_area_m2', 'heating_power_w', 'thermostat_ip', 'tuya_device_id', 'local_key']) {
+    for (const k of ['wait_min_temp', 'eco_temp', 'comfort_temp', 'floor_area_m2', 'heating_power_w', 'thermostat_ip', 'tuya_device_id', 'local_key']) {
       room[k] = toDb(k, d[k]);
     }
     setBusy(true);
@@ -382,8 +378,8 @@ function NewRoomDialog({ rooms, open, onOpenChange, onCreate }: {
               </Select>
             </label>
             <div className="grid grid-cols-2 gap-2">
-              {(['night_temp', 'wait_min_temp', 'eco_temp', 'comfort_temp'] as const).map((k, i) => (
-                <LabeledInput key={k} label={['Nacht', 'Untergrenze', 'Eco', 'Komfort'][i]} unit="°C" type="number" step={0.5}
+              {(['wait_min_temp', 'eco_temp', 'comfort_temp'] as const).map((k, i) => (
+                <LabeledInput key={k} label={['Min', 'Normal', 'PV-Max'][i]} unit="°C" type="number" step={0.5}
                   value={String(d[k] ?? '')} onChange={(e) => set(k, e.target.value)} />
               ))}
             </div>
@@ -429,9 +425,9 @@ export function RoomsSection({ rooms, isLoading, onSave, onCreate, onDelete, onR
       }
     >
       <div className="rounded-lg bg-muted/40 p-3 text-xs text-muted-foreground grid sm:grid-cols-3 gap-2">
-        <div className="flex gap-1.5"><Moon className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" /><span><strong className="text-foreground">Nacht:</strong> nur im Modus „Nacht-Temperatur halten“, sonst Frostschutz 5 °C</span></div>
-        <div className="flex gap-1.5"><Leaf className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" /><span><strong className="text-foreground">Eco:</strong> tagsüber, sobald Überschuss das Budget erlaubt</span></div>
-        <div className="flex gap-1.5"><Sun className="w-3.5 h-3.5 text-energy-export shrink-0 mt-0.5" /><span><strong className="text-foreground">Komfort:</strong> nur aus echter Einspeisung, danach speichert der Estrich</span></div>
+        <div className="flex gap-1.5"><Shield className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" /><span><strong className="text-foreground">Min:</strong> nie darunter – Tag und Nacht</span></div>
+        <div className="flex gap-1.5"><Leaf className="w-3.5 h-3.5 text-success shrink-0 mt-0.5" /><span><strong className="text-foreground">Normal:</strong> Ziel tagsüber, ohne Sonne auch aus dem Netz</span></div>
+        <div className="flex gap-1.5"><Sun className="w-3.5 h-3.5 text-energy-export shrink-0 mt-0.5" /><span><strong className="text-foreground">PV-Max:</strong> nur mit Sonnen-Überschuss, der Estrich speichert</span></div>
       </div>
 
       {isLoading && rooms.length === 0 ? (
