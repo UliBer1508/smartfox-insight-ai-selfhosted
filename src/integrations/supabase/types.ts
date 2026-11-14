@@ -745,6 +745,8 @@ export type Database = {
           latitude: number | null
           longitude: number | null
           max_grid_heating_power_w: number | null
+          min_deckel_w: number
+          min_vorlauf_c: number
           battery_gate_floor_delta: number
           battery_gate_max_power_w: number
           cap_wait_boost_min: number
@@ -831,6 +833,8 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          min_deckel_w?: number
+          min_vorlauf_c?: number
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
           cap_wait_boost_min?: number
@@ -917,6 +921,8 @@ export type Database = {
           latitude?: number | null
           longitude?: number | null
           max_grid_heating_power_w?: number | null
+          min_deckel_w?: number
+          min_vorlauf_c?: number
           battery_gate_floor_delta?: number
           battery_gate_max_power_w?: number
           cap_wait_boost_min?: number

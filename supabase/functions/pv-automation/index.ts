@@ -116,7 +116,9 @@ async function getPresence(supabase: any, settings: any): Promise<PresenceInfo> 
   }
 }
 
-// ============= LEISTUNGSGRENZE GILT IMMER (06.11.2026, doc/FIX-HEIZLEISTUNG-2026-11-06.md) =============
+// ============= LEISTUNGSGRENZE (06.11.2026, doc/FIX-HEIZLEISTUNG-2026-11-06.md) =============
+// Seit 14.11.2026 gilt für Räume unter Min der Deckel min_deckel_w statt der Grenze (allocateMin, unten).
+// Die Grenze max_grid_heating_power_w gilt weiter für Normal (Eco) aus Batterie/Netz. Historie:
 // Uli 06.11.2026: „Grenze gilt immer“. Räume unter ihrer Untergrenze (Tag) bzw. unter ihrem Nachtwert
 // (Nacht) heizen nach Priorität, aber nur solange die Summe der Raumleistungen unter der Grenze bleibt.
 // Ausnahme: Ein Raum, der allein schon größer ist als die Grenze (Wohnzimmer 5,5 kW), darf heizen,
@@ -149,34 +151,33 @@ function startTarget(cur: number, want: number, band: number, isHeating: boolean
   return t > want ? { temp: t, anstoss: true } : { temp: want, anstoss: false };
 }
 
-type CapCand = { id: string; name: string; power: number; prio: number; heating?: boolean };
+type CapCand = { id: string; name: string; power: number; prio: number; heating?: boolean; cur: number; min: number };
 type CapResult = { granted: Set<string>; waiting: Set<string>; usedW: number; alone: string | null; kept: Set<string>; reserviert: boolean };
 
-// Wer heizt, heizt fertig (09.11.2026, doc/FIX-VORRANG-BEHALTEN-2026-11-09.md): Ein Raum, der im letzten Lauf
-// Leistung bekommen hat und noch unter seinem Ziel liegt, behält sie – vor Wartezeit-Vorrang und Priorität.
-// Vorher fiel ein Raum nach einem Lauf „heizt allein“ aus dem Wartezustand, verlor den Vorrang und wartete
-// wieder 60 min (Wohnzimmer 09.11.: sechsmal, ~95 min Heizzeit am Tag, Untergrenze nie erreicht).
-// Behalten nur, solange der Raum wirklich heizt (DP 5) – nach der Zuteilung hat er cap_keep_start_min (15 min)
-// Zeit zum Anlaufen. Wer zugeteilt ist, aber nicht heizt, behält nichts und blockiert die Grenze nicht.
-// Höchstens cap_keep_max_min (Standard 120 min) am Stück, dann zählt wieder Vorrang/Priorität.
+// ============= MIN HAT VORRANG (14.11.2026, doc/FIX-MIN-VORRANG-2026-11-14.md) =============
+// Uli 14.11.2026: Kein Raum darf unter Min fallen. Ersetzt „Grenze gilt immer“ (06.11.) und den Wartezeit-Vorrang
+// (cap_wait_boost_min) für Räume unter Min:
+//   – Kandidat ist jeder Raum unter Min + Vorlauf (min_vorlauf_c, 0,2 °C) – die Heizung startet vor Min, nicht darunter.
+//   – Reihenfolge: wer am weitesten unter Min liegt, zuerst; ein Raum, der schon heizt, zählt 0,3 °C dringender
+//     (ersetzt „Wer heizt, heizt fertig“ vom 09.11. als festen Vorrang); bei Gleichstand Priorität.
+//   – Min-Räume dürfen über die normale Grenze, aber nie über den Deckel min_deckel_w (6000 W). Gezählt wird
+//     Heizleistung (DP 5 „heizt“ × Raumleistung), nicht der Hausverbrauch – Auto und Warmwasser zählen nicht.
+//   – Passt der dringendste wartende Raum nicht, bekommen nachfolgende keine neue Leistung (Reservierung), damit ein
+//     großer Raum nicht ewig von kleinen überholt wird.
+//   – Ein Raum, der allein größer als der Deckel ist, heizt allein (Sicherheitsfall, heute kein Raum).
+// Wer heizt, heizt fertig: Behalten nur, solange das Thermostat wirklich heizt (DP 5) – nach der Zuteilung hat es
+// cap_keep_start_min (15 min) zum Anlaufen. Höchstens cap_keep_max_min (120 min) am Stück.
 
-/** Reine Funktion: teilt die Leistung unter capW zu – zuerst wer schon heizt (behalten), dann Wartezeit-Vorrang,
- *  dann Priorität. grantedSince: seit wann ein Raum Leistung hat (aus dem letzten Lauf). */
-function allocateUnderCap(
+/** Reine Funktion: teilt Leistung an Räume unter Min (+ Vorlauf) zu, höchstens bis deckelW. */
+function allocateMin(
   cands: CapCand[],
-  capW: number,
+  deckelW: number,
   startUsedW: number,
-  waitSince: Record<string, string>,
-  boostMin: number,
   nowMs: number,
   grantedSince: Record<string, string> = {},
   keepMaxMin = 120,
   keepStartMin = 15,
 ): CapResult {
-  const boosted = (c: CapCand) => {
-    const s = waitSince[c.id];
-    return s && boostMin > 0 && nowMs - new Date(s).getTime() >= boostMin * 60_000 ? new Date(s).getTime() : null;
-  };
   const keeps = (c: CapCand) => {
     const s = grantedSince[c.id];
     if (!s || keepMaxMin <= 0) return null;
@@ -184,15 +185,13 @@ function allocateUnderCap(
     if (age >= keepMaxMin * 60_000) return null;
     return c.heating === true || age < keepStartMin * 60_000 ? new Date(s).getTime() : null;
   };
+  // Reihenfolge nach Dringlichkeit: Abstand zu Min (am weitesten darunter zuerst). Wer schon heizt, zählt KEEP_BONUS_C
+  // dringender – so wird ein laufender Raum nicht beim ersten kleinen Unterschied wieder abgeschaltet (kein Flattern).
+  const KEEP_BONUS_C = 0.3;
+  const score = (c: CapCand) => (c.cur - c.min) - (keeps(c) !== null ? KEEP_BONUS_C : 0);
   const ordered = [...cands].sort((a, b) => {
-    const ka = keeps(a), kb = keeps(b);
-    if (ka !== null && kb !== null) return ka - kb;   // wer schon länger heizt zuerst
-    if (ka !== null) return -1;
-    if (kb !== null) return 1;
-    const ba = boosted(a), bb = boosted(b);
-    if (ba !== null && bb !== null) return ba - bb;   // am längsten wartend zuerst
-    if (ba !== null) return -1;
-    if (bb !== null) return 1;
+    const d = score(a) - score(b);
+    if (Math.abs(d) >= 0.05) return d;
     return a.prio - b.prio;
   });
   const kept = new Set<string>(ordered.filter((c) => keeps(c) !== null).map((c) => c.id));
@@ -200,32 +199,41 @@ function allocateUnderCap(
   const waiting = new Set<string>();
   let usedW = startUsedW;
   let alone: string | null = null;
-  // Reservierung: Ein Raum mit Wartezeit-Vorrang, der gerade nicht passt (z. B. Wohnzimmer 5,5 kW > Grenze),
-  // sperrt neue Zuteilungen an andere. Wer schon heizt, heizt fertig; danach wird die Grenze frei und der Raum
-  // heizt allein. Ohne Sperre füllten kleine Räume die Grenze immer wieder auf (Nachrechnung 09.11.2026).
   let reserviert = false;
   for (const c of ordered) {
     const isKept = kept.has(c.id);
     if (reserviert && !isKept) { waiting.add(c.id); continue; }
-    if (usedW + c.power <= capW) {
+    if (usedW + c.power <= deckelW) {
       usedW += c.power; granted.add(c.id);
-    } else if (granted.size === 0 && (usedW === 0
-      || (c.power > capW && (isKept || boosted(c) !== null)))) {
-      // größer als die Grenze, aber sonst heizt niemand → allein.
-      // Seit 10.11.2026 (B): auch wenn nur noch Nachlauf läuft (kein Raum hat Leistung zugeteilt) – aber NUR für
-      // einen Raum, der größer als die Grenze ist, und nur wenn er schon heizt (Vorrang: wer heizt, heizt bis Ziel)
-      // oder die Vorrang-Wartezeit hinter sich hat. Vorher blockierte ein einziges nachlaufendes Thermostat
-      // (Toilette Eingang, 100 W) über Stunden alle Räume. Korrektur 10.11. 16:05 (B2): Die erste Fassung ließ auch
-      // Räume unter der Grenze „allein“ heizen (Zimmer Uli 2000 W + 2050 W Nachlauf) und nahm dem schon heizenden
-      // Wohnzimmer nach einer Runde die Leistung wieder weg, weil es nicht mehr als wartend zählte.
-      usedW += c.power; granted.add(c.id); alone = c.id;
+    } else if (granted.size === 0 && usedW === 0 && c.power > deckelW) {
+      usedW += c.power; granted.add(c.id); alone = c.id;   // größer als der Deckel, sonst heizt niemand
     } else {
       waiting.add(c.id);
-      if (!isKept && keepMaxMin > 0 && boosted(c) !== null) reserviert = true;
+      if (!isKept) reserviert = true;
     }
   }
   for (const id of [...kept]) if (!granted.has(id)) kept.delete(id);
   return { granted, waiting, usedW, alone, kept, reserviert };
+}
+
+/** Min-Zuteilung mit „Platz schaffen“ (Punkt 2): Zuerst zählt alles mit, was heizt. Muss dann ein Min-Raum warten,
+ *  werden die abschaltbaren Räume (heizen über Min Richtung Normal/PV-Max oder laufen nach) abgeschaltet und neu
+ *  zugeteilt. cut = Räume, die für Min-Räume abgeschaltet werden. */
+function allocateMinMitPlatz(
+  cands: CapCand[], deckelW: number, fixedUsedW: number, abschaltbar: Array<{ id: string; power: number }>,
+  nowMs: number, grantedSince: Record<string, string>, keepMaxMin: number,
+): CapResult & { cut: Set<string> } {
+  const abW = abschaltbar.reduce((s, a) => s + a.power, 0);
+  const erst = allocateMin(cands, deckelW, fixedUsedW + abW, nowMs, grantedSince, keepMaxMin);
+  if (erst.waiting.size === 0 || abschaltbar.length === 0) return { ...erst, cut: new Set() };
+  const zweit = allocateMin(cands, deckelW, fixedUsedW, nowMs, grantedSince, keepMaxMin);
+  // Abschaltbare, die neben den Min-Räumen noch Platz haben, laufen weiter (größte zuerst abschalten).
+  const cut = new Set<string>();
+  let used = zweit.usedW;
+  for (const a of [...abschaltbar].sort((x, y) => x.power - y.power)) {
+    if (zweit.waiting.size === 0 && used + a.power <= deckelW) { used += a.power; } else cut.add(a.id);
+  }
+  return { ...zweit, usedW: used, cut };
 }
 
 /** Wartezustand fortschreiben: neue Wartende mit „jetzt“, wer nicht mehr wartet, fällt raus. */
@@ -379,7 +387,6 @@ function allocateDayTargets(
   // Batterie-Schutz (Konzept Tagesablauf §3.4, Raummodell §3.2): Ziel ist
   // „Untergrenze − battery_gate_floor_delta“ (seit 02.11.2026 Abstand 0 → Untergrenze).
   const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0));
-  const boostMin = Math.max(0, Number(settings?.cap_wait_boost_min ?? 60));
   const keepMaxMin = Math.max(0, Number(settings?.cap_keep_max_min ?? 120));
   const comfortOf = (rp: { room: any }) => Number(rp.room.comfort_temp) || Number(settings?.comfort_temp) || 22;
   // Abschalten, sobald ein heizender Raum sein Ziel um so viel überschritten hat (statt Ziel + Band, 09.11.2026)
@@ -396,45 +403,59 @@ function allocateDayTargets(
   const ecoOf = (rp: { room: any }) => Number(rp.room.eco_temp) || Number(settings?.eco_temp) || 19;
   const curOf = (rp: { room: any }) => Number(rp.room.current_temp) || 0;
 
-  // Schritt 0: Nachlauf mitzählen (Thermostat heizt noch, Raum liegt schon über seinem Ziel)
-  // Räume außerhalb der Steuerung, die trotzdem heizen (nicht steuerbar, Fühler in der Sonne), zählen zur Leistung (10.11.2026)
-  let startUsed = Math.max(0, Number(settings?._extraUsedW) || 0);
+  // Min hat Vorrang (14.11.2026, doc/FIX-MIN-VORRANG-2026-11-14.md): Kandidaten sind Räume unter Min + Vorlauf.
+  // Gezählt wird, was heizt (DP 5): Räume außerhalb der Steuerung (_extraUsedW) fest, alle anderen heizenden Räume
+  // ohne Min-Bedarf sind „abschaltbar“ und werden für Min-Räume abgeschaltet, wenn sonst einer warten müsste.
+  const deckelW = Math.max(maxGridW, Number(settings?.min_deckel_w ?? 6000));
+  const vorlauf = Math.max(0, Number(settings?.min_vorlauf_c ?? 0.2));
+  const fixedUsed = Math.max(0, Number(settings?._extraUsedW) || 0);
+  const minZielOf = (rp: { room: any }) => floorOf(rp) + vorlauf;
+  const isCand = (rp: { room: any }) => { const c = curOf(rp); return c > 0 && c < minZielOf(rp); };
   const nachlauf = new Set<string>();
+  const abschaltbar: Array<{ id: string; power: number }> = [];
   for (const rp of rooms) {
-    const cur = curOf(rp);
+    if (rp.room.is_heating !== true || isCand(rp)) continue;
+    abschaltbar.push({ id: rp.room.id, power: rp.heatingPower });
     const ziel = dayMode === 'grid' ? Math.max(floorOf(rp), ecoOf(rp)) : floorOf(rp);
-    if (rp.room.is_heating === true && cur > 0 && cur >= ziel) { startUsed += rp.heatingPower; nachlauf.add(rp.room.id); }
+    if (curOf(rp) >= ziel) nachlauf.add(rp.room.id);
   }
 
-  // Pass 1: unter Untergrenze
-  const under = rooms.filter(rp => { const c = curOf(rp); return c > 0 && c < floorOf(rp); });
-  const cap = allocateUnderCap(
+  // Pass 1: unter Min (+ Vorlauf)
+  const under = rooms.filter(isCand);
+  const cap = allocateMinMitPlatz(
     under.map(rp => ({ id: rp.room.id, name: rp.room.name, power: rp.heatingPower, prio: Number(rp.room.priority) || 99,
-                       heating: rp.room.is_heating === true })),
-    maxGridW, startUsed, waitSince, boostMin, nowMs, grantedSince, keepMaxMin,
+                       heating: rp.room.is_heating === true, cur: curOf(rp), min: floorOf(rp) })),
+    deckelW, fixedUsed, abschaltbar, nowMs, grantedSince, keepMaxMin,
   );
   let gridUsedW = cap.usedW;
   const granted = new Set<string>(cap.granted);
+  const fmtHMs = (iso: string) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' });
 
   for (const rp of rooms) {
     const waitT = floorOf(rp);
+    const zielT = minZielOf(rp);
     const cur = curOf(rp);
     if (cap.granted.has(rp.room.id)) {
-      const allein = cap.alone === rp.room.id ? ` – größer als die Grenze ${maxGridW} W, heizt allein` : '';
+      const allein = cap.alone === rp.room.id ? ` – größer als der Deckel ${deckelW} W, heizt allein` : '';
       const behalten = cap.kept.has(rp.room.id) ? ', behält Leistung bis Ziel' : '';
-      const st = fein ? startTarget(cur, waitT, bandOf(rp.room), rp.room.is_heating === true, Math.max(waitT, comfortOf(rp)))
-                      : { temp: waitT, anstoss: false };
+      const ueber = cap.usedW > maxGridW ? ` (über der Grenze ${maxGridW} W, Deckel ${deckelW} W)` : '';
+      const st = fein ? startTarget(cur, zielT, bandOf(rp.room), rp.room.is_heating === true, Math.max(zielT, comfortOf(rp)))
+                      : { temp: zielT, anstoss: false };
+      const lage = cur < waitT ? `unter ${floorName} (${cur.toFixed(1)} < ${waitT} °C)` : `knapp über ${floorName} (${cur.toFixed(1)} < ${waitT} + ${vorlauf} °C Vorlauf)`;
       targets.set(rp.room.id, { temp: st.temp,
-        why: `unter ${floorName} (${cur.toFixed(1)} < ${waitT} °C) → heizt bis ${floorName}, ${cap.usedW}/${maxGridW} W${allein}${behalten}`
+        why: `${lage} → heizt bis ${zielT.toFixed(1)} °C, ${cap.usedW} W${ueber}${allein}${behalten}`
           + (st.anstoss ? ` – Anstoß ${st.temp} °C (im Schaltband ±${bandOf(rp.room)} °C, sonst schaltet das Thermostat nicht ein)` : '') });
     } else if (cap.waiting.has(rp.room.id)) {
-      const seit = waitSince[rp.room.id] ? ` seit ${new Date(waitSince[rp.room.id]).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' })}` : '';
+      const seit = waitSince[rp.room.id] ? ` seit ${fmtHMs(waitSince[rp.room.id])}` : '';
       targets.set(rp.room.id, { temp: holdBelow(cur, waitT, bandOf(rp.room)),
-        why: `unter ${floorName} (${cur.toFixed(1)} < ${waitT} °C), Grenze ${maxGridW} W belegt (${cap.usedW} W) → wartet${seit}` });
-    } else if (fein && rp.room.is_heating === true && cur > 0 && cur >= waitT + stopMargin) {
+        why: `unter ${floorName} + Vorlauf (${cur.toFixed(1)} < ${zielT.toFixed(1)} °C), Deckel ${deckelW} W belegt (${cap.usedW} W) → wartet${seit}` });
+    } else if (cap.cut.has(rp.room.id)) {
+      targets.set(rp.room.id, { temp: holdBelow(cur, Math.max(waitT, cur), bandOf(rp.room)),
+        why: `über ${floorName} (${cur.toFixed(1)} °C) → für Räume unter ${floorName} abgeschaltet` });
+    } else if (fein && rp.room.is_heating === true && cur > 0 && cur >= zielT + stopMargin && (dayMode !== 'grid' || cur >= ecoOf(rp) + stopMargin)) {
       // Ziel erreicht, Thermostat läuft noch: abschalten – sonst heizt es bis Ziel + Band (09.11.2026)
       targets.set(rp.room.id, { temp: holdBelow(cur, waitT, bandOf(rp.room)),
-        why: `${floorName} erreicht (${cur.toFixed(1)} ≥ ${waitT} + ${stopMargin} °C) → Thermostat aus (würde sonst bis ${(waitT + bandOf(rp.room)).toFixed(1)} °C heizen)` });
+        why: `${floorName} erreicht (${cur.toFixed(1)} ≥ ${zielT.toFixed(1)} + ${stopMargin} °C) → Thermostat aus (würde sonst bis ${(zielT + bandOf(rp.room)).toFixed(1)} °C heizen)` });
     } else {
       const nach = nachlauf.has(rp.room.id) ? ' (heizt noch nach, zählt mit)' : '';
       targets.set(rp.room.id, { temp: waitT, why: (dayMode === 'battery_gate'
@@ -443,13 +464,15 @@ function allocateDayTargets(
     }
   }
 
-  if (dayMode === 'grid' && !cap.reserviert) {   // Vorrang reserviert: kein Eco-Pass für andere (09.11.2026)
+  // Normal (Eco) nur, wenn kein Raum auf Min wartet (14.11.2026: Min hat Vorrang) – und nur unter der normalen Grenze.
+  const laeuftSchon = new Set(abschaltbar.map(a => a.id));
+  if (dayMode === 'grid' && cap.waiting.size === 0) {
     for (const rp of rooms) {
       const ecoT = ecoOf(rp);
       const waitT = getWaitMinTemp(rp.room, settings);
       if (ecoT <= waitT) continue;
-      if (cap.waiting.has(rp.room.id)) continue;   // wartet schon auf die Untergrenze
-      if (cap.alone === rp.room.id) continue;      // heizt allein über der Grenze – nur bis Untergrenze, nicht bis Eco
+      if (cap.cut.has(rp.room.id)) continue;       // für Min-Räume abgeschaltet
+      if (cap.alone === rp.room.id) continue;      // heizt allein über dem Deckel – nur bis Min, nicht bis Eco
       const cur = curOf(rp);
       if (cur <= 0) continue;
       if (fein && rp.room.is_heating === true && cur >= ecoT + stopMargin) {
@@ -458,7 +481,9 @@ function allocateDayTargets(
           why: `${modeText} → Eco erreicht (${cur.toFixed(1)} ≥ ${ecoT} + ${stopMargin} °C) → Thermostat aus (würde sonst bis ${(ecoT + bandOf(rp.room)).toFixed(1)} °C heizen)` });
       } else if (cur >= ecoT) {
         targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco halten (Raum warm)${nachlauf.has(rp.room.id) ? ', heizt noch nach' : ''}` });
-      } else if (granted.has(rp.room.id)) {
+      } else if (granted.has(rp.room.id) || laeuftSchon.has(rp.room.id)) {
+        // läuft schon und ist in gridUsedW schon gezählt (DP 5) → weiterheizen bis Eco
+        granted.add(rp.room.id);
         targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco aus Netz (${gridUsedW}/${maxGridW}W)` });
       } else if (gridUsedW + rp.heatingPower <= maxGridW) {
         gridUsedW += rp.heatingPower;
@@ -1337,7 +1362,6 @@ Deno.serve(async (req) => {
           // im Schaltband gibt es einen Anstoß (09.11.2026). Nachlauf und manuell übersteuerte
           // Räume, die gerade heizen, zählen zur Leistung. Räume mit ausgeschalteter Automatik bleiben unberührt.
           const nightCapW = Math.max(0, Number(settings?.max_grid_heating_power_w ?? 2000));
-          const nightBoostMin = Math.max(0, Number(settings?.cap_wait_boost_min ?? 60));
           const nowMsNight = Date.now();
           await attachBands(supabase, allRooms);
           // Fühler in der Sonne (SQL 28) wie übersteuert: keine Befehle, zählt nur mit, wenn er heizt
@@ -1348,53 +1372,71 @@ Deno.serve(async (req) => {
             || (!!r.manual_override_until && new Date(r.manual_override_until).getTime() > nowMsNight);
           const autoRooms = allRooms.filter((r: any) => r.automation_enabled !== false);
           const ctrlRooms = autoRooms.filter((r: any) => !isOverridden(r));
+          // Min hat Vorrang (14.11.2026, doc/FIX-MIN-VORRANG-2026-11-14.md): Kandidaten = Räume unter Min + Vorlauf.
+          // Fest gezählt: übersteuerte/nicht steuerbare Räume, die heizen. Andere heizende Räume ohne Min-Bedarf sind
+          // abschaltbar und werden für Min-Räume abgeschaltet, wenn sonst einer warten müsste. Deckel min_deckel_w.
+          const nightDeckelW = Math.max(nightCapW, Number(settings?.min_deckel_w ?? 6000));
+          const nightVorlauf = Math.max(0, Number(settings?.min_vorlauf_c ?? 0.2));
+          const nightZielOf = (r: any) => nightTargetOf(r) + nightVorlauf;
+          const nightIsCand = (r: any) => { const c = Number(r.current_temp) || 0; return c > 0 && c < nightZielOf(r); };
           let nightStartUsed = 0;
           const nightNachlauf = new Set<string>();
+          const nightAbschaltbar: Array<{ id: string; power: number }> = [];
           for (const r of autoRooms) {
-            const cur = Number(r.current_temp) || 0;
-            const heatingAnyway = r.is_heating === true && (isOverridden(r) || (cur > 0 && cur >= nightTargetOf(r)));
-            if (heatingAnyway) { nightStartUsed += roomPowerW(r); nightNachlauf.add(r.id); }
+            if (r.is_heating !== true) continue;
+            if (isOverridden(r)) { nightStartUsed += roomPowerW(r); nightNachlauf.add(r.id); continue; }
+            if (nightIsCand(r)) continue;
+            nightAbschaltbar.push({ id: r.id, power: roomPowerW(r) });
+            nightNachlauf.add(r.id);
           }
           const nightCands = ctrlRooms
-            .filter((r: any) => { const c = Number(r.current_temp) || 0; return c > 0 && c < nightTargetOf(r); })
-            .map((r: any) => ({ id: r.id, name: r.name, power: roomPowerW(r), prio: Number(r.priority) || 99, heating: r.is_heating === true }));
+            .filter(nightIsCand)
+            .map((r: any) => ({ id: r.id, name: r.name, power: roomPowerW(r), prio: Number(r.priority) || 99, heating: r.is_heating === true,
+                                cur: Number(r.current_temp) || 0, min: nightTargetOf(r) }));
           const nightState = await loadWaitState(supabase);
           const nightWaitPrev = nightState.rooms;
-          const nightCap = allocateUnderCap(nightCands, nightCapW, nightStartUsed, nightWaitPrev, nightBoostMin, nowMsNight,
+          const nightCap = allocateMinMitPlatz(nightCands, nightDeckelW, nightStartUsed, nightAbschaltbar, nowMsNight,
             nightState.granted, Math.max(0, Number(settings?.cap_keep_max_min ?? 120)));
           const nowIsoNight = new Date().toISOString();
           await saveWaitState(supabase, nextWaitState(nightWaitPrev, nightCap.waiting, nowIsoNight),
             nextGrantState(nightState.granted, nightCap.granted, nowIsoNight), 'nacht');
 
           const fmtHM = (iso: string) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' });
+          const nightStop = Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3));
           const nightPlan: Array<{ room: any; target: number; why: string }> = ctrlRooms.map((r: any) => {
             const want = nightTargetOf(r);
+            const ziel = nightZielOf(r);
             const cur = Number(r.current_temp) || 0;
             let target = want;
             let why: string;
             if (nightCap.granted.has(r.id)) {
               const st = controlMode === 'local'
-                ? startTarget(cur, want, bandOf(r), r.is_heating === true, Math.max(want, Number(r.comfort_temp) || want))
-                : { temp: want, anstoss: false };
+                ? startTarget(cur, ziel, bandOf(r), r.is_heating === true, Math.max(ziel, Number(r.comfort_temp) || ziel))
+                : { temp: ziel, anstoss: false };
               target = st.temp;
-              why = `unter Min (${cur.toFixed(1)} < ${want} °C) → heizt, ${nightCap.usedW}/${nightCapW} W`
-                + (nightCap.alone === r.id ? ` – größer als die Grenze, heizt allein` : '')
+              const lage = cur < want ? `unter Min (${cur.toFixed(1)} < ${want} °C)` : `knapp über Min (${cur.toFixed(1)} < ${want} + ${nightVorlauf} °C Vorlauf)`;
+              why = `${lage} → heizt bis ${ziel.toFixed(1)} °C, ${nightCap.usedW} W`
+                + (nightCap.usedW > nightCapW ? ` (über der Grenze ${nightCapW} W, Deckel ${nightDeckelW} W)` : '')
+                + (nightCap.alone === r.id ? ` – größer als der Deckel, heizt allein` : '')
                 + (nightCap.kept.has(r.id) ? ', behält Leistung bis Ziel' : '')
                 + (st.anstoss ? ` – Anstoß ${st.temp} °C (im Schaltband ±${bandOf(r)} °C)` : '');
             } else if (nightCap.waiting.has(r.id)) {
               target = holdBelow(cur, want, bandOf(r));
               const seit = nightWaitPrev[r.id] ? ` seit ${fmtHM(nightWaitPrev[r.id])}` : '';
-              why = `unter Min (${cur.toFixed(1)} < ${want} °C), Grenze ${nightCapW} W belegt (${nightCap.usedW} W) → wartet${seit}`;
-            } else if (controlMode === 'local' && r.is_heating === true && cur > 0 && cur >= want + Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3))) {
+              why = `unter Min + Vorlauf (${cur.toFixed(1)} < ${ziel.toFixed(1)} °C), Deckel ${nightDeckelW} W belegt (${nightCap.usedW} W) → wartet${seit}`;
+            } else if (nightCap.cut.has(r.id)) {
+              target = holdBelow(cur, Math.max(want, cur), bandOf(r));
+              why = `über Min (${cur.toFixed(1)} °C) → für Räume unter Min abgeschaltet`;
+            } else if (controlMode === 'local' && r.is_heating === true && cur > 0 && cur >= ziel + nightStop) {
               // Ziel erreicht, Thermostat läuft noch: abschalten – sonst heizt es bis Ziel + Band (09.11.2026)
               target = holdBelow(cur, want, bandOf(r));
-              why = `Min erreicht (${cur.toFixed(1)} ≥ ${want} °C) → Thermostat aus (würde sonst bis ${(want + bandOf(r)).toFixed(1)} °C heizen)`;
+              why = `Min erreicht (${cur.toFixed(1)} ≥ ${ziel.toFixed(1)} + ${nightStop} °C) → Thermostat aus (würde sonst bis ${(want + bandOf(r)).toFixed(1)} °C heizen)`;
             } else {
               why = `hält Min ${want} °C` + (nightNachlauf.has(r.id) ? ' (heizt noch nach, zählt mit)' : '');
             }
             return { room: r, target, why };
           });
-          console.log(`[NACHT-GRENZE] ${nightCap.usedW}/${nightCapW} W · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size}`);
+          console.log(`[NACHT-MIN] ${nightCap.usedW} W (Grenze ${nightCapW}, Deckel ${nightDeckelW}) · abgeschaltet: ${nightCap.cut.size} · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size}`);
 
           // Planer steuert (13.11.2026): auch nachts entscheidet der Plan; die Nacht-Verteilung oben bleibt Rückfall.
           const nachtPlan = await ladePlanerPlan(supabase, settings);
@@ -1418,6 +1460,8 @@ Deno.serve(async (req) => {
               value: {
                 computed_at: new Date().toISOString(),
                 cap_w: nightCapW,
+                deckel_w: nightDeckelW,
+                abgeschaltet: [...nightCap.cut],
                 used_w: nightCap.usedW,
                 planer: nachtPlan.map ? { steuert: true, stand: nachtPlan.grund } : { steuert: false, stand: nachtPlan.grund },
                 rooms: nightPlan.map(p => ({ room_id: p.room.id, name: p.room.name, target: p.target, why: p.why })),
@@ -2541,7 +2585,10 @@ Deno.serve(async (req) => {
       // Sortierung: 1. Priorität (eindeutig je Raum, Index rooms_priority_unique – die weiteren Schlüssel greifen
       // daher nur, falls zwei Räume je dieselbe Priorität bekommen), 2. Temperatur-Defizit (>0.5°C Unterschied),
       // 3. Nachtbedarf, 4. Effizienz (energy_per_degree_wh), 5. Wartezeit (längste zuerst als Tiebreaker)
+      // 14.11.2026 (Min hat Vorrang): Räume unter Min kommen auch beim PV-Überschuss zuerst dran.
+      const unterMinPv = (rp: any) => { const c = Number(rp.room.current_temp) || 0; return c > 0 && c < getWaitMinTemp(rp.room, settings); };
       roomsWithPriority.sort((a, b) => {
+        if (unterMinPv(a) !== unterMinPv(b)) return unterMinPv(a) ? -1 : 1;
         if (a.priority !== b.priority) return a.priority - b.priority;
         if (Math.abs(a.tempDeficit - b.tempDeficit) > 0.5) return b.tempDeficit - a.tempDeficit;
         // Raummodell (02.11.2026): größerer Nachtbedarf zuerst – dieser Raum braucht die PV-Wärme heute Nacht am meisten
