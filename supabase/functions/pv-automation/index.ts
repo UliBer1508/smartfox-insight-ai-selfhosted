@@ -340,7 +340,7 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
     return { temp: holdBelow(cur, 99, band), heizt: false, why: `Planer: über Komfort (${cur.toFixed(1)} ≥ ${komfort} + 0,3 °C) → Thermostat aus` };
   }
   if (e.heizt || notfall) {
-    const grund = notfall ? `Sicherheit: unter Untergrenze − ${abst} °C (${cur.toFixed(1)} < ${sicher.toFixed(1)} °C) → heizt`
+    const grund = notfall ? `Sicherheit: unter Min − ${abst} °C (${cur.toFixed(1)} < ${sicher.toFixed(1)} °C) → heizt`
                           : `Planer: heizen (Ziel ${ziel} °C, Ist ${cur.toFixed(1)} °C)`;
     if (room.is_heating === true && soll > 0 && soll >= cur - band + 0.1 && soll <= komfort + band) {
       return { temp: soll, heizt: true, why: `${grund}, läuft` };
@@ -392,7 +392,7 @@ function allocateDayTargets(
     ? Math.max(5, getWaitMinTemp(rp.room, settings) - gateDelta)
     : dayMode === 'evening' ? nightOf(rp)
     : getWaitMinTemp(rp.room, settings);
-  const floorName = dayMode === 'evening' ? 'Nachtwert' : 'Untergrenze';
+  const floorName = 'Min';   // 14.11.2026: Nachtwert und Untergrenze sind ein Wert (Min)
   const ecoOf = (rp: { room: any }) => Number(rp.room.eco_temp) || Number(settings?.eco_temp) || 19;
   const curOf = (rp: { room: any }) => Number(rp.room.current_temp) || 0;
 
@@ -438,7 +438,7 @@ function allocateDayTargets(
     } else {
       const nach = nachlauf.has(rp.room.id) ? ' (heizt noch nach, zählt mit)' : '';
       targets.set(rp.room.id, { temp: waitT, why: (dayMode === 'battery_gate'
-        ? `Batterie-Schutz: hält Untergrenze ${waitT} °C, Sonne lädt erst die Batterie`
+        ? `Batterie-Schutz: hält Min ${waitT} °C, Sonne lädt erst die Batterie`
         : `${modeText} → hält ${floorName} ${waitT} °C`) + nach });
     }
   }
@@ -1377,20 +1377,20 @@ Deno.serve(async (req) => {
                 ? startTarget(cur, want, bandOf(r), r.is_heating === true, Math.max(want, Number(r.comfort_temp) || want))
                 : { temp: want, anstoss: false };
               target = st.temp;
-              why = `unter Nachtwert (${cur.toFixed(1)} < ${want} °C) → heizt, ${nightCap.usedW}/${nightCapW} W`
+              why = `unter Min (${cur.toFixed(1)} < ${want} °C) → heizt, ${nightCap.usedW}/${nightCapW} W`
                 + (nightCap.alone === r.id ? ` – größer als die Grenze, heizt allein` : '')
                 + (nightCap.kept.has(r.id) ? ', behält Leistung bis Ziel' : '')
                 + (st.anstoss ? ` – Anstoß ${st.temp} °C (im Schaltband ±${bandOf(r)} °C)` : '');
             } else if (nightCap.waiting.has(r.id)) {
               target = holdBelow(cur, want, bandOf(r));
               const seit = nightWaitPrev[r.id] ? ` seit ${fmtHM(nightWaitPrev[r.id])}` : '';
-              why = `unter Nachtwert (${cur.toFixed(1)} < ${want} °C), Grenze ${nightCapW} W belegt (${nightCap.usedW} W) → wartet${seit}`;
+              why = `unter Min (${cur.toFixed(1)} < ${want} °C), Grenze ${nightCapW} W belegt (${nightCap.usedW} W) → wartet${seit}`;
             } else if (controlMode === 'local' && r.is_heating === true && cur > 0 && cur >= want + Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3))) {
               // Ziel erreicht, Thermostat läuft noch: abschalten – sonst heizt es bis Ziel + Band (09.11.2026)
               target = holdBelow(cur, want, bandOf(r));
-              why = `Nachtwert erreicht (${cur.toFixed(1)} ≥ ${want} °C) → Thermostat aus (würde sonst bis ${(want + bandOf(r)).toFixed(1)} °C heizen)`;
+              why = `Min erreicht (${cur.toFixed(1)} ≥ ${want} °C) → Thermostat aus (würde sonst bis ${(want + bandOf(r)).toFixed(1)} °C heizen)`;
             } else {
-              why = `hält Nachtwert ${want} °C` + (nightNachlauf.has(r.id) ? ' (heizt noch nach, zählt mit)' : '');
+              why = `hält Min ${want} °C` + (nightNachlauf.has(r.id) ? ' (heizt noch nach, zählt mit)' : '');
             }
             return { room: r, target, why };
           });
@@ -2372,7 +2372,7 @@ Deno.serve(async (req) => {
               const successIds: string[] = [];
               for (const r of candidates) {
                 const waitT = Math.max(5, getWaitMinTemp(r, settings) - Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0)));
-                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop', `Batterie-Schutz (SOC ${batterySoc}%) → Untergrenze − Abstand = ${waitT}°C`);
+                const result = await setTemperatureForMode(r.tuya_device_id!, r.id, waitT, 'stop', `Batterie-Schutz (SOC ${batterySoc}%) → Min − Abstand = ${waitT}°C`);
                 if (result.success) {
                   successIds.push(r.id);
                   console.log(`[SOC-GATE-STOP] 🛑 ${r.name}: target → Notfall-Grenze ${waitT}°C (mode=${controlMode})`);
@@ -2806,7 +2806,7 @@ Deno.serve(async (req) => {
               // (27.10.2026) Ende der Mikro-Heizung: zurück auf Mindesttemperatur ohne PV (vorher night_temp)
               const nightTemp = getWaitMinTemp(microRoom, settings);
               if (microRoom.tuya_device_id) {
-                const result = await setTemperatureForMode(microRoom.tuya_device_id, microRoom.id, nightTemp, 'stop', `Mikro-Heizen beendet → Untergrenze ${nightTemp}°C`);
+                const result = await setTemperatureForMode(microRoom.tuya_device_id, microRoom.id, nightTemp, 'stop', `Mikro-Heizen beendet → Min ${nightTemp}°C`);
                 if (!result.success) {
                   console.error(`[MICRO-ROTATION] ❌ ${microRoom.name}: setTemperatureForMode failed - ${result.errorType}: ${result.errorMessage}`);
                 }
