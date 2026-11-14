@@ -303,7 +303,7 @@ async function attachBands(supabase: any, rooms: any[]): Promise<void> {
 // ob geheizt wird. Diese Funktion setzt das in Sollwerte um. Das Regelwerk (Tagesmodus, Budgets, Nacht-Verteilung)
 // bleibt nur Rückfall, wenn der Plan älter als PLAN_MAX_ALTER_MIN ist oder ein Raum im Plan fehlt.
 // Sicherheit bleibt immer: manuell übersteuert, Automatik aus, Fühler in der Sonne, nicht steuerbar (werden vorher
-// aussortiert), nie unter Untergrenze − Sicherheitsabstand, nie über Komfort + 0,3 °C.
+// aussortiert), nie unter Min (seit 14.11.2026 ohne Sicherheitsabstand), nie über Komfort + 0,3 °C.
 const PLAN_MAX_ALTER_MIN = 30;
 type PlanEintrag = { heizt: boolean; ziel: number; unter: number };
 type PlanStand = { map: Map<string, PlanEintrag> | null; grund: string };
@@ -340,7 +340,8 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
   const soll = Number(room.target_temp) || 0;
   const band = bandOf(room);
   const komfort = Number(room.comfort_temp) || (Number.isFinite(e.ziel) ? e.ziel + 1 : 22);
-  const abst = Math.max(0, Number(settings?.planer_sicherheit_abstand ?? 1.5));
+  // 14.11.2026: Sicherheitsnetz bei Min selbst (kein Abstand mehr) – fällt ein Raum trotz Plan unter Min, heizt er.
+  const abst = 0;
   const ziel = Number.isFinite(e.ziel) ? e.ziel : komfort;
   const sicher = Number.isFinite(e.unter) ? e.unter - abst : -Infinity;
   const notfall = cur > 0 && cur < sicher;
@@ -348,7 +349,7 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
     return { temp: holdBelow(cur, 99, band), heizt: false, why: `Planer: über Komfort (${cur.toFixed(1)} ≥ ${komfort} + 0,3 °C) → Thermostat aus` };
   }
   if (e.heizt || notfall) {
-    const grund = notfall ? `Sicherheit: unter Min − ${abst} °C (${cur.toFixed(1)} < ${sicher.toFixed(1)} °C) → heizt`
+    const grund = notfall ? `Sicherheit: unter Min (${cur.toFixed(1)} < ${sicher.toFixed(1)} °C) → heizt, auch wenn der Plan nicht heizt`
                           : `Planer: heizen (Ziel ${ziel} °C, Ist ${cur.toFixed(1)} °C)`;
     if (room.is_heating === true && soll > 0 && soll >= cur - band + 0.1 && soll <= komfort + band) {
       return { temp: soll, heizt: true, why: `${grund}, läuft` };

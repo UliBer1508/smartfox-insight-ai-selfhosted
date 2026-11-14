@@ -84,7 +84,7 @@ export function useSmartfoxData() {
     try {
       const { data, error } = await supabase
         .from('energy_readings')
-        .select('id, timestamp, power_io, energy_in, energy_out, battery_soc, battery_power, pv_power, consumption')
+        .select('id, timestamp, power_io, energy_in, energy_out, battery_soc, battery_power, pv_power, consumption, auto_w')
         .order('timestamp', { ascending: false })
         .limit(50);
 

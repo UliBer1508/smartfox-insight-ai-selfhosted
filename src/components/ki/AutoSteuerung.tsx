@@ -63,11 +63,11 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
 
   const regler = [
     { k: 'planer_gewicht_ziel', def: 0.6, min: 0.1, max: 3, step: 0.1, l: 'Sparsamer ↔ wärmer',
-      links: 'sparsamer', rechts: 'wärmer', text: (v: number) => `1 °C·h unter Ziel ist dir ${num(v)} kWh Netzstrom wert. Höher = wärmer, mehr Netz.` },
+      links: 'sparsamer', rechts: 'wärmer', text: (v: number) => `1 °C·h unter Normal ist dir ${num(v)} kWh Netzstrom wert. Höher = wärmer, mehr Netz. Min hält der Planer immer.` },
     { k: 'max_grid_heating_power_w', def: 4000, min: 1000, max: 8000, step: 250, l: 'Höchstleistung ohne Sonne',
       links: '1 kW', rechts: '8 kW', text: (v: number) => `${num(v / 1000)} kW dürfen gleichzeitig aus Batterie/Netz heizen.` },
-    { k: 'planer_sicherheit_abstand', def: 1.5, min: 0, max: 3, step: 0.5, l: 'Sicherheit unter Untergrenze',
-      links: '0 °C', rechts: '3 °C', text: (v: number) => `Kein Raum fällt mehr als ${num(v)} °C unter seine Untergrenze.` },
+    // 14.11.2026 (Uli): Min ist die Untergrenze, kein Wert darunter – der Regler „Sicherheit unter Untergrenze“ entfällt,
+    // der Planer hält Min immer (doc/FIX-PLANER-MIN-HART-2026-11-14.md).
   ];
 
   return (
@@ -89,12 +89,12 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
         <div className={`rounded-lg px-3 py-2 text-sm ${modus === 'aus' ? 'bg-muted' : 'bg-primary/10'}`}>
           {modus === 'aus' && 'Planer aus – die Regeln der heutigen Steuerung entscheiden allein.'}
           {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Thermostaten ändert er nichts. Die heutige Regel-Steuerung (pv-automation) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob der Plan besser wäre, bevor er steuern darf.'}
-          {modus === 'steuern' && 'Der Planer setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min). Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Untergrenze − Sicherheitsabstand, keiner wird über Komfort geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Jeder Plan wird je Raum gegen die Messwerte geprüft: Heizt er länger als nötig, aus dem Netz über das Ziel, oder übersteuerst du den Raum oft, steuert die Regel-Steuerung diesen Raum (mindestens 2 h) – der Modus bleibt. Zurück jederzeit mit „Schatten“.'}
+          {modus === 'steuern' && 'Der Planer setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min). Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Min (der Planer heizt rechtzeitig vorher, fällt ein Raum trotzdem darunter, heizt er sofort), keiner wird über PV-Max geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Jeder Plan wird je Raum gegen die Messwerte geprüft: Heizt er länger als nötig, aus dem Netz über das Ziel, oder übersteuerst du den Raum oft, steuert die Regel-Steuerung diesen Raum (mindestens 2 h) – der Modus bleibt. Zurück jederzeit mit „Schatten“.'}
         </div>
 
         <div>
           <div className="text-sm font-medium mb-2">Eingreifen, wenn die Optimierung nicht passt</div>
-          <div className="grid md:grid-cols-3 gap-3">
+          <div className="grid md:grid-cols-2 gap-3">
             {regler.map(r => {
               const v = wert(r.k, r.def);
               return (

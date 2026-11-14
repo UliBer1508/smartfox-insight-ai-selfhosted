@@ -6,6 +6,7 @@ export interface EnergyReading {
   energy_out: number;
   battery_soc?: number;
   battery_power?: number;
+  auto_w?: number | null;   // Ladeleistung beider Wallboxen (W), seit 14.11.2026 vom Fronius-Collector
   pv_power?: number;
   consumption?: number;
   created_at?: string;

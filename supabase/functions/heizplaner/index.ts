@@ -2,7 +2,7 @@
 //
 // Statt fester Regeln rechnet der Planer: Für die nächsten 24 h sucht er je Raum und halbe Stunde „heizen ja/nein“,
 // sodass möglichst wenig Netzstrom gebraucht wird und die Räume ihre Ziele halten (Eco tags, Nachtwert nachts,
-// Untergrenze, nie unter Untergrenze − Sicherheitsabstand). Eingaben: gelerntes Raummodell, gelernte PV-Vorhersage
+// Min hart – seit 14.11.2026 kein Sicherheitsabstand mehr unter Min). Eingaben: gelerntes Raummodell, gelernte PV-Vorhersage
 // (an der gemessenen PV nachgeführt), Batterie, Grundlast, Leistungsgrenze.
 //
 // Modus (heating_settings.planer_modus): „schatten“ – der Planer schreibt seinen Plan nur auf; „steuern“ (13.11.2026) –

@@ -160,6 +160,28 @@ async function fetchFroniusData() {
   }
 }
 
+// Wallbox-Backend (14.11.2026, doc/FIX-HEIZUNG-JETZT-AUTO-2026-11-14.md): Ladeleistung beider Keba aus
+// GET /api/state lesen – die Heizung fragt die Keba nicht selbst (Modbus nicht doppeln, SCHNITTSTELLEN §3).
+// Adresse in config.json unter wallbox.state_url, Standard http://localhost:8080/api/state. Fehler → null (kein Abbruch).
+async function fetchWallboxW() {
+  const url = config.wallbox?.state_url || 'http://localhost:8080/api/state';
+  if (config.wallbox?.enabled === false) return null;
+  try {
+    const data = await httpGet(url, 3000);
+    const boxen = Array.isArray(data?.wallboxen) ? data.wallboxen : [];
+    let w = 0;
+    for (const b of boxen) {
+      let p = Number(b?.power) || 0;
+      if (p > 50000) p = p / 1000;   // falls das Backend mW liefert (Keba-Rohwert)
+      w += Math.max(0, p);
+    }
+    return Math.round(w);
+  } catch (error) {
+    console.error('[Wallbox] nicht erreichbar:', error.message);
+    return null;
+  }
+}
+
 // Save reading to database
 async function saveReading(froniusData) {
   if (!froniusData) {
@@ -174,7 +196,8 @@ async function saveReading(froniusData) {
     battery_soc: froniusData.battery_soc,
     pv_power: froniusData.pv_power,
     consumption: froniusData.load_power,
-    battery_power: froniusData.battery_power
+    battery_power: froniusData.battery_power,
+    auto_w: await fetchWallboxW()
   };
   
   try {
@@ -187,7 +210,7 @@ async function saveReading(froniusData) {
       return false;
     }
     
-    console.log(`[Fronius] Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%`);
+    console.log(`[Fronius] Grid=${reading.power_io}W, PV=${reading.pv_power}W, Verbrauch=${reading.consumption}W, Batterie=${reading.battery_soc}%, Auto=${reading.auto_w ?? '–'}W`);
     lastPvPower = reading.pv_power;
     return true;
   } catch (error) {
