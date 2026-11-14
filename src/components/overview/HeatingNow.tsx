@@ -2,7 +2,8 @@
 // Uli: „wir brauchen mehr Kontrolle und klare Aussagen, ob geheizt wird und wieviel“.
 //
 // Zwei Zahlen nebeneinander:
-//   gemessen          = Hausverbrauch (Fronius) − Grundlast (aus der Leistungsmessung, sonst 240 W)
+//   gemessen          = Hausverbrauch (Fronius) − Grundlast (aus der Leistungsmessung, sonst 240 W) − Auto
+//                       (Ladeleistung der Wallboxen, seit 14.11.2026 vom Fronius-Collector, energy_readings.auto_w)
 //   laut Thermostaten = Summe der Raumleistungen aller Räume, deren Thermostat „heizt“ meldet
 // Weichen sie um mehr als 500 W voneinander ab, sagt die Karte, was das bedeuten kann.
 // Dazu: Leistungsgrenze der Automatik (Tag/Nacht), heizende Räume mit „seit“ und kWh heute.
@@ -83,16 +84,27 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast }: {
   const lautThermostat = heizend.reduce((s, r) => s + roomPowerW(r), 0);
   const base = grundlast ?? GRUNDLAST_STANDARD_W;
   const verbrauch = reading?.consumption ?? null;
-  const gemessen = verbrauch == null ? null : Math.max(0, Math.round(verbrauch - base));
+  // 14.11.2026: Auto (Wallbox) und Batterie werden nicht mehr erfragt, sondern gelesen (doc/FIX-HEIZUNG-JETZT-AUTO-2026-11-14.md)
+  const autoW = reading?.auto_w == null ? null : Math.max(0, Number(reading.auto_w));
+  const battW = reading?.battery_power == null ? null : Number(reading.battery_power);   // negativ = lädt
+  const gemessen = verbrauch == null ? null : Math.max(0, Math.round(verbrauch - base - (autoW ?? 0)));
   const diff = gemessen == null ? 0 : gemessen - lautThermostat;
   const mitPv = (reading?.pv_power ?? 0) > 30;
+  const nebenbei: string[] = [];
+  if (autoW != null && autoW > 100) nebenbei.push(`Auto lädt ${fmtKW(autoW)} (Wallbox, schon abgezogen)`);
+  if (battW != null && battW < -100) nebenbei.push(`Batterie lädt ${fmtKW(-battW)}`);
+  if (battW != null && battW > 100) nebenbei.push(`Batterie gibt ${fmtKW(battW)} ab`);
+  const autoText = autoW == null ? 'Auto unbekannt (keine Wallbox-Daten)' : autoW > 100 ? 'Auto lädt, ist schon abgezogen' : 'Auto lädt nicht';
   const kwhHeute = [...heute.values()].reduce((s, r) => s + (r.kwh || 0), 0);
 
   let hinweis: { ok: boolean; text: string };
   if (gemessen == null) hinweis = { ok: true, text: 'Keine aktuellen Fronius-Daten.' };
   else if (diff > ABWEICHUNG_HINWEIS_W) hinweis = { ok: false, text:
-      `${fmtKW(diff)} mehr, als die heizenden Räume erklären. Läuft etwas anderes (Espressomaschine, Herd${mitPv ? ', Warmwasser, Auto' : ''})? `
-      + 'Oder ein Thermostat heizt, ohne es zu melden.' };
+      `${fmtKW(diff)} mehr, als die heizenden Räume erklären. ${autoText}. `
+      + (mitPv
+        ? 'Wahrscheinlich Warmwasser: Der Smartfox gibt Überschuss an den Heizstab (keine Schnittstelle, daher nicht messbar). '
+        : 'Ohne Sonne: Warmwasser oder ein Gerät im Haus (Herd, Espressomaschine)? ')
+      + 'Sonst heizt ein Thermostat, ohne es zu melden.' };
   else if (diff < -ABWEICHUNG_HINWEIS_W) hinweis = { ok: false, text:
       `${fmtKW(-diff)} weniger, als die heizenden Räume brauchen müssten. Ist die Leistung eines Raums zu hoch eingestellt, `
       + 'oder ist die Meldung „heizt“ gerade erst gekommen bzw. veraltet?' };
@@ -110,7 +122,7 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast }: {
           <div>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">gemessen</div>
             <div className={`text-2xl font-bold tabular-nums ${gemessen && gemessen > 300 ? 'text-energy-import' : ''}`}>{gemessen == null ? '–' : fmtKW(gemessen)}</div>
-            <div className="text-xs text-muted-foreground">Verbrauch − Grundlast {Math.round(base)} W</div>
+            <div className="text-xs text-muted-foreground">Verbrauch − Grundlast {Math.round(base)} W{autoW != null && autoW > 100 ? ` − Auto ${fmtKW(autoW)}` : ''}</div>
           </div>
           <div>
             <div className="text-[11px] uppercase tracking-wider text-muted-foreground">laut Thermostaten</div>
@@ -126,7 +138,7 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast }: {
 
         <div className={`flex items-start gap-2 text-sm rounded-md px-3 py-2 ${hinweis.ok ? 'bg-muted/40' : 'bg-warning/15 border border-warning/40'}`}>
           {hinweis.ok ? <CheckCircle2 className="w-4 h-4 mt-0.5 text-success shrink-0" /> : <AlertTriangle className="w-4 h-4 mt-0.5 text-warning shrink-0" />}
-          <span>{hinweis.text}{mitPv && hinweis.ok && gemessen != null ? ' (Mit PV können Warmwasser und Auto im Verbrauch mitzählen.)' : ''}</span>
+          <span>{hinweis.text}{nebenbei.length > 0 ? ` ${nebenbei.join(' · ')}.` : ''}</span>
         </div>
 
         {heizend.length > 0 && (

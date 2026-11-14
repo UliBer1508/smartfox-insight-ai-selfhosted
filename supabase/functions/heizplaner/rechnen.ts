@@ -67,7 +67,7 @@ export function fensterFuer(a: Aufb, rid: string, alleH: number, laengeH: number
 
 export function gewichte(s: any): Gewichte {
   const buy = Number(s?.electricity_price_kwh_cent) || 30, feed = Number(s?.feed_in_price_kwh_cent) || 8;
-  return { ziel: Number(s?.planer_gewicht_ziel ?? 0.6), unter: Number(s?.planer_gewicht_unter ?? 2), sicher: 30, ueber: 0.2,
+  return { ziel: Number(s?.planer_gewicht_ziel ?? 0.6), unter: Number(s?.planer_gewicht_unter ?? 2), sicher: 30, ueber: 0.2,   // sicher: unter Min – praktisch verboten (seit 14.11.2026 ohne Abstand)
            einspeiseFaktor: Math.min(1, feed / buy), batterieRest: 0.9,
            // 13.11.2026: Wärme im Estrich am Planende zählt wie Restladung der Batterie – sonst „spart“ der Plan, indem er
            // den Wärmespeicher des Hauses leert (Gegenrechnung 12.11.: 12,8 statt 40,9 kWh Heizen bei wärmeren Räumen).
@@ -86,7 +86,10 @@ export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: nu
   const ns = minuten(s.night_start_time, '22:00'), ne = minuten(s.night_end_time, '08:00');
   const base = Number(d.grundlast) || 240;
   const cap = Math.max(0, Number(s.max_grid_heating_power_w ?? 2000));
-  const abst = Number(s.planer_sicherheit_abstand ?? 1.5);
+  // 14.11.2026 (Uli): Min ist die Untergrenze, kein Wert darunter. Der Planer hält Min praktisch hart (Strafe `sicher`
+  // ab Min statt ab Min − planer_sicherheit_abstand). Vorlauf und Min-Deckel braucht er nicht: Nachrechnung 14.11. –
+  // gleiche Temperaturen, aber 2–5 kWh mehr Netz am Tag (doc/FIX-PLANER-MIN-HART-2026-11-14.md). Beides gilt nur in der
+  // Regel-Steuerung (Rückfall).
   const eps = Array.from({ length: SLOTS }, (_, i) => start + 900 * i);
   const nacht = eps.map(ep => { const w = wall(ep); const m = Number(w.slice(11, 13)) * 60 + Number(w.slice(14, 16)); return ns > ne ? (m >= ns || m < ne) : (m >= ns && m < ne); });
   const slots: PlanSlot[] = eps.map((ep, i) => {
@@ -109,7 +112,7 @@ export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: nu
       id: r.id, name: r.name, p: Number(r.p) || 800, T0: t0, S0, param,
       // Abwesend (Kalender, wie pv-automation „jeder Tag ein Wartetag“): tagsüber Ziel = Untergrenze; PV-Überschuss
       // darf trotzdem bis Komfort laden (das entscheidet die Rechnung über den Einspeisewert).
-      ziel: nacht.map((n, i) => (n ? nachtZiel : (abwesend?.(eps[i]) ? unter : eco))), unter: eps.map(() => unter), sicher: eps.map(() => unter - abst),
+      ziel: nacht.map((n, i) => (n ? nachtZiel : (abwesend?.(eps[i]) ? unter : eco))), unter: eps.map(() => unter), sicher: eps.map(() => unter),
       max: eps.map(() => Number(r.komfort ?? eco + 1)),   // 07.11.2026: Komfort ist das Maximum (kein eigener Estrich-Wert mehr)
       gewicht: 1 + (12 - (Number(r.prio) || 12)) / 12,
       fest: eps.map((ep, i) => (festVon ? festVon(r, ep, i) : null)),

@@ -617,6 +617,7 @@ export type Database = {
       energy_readings: {
         Row: {
           battery_power: number | null
+          auto_w: number | null
           battery_soc: number | null
           consumption: number | null
           created_at: string
@@ -629,6 +630,7 @@ export type Database = {
         }
         Insert: {
           battery_power?: number | null
+          auto_w?: number | null
           battery_soc?: number | null
           consumption?: number | null
           created_at?: string
@@ -641,6 +643,7 @@ export type Database = {
         }
         Update: {
           battery_power?: number | null
+          auto_w?: number | null
           battery_soc?: number | null
           consumption?: number | null
           created_at?: string
