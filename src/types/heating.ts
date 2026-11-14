@@ -61,7 +61,9 @@ export interface HeatingSettings {
   power_budget_enabled?: boolean;
   max_grid_heating_power_w?: number;
   // Leistungsgrenze gilt immer (06.11.2026): nach so vielen Minuten Warten kommt ein Raum zuerst dran
-  cap_wait_boost_min?: number;
+  cap_wait_boost_min?: number;   // seit 14.11.2026 ohne Wirkung (Min hat Vorrang)
+  min_deckel_w?: number;
+  min_vorlauf_c?: number;
   // Vorrang behalten / Abschalten am Ziel (09.11.2026, SQL 29)
   cap_keep_max_min?: number;
   ziel_abschalt_ueber_c?: number;
