@@ -1,8 +1,8 @@
 # Konzept: Anwesenheit – „Ich bin da / Ich bin weg“
 
-**Stand:** 1. November 2026 · **Status:** FREIGEGEBEN (Uli, 28.10.2026) – Kalender 29.10. (§7), Komfort bei Abwesenheit 30.10. (§8), **umgedreht 01.11.2026: Grundzustand anwesend, Kalender = Abwesenheiten (§9)**
+**Stand:** 15. November 2026 · **Status:** FREIGEGEBEN (Uli, 28.10.2026) – Kalender 29.10. (§7), Komfort bei Abwesenheit 30.10. (§8), **umgedreht 01.11.2026: Grundzustand anwesend, Kalender = Abwesenheiten (§9)**, Nacht = Min seit 14.11.2026 (§10)
 
-> **Ab 01.11.2026 gilt Abschnitt 9.** Abschnitte 3–7 beschreiben die erste Fassung (Kalender = Aufenthalte); wo sie §9 widersprechen, gilt §9.
+> **Ab 01.11.2026 gilt Abschnitt 9, mit den Begriffen und der Nachtregel aus Abschnitt 10.** Abschnitte 3–8 beschreiben frühere Fassungen; wo sie §9/§10 widersprechen, gilt §9/§10. „Frostschutz“ in der Nacht gilt nicht mehr.
 **Supabase:** `pflnniklvqbwjwrjswaz` · **Betrifft:** `pv-automation`, `heating_settings`, neue Tabelle
 `presence_periods`, App (Übersicht, Einstellungen)
 **Baut auf:** `doc/KONZEPT-TAGESABLAUF-HEIZUNG-2026-10-27.md`
@@ -209,6 +209,35 @@ Neu: „ich bin weg bis …“ = Eintrag ab jetzt, „ich bin zurück“ = laufe
 Zwischen 1 und 2 liest die alte Funktion den leeren Kalender als „abwesend“ – deshalb zügig deployen.
 
 **Prüfen:** `heating_day_mode.away` = false, `presence_reason` = „anwesend (keine Abwesenheit eingetragen)“.
+
+## 10. Stand 15.11.2026: drei Temperaturen, Nacht = Min (Code geprüft)
+
+Seit 14.11.2026 gibt es je Raum nur noch **Min / Normal / PV-Max** (`doc/FIX-DREI-TEMPERATUREN-2026-11-14.md`).
+Nachts gilt nicht mehr Frostschutz 5 °C, sondern **Min** (seit 06.11.2026 auch ab Sonnenuntergang, `doc/FIX-ABEND-WIE-NACHT-2026-11-06.md`).
+Damit gilt für die Anwesenheit:
+
+| Zustand | Tag ohne PV-Überschuss | Tag mit PV-Überschuss | Abend / Nacht |
+|---|---|---|---|
+| Anwesend (Grundzustand) | Normal aus dem Netz nach Priorität (Sonnentag: Min halten, auf Überschuss warten) | Normal → PV-Max nach Priorität | Min |
+| Abwesend (Kalender-Eintrag läuft, ohne Vorlauf) | Wartetag: **Min** halten, Netz nur unter Min | Normal → PV-Max nach Priorität (wie anwesend) | Min |
+
+Begriffe: „Ohne PV“ / „Untergrenze“ = **Min** (`wait_min_temp`), „Eco“ = **Normal** (`eco_temp`), „Komfort“ = **PV-Max** (`comfort_temp`).
+Räume unter Min heizen zuerst, auch über die Leistungsgrenze (Deckel 6000 W, `doc/FIX-MIN-VORRANG-2026-11-14.md`) – anwesend wie abwesend.
+Der Unterschied zwischen anwesend und abwesend liegt also nur noch **tagsüber an Tagen ohne Sonne**: Normal oder Min aus dem Netz.
+
+**Code geprüft am 15.11.2026 (Stand `main` d4b8ba9), entspricht dieser Beschreibung:**
+
+| Stelle | Verhalten |
+|---|---|
+| `pv-automation` `getPresence()` | leerer Kalender = anwesend; Eintrag läuft = abwesend; ab `end_at − presence_lead_hours` = anwesend (Vorlauf); Steuerung aus / Lesefehler = anwesend |
+| `pv-automation` Tagesmodus | Reihenfolge: Abend (nach Sonnenuntergang) → Batterie-Gate → **abwesend = `wait`** → Sonnentag `wait` / sonst `grid` |
+| `pv-automation` Phase 2 | Komfort-Runde (PV-Max) unabhängig von Abwesenheit, nur mit echter Einspeisung |
+| `heizplaner` (`index.ts` `abwesenheiten()`, `rechnen.ts`) | gleiche Kalender-Regel inkl. Vorlauf; abwesend tagsüber Ziel = Min statt Normal; Maximum PV-Max; Nacht Min – gilt im Modus „steuern“ |
+
+Nur Texte berichtigt (keine Logik): diese Doku (Nacht „Frostschutz“) und ein veralteter Kommentar in
+`pv-automation` („abwesend … kein Komfort“, galt nur 28.–30.10.2026).
+
+Nicht geprüft: Alexa-Befehle (`heizung-muenchen`, `alexa-heizung`) – siehe §9.
 
 ## Anhang: Mess-Abfragen
 
