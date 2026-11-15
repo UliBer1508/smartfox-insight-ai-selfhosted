@@ -1114,7 +1114,8 @@ Deno.serve(async (req) => {
         .limit(1)
         .single();
 
-      // Anwesenheit (28.10.2026): abwesend → jeder Tag wie ein Wartetag, kein Komfort. Nacht unverändert.
+      // Anwesenheit (doc/KONZEPT-ANWESENHEIT-2026-10-28.md §9/§10): abwesend → tagsüber Wartetag (Min halten, Netz nur unter Min),
+      // PV-Überschuss lädt wie anwesend bis Normal, dann PV-Max (seit 30.10.). Abend/Nacht: Min, anwesend wie abwesend.
       const presence = await getPresence(supabase, settings);
       const isAway = presence.away;
       console.log(`[ANWESENHEIT] ${isAway ? 'ABWESEND' : 'anwesend'} – ${presence.reason}${presence.nextStart ? `, nächster Eintrag ${presence.nextStart}` : ''}`);

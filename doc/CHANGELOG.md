@@ -7,6 +7,10 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Docs (`doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §10)
+- Anwesenheit: Code gegen Doku geprüft (pv-automation, heizplaner) – stimmt. Doku auf Stand 15.11. gebracht
+  (Nacht = Min statt Frostschutz, Begriffe Min/Normal/PV-Max), veralteter Kommentar in `pv-automation` berichtigt. Keine Logikänderung.
+
 ### Wartung (`doc/TUYA-LIZENZ-ERNEUERUNG-2026-11-15.md`)
 - Tuya-Lizenz (IoT Core) am 15.11.2026 erneuert – Thermostate bekommen wieder die richtige Uhrzeit.
   Muss alle 6 Monate erneuert werden, nächste Erneuerung ca. 15.05.2027.
