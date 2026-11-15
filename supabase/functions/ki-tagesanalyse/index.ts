@@ -92,18 +92,22 @@ Deno.serve(async (req) => {
     const tage = Array.from({ length: 7 }, (_, i) => addDays(gestern, i - 6));   // ältester … gestern
 
     // ---- Daten laden -------------------------------------------------------------------------------
-    const [{ data: tbRows }, { data: wlRows }, { data: hs }, { data: rooms }, { data: alte }] = await Promise.all([
-      sb.from('tages_bewertung').select('tag, note, pv_kwh, einspeisung_kwh, nacht_min_unter, hinweis')
+    const [{ data: tbRows }, { data: wlRows }, { data: hs }, { data: rooms }, { data: alte }, { data: etRows }] = await Promise.all([
+      sb.from('tages_bewertung').select('tag, note, pv_kwh, einspeisung_kwh, nacht_min_unter, hinweis, aussen_avg')
         .gte('tag', addDays(gestern, -30)).lte('tag', gestern),
       sb.from('ai_parameter_whitelist').select('parameter_key, scope, min_value, max_value, autonomy_level').eq('enabled', true),
       sb.from('heating_settings').select('max_grid_heating_power_w').limit(1).maybeSingle(),
       sb.from('rooms').select('id, name, eco_temp, comfort_temp, wait_min_temp, automation_enabled'),
       sb.from('ki_vorschlaege').select('*').gte('created_at', new Date(Date.now() - 60 * 86400000).toISOString()),
+      sb.from('energie_tag').select('tag, heizung_kwh, stunden').gte('tag', addDays(gestern, -60)).lte('tag', gestern),
     ]);
     const tb = new Map<string, any>(((tbRows ?? []) as any[]).map((r) => [String(r.tag), r]));
     const wl = new Map<string, any>(((wlRows ?? []) as any[]).filter((w) => w.autonomy_level === 'suggest').map((w) => [w.parameter_key, w]));
     const raumById = new Map<string, any>(((rooms ?? []) as any[]).map((r) => [r.id, r]));
     const vorhanden = (alte ?? []) as any[];
+    // Heizstrom je Tag (energie_tag, nur volle Tage) – für kWh je Heizgradtag im Wirkungsbericht
+    const heiz = new Map<string, number>(((etRows ?? []) as any[])
+      .filter((r) => r.heizung_kwh != null && Number(r.stunden ?? 24) >= 20).map((r) => [String(r.tag), Number(r.heizung_kwh)]));
 
     const tagInfos: TagInfo[] = [];
     for (const t of tage) {
@@ -203,6 +207,42 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ---- Regel 4: Sparen – Spielraum zwischen Min und Normal (15.11.2026) ----------------------------
+    // Uli: „Ich sollte Anweisungen bekommen, was wir ändern müssen, um zu optimieren.“ Bisher schlug die KI nur
+    // „wärmer“ vor. Liegt Min nur ≤ 1 °C unter Normal, kann der Planer kaum Wärme in die Sonnenstunden verschieben
+    // und muss nachts fast immer heizen. Hat der Raum an mindestens 3 Tagen Min gehalten und war tagsüber kaum
+    // unter Normal (< 1 h), schlagen wir Min − 1 °C vor (nicht unter Normal − 2, innerhalb der Whitelist).
+    // Nicht, wenn Regel 2 greift (dann ist es zu kalt im Haus) oder für denselben Raum schon „wärmer“ ansteht.
+    const regel2 = kandidaten.some((k) => k.parameter_key === 'max_grid_heating_power_w');
+    if (wlU && !regel2) {
+      for (const r of (rooms ?? []) as any[]) {
+        if (r.automation_enabled === false || r.eco_temp == null || r.wait_min_temp == null) continue;
+        if (kandidaten.some((k) => k.parameter_key === 'wait_min_temp' && k.room_id === r.id)) continue;
+        const eco = Number(r.eco_temp), alt = Number(r.wait_min_temp);
+        if (eco - alt > 1.0) continue;                                   // genug Spielraum
+        const neu = Math.max(alt - 1, eco - 2, Number(wlU.min_value ?? 0));
+        if (neu >= alt || sperre('wait_min_temp', r.id)) continue;
+        const ab = [seit('wait_min_temp', r.id), seit('max_grid_heating_power_w', null)].sort().pop()!;
+        const treffer = tagInfos.filter((t) => t.tag > ab)
+          .map((t) => ({ t, x: t.raeume.find((x) => x.room_id === r.id) }))
+          .filter(({ x }) => x && x.t_morgen != null && Number(x.t_morgen) >= alt - 0.3 && x.min_unter_eco < 60);
+        if (treffer.length < MIN_TAGE) continue;
+        kandidaten.push({
+          quelle: 'tagesanalyse', art: 'vorschlag', gewicht: treffer.length,
+          titel: `${r.name}: Min auf ${zahl(neu)} °C senken, um Netzstrom zu sparen?`,
+          was: `${r.name} darf nachts bis ${zahl(neu)} °C abkühlen statt bis ${zahl(alt)} °C. Normal bleibt ${zahl(eco)} °C.`,
+          warum: `${r.name} hat an ${treffer.length} der letzten ${n} Tage Min gehalten und war tagsüber auf Normal. `
+            + `Min liegt aber nur ${zahl(eco - alt)} °C unter Normal – so hat der Planer kaum Spielraum, Wärme in die Sonnenstunden zu verschieben, und muss nachts fast immer heizen.`,
+          wirkung_text: 'Weniger Heizen nachts aus Batterie und Netz. Faustwert: etwa 6 % weniger Heizstrom je Grad in diesem Raum. '
+            + `Nach ${WIRKUNG_TAGE} Tagen prüfe ich kWh je Heizgradtag und ob der Raum Min gehalten hat.`,
+          parameter_key: 'wait_min_temp', scope: 'room', room_id: r.id, alt_wert: alt, neu_wert: neu,
+          min_wert: Math.max(eco - 2, Number(wlU.min_value ?? 0)), max_wert: Math.min(eco, Number(wlU.max_value ?? 99)), einheit: '°C',
+          tage_basis: treffer.length,
+          belege: treffer.map(({ t, x }) => ({ tag: t.tag, morgens: x!.t_morgen, min_unter_eco: x!.min_unter_eco })),
+        });
+      }
+    }
+
     // Räume, die nicht einmal ihre Untergrenze halten – ein Hinweis für alle zusammen
     if (haeltNicht.length) {
       haeltNicht.sort((a, b) => (a.morgen - a.grenze) - (b.morgen - b.grenze));
@@ -239,14 +279,32 @@ Deno.serve(async (req) => {
         continue;
       }
       const a = mittel(vorher), b = mittel(nachher), diff = b - a;
-      const urteil = diff >= 5 ? 'besser' : diff <= -5 ? 'schlechter' : 'gleich';
-      wirkungUpdates.push({ id: v.id, wirkung: { urteil, note_vorher: Math.round(a), note_nachher: Math.round(b), tage_vorher: vorher.length, tage_nachher: nachher.length } });
+      // 15.11.2026: zusätzlich Heizstrom je Heizgradtag (wetterunabhängig) vorher/nachher.
+      // Spar-Änderungen (neuer Wert kleiner) werden daran gemessen: besser = mind. 5 % weniger kWh je Heizgradtag,
+      // ohne dass die Tagesnote um mehr als 10 fällt (Komfort/Min). Andere Änderungen weiter über die Tagesnote.
+      const kh = (tage: string[]) => {
+        const xs = tage.map((t) => ({ h: heiz.get(t), g: tb.get(t)?.aussen_avg != null ? Math.max(0, 18 - Number(tb.get(t).aussen_avg)) : null }))
+          .filter((x): x is { h: number; g: number } => x.h != null && x.g != null && x.g > 0);
+        const sg = xs.reduce((s, x) => s + x.g, 0);
+        return xs.length >= 2 && sg > 0 ? xs.reduce((s, x) => s + x.h, 0) / sg : null;
+      };
+      const khVor = kh([1, 2, 3].map((i) => addDays(d, -i))), khNach = kh([1, 2, 3].map((i) => addDays(d, i)));
+      const spar = v.alt_wert != null && wert < Number(v.alt_wert);
+      let urteil = diff >= 5 ? 'besser' : diff <= -5 ? 'schlechter' : 'gleich';
+      if (spar && khVor != null && khNach != null) {
+        const rel = (khNach - khVor) / khVor;
+        urteil = diff <= -10 ? 'schlechter' : rel <= -0.05 ? 'besser' : rel >= 0.05 ? 'schlechter' : 'gleich';
+      }
+      wirkungUpdates.push({ id: v.id, wirkung: { urteil, note_vorher: Math.round(a), note_nachher: Math.round(b), tage_vorher: vorher.length, tage_nachher: nachher.length,
+        kwh_je_hgt_vorher: khVor != null ? Math.round(khVor * 100) / 100 : null, kwh_je_hgt_nachher: khNach != null ? Math.round(khNach * 100) / 100 : null, spar } });
       if (urteil === 'schlechter' && v.alt_wert != null) {
         ruecknahmen.push({
           quelle: 'rueckblick', art: 'ruecknahme', gewicht: 99, bezug_id: v.id,
           titel: `Rückblick: ${raum}${label} vom ${dm(d)} zurücknehmen?`,
           was: `${raum}${label} wieder auf ${mitEinheit(Number(v.alt_wert), einheit)} statt ${mitEinheit(wert, einheit)}.`,
-          warum: `Am ${dm(d)} hast du ${mitEinheit(Number(v.alt_wert), einheit)} → ${mitEinheit(wert, einheit)} genehmigt. In den 3 Tagen danach lag die Tagesnote im Schnitt bei ${Math.round(b)}, vorher bei ${Math.round(a)}. Die Änderung hat nicht geholfen.`,
+          warum: spar && khVor != null && khNach != null
+            ? `Am ${dm(d)} hast du ${mitEinheit(Number(v.alt_wert), einheit)} → ${mitEinheit(wert, einheit)} genehmigt, um zu sparen. Danach: ${zahl(khNach, 2)} statt ${zahl(khVor, 2)} kWh je Heizgradtag, Tagesnote ${Math.round(b)} statt ${Math.round(a)}. Gespart wurde nicht genug – oder es wurde zu kalt.`
+            : `Am ${dm(d)} hast du ${mitEinheit(Number(v.alt_wert), einheit)} → ${mitEinheit(wert, einheit)} genehmigt. In den 3 Tagen danach lag die Tagesnote im Schnitt bei ${Math.round(b)}, vorher bei ${Math.round(a)}. Die Änderung hat nicht geholfen.`,
           wirkung_text: 'Es gilt wieder der alte Wert. Beachte: auch das Wetter verändert die Tagesnote – der Vergleich ist grob.',
           parameter_key: v.parameter_key, scope: v.scope, room_id: v.room_id, alt_wert: wert, neu_wert: Number(v.alt_wert),
           min_wert: v.min_wert, max_wert: v.max_wert, einheit, tage_basis: nachher.length,
@@ -254,7 +312,11 @@ Deno.serve(async (req) => {
         });
       } else {
         infos.push({ quelle: 'rueckblick', art: 'info', gewicht: 10, bezug_id: v.id,
-          titel: urteil === 'besser'
+          titel: spar && khVor != null && khNach != null
+            ? (urteil === 'besser'
+              ? `${raum}${label} vom ${dm(d)} hat gespart: ${zahl(khNach, 2)} statt ${zahl(khVor, 2)} kWh je Heizgradtag, Tagesnote ${Math.round(b)} statt ${Math.round(a)}.`
+              : `${raum}${label} vom ${dm(d)}: keine klare Ersparnis (${zahl(khVor, 2)} → ${zahl(khNach, 2)} kWh je Heizgradtag). Bleibt so.`)
+            : urteil === 'besser'
             ? `${raum}${label} vom ${dm(d)} hat geholfen: Tagesnote danach im Schnitt ${Math.round(b)} statt ${Math.round(a)}.`
             : `${raum}${label} vom ${dm(d)}: keine klare Wirkung (Tagesnote ${Math.round(a)} → ${Math.round(b)}). Bleibt so.` });
       }
