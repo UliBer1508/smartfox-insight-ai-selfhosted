@@ -454,6 +454,12 @@ Die frühere Karte „Thermostat-Steuerung“ (Tab Heizung & KI) ist entfallen. 
 ### Subscription-Monitoring
 Settings zeigt Tuya Cloud Develop Base Resource Ablaufdatum.
 
+### Tuya-Lizenz alle 6 Monate erneuern (seit 15.11.2026)
+Die Tuya-Lizenz (IoT Core auf https://iot.tuya.com) läuft nach 6 Monaten ab. **Ohne gültige Lizenz bekommen die
+Thermostate keine richtige Uhrzeit** (Zeitprogramme/Nachtmodus laufen falsch) und die Cloud-Steuerung fällt aus.
+Zuletzt erneuert 15.11.2026, nächste Erneuerung ca. **15.05.2027**. Ablauf und Prüfliste:
+`doc/TUYA-LIZENZ-ERNEUERUNG-2026-11-15.md`.
+
 ---
 
 ## 11. Sicherheits-Gates & Ghost-Heating-Prevention

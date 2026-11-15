@@ -5,6 +5,12 @@ Alle wichtigen Änderungen am Projekt werden hier dokumentiert.
 Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.0.0/),
 und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+### Wartung (`doc/TUYA-LIZENZ-ERNEUERUNG-2026-11-15.md`)
+- Tuya-Lizenz (IoT Core) am 15.11.2026 erneuert – Thermostate bekommen wieder die richtige Uhrzeit.
+  Muss alle 6 Monate erneuert werden, nächste Erneuerung ca. 15.05.2027.
+
 ## [2.30.0] - 2026-11-13
 
 ### Added (`doc/FIX-PLANER-MODELL-2026-11-13.md`)

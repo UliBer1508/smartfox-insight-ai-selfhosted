@@ -6,6 +6,10 @@ Stand: 2026-11-13
 
 ## 🔴 Hohe Priorität
 
+### Wartung: Tuya-Lizenz (15.11., `TUYA-LIZENZ-ERNEUERUNG-2026-11-15.md`)
+- [x] Lizenz erneuert 15.11.2026 – Thermostate haben wieder die richtige Uhrzeit
+- [ ] **Bis 15.05.2027 erneuern** (Erinnerung 08.05.2027), danach alle 6 Monate
+
 ### Planer steuert (13.11., `FIX-PLANER-MODELL-2026-11-13.md`)
 - [ ] SQL 37 ausführen, PR mergen
 - [ ] Lernen anstoßen (`analysis-scheduler` force `heizplaner_lernen`), `heizmodell.param.v = 2` für alle Räume
