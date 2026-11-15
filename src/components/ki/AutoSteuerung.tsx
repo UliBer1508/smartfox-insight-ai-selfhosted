@@ -1,7 +1,8 @@
 // Tab „Auto-Steuerung“ (12.11.2026) – erstes Fenster, vor der Übersicht.
 // Uli: „Die Auto-Steuerung soll das erste Fenster vor Übersicht sein. Wo sind die Steuerungselemente, und wie kann
 // ich eingreifen, wenn die KI nicht richtig optimiert?“
-// Aufbau (Uli 12.11.: Verlauf zuerst): 1 Verlauf und Wirkung (VerlaufView) · 2 Steuerung (Modus + Eingriffe) · 3 Plan (PlanerView).
+// Aufbau (Uli 15.11.: „Wo stehen wir“ zuerst): 1 Wo stehen wir (OptimierungView) · 2 Verlauf und Wirkung (VerlaufView)
+// · 3 Steuerung (Modus + Eingriffe) · 4 Plan (PlanerView).
 // Die Eingriffe sind die vorhandenen Einstellungen, hier an einem Platz – keine neuen Werte.
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -13,6 +14,7 @@ import { useHeatingSettings } from '@/hooks/useHeatingSettings';
 import { useKiPending } from '@/hooks/useKiPending';
 import { PlanerView } from './PlanerView';
 import { VerlaufView } from './VerlaufView';
+import { OptimierungView } from './OptimierungView';
 import { num } from './planerTeile';
 import { Klappabschnitt } from '@/components/layout/Klappabschnitt';
 
@@ -139,9 +141,10 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
 export function AutoSteuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'overview' | 'ki' | 'settings') => void }) {
   return (
     <div className="space-y-6">
-      <Klappabschnitt id="auto-verlauf" n={1} titel="Verlauf und Wirkung" frage="Wird es besser – Netz, Haus, Batterie, Kosten – und was haben die KI-Vorschläge bewirkt?"><VerlaufView /></Klappabschnitt>
-      <Klappabschnitt id="auto-steuerung" n={2} titel="Steuerung" frage="Wer entscheidet – und wie greife ich ein?"><Steuerung rooms={rooms} onNavigate={onNavigate} /></Klappabschnitt>
-      <Klappabschnitt id="auto-plan" n={3} titel="Plan" frage="Was macht der Planer in den nächsten 24 Stunden?"><PlanerView rooms={rooms} /></Klappabschnitt>
+      <Klappabschnitt id="auto-wo-stehen-wir" n={1} titel="Wo stehen wir?" frage="Was kostet der Strom, was spart die PV – wohin wollen wir und was sollten wir ändern?"><OptimierungView onNavigate={onNavigate} /></Klappabschnitt>
+      <Klappabschnitt id="auto-verlauf" n={2} titel="Verlauf und Wirkung" frage="Wird es besser – Netz, Haus, Batterie, Kosten – und was haben die KI-Vorschläge bewirkt?"><VerlaufView /></Klappabschnitt>
+      <Klappabschnitt id="auto-steuerung" n={3} titel="Steuerung" frage="Wer entscheidet – und wie greife ich ein?"><Steuerung rooms={rooms} onNavigate={onNavigate} /></Klappabschnitt>
+      <Klappabschnitt id="auto-plan" n={4} titel="Plan" frage="Was macht der Planer in den nächsten 24 Stunden?"><PlanerView rooms={rooms} /></Klappabschnitt>
     </div>
   );
 }
