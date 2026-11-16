@@ -9,6 +9,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useKiVorschlaege, KiVorschlag } from '@/hooks/useKiVorschlaege';
+import { KiGegenRegeln } from './KiGegenRegeln';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const db = supabase as any; // optimierung_woche (SQL 44) noch nicht in types.ts
@@ -209,12 +210,15 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
           <AmpelKarte ampel={min} label={min === 'gut' ? 'Gehalten' : min === 'mittel' ? 'Fast gehalten' : 'Nicht gehalten'} frage="Bleiben alle Räume über Min?">
             {n(s.h_unter_min)} Raum-Stunden unter Min (Ø {n(minJeNacht, 1)} je Nacht), tagsüber {n(normalJeTag)} Raum-Stunden je Tag unter Normal.
           </AmpelKarte>
-          <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'Wird geprüft' : 'Planer rechnet nur mit'} frage="Steuert der Planer besser als die Regeln?">
+          <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'KI steuert' : d.planer_modus === 'aus' ? 'Planer (Regeln)' : 'KI rechnet mit'} frage="Wer steuert gerade?">
             {d.planer_modus === 'steuern'
-              ? 'Der Planer steuert. Ob er besser ist, zeigt der Verlauf unten: kWh je Heizgradtag Woche für Woche.'
-              : 'Die Regeln steuern, der Planer rechnet nur mit. Erst mit „Steuern“ kann er zeigen, ob er besser ist.'}
+              ? 'Die KI steuert – innerhalb der festen Regeln. Ob sie besser ist, zeigt die Gegenrechnung darunter.'
+              : 'Die festen Regeln steuern. Die Gegenrechnung darunter zeigt jeden Morgen, ob die KI besser wäre.'}
           </AmpelKarte>
         </div>
+
+        {/* 16.11.2026 (Uli): Gegenrechnung jeden Morgen hier anzeigen */}
+        <KiGegenRegeln />
       </section>
 
       {/* 2 Wohin wollen wir? */}

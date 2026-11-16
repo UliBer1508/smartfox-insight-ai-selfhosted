@@ -315,7 +315,19 @@ export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>,
   // Fairer Vergleich (13.11.2026): Netz des Planers, bereinigt um die Wärme, die er am Tagesende mehr (oder weniger) im
   // Haus gespeichert hat als die Steuerung. Die frühere Spalte „Planer bei gleichem Komfort“ (Komfort-Gewicht skaliert)
   // entfällt: Mit dem Wert der Restwärme leerte sie den Estrich und war nicht mehr vergleichbar.
-  const planer = { ...kurz(ePlan), netz_bereinigt_kwh: r1(ePlan.netzKwh - (ePlan.waermeKwh - eIst.waermeKwh)) };
+  // 16.11.2026 (Uli: Gegenrechnung jeden Morgen in „Wo stehen wir?“): Regel-Rahmen, Tagesart und ob der Plan an einem
+  // Sonnentag/nachts ohne PV über Min geheizt hätte (soll mit Regel-Rahmen 0 sein).
+  const vorlauf = Number(g.vorlauf ?? 0.2);
+  let netzUeberMin = 0;
+  b.raeume.forEach((r, i) => b.slots.forEach((sl, j) => {
+    if (ePlan.heizen[i][j] !== 1 || sl.netz !== 'min' || sl.pv - sl.base >= 0.5 * r.p) return;
+    const T = j > 0 ? ePlan.temp[i][j - 1] : r.T0;
+    if (T >= r.unter[j] + vorlauf) netzUeberMin += 0.25;
+  }));
+  const ta = b.tagesart?.[tag];
+  const planer = { ...kurz(ePlan), netz_bereinigt_kwh: r1(ePlan.netzKwh - (ePlan.waermeKwh - eIst.waermeKwh)),
+    regeln: g.regeln !== false, sonnentag: ta?.sonnentag ?? null, sonnen_ratio: ta?.ratio == null ? null : r1(ta.ratio),
+    netz_ueber_min_h: r1(netzUeberMin) };
   return { ok: true, tag, netz_gemessen_kwh: r1(netzGem), steuerung: kurz(eIst), planer,
     planer_gleich: null,
     modell_abw: n ? Math.round(abw / n * 100) / 100 : null, erstellt_at: new Date().toISOString() };

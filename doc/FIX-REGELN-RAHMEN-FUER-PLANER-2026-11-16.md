@@ -88,3 +88,16 @@ am Tagesende aber auch mehr Wärme im Estrich (bereinigt etwa gleich). Ob das si
 1. SQL `supabase/SQL/45_planer_regeln_rahmen.sql` ausführen.
 2. PR mergen → Vercel (App) und GitHub-Workflow (Edge Functions) deployen automatisch.
 3. Vorübergehende Prüffunktion `nachrechnung-regeln` im Supabase-Dashboard löschen (liest nur, schreibt nichts).
+
+## Nachtrag 16.11.2026: Gegenrechnung jeden Morgen in „Wo stehen wir?“
+Uli: „Zeige mir die Gegenrechnung jeden Morgen in Wo stehen wir an.“ – Modus seit 07:24 „KI rechnet mit“, Komfort-Gewicht
+auf Ulis Wunsch 1,5 → 0,6 (war seit 14.11. 06:35 über den Regler „Sparsamer ↔ wärmer“ auf 1,5).
+- Neuer Abschnitt `src/components/ki/KiGegenRegeln.tsx` unter „Wo stehen wir?“ (Auto-Steuerung › 1): Ampel, ein Satz
+  „bereit / noch nicht bereit“, Tabelle der letzten 7 Gegenrechnungen (Netz tatsächlich vs. KI, unter Min, Sonnentag).
+- **Bereit für „KI steuert“**, wenn 3 Tage in Folge (mindestens ein Sonnentag) gilt: KI-Netz (bereinigt) ≤ tatsächlich,
+  unter Min nicht mehr als tatsächlich (+0,5 °C·h), an Sonnentagen kein Netz-Heizen über Min. Nur Tage mit Regel-Rahmen.
+- `heizplaner/rechnen.ts` `vergleichAus`: `planer` enthält zusätzlich `regeln`, `sonnentag`, `sonnen_ratio`,
+  `netz_ueber_min_h` (keine Schemaänderung, jsonb).
+- Die Karte „Wer steuert gerade?“ benutzt die neuen Modus-Namen.
+- „Tatsächlich“ ist, was an dem Tag wirklich gesteuert hat – bis 16.11. früh war das die KI (Modus „steuern“), ab
+  16.11. 07:24 die Regeln.
