@@ -25,6 +25,7 @@ import { TuyaConnectionTest } from '@/components/settings/TuyaConnectionTest';
 import { useControlMode } from '@/hooks/useControlMode';
 import { BackupSettingsSection } from '@/components/settings/BackupSettingsSection';
 import { HouseSettingsCard } from '@/components/settings/HouseSettingsCard';
+import { HaltezeitenCard } from '@/components/settings/HaltezeitenCard';
 import { RoomsSection } from '@/components/settings/RoomsSection';
 import { PresenceCalendar } from '@/components/presence/Presence';
 import { ThermostatMaintenance } from '@/components/settings/ThermostatMaintenance';
@@ -111,6 +112,9 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
 
       {/* 2. Haus */}
       <HouseSettingsCard settings={settings} onSave={saveSettings} isLoading={isHeatingLoading} />
+
+      {/* Stufe A (16.11.2026): gelernte Haltezeiten gegen das Hin und Her, eigene Vorgabe möglich */}
+      <HaltezeitenCard />
 
       {/* Anwesenheit (28.10.2026, umgedreht 01.11.2026): Kalender der Abwesenheiten */}
       <PresenceCalendar settings={settings} />

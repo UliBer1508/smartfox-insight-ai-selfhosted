@@ -16,7 +16,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading } from '@/types/energy';
 import { Room } from '@/types/room';
 import { HeatingSettings } from '@/types/heating';
-import { TZ, roomPowerW, fmtKW, fmtTime, fmtC, grundFuer, sparHinweise, erklaereAbweichung, DayModeRoom, Befehl, TState, Prognose } from '@/lib/heizungJetzt';
+import { TZ, roomPowerW, fmtKW, fmtTime, fmtC, grundFuer, sparHinweise, erklaereAbweichung, DayModeRoom, Befehl, TState, Prognose, Halt } from '@/lib/heizungJetzt';
 import { AlertTriangle, Flame, CheckCircle2, Lightbulb } from 'lucide-react';
 
 export { roomPowerW };
@@ -104,16 +104,18 @@ function useHeizKontext() {
   const [befehle, setBefehle] = useState<Map<string, Befehl[]>>(new Map());
   const [befund, setBefund] = useState<Map<string, TState>>(new Map());
   const [prognose, setPrognose] = useState<Prognose>(null);
+  const [halt, setHalt] = useState<Map<string, Halt>>(new Map());
   useEffect(() => {
     let alive = true;
     const load = async () => {
       const seit = new Date(Date.now() - 3 * 3600_000).toISOString();
       const heute = new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
-      const [c, t, f] = await Promise.all([
+      const [c, t, f, h] = await Promise.all([
         db.from('thermostat_commands').select('room_id, value, reason, created_at').eq('command', 'set_temp')
           .gte('created_at', seit).order('created_at', { ascending: false }).limit(300),
         db.from('thermostat_state').select('room_id, befund, dp101'),
         supabase.from('pv_forecasts').select('hourly_watts, sunrise').eq('date', heute).order('fetched_at', { ascending: false }).limit(1),
+        db.from('system_settings').select('value').eq('key', 'haltezeit_aktiv').maybeSingle(),
       ]);
       if (!alive) return;
       if (!c.error) {
@@ -122,6 +124,7 @@ function useHeizKontext() {
         setBefehle(m);
       }
       if (!t.error) setBefund(new Map(((t.data ?? []) as TState[]).map(x => [x.room_id, x])));
+      if (!h.error) setHalt(new Map((((h.data?.value as any)?.rooms ?? []) as Halt[]).map(x => [x.room_id, x])));
       const row = f.data?.[0];
       setPrognose(row ? { hourly: (row.hourly_watts as Record<string, number>) ?? {}, sunrise: row.sunrise ?? null } : null);
     };
@@ -129,7 +132,7 @@ function useHeizKontext() {
     const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 60_000);
     return () => { alive = false; clearInterval(id); };
   }, []);
-  return { befehle, befund, prognose };
+  return { befehle, befund, prognose, halt };
 }
 
 export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settings, dayRooms }: {
@@ -137,7 +140,7 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
   settings: HeatingSettings; dayRooms: Map<string, DayModeRoom>;
 }) {
   const grenze = useGrenze(night);
-  const { befehle, befund, prognose } = useHeizKontext();
+  const { befehle, befund, prognose, halt } = useHeizKontext();
   const heizend = rooms.filter(r => r.tuya_device_id && r.is_heating);
   const lautThermostat = heizend.reduce((s, r) => s + roomPowerW(r), 0);
   const base = grundlast ?? GRUNDLAST_STANDARD_W;
@@ -153,7 +156,7 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
   if (battW != null && battW > 100) nebenbei.push(`Batterie gibt ${fmtKW(battW)} ab`);
   const autoText = autoW == null ? 'Auto unbekannt (keine Wallbox-Daten)' : autoW > 100 ? 'Auto lädt, ist schon abgezogen' : 'Auto lädt nicht';
   const kwhHeute = [...heute.values()].reduce((s, r) => s + (r.kwh || 0), 0);
-  const gruende = new Map(heizend.map(r => [r.id, grundFuer(r, dayRooms.get(r.id), befehle.get(r.id) ?? [], befund.get(r.id))]));
+  const gruende = new Map(heizend.map(r => [r.id, grundFuer(r, dayRooms.get(r.id), befehle.get(r.id) ?? [], befund.get(r.id), halt.get(r.id))]));
   const netzW = Math.max(0, Number(reading?.power_io) || 0);   // Fronius: positiv = Bezug
   const tipps = sparHinweise({ heizend, gruende, netzW, night, settings, prognose, befund });
 

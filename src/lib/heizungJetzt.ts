@@ -32,11 +32,24 @@ export function klartext(why: string): string {
 }
 
 export type Grund = { text: string; art: 'manuell' | 'gestoert' | 'sonne' | 'abschalten' | 'nachlauf' | 'automatik' | 'unbekannt' };
+/** Stufe A (16.11.2026): Die Steuerung hält einen Befehl über die Haltezeit, statt ihn gleich umzukehren
+ *  (system_settings „haltezeit_aktiv“, doc/FIX-HIN-UND-HER-STUFE-A-2026-11-16.md). */
+export type Halt = { room_id: string; bis: string; befehl_wert: number; befehl_um: string; vorschlag: number };
+export function haltText(h: Halt | undefined, nowMs = Date.now()): string {
+  if (!h || new Date(h.bis).getTime() <= nowMs) return '';
+  return ` · Haltezeit bis ${fmtTime(h.bis)}: Befehl ${fmtC(Number(h.befehl_wert))} von ${fmtTime(h.befehl_um)} bleibt (sonst ${fmtC(Number(h.vorschlag))}), damit es nicht hin und her geht`;
+}
 /** So lange nach einem Ausschaltbefehl gilt „heizt über Soll“ noch als normale Verzögerung (min). */
 export const ABSCHALT_VERZOEGERUNG_MIN = 15;
 
 /** Warum heizt dieser Raum? Reihenfolge: manuell → nicht steuerbar/Sonne → Nachlauf → Begründung der Automatik. */
-export function grundFuer(r: Room, modus: DayModeRoom | undefined, befehle: Befehl[], t: TState | undefined): Grund {
+export function grundFuer(r: Room, modus: DayModeRoom | undefined, befehle: Befehl[], t: TState | undefined, halt?: Halt): Grund {
+  const g = grundOhneHalt(r, modus, befehle, t);
+  const ht = haltText(halt);
+  return ht && (g.art === 'automatik' || g.art === 'nachlauf' || g.art === 'unbekannt') ? { ...g, text: g.text + ht } : g;
+}
+
+function grundOhneHalt(r: Room, modus: DayModeRoom | undefined, befehle: Befehl[], t: TState | undefined): Grund {
   const cur = Number(r.current_temp) || 0;
   const soll = Number(r.target_temp) || 0;
   const ueberSoll = cur > 0 && soll > 0 && cur >= soll;
