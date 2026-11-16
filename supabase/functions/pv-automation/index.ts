@@ -2415,6 +2415,13 @@ Deno.serve(async (req) => {
           comfortBudget = 0;
 
           // ============= AKTIVE NOTFALL-STOPS =============
+          // 16.11.2026 (doc/FIX-BATTERIE-SCHUTZ-PINGPONG-2026-11-16.md): nur noch ohne Leistungsbudget.
+          // Mit Leistungsbudget setzt die Raumschleife im selben Lauf für jeden gesteuerten Raum das Ziel aus dem
+          // Tagesmodus ('battery_gate'/'evening', Min hat Vorrang seit 14.11.2026). Der Stop setzte dieselben Räume vorher
+          // auf Min, die Raumschleife danach wieder auf Min + Vorlauf bzw. Anstoß → Pingpong alle 2–5 min.
+          if (powerBudgetEnabled) {
+            console.log(`[SOC-GATE-STOP] übersprungen – Leistungsbudget an, die Raumschleife setzt die Ziele (Tagesmodus ${afterSunset ? 'evening' : 'battery_gate'})`);
+          } else
           // Thermostate halten autonom ihre Sollwerte — wir MÜSSEN aktiv zurücksetzen.
           // Ziel seit 27.10.2026: Mindesttemperatur ohne PV (wait_min_temp), vorher night_temp.
           // Die Raumschleife verwendet bei aktivem Gate dasselbe Ziel (Tagesmodus 'battery_gate'),
