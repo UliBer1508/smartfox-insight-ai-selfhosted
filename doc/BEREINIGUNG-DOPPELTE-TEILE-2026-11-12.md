@@ -5,6 +5,7 @@ alten nicht ersetzt?“ – „Ich möchte, dass wir die doppelt entwickelten Te
 – „Du solltest als erstes die doppelten Entwicklungen bereinigen.“
 
 **Stand:** Stufe 1 umgesetzt (PR, SQL 34 nach Freigabe). Stufe 2 vorbereitet, Entscheidung Uli je Punkt.
+**16.11.2026:** Stufe 2b nachgerechnet und als PR gebaut (PV-Prognose aus dem Heizplan, §4.1).
 **13.11.2026:** Modus „steuern“ gebaut, Mustergedächtnis (`analyze-patterns`) und alle Sprach-KI entfernt
 (`doc/FIX-PLANER-MODELL-2026-11-13.md`). Damit erledigt: Nr. 8 und 11; Nr. 6, 7, 9 wirken im Modus „steuern“ nur noch im Rückfall.
 
@@ -88,6 +89,78 @@ Diese Teile verändern das Heizen. Ersetzen nur nach Nachrechnung mit echten Dat
   (der Planer führt selbst nach); Forecast.Solar nur noch als Rückfall.
 - Nachrechnen vorher: Tagesart und Budget der letzten Tage mit beiden Prognosen.
 
+**Nachrechnung 16.11.2026 (29.10.–15.11., nur lesend):**
+
+Quellen: gemessen `energie_tag.pv_kwh`; Forecast.Solar `pv_forecast_accuracy.forecast_kwh` (letzter Abruf des Tages,
+13:00 UTC); Planer = Summe `plan.pv` des Heizplans um 06:00. `heizplan` hält nur ~3 Tage, echte Pläne gibt es für
+14.11. (08:15), 15.11. (06:00) und aus der Doku für 11.11.; die übrigen Tage (*) sind mit dem Rechenweg des Planers
+nachgerechnet (`lernePv` mit den 30 Tagen vor dem Tag, Gewichte je Stunde, `weather_data`, Nachführung wie `rechnen.ts`).
+Achtung: `fetch-weather` überschreibt `weather_data` stündlich – nachgerechnete Tageswerte um 06:00 kennen das Wetter
+besser als der Planer damals (eher zu gut; 15.11. echt 33,8, nachgerechnet 29,8 kWh).
+Tagesart: alle 15 min zwischen 08:00 und 16:00 aus den Logs von `pv-automation` (PV-Rest, Batterie, Eco-Bedarf) mit der
+heutigen Regel (Ratio = (PV-Rest − Batterie) / Eco-Bedarf ≥ 1,0); „mit Planer“ = gleiche Rechnung mit PV-Rest aus dem
+Planer (Viertelstunden bis Sonnenuntergang − 500 W Grundlast); „Messung“ = mit der tatsächlich danach gemessenen PV.
+Angabe: Viertelstunden „Sonnentag“ von 32.
+
+| Tag | gemessen kWh | Forecast.Solar | Planer | Sonnentag heute | mit Planer | mit Messung |
+|---|---|---|---|---|---|---|
+| 29.10. | 42,6 | 29,0 | 33,8* | 28 | 26 | 22 |
+| 30.10. | 11,2 | 34,1 | 32,1* | 13 | 7 | 0 |
+| 31.10. | 48,5 | 35,7 | 32,1* | 28 | 22 | 25 |
+| 01.11. | 10,5 | 10,2 | 10,8* | 1 | 0 | 0 |
+| 02.11. | 10,2 | 10,1 | 29,6* | 5 | 0 | 0 |
+| 03.11. | 9,0 | 8,1 | 18,4* | 0 | 0 | 0 |
+| 04.11. | 38,0 | 8,2 | 24,6* | 28 | 23 | 25 |
+| 05.11. | 29,0 | 23,5 | 32,1* | 28 | 10 | 25 |
+| 06.11. | 46,7 | 24,5 | 39,2* | 32 | 29 | 28 |
+| 07.11. | 13,9 | 6,7 | 9,8* | 18 | 0 | 0 |
+| 08.11. | 22,6 | 8,7 | 23,9* | 8 | 16 | 21 |
+| 09.11. | 8,7 | 6,5 | 16,5* | 0 | 0 | 0 |
+| 10.11. | 8,7 | 6,5 | 8,8* | 0 | 0 | 0 |
+| 11.11. | 19,7 | 6,0 | 20,5 | 14 | 9 | 1 |
+| 12.11. | 7,4 | 5,9 | 9,4* | 2 | 0 | 0 |
+| 13.11. | 16,4 | 7,3 | 16,4* | 3 | 1 | 1 |
+| 14.11. | 43,2 | 22,5 | 34,2 | 27 | 26 | 25 |
+| 15.11. | 29,9 | 11,1 | 33,8 | 18 | 24 | 23 |
+
+- Mittlere Abweichung je Tag: **Forecast.Solar 11,0 kWh** (im Mittel 8,4 kWh zu niedrig), **Planer 7,1 kWh**;
+  seit 06.11. (Planer in Betrieb, genug Lerndaten): Forecast.Solar 11,2, Planer **3,7 kWh**.
+  Nur echte Pläne (11., 14., 15.11.): Forecast.Solar 17,7, Planer 4,6 kWh.
+- Tagesart wie mit der Messung: heute 473 von 576 Viertelstunden (82 %), mit Planer 529 (92 %).
+  Heute 80× fälschlich „Sonnentag“ (Forecast.Solar-Stundenwerte × Genauigkeit bis 2,0 – morgens z. B. 99 kWh „PV-Rest“
+  am 29.10. bei 42,6 kWh Tages-PV), 23× fälschlich „schlechter Tag“; mit Planer 22× bzw. 25×.
+- Korrektur zum Befund oben: Am 11.11. war die Steuerung 14 von 32 Viertelstunden „Sonnentag“; mit der gemessenen PV
+  wäre es nur einer gewesen (Batterie brauchte 13 kWh). Das Problem war weniger „zu pessimistisch“ als ein springender,
+  unzuverlässiger PV-Rest.
+- Schwäche des Planers: Hochnebel und Schnee auf den Modulen (30.10., 02.11., 03.11., 09.11.: 8–21 kWh zu hoch). Die
+  Nachführung korrigiert erst, wenn in 2 h ≥ 800 Wh vorhergesagt oder gemessen sind.
+- Ergebnis: Planer-Prognose klar näher an der Messung → Umbau (Stufe 2b).
+
+**Umgesetzt 16.11.2026 (Stufe 2b, PR `bereinigung-stufe-2b`, Uli merged):**
+- `pv-automation` liest PV je 15 min aus dem jüngsten `heizplan` (≤ 30 min alt, unabhängig vom Planer-Modus),
+  Genauigkeitsfaktor 1 (der Planer führt selbst nach). Reine Rechnung in `pv-automation/planer_pv.ts` (+ Test).
+  - PV-Rest bis Sonnenuntergang minutengenau (laufende Viertelstunde anteilig) statt Stundenwerte ab voller Stunde
+    (kein Sägezahn mehr zur vollen Stunde), Grundlast 500 W × Stunden bis Sonnenuntergang.
+  - Tagesprognose (`expectedPvKwh`, für PV-Gate < 8 kWh, Boost-Budget, Batterie-voll, Resync) = heute gemessen + Plan
+    bis Mitternacht.
+  - Stunden-Prognose (Mindest-Budget, Lookahead, Wolkenfront) = Plan-Abschnitt jetzt bzw. in 1 h.
+  - Sonnenuntergang weiter aus `pv_forecasts.sunset`, ohne Zeile astronomisch (`_shared/heizregeln.ts`) statt 20:00.
+  - `heating_day_mode` zeigt `pv_quelle`, `pv_quelle_info`, `pv_rest_wh`.
+- Forecast.Solar nur noch Rückfall ohne frischen Plan (dann wie bisher: × Genauigkeit, Stale-Fallback × 0,7, Log
+  `[PV-PROGNOSE] Rückfall Forecast.Solar: …`). Der Stale-Fallback und der Genauigkeitsfaktor wirken nur noch dort.
+- Wechselwirkungen:
+  - **Tagesart/Batterie-Schutz/Planer-Rahmen**: `sunnyDay` aus Planer-PV → gleiche PV wie der Planer selbst; der
+    Regel-Rahmen (`netzGrenze`) für „Planer steuert“ hängt daran.
+  - **Prognose-Bonus (Eco-Budget)**: Ratio aus Planer-PV, morgens meist kleiner als bisher (kein × 2,0) → seltener Bonus.
+  - **Lookahead/Wolkenfront**: Der Planer kennt den Bergschatten (16 Uhr: ~0,2 statt 3,4 kW) → ab ~14 Uhr meist
+    „Wolkenfront“ (Komfort × 0,7) vor dem Schatten; „Stabile Sonne“ seltener am Nachmittag. Gewollt: Die Sonne geht dann
+    wirklich weg.
+  - **Vorausschau** (Nacht, Heizmodell): nutzt keine PV → unverändert.
+  - **KI-Vorschläge**: `ai-parameter-advisor` (Ladestand 21:00) rechnet weiter mit Forecast.Solar für morgen (Stunden mit
+    PV); ebenso `tages_bewertung.pv_prognose_kwh`, `compute-daily-score`, `evaluate-decision`, `record-pv-accuracy`
+    (`pv_forecast_accuracy`) und die App (`usePvForecast`). **Offen:** Ladestand-Vorschlag auf den Plan von 21:00
+    umstellen (deckt den nächsten Tag ab); `fetch-pv-forecast` abschalten erst, wenn niemand mehr liest.
+
 ### 4.2 Energiebedarf je Raum (Nr. 7)
 - Beide Quellen haben Ausreißer: alt Wohnzimmer 58 kWh/°C, neu Wirtschaftsraum 49 kWh/°C (Aufheizen 0,04 °C/h).
 - Ersetzen erst, wenn das Heizmodell für alle Räume plausibel ist; sonst verschiebt sich die Tagesart.
@@ -109,7 +182,7 @@ Diese Teile verändern das Heizen. Ersetzen nur nach Nachrechnung mit echten Dat
 | | Was | Wann | Bedingung |
 |---|---|---|---|
 | 2a | Mustergedächtnis-Zuschläge (§4.3) | 12.11.2026 | erledigt |
-| 2b | PV-Prognose tauschen (§4.1) | Nachrechnung 16.11.2026, Umbau danach | Nachrechnung zeigt: Planer-Prognose näher an der Messung |
+| 2b | PV-Prognose tauschen (§4.1) | Nachrechnung 16.11.2026, Umbau 16.11.2026 (PR, Uli merged) | erfüllt: Planer 3,7 statt 11,2 kWh/Tag daneben (seit 06.11.) |
 | 2c | Bewertung (§4.4), Status-Karten (§4.6), alte Tabellen und `analyze-patterns` | mit Modus „steuern“ | Planer steuert – `analyze-patterns` entfernt 13.11.2026, Rest offen |
 | 2d | Energiebedarf je Raum (§4.2) | Prüfung 23.11.2026 | Heizmodell für alle Räume plausibel (Fehler 12 h besser als „bleibt gleich“) |
 

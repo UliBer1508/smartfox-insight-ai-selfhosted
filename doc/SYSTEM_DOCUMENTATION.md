@@ -523,6 +523,10 @@ Alle Vorschläge an einem Platz, in einfachen Worten (Konzept KI-Vorschläge §9
 
 ## 13. PV-Forecast & Wetter
 
+> **Seit 16.11.2026** rechnet `pv-automation` mit der PV-Vorhersage des Heizplaners (`heizplan.plan.pv`, je 15 min,
+> ≤ 30 min alt, Faktor 1). Forecast.Solar nur noch Rückfall und für Ladestand-Vorschlag/Anzeigen
+> (`doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md` §4.1).
+
 ### Forecast.Solar (`fetch-pv-forecast`, täglich 06:00)
 ```
 https://api.forecast.solar/estimate/47.24983/12.25415/35/0/15.8

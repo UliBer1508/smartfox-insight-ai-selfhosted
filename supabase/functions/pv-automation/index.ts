@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SONNENTAG_SCHWELLE, netzGrenze, netzHeizenErlaubt, tagesart, type Netzgrenze } from '../_shared/heizregeln.ts';
+import { SONNENTAG_SCHWELLE, netzGrenze, netzHeizenErlaubt, sonnenuntergangMin, tagesart, type Netzgrenze } from '../_shared/heizregeln.ts';
+import { planerPvW, planerPvWh, type PlanerPv } from './planer_pv.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -333,6 +334,31 @@ async function ladePlanerPlan(supabase: any, settings: any): Promise<PlanStand> 
     return { map: null, grund: `Plan nicht lesbar (${e}) → Regelwerk` };
   }
 }
+
+// ============= PV-PROGNOSE AUS DEM HEIZPLAN (16.11.2026, Bereinigung Stufe 2b) =============
+// doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md §4.1: Die Steuerung rechnet mit der PV-Vorhersage des Heizplaners
+// (gelernt je Stunde aus Strahlung, mit Bergschatten, nachgeführt an der gemessenen PV) statt mit Forecast.Solar ×
+// Genauigkeitsfaktor. Nachrechnung 29.10.–15.11.2026: Tagesfehler Forecast.Solar im Mittel 11 kWh (fast immer zu
+// niedrig), Planer 3–7 kWh; Tagesart mit Planer-PV in 92 % statt 82 % der Viertelstunden wie mit der gemessenen PV.
+// Unabhängig vom Planer-Modus (der Planer rechnet auch im Schattenbetrieb). Forecast.Solar nur noch als Rückfall,
+// wenn kein Plan ≤ PLAN_MAX_ALTER_MIN alt vorliegt.
+async function ladePlanerPv(supabase: any): Promise<{ pv: PlanerPv | null; grund: string }> {
+  try {
+    const { data } = await supabase.from('heizplan').select('erstellt_at, plan').order('erstellt_at', { ascending: false }).limit(1).maybeSingle();
+    const pv = data?.plan?.pv;
+    if (!Array.isArray(pv) || pv.length === 0) return { pv: null, grund: 'kein Heizplan mit PV' };
+    const alterMin = (Date.now() - new Date(data.erstellt_at).getTime()) / 60_000;
+    if (alterMin > PLAN_MAX_ALTER_MIN) return { pv: null, grund: `Heizplan ${Math.round(alterMin)} min alt (> ${PLAN_MAX_ALTER_MIN})` };
+    const start = Number(data.plan.start);
+    const idx = Math.floor((Date.now() / 1000 - start) / 900);
+    if (!(idx >= 0 && idx < pv.length)) return { pv: null, grund: `Heizplan passt nicht zur Uhrzeit (Slot ${idx})` };
+    const grund = `Heizplan von ${new Date(data.erstellt_at).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' })}`;
+    return { pv: { start, pv: pv.map((x: any) => Math.max(0, Number(x) || 0)), grund }, grund };
+  } catch (e) {
+    return { pv: null, grund: `Heizplan nicht lesbar (${e})` };
+  }
+}
+
 
 /** Reine Funktion: Sollwert für einen Raum nach dem Plan. Thermostat-Schaltband beachten (an bei Ist ≤ Soll − Band,
  *  aus bei Ist ≥ Soll + Band). Wo der jetzige Sollwert schon das Richtige bewirkt, bleibt er (keine unnötigen Befehle). */
@@ -1821,7 +1847,11 @@ Deno.serve(async (req) => {
         .order('timestamp', { ascending: false })
         .limit(10);
 
-      // 7. Load PV forecast for today (with hourly_watts for tracking)
+      // 7. PV-Prognose für heute
+      // Seit 16.11.2026 (Bereinigung Stufe 2b, doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md §4.1): PV je 15 min aus dem
+      // jüngsten Heizplan (≤ PLAN_MAX_ALTER_MIN alt). Der Planer führt seine Vorhersage selbst an der gemessenen PV nach →
+      // Genauigkeitsfaktor 1. Forecast.Solar (`pv_forecasts`) nur noch als Rückfall ohne frischen Plan; die Zeile liefert
+      // weiter Sonnenauf-/-untergang (Bergschatten-Zeit wie im Planer, sonst astronomisch).
       // Wien-Datum verwenden (nicht UTC!) — zwischen 00:00-01:00 UTC wäre sonst das gestrige Datum
       const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
       const { data: todayForecast } = await supabase
@@ -1829,43 +1859,80 @@ Deno.serve(async (req) => {
         .select('expected_kwh, hourly_watts, sunset, sunrise, date')
         .eq('date', today)
         .maybeSingle();
+      const planerPvStand = await ladePlanerPv(supabase);
+      const planerPv: PlanerPv | null = planerPvStand.pv;
+      const pvQuelle: 'planer' | 'forecast_solar' = planerPv ? 'planer' : 'forecast_solar';
 
-      // === PV-FORECAST-FALLBACK (Robustheit 1) ===
+      // === PV-FORECAST-FALLBACK (Robustheit 1, nur im Rückfall Forecast.Solar) ===
       // Wenn heutiger Forecast fehlt oder 0, lade letzten verfügbaren Eintrag der letzten 3 Tage
       let pvForecast: any = todayForecast;
       let forecastIsStale = false;
-      if (!todayForecast || !todayForecast.expected_kwh) {
-        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
-          .toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
-        const { data: fallback } = await supabase
-          .from('pv_forecasts')
-          .select('expected_kwh, hourly_watts, sunset, sunrise, date')
-          .gte('date', threeDaysAgo)
-          .lt('date', today)
-          .order('date', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (fallback?.expected_kwh) {
-          pvForecast = fallback;
-          forecastIsStale = true;
-          console.log(`[PV-FORECAST] Stale fallback from ${fallback.date}: ${fallback.expected_kwh} kWh (×0.7 comfort budget)`);
-        } else {
-          console.log(`[PV-FORECAST] Kein Forecast verfügbar (auch kein 3-Tage-Fallback) → Hard-Gate aktiv`);
+      if (!planerPv) {
+        console.log(`[PV-PROGNOSE] Rückfall Forecast.Solar: ${planerPvStand.grund}`);
+        if (!todayForecast || !todayForecast.expected_kwh) {
+          const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000)
+            .toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+          const { data: fallback } = await supabase
+            .from('pv_forecasts')
+            .select('expected_kwh, hourly_watts, sunset, sunrise, date')
+            .gte('date', threeDaysAgo)
+            .lt('date', today)
+            .order('date', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (fallback?.expected_kwh) {
+            pvForecast = { ...fallback, sunset: todayForecast?.sunset ?? null, sunrise: todayForecast?.sunrise ?? null };
+            forecastIsStale = true;
+            console.log(`[PV-FORECAST] Stale fallback from ${fallback.date}: ${fallback.expected_kwh} kWh (×0.7 comfort budget)`);
+          } else {
+            console.log(`[PV-FORECAST] Kein Forecast verfügbar (auch kein 3-Tage-Fallback) → Hard-Gate aktiv`);
+          }
         }
       }
 
-      const expectedPvKwh = pvForecast?.expected_kwh || 0;
-      const hourlyWatts = (pvForecast?.hourly_watts || {}) as Record<string, number>;
-      
+      const hourlyWatts = (planerPv ? {} : (pvForecast?.hourly_watts || {})) as Record<string, number>;
+
       // Sonnenuntergang erkennen für Batterie-Reserve-Logik
-      const sunsetStr = pvForecast?.sunset as string | null; // z.B. "19:45:00"
-      const sunsetHour = sunsetStr ? parseInt(sunsetStr.split(':')[0], 10) : 20; // Fallback 20:00
-      const sunsetMin = sunsetStr ? sunsetHour * 60 + (parseInt(sunsetStr.split(':')[1], 10) || 0) : 20 * 60;
+      // 16.11.2026: ohne Forecast.Solar-Zeile astronomisch (wie der Planer), nicht mehr fest 20:00.
+      const sunsetStr = (todayForecast?.sunset ?? pvForecast?.sunset ?? null) as string | null; // z.B. "16:40:00"
+      const sunsetMin = sunsetStr
+        ? parseInt(sunsetStr.split(':')[0], 10) * 60 + (parseInt(sunsetStr.split(':')[1], 10) || 0)
+        : sonnenuntergangMin(today);
+      const sunsetHour = Math.floor(sunsetMin / 60);
       const { wienHour: currentWienHour } = isNightTime(settings?.night_start_time || '22:00', settings?.night_end_time || '08:00');
       const wienNowParts = new Intl.DateTimeFormat('de-AT', { timeZone: 'Europe/Vienna', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
       const wienNowMin = Number(wienNowParts.find(p => p.type === 'hour')?.value ?? currentWienHour) * 60 + Number(wienNowParts.find(p => p.type === 'minute')?.value ?? 0);
       // Seit 06.11.2026 minutengenau (vorher nur Stunde → „nach Sonnenuntergang“ galt z. B. schon ab 16:00 bei Sonnenuntergang 16:40).
       const afterSunset = wienNowMin >= sunsetMin;
+      const nowSek = Math.floor(Date.now() / 1000);
+      const sunsetSek = nowSek + (sunsetMin - wienNowMin) * 60;
+      const mitternachtSek = nowSek + (24 * 60 - wienNowMin) * 60;
+
+      // Bisherige PV heute (ab 06:00, Trapez über energy_readings) – für die Tagesprognose mit Planer und für den
+      // Genauigkeitsfaktor im Rückfall.
+      let pvHeuteWh: number | null = null;
+      if (currentWienHour >= 6) {
+        const { data: todayReadings } = await supabase
+          .from('energy_readings')
+          .select('pv_power, timestamp')
+          .gte('timestamp', `${today}T06:00:00`)
+          .order('timestamp', { ascending: true });
+        if (todayReadings && todayReadings.length > 2) {
+          // Σ ((W1+W2)/2 * Δt_h) = Wh; Lücken >10 min ignorieren (Collector offline)
+          let wh = 0;
+          for (let i = 1; i < todayReadings.length; i++) {
+            const dtHours = (new Date(todayReadings[i].timestamp).getTime() - new Date(todayReadings[i - 1].timestamp).getTime()) / 3_600_000;
+            if (dtHours <= 0 || dtHours > 10 / 60) continue;
+            wh += (((todayReadings[i - 1].pv_power || 0) + (todayReadings[i].pv_power || 0)) / 2) * dtHours;
+          }
+          pvHeuteWh = wh;
+        }
+      }
+
+      // Tagesprognose (kWh): Planer = bisher gemessen + Plan bis Mitternacht; Rückfall = Forecast.Solar-Tageswert.
+      const expectedPvKwh = planerPv
+        ? Math.round(((pvHeuteWh ?? 0) + planerPvWh(planerPv, nowSek, mitternachtSek)) / 100) / 10
+        : (pvForecast?.expected_kwh || 0);
 
       // ============= PV-BOOST: ENERGIEBUDGET-BERECHNUNG =============
       // WW + E-Auto werden autonom von Smartfox gesteuert und reduzieren
@@ -1876,71 +1943,53 @@ Deno.serve(async (req) => {
       const batteryNeedKwh = batteryCapacity * Math.max(0, 1 - (batterySoc / 100));
       const availableHeatingKwh = Math.max(0, expectedPvKwh - batteryNeedKwh);
 
-      // Prognose-Korrektur: Vergleiche bisherige tatsächliche PV-Produktion mit Prognose
+      // Prognose-Korrektur nur im Rückfall Forecast.Solar: bisherige PV / bisherige Prognose (max 2,0).
+      // Mit Planer 1,0 – der Planer führt selbst nach (Verhältnis der letzten 2 h, klingt über 4 h ab).
       let forecastAccuracy = 1.0; // 1.0 = perfekt
-      const { wienHour: currentHourForForecast } = isNightTime('22:00', settings?.night_end_time || '08:00');
-      // Start ab Tagesbeginn (Default 6 Uhr), nicht erst ab 8:00 — sonst läuft Morgen-Heizung ohne Korrektur
       const forecastWindowStartHour = 6;
-      if (currentHourForForecast > forecastWindowStartHour && Object.keys(hourlyWatts).length > 0) {
-        // Summe der prognostizierten Wh bis zur aktuellen Stunde
-        // BUG-FIX: hourly_watts Keys sind "2026-04-12 07:00:00", nicht "7"
+      if (!planerPv && currentWienHour > forecastWindowStartHour && Object.keys(hourlyWatts).length > 0) {
+        // hourly_watts Keys sind "2026-04-12 07:00:00"
         let forecastSoFarWh = 0;
-        for (let h = 6; h < currentHourForForecast; h++) {
-          const key = `${today} ${h.toString().padStart(2, '0')}:00:00`;
-          forecastSoFarWh += (hourlyWatts[key] || 0);
+        for (let h = 6; h < currentWienHour; h++) {
+          forecastSoFarWh += (hourlyWatts[`${today} ${h.toString().padStart(2, '0')}:00:00`] || 0);
         }
-        
         if (forecastSoFarWh > 0) {
-          // Tatsächliche Produktion aus energy_readings (energy_out = PV-Produktion)
-          const todayStart = `${today}T06:00:00`;
-          const { data: todayReadings } = await supabase
-            .from('energy_readings')
-            .select('pv_power, timestamp')
-            .gte('timestamp', todayStart)
-            .order('timestamp', { ascending: true });
-          
-          if (todayReadings && todayReadings.length > 2) {
-            // Trapezintegral über die Samples → robust gegen Lücken (z.B. Collector-Ausfälle)
-            // pv_power ist Momentanleistung (W); Σ ((W1+W2)/2 * Δt_h) = Wh
-            let actualWh = 0;
-            for (let i = 1; i < todayReadings.length; i++) {
-              const t1 = new Date(todayReadings[i - 1].timestamp).getTime();
-              const t2 = new Date(todayReadings[i].timestamp).getTime();
-              const dtHours = (t2 - t1) / 3_600_000;
-              // Lücken >10min ignorieren (Collector war offline) — verhindert Über/Unterschätzung
-              if (dtHours <= 0 || dtHours > 10 / 60) continue;
-              const w1 = todayReadings[i - 1].pv_power || 0;
-              const w2 = todayReadings[i].pv_power || 0;
-              actualWh += ((w1 + w2) / 2) * dtHours;
-            }
-            forecastAccuracy = Math.min(2.0, actualWh / forecastSoFarWh);
+          if (pvHeuteWh !== null) {
+            forecastAccuracy = Math.min(2.0, pvHeuteWh / forecastSoFarWh);
           } else {
-            // Zu wenige Samples (<3) — konservative Annahme statt voller Prognose,
-            // verhindert Über-Allokation am frühen Morgen vor genug Messdaten
+            // Zu wenige Samples (<3) — konservative Annahme statt voller Prognose
             forecastAccuracy = 0.7;
             console.log(`[PV-Automation] Forecast-Accuracy: <3 Samples → konservativ 0.7 (statt 1.0)`);
           }
         }
       }
 
+      /** PV-Prognose (W) für die Wiener Stunde jetzt + offsetH: Planer = Abschnitt genau offsetH später, Rückfall = Stundenwert. */
+      const pvPrognoseW = (offsetH: number): number => {
+        if (planerPv) return planerPvW(planerPv, nowSek + offsetH * 3600);
+        const h = (currentWienHour + offsetH) % 24;
+        return (hourlyWatts[`${today} ${h.toString().padStart(2, '0')}:00:00`] || 0) * forecastAccuracy;
+      };
+
       // Grundlast schätzen (Verbrauch ohne Heizung, typisch 400-600W)
       const baseLoad = 500; // TODO: könnte aus Verbrauchs-Analyse kommen
       
       // ============= PV-TAGESPROGNOSE: Verbleibende Energie berechnen =============
-      // Summe der prognostizierten Watt von jetzt bis Sonnenuntergang
+      // Planer: Wh von jetzt bis Sonnenuntergang (minutengenau). Rückfall: Stundenwerte ab der laufenden Stunde × Genauigkeit.
       let remainingPvForecastWh = 0;
-      const sunriseStr2 = pvForecast?.sunrise as string | null;
-      const sunriseHour = sunriseStr2 ? parseInt(sunriseStr2.split(':')[0], 10) : 6;
-      const hoursUntilSunset = Math.max(0, sunsetHour - currentWienHour);
+      const hoursUntilSunset = planerPv ? Math.max(0, (sunsetMin - wienNowMin) / 60) : Math.max(0, sunsetHour - currentWienHour);
       
       if (!afterSunset) {
-        for (let h = currentWienHour; h < sunsetHour; h++) {
-          const key = `${today} ${h.toString().padStart(2, '0')}:00:00`;
-          remainingPvForecastWh += (hourlyWatts[key] || 0);
+        if (planerPv) {
+          remainingPvForecastWh = planerPvWh(planerPv, nowSek, sunsetSek);
+        } else {
+          for (let h = currentWienHour; h < sunsetHour; h++) {
+            remainingPvForecastWh += (hourlyWatts[`${today} ${h.toString().padStart(2, '0')}:00:00`] || 0);
+          }
         }
       }
       
-      // Korrigieren mit Prognose-Genauigkeit und Grundlast abziehen
+      // Korrigieren mit Prognose-Genauigkeit (Planer: 1) und Grundlast abziehen
       const remainingPvForHeatingWh = Math.max(0, 
         (remainingPvForecastWh * forecastAccuracy) - (baseLoad * hoursUntilSunset)
       );
@@ -1975,7 +2024,7 @@ Deno.serve(async (req) => {
       }
       
       const pvSufficientForEco = remainingPvForHeatingWh >= totalEcoEnergyNeededWh;
-      console.log(`[PV-Automation] 📊 Tagesprognose: PV-Rest=${(remainingPvForHeatingWh/1000).toFixed(1)}kWh, Eco-Bedarf=${(totalEcoEnergyNeededWh/1000).toFixed(1)}kWh → ${pvSufficientForEco ? '✅ REICHT' : '⚠️ REICHT NICHT'} | Accuracy=${(forecastAccuracy*100).toFixed(0)}%`);
+      console.log(`[PV-Automation] 📊 Tagesprognose: PV-Rest=${(remainingPvForHeatingWh/1000).toFixed(1)}kWh, Eco-Bedarf=${(totalEcoEnergyNeededWh/1000).toFixed(1)}kWh → ${pvSufficientForEco ? '✅ REICHT' : '⚠️ REICHT NICHT'} | Accuracy=${(forecastAccuracy*100).toFixed(0)}% | Quelle ${pvQuelle === 'planer' ? planerPvStand.grund : 'Forecast.Solar (Rückfall)'}`);
       if (ecoRoomDetails.length > 0) {
         console.log(`[PV-Automation] 📊 Eco-Räume: ${ecoRoomDetails.map(r => `${r.name} (${r.tempDiff}°→${r.neededWh}Wh)`).join(', ')}`);
       }
@@ -1997,8 +2046,8 @@ Deno.serve(async (req) => {
       void ecoRoomsRemaining;
       
       // Aktuelle Stunden-Prognose für Mindest-Budget
-      const currentHourForecastW = hourlyWatts[`${today} ${currentWienHour.toString().padStart(2, '0')}:00:00`] || 0;
-      const currentHourForecastCorrected = currentHourForecastW * forecastAccuracy;
+      // 16.11.2026: über pvPrognoseW (Planer: laufender 15-min-Abschnitt; Rückfall: Stundenwert × Genauigkeit)
+      const currentHourForecastCorrected = pvPrognoseW(0);
 
       const boostAllowed = availableHeatingKwh > 3 && forecastAccuracy >= 0.7;
       console.log(`[PV-Automation] PV-Boost: Budget=${availableHeatingKwh.toFixed(1)}kWh (Prognose=${expectedPvKwh}kWh - Batterie=${batteryNeedKwh.toFixed(1)}; WW+Auto=Smartfox-autonom, kein Abzug), Prognose-Genauigkeit=${(forecastAccuracy*100).toFixed(0)}%, Boost=${boostAllowed ? 'ERLAUBT' : 'GESPERRT'}`);
@@ -2256,9 +2305,8 @@ Deno.serve(async (req) => {
           let lookaheadFactor: 'boost' | 'neutral' | 'cloud_warning' = 'neutral';
           let nextHourForecastCorrected = 0;
           try {
-            const nextHour = (currentWienHour + 1) % 24;
-            const nextHourRawW = hourlyWatts[`${today} ${nextHour.toString().padStart(2, '0')}:00:00`] || 0;
-            nextHourForecastCorrected = nextHourRawW * forecastAccuracy;
+            // Planer: Abschnitt in 1 h; Rückfall: nächste volle Stunde × Genauigkeit
+            nextHourForecastCorrected = pvPrognoseW(1);
             if (currentHourForecastCorrected > 100) {
               if (nextHourForecastCorrected >= currentHourForecastCorrected * 0.9) {
                 lookaheadBonus = Math.max(0, Math.min(
@@ -3317,6 +3365,10 @@ Deno.serve(async (req) => {
             sunny_day: sunnyDay,
             surplus_after_battery_wh: Math.round(surplusAfterBatteryWh),
             battery_need_wh: Math.round(batteryNeedWhForDay),
+            // 16.11.2026 (Bereinigung Stufe 2b): woher die PV-Prognose der Tagesart kommt
+            pv_quelle: pvQuelle,
+            pv_quelle_info: pvQuelle === 'planer' ? planerPvStand.grund : `Forecast.Solar (${planerPvStand.grund})`,
+            pv_rest_wh: Math.round(remainingPvForHeatingWh),
             threshold: dayThreshold,
             ki_adjust: kiAdjust,
             ki_info: kiInfo,

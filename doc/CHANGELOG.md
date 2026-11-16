@@ -7,6 +7,13 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Changed (`doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md` §4.1, Stufe 2b)
+- `pv-automation`: PV-Prognose je 15 min aus dem jüngsten Heizplan (≤ 30 min) statt Forecast.Solar × Genauigkeitsfaktor;
+  Faktor 1 (Planer führt selbst nach). Forecast.Solar nur noch Rückfall ohne frischen Plan. Wirkt auf Tagesart,
+  Batterie-Schutz, Prognose-Bonus, Lookahead/Wolkenfront, PV-Gate. Nachrechnung 29.10.–15.11.: Tagesfehler
+  Forecast.Solar 11,0 kWh, Planer 7,1 kWh (seit 06.11.: 11,2 / 3,7); Tagesart wie mit gemessener PV 92 % statt 82 %.
+- Sonnenuntergang ohne `pv_forecasts`-Zeile astronomisch statt 20:00. `heating_day_mode` mit `pv_quelle`.
+
 ### Docs (`doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §10)
 - Anwesenheit: Code gegen Doku geprüft (pv-automation, heizplaner) – stimmt. Doku auf Stand 15.11. gebracht
   (Nacht = Min statt Frostschutz, Begriffe Min/Normal/PV-Max), veralteter Kommentar in `pv-automation` berichtigt. Keine Logikänderung.
