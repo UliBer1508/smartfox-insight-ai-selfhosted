@@ -369,7 +369,7 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
  *  doc/FIX-REGELN-RAHMEN-FUER-PLANER-2026-11-16.md). Uli: „Die KI ergänzt die Regeln, sie schaltet sie nicht aus.“
  *  Der Planer darf innerhalb der Regeln entscheiden. Will er heizen, gilt:
  *    – PV-Überschuss frei (nach Priorität verteilt) → heizen
- *    – sonst nur, wo die Regel Netz/Batterie erlaubt: unter Min + Vorlauf immer, bis Normal nur am Tag ohne genug Sonne
+ *    – sonst nur bis zur Grenztemperatur + Spielraum (0,3 °C): Min immer, Normal nur am Tag ohne genug Sonne
  *  Sonst bleibt das Thermostat aus und der Raum wartet auf die Sonne. pvFrei wird beim Verteilen verringert. */
 function planerImRahmen(room: any, z: { temp: number; why: string; heizt: boolean }, grenze: Netzgrenze,
                         pvFrei: { w: number }, settings: any): { temp: number; why: string; heizt: boolean } {
@@ -379,8 +379,10 @@ function planerImRahmen(room: any, z: { temp: number; why: string; heizt: boolea
   const cur = Number(room.current_temp) || 0;
   const min = getWaitMinTemp(room, settings);
   const normal = Number(room.eco_temp) || Number(settings?.eco_temp) || 21;
-  const vorlauf = Math.max(0, Number(settings?.min_vorlauf_c ?? 0.2));
-  if (netzHeizenErlaubt(grenze, cur, min, normal, vorlauf)) return z;
+  // Spielraum wie im Planer: ohne PV höchstens bis Grenztemperatur + ziel_abschalt_ueber_c (0,3 °C), kein Vorlauf
+  // (der Planer heizt laut Raummodell rechtzeitig vor Min; Entscheidung 14.11.2026, Variante A).
+  const spielraum = Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3));
+  if (netzHeizenErlaubt(grenze, cur, min, normal, spielraum)) return z;
   const temp = holdBelow(cur, min, bandOf(room));
   const regel = grenze === 'min' ? `ohne PV-Überschuss nur bis Min ${min} °C` : `aus dem Netz nur bis Normal ${normal} °C`;
   return { temp, heizt: false,

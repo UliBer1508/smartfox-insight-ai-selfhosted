@@ -20,7 +20,7 @@
 // dass die Räume kaum nach draußen verlieren und einfach den anderen folgen (k an der Untergrenze) – im Plan wäre das Haus
 // dann nie ausgekühlt.
 
-import { netzHeizenErlaubt, type Netzgrenze } from '../_shared/heizregeln.ts';
+import { netzGrenzTemp, type Netzgrenze } from '../_shared/heizregeln.ts';
 
 export const DT_H = 0.25;            // 15 Minuten
 export const SLOTS = 96;             // 24 h
@@ -240,7 +240,7 @@ export interface Gewichte {
   waermeMehr: number;   // Wert je kWh, die am Planende MEHR gespeichert ist (13.11.2026 abends: nur so viel wie PV-Strom,
                         // den man sonst einspeisen würde – sonst ist Heizen aus dem Netz in den Estrich fast gratis)
   regeln?: boolean;     // 16.11.2026: feste Regeln als Rahmen (Netz/Batterie nur bis Netzgrenze). false = alter Planer (Vergleich)
-  vorlauf?: number;     // Min + Vorlauf (min_vorlauf_c) wie in der Steuerung
+  spielraum?: number;   // 16.11.2026: ohne PV höchstens Grenztemperatur + Spielraum (ziel_abschalt_ueber_c, 0,3 °C)
 }
 
 /** Wert der Wärme am Planende (asymmetrisch, doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
@@ -324,29 +324,27 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
       hw[i] += (an - h[r][i]) * raeume[r].p;
       if (an === 1 && hw[i] > slots[i].capW + 1) return null;
     }
+    const start = i0 > 0 ? { T: rs[r].T[i0 - 1], S: rs[r].S[i0 - 1] } : undefined;
+    const nr = simRaum(raeume[r], hn, slots, g, i0, start);
+    for (let i = 0; i < i0; i++) { nr.T[i] = rs[r].T[i]; nr.S[i] = rs[r].S[i]; nr.pen[i] = rs[r].pen[i]; }
     // 16.11.2026: Feste Regeln sind der Rahmen (Uli: „die KI ergänzt die Regeln, schaltet sie nicht aus“).
-    // Heizen ohne PV-Überschuss nur, wo die Regel es erlaubt: Min immer; Normal nur am Tag ohne genug Sonne.
-    // An Sonnentagen und nachts wartet der Raum über Min auf die Sonne – auch wenn die Rechnung früheres Heizen
-    // „billiger“ fände. Am Sonnentag lädt die Sonne zuerst die Batterie bis heating_min_battery_soc.
+    // Je Viertelstunde des Blocks: Ist sie nicht zur Hälfte mit PV-Überschuss gedeckt, darf der Raum mit diesem Heizen
+    // höchstens auf Grenztemperatur + Spielraum kommen – Min (Nacht, Abend, Sonnentag, abwesend) bzw. Normal (Tag ohne
+    // genug Sonne). Kein Vorlauf: Der Planer heizt laut Raummodell rechtzeitig vor Min (Entscheidung 14.11., Variante A).
+    // Am Sonnentag lädt die Sonne zuerst die Batterie bis heating_min_battery_soc.
     if (an === 1 && g.regeln) {
       const rr = raeume[r];
-      let pvDeckt = true;
       for (let i = i0; i < i1; i++) {
         let frei = slots[i].pv - slots[i].base - (hw[i] - rr.p);
         const eVor = i > 0 ? en.e[i - 1] : bat.eKwh;
         if (slots[i].sonnentag && bat.heizMinKwh != null && eVor < bat.heizMinKwh) {
           frei -= Math.min(bat.maxLadenW, Math.max(0, slots[i].pv - slots[i].base));
         }
-        if (frei < 0.5 * rr.p) { pvDeckt = false; break; }
-      }
-      if (!pvDeckt) {
-        const T = i0 > 0 ? rs[r].T[i0 - 1] : rr.T0;
-        if (!netzHeizenErlaubt(slots[i0].netz ?? 'normal', T, rr.unter[i0], rr.ziel[i0], g.vorlauf ?? 0.2)) return null;
+        if (frei >= 0.5 * rr.p) continue;
+        const grenzT = netzGrenzTemp(slots[i].netz ?? 'normal', rr.unter[i], rr.ziel[i]) + (g.spielraum ?? 0.3);
+        if (nr.T[i] > grenzT) return null;
       }
     }
-    const start = i0 > 0 ? { T: rs[r].T[i0 - 1], S: rs[r].S[i0 - 1] } : undefined;
-    const nr = simRaum(raeume[r], hn, slots, g, i0, start);
-    for (let i = 0; i < i0; i++) { nr.T[i] = rs[r].T[i]; nr.S[i] = rs[r].S[i]; nr.pen[i] = rs[r].pen[i]; }
     const e0 = i0 > 0 ? en.e[i0 - 1] : undefined;
     const ne = simEnergie(hw, slots, bat, g, i0, e0);
     const vorherEnergie = (() => { let s = 0; for (let i = i0; i < N; i++) s += DT_H / 1000 * (en.netz[i] - g.einspeiseFaktor * en.einsp[i]); return s; })();
