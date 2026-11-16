@@ -273,6 +273,87 @@ async function saveWaitState(supabase: any, rooms: Record<string, string>, grant
 // Gemessene/eingetragene Leistung (heating_power_w, Messung 06.11.) vor der alten Schätzung calculated_power_w (10.11.2026)
 const roomPowerW = (room: any) => Number(room?.heating_power_w) || Number(room?.calculated_power_w) || 800;
 
+// ============= STUFE A: HALTEZEIT GEGEN HIN UND HER (16.11.2026, doc/FIX-HIN-UND-HER-STUFE-A-2026-11-16.md) =============
+// Uli: „Ich weiß nicht, was die richtige Haltezeit ist, die variiert im Laufe des Jahres.“ Deshalb keine feste Zahl:
+// SQL 46 lernt täglich halte_min (Befehl → Thermostat heizt, 90 %-Wert) und pv_halten_min (Dauer kurzer
+// Einspeise-Einbrüche, 90 %-Wert) und schreibt sie nach system_settings „haltezeiten“. Eine eigene Vorgabe aus der
+// App („haltezeiten_vorgabe“, null = automatisch) hat Vorrang. Ohne beides: je 10 min.
+type HalteBefehl = { value: number; at: number };
+type Haltezeiten = { halteMin: number; pvHaltenMin: number; quelle: string };
+
+async function ladeHaltezeiten(supabase: any): Promise<Haltezeiten> {
+  const out: Haltezeiten = { halteMin: 10, pvHaltenMin: 10, quelle: 'Standard 10/10 min' };
+  try {
+    const { data } = await supabase.from('system_settings').select('key, value').in('key', ['haltezeiten', 'haltezeiten_vorgabe']);
+    const gelernt = (data || []).find((d: any) => d.key === 'haltezeiten')?.value || {};
+    const vorgabe = (data || []).find((d: any) => d.key === 'haltezeiten_vorgabe')?.value || {};
+    const pick = (v: any, g: any, std: number): [number, string] => {
+      const nv = Number(v); if (v !== null && v !== undefined && Number.isFinite(nv) && nv >= 0) return [nv, 'eigene Vorgabe'];
+      const ng = Number(g); if (Number.isFinite(ng) && ng > 0) return [ng, 'gelernt'];
+      return [std, 'Standard'];
+    };
+    const [h, hq] = pick(vorgabe.halte_min, gelernt.halte_min, 10);
+    const [p, pq] = pick(vorgabe.pv_halten_min, gelernt.pv_halten_min, 10);
+    out.halteMin = h; out.pvHaltenMin = p; out.quelle = `Haltezeit ${h} min (${hq}), PV halten ${p} min (${pq})`;
+  } catch (e) { out.quelle = `Haltezeiten nicht lesbar (${e}) → 10/10 min`; }
+  return out;
+}
+
+/** Letzte set_temp-Befehle je Raum (neueste zuerst), ohne fehlgeschlagene. */
+async function ladeLetzteBefehle(supabase: any, sinceMin = 360): Promise<Map<string, HalteBefehl[]>> {
+  const map = new Map<string, HalteBefehl[]>();
+  try {
+    const { data } = await supabase.from('thermostat_commands').select('room_id, value, created_at')
+      .eq('command', 'set_temp').neq('status', 'failed')
+      .gte('created_at', new Date(Date.now() - sinceMin * 60000).toISOString())
+      .order('created_at', { ascending: false }).limit(1000);
+    for (const c of data || []) {
+      const v = Number(c.value); if (!Number.isFinite(v)) continue;
+      const l = map.get(c.room_id) || []; l.push({ value: v, at: new Date(c.created_at).getTime() }); map.set(c.room_id, l);
+    }
+  } catch (e) { console.log(`[HALTEZEIT] Befehle nicht lesbar: ${e}`); }
+  return map;
+}
+
+/** Reine Funktion: Würde „neu“ den letzten Befehl innerhalb der Haltezeit umkehren?
+ *  Umkehr = der letzte Befehl hat den Sollwert angehoben (gesenkt) und der neue senkt (hebt) ihn wieder,
+ *  jeweils um mindestens 0,25 °C. Ohne Vorgänger ist die Richtung unbekannt → nicht gesperrt. */
+function umkehrGesperrt(hist: HalteBefehl[] | undefined, neu: number, halteMin: number, nowMs: number):
+  { gesperrt: boolean; bis?: number; letzter?: HalteBefehl } {
+  if (!hist || hist.length < 2 || halteMin <= 0) return { gesperrt: false };
+  const [letzter, davor] = hist;
+  const bis = letzter.at + halteMin * 60000;
+  if (nowMs >= bis) return { gesperrt: false };
+  const dLetzt = letzter.value - davor.value;
+  const dNeu = neu - letzter.value;
+  if (Math.abs(dLetzt) < 0.25 || Math.abs(dNeu) < 0.25) return { gesperrt: false };
+  return Math.sign(dLetzt) !== Math.sign(dNeu) ? { gesperrt: true, bis, letzter } : { gesperrt: false };
+}
+
+/** Wann eine Umkehr trotz Haltezeit erlaubt ist (Rückgabe = Grund, null = nicht erlaubt):
+ *  zwingend markierte Ziele (Min-Vorrang, Deckel, „Ziel erreicht → aus“, Sicherheit, Regel-Stopp),
+ *  Anheben unter Min + Vorlauf, Senken über PV-Max + 0,3 °C, Prüfbefehl an ein nicht steuerbares Thermostat. */
+function umkehrErlaubt(room: any, neu: number, letzter: number, settings: any, zwingend: boolean): string | null {
+  if (zwingend) return 'zwingend';
+  if (room?.nicht_steuerbar_seit) return 'Prüfbefehl';
+  const cur = Number(room?.current_temp) || 0;
+  if (cur <= 0) return 'kein Messwert';
+  const vorlauf = Math.max(0, Number(settings?.min_vorlauf_c ?? 0.2));
+  if (neu > letzter && cur < getWaitMinTemp(room, settings) + vorlauf) return 'unter Min';
+  const komfort = Number(room?.comfort_temp) || Number(settings?.comfort_temp) || 22;
+  if (neu < letzter && cur >= komfort + 0.3) return 'über PV-Max';
+  return null;
+}
+
+/** A3: Raum über Min, Thermostat aus, Sollwert schon darunter → so lassen statt „hält Min“ wieder anzuheben.
+ *  Die Min-Vorrang-Zuteilung übernimmt, sobald der Raum unter Min + Vorlauf fällt. Sicherheitsboden: der
+ *  belassene Sollwert liegt höchstens 2 °C unter dem Ziel (sonst normal anheben). */
+function bleibtAus(room: any, ziel: number, zielVorlauf: number): boolean {
+  const cur = Number(room?.current_temp) || 0;
+  const soll = Number(room?.target_temp) || 0;
+  return room?.is_heating !== true && cur > 0 && cur >= zielVorlauf && soll > 0 && soll < ziel - 0.25 && soll >= ziel - 2;
+}
+
 // Nicht steuerbar (10.11.2026, C, doc/FIX-REGELN-A-B-C-2026-11-10.md): SQL 30 setzt rooms.nicht_steuerbar_seit, wenn
 // ≥ 4 ausgeführte Befehle den Sollwert am Gerät nicht geändert haben. Solche Räume bekommen keine Befehle mehr –
 // außer einem Prüfbefehl pro Stunde: Wirkt er (Gerät repariert), löscht SQL 30 die Markierung von selbst.
@@ -336,7 +417,7 @@ async function ladePlanerPlan(supabase: any, settings: any): Promise<PlanStand> 
 
 /** Reine Funktion: Sollwert für einen Raum nach dem Plan. Thermostat-Schaltband beachten (an bei Ist ≤ Soll − Band,
  *  aus bei Ist ≥ Soll + Band). Wo der jetzige Sollwert schon das Richtige bewirkt, bleibt er (keine unnötigen Befehle). */
-function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: number; why: string; heizt: boolean } {
+function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: number; why: string; heizt: boolean; zwingend?: boolean } {
   const cur = Number(room.current_temp) || 0;
   const soll = Number(room.target_temp) || 0;
   const band = bandOf(room);
@@ -347,16 +428,16 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
   const sicher = Number.isFinite(e.unter) ? e.unter - abst : -Infinity;
   const notfall = cur > 0 && cur < sicher;
   if (cur > 0 && cur >= komfort + 0.3) {
-    return { temp: holdBelow(cur, 99, band), heizt: false, why: `Planer: über Komfort (${cur.toFixed(1)} ≥ ${komfort} + 0,3 °C) → Thermostat aus` };
+    return { temp: holdBelow(cur, 99, band), heizt: false, zwingend: true, why: `Planer: über Komfort (${cur.toFixed(1)} ≥ ${komfort} + 0,3 °C) → Thermostat aus` };
   }
   if (e.heizt || notfall) {
     const grund = notfall ? `Sicherheit: unter Min (${cur.toFixed(1)} < ${sicher.toFixed(1)} °C) → heizt, auch wenn der Plan nicht heizt`
                           : `Planer: heizen (Ziel ${ziel} °C, Ist ${cur.toFixed(1)} °C)`;
     if (room.is_heating === true && soll > 0 && soll >= cur - band + 0.1 && soll <= komfort + band) {
-      return { temp: soll, heizt: true, why: `${grund}, läuft` };
+      return { temp: soll, heizt: true, zwingend: notfall, why: `${grund}, läuft` };
     }
     const an = Math.min(komfort + band, Math.max(ziel, Math.ceil((cur + band + 0.2) * 2) / 2));
-    return { temp: an, heizt: true, why: `${grund} → ${an} °C (schaltet sicher ein, Schaltband ±${band} °C)` };
+    return { temp: an, heizt: true, zwingend: notfall, why: `${grund} → ${an} °C (schaltet sicher ein, Schaltband ±${band} °C)` };
   }
   if (room.is_heating !== true && soll > 0 && soll <= cur - 0.3) {
     return { temp: soll, heizt: false, why: `Planer: nicht heizen (Ist ${cur.toFixed(1)} °C, Ziel ${ziel} °C)` };
@@ -371,8 +452,8 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
  *    – PV-Überschuss frei (nach Priorität verteilt) → heizen
  *    – sonst nur bis zur Grenztemperatur + Spielraum (0,3 °C): Min immer, Normal nur am Tag ohne genug Sonne
  *  Sonst bleibt das Thermostat aus und der Raum wartet auf die Sonne. pvFrei wird beim Verteilen verringert. */
-function planerImRahmen(room: any, z: { temp: number; why: string; heizt: boolean }, grenze: Netzgrenze,
-                        pvFrei: { w: number }, settings: any): { temp: number; why: string; heizt: boolean } {
+function planerImRahmen(room: any, z: { temp: number; why: string; heizt: boolean; zwingend?: boolean }, grenze: Netzgrenze,
+                        pvFrei: { w: number }, settings: any): { temp: number; why: string; heizt: boolean; zwingend?: boolean } {
   if (!z.heizt) return z;
   const p = Number(room.heating_power_w || room.calculated_power_w) || 800;
   if (pvFrei.w >= 0.5 * p) { pvFrei.w -= p; return { ...z, why: `${z.why} – mit PV-Überschuss` }; }
@@ -385,7 +466,7 @@ function planerImRahmen(room: any, z: { temp: number; why: string; heizt: boolea
   if (netzHeizenErlaubt(grenze, cur, min, normal, spielraum)) return z;
   const temp = holdBelow(cur, min, bandOf(room));
   const regel = grenze === 'min' ? `ohne PV-Überschuss nur bis Min ${min} °C` : `aus dem Netz nur bis Normal ${normal} °C`;
-  return { temp, heizt: false,
+  return { temp, heizt: false, zwingend: true,
     why: `Regel: ${regel} – Planer wollte aus Netz/Batterie heizen (Ist ${cur.toFixed(1)} °C) → wartet auf PV, Thermostat aus (${temp} °C)` };
 }
 
@@ -408,8 +489,9 @@ function allocateDayTargets(
   waitSince: Record<string, string> = {},
   nowMs: number = Date.now(),
   grantedSince: Record<string, string> = {},
-): { targets: Map<string, { temp: number; why: string }>; gridUsedW: number; waiting: Set<string>; capGranted: Set<string> } {
-  const targets = new Map<string, { temp: number; why: string }>();
+): { targets: Map<string, { temp: number; why: string; zwingend?: boolean }>; gridUsedW: number; waiting: Set<string>; capGranted: Set<string> } {
+  // zwingend (Stufe A, 16.11.2026): Ziel darf die Haltezeit brechen – Min-Vorrang, Deckel, „Ziel erreicht → aus“
+  const targets = new Map<string, { temp: number; why: string; zwingend?: boolean }>();
   // Batterie-Schutz (Konzept Tagesablauf §3.4, Raummodell §3.2): Ziel ist
   // „Untergrenze − battery_gate_floor_delta“ (seit 02.11.2026 Abstand 0 → Untergrenze).
   const gateDelta = Math.max(0, Number(settings?.battery_gate_floor_delta ?? 0));
@@ -468,20 +550,25 @@ function allocateDayTargets(
       const st = fein ? startTarget(cur, zielT, bandOf(rp.room), rp.room.is_heating === true, Math.max(zielT, comfortOf(rp)))
                       : { temp: zielT, anstoss: false };
       const lage = cur < waitT ? `unter ${floorName} (${cur.toFixed(1)} < ${waitT} °C)` : `knapp über ${floorName} (${cur.toFixed(1)} < ${waitT} + ${vorlauf} °C Vorlauf)`;
-      targets.set(rp.room.id, { temp: st.temp,
+      targets.set(rp.room.id, { temp: st.temp, zwingend: true,
         why: `${lage} → heizt bis ${zielT.toFixed(1)} °C, ${cap.usedW} W${ueber}${allein}${behalten}`
           + (st.anstoss ? ` – Anstoß ${st.temp} °C (im Schaltband ±${bandOf(rp.room)} °C, sonst schaltet das Thermostat nicht ein)` : '') });
     } else if (cap.waiting.has(rp.room.id)) {
       const seit = waitSince[rp.room.id] ? ` seit ${fmtHMs(waitSince[rp.room.id])}` : '';
-      targets.set(rp.room.id, { temp: holdBelow(cur, waitT, bandOf(rp.room)),
+      targets.set(rp.room.id, { temp: holdBelow(cur, waitT, bandOf(rp.room)), zwingend: true,
         why: `unter ${floorName} + Vorlauf (${cur.toFixed(1)} < ${zielT.toFixed(1)} °C), Deckel ${deckelW} W belegt (${cap.usedW} W) → wartet${seit}` });
     } else if (cap.cut.has(rp.room.id)) {
-      targets.set(rp.room.id, { temp: holdBelow(cur, Math.max(waitT, cur), bandOf(rp.room)),
+      targets.set(rp.room.id, { temp: holdBelow(cur, Math.max(waitT, cur), bandOf(rp.room)), zwingend: true,
         why: `über ${floorName} (${cur.toFixed(1)} °C) → für Räume unter ${floorName} abgeschaltet` });
     } else if (fein && rp.room.is_heating === true && cur > 0 && cur >= zielT + stopMargin && (dayMode !== 'grid' || cur >= ecoOf(rp) + stopMargin)) {
       // Ziel erreicht, Thermostat läuft noch: abschalten – sonst heizt es bis Ziel + Band (09.11.2026)
-      targets.set(rp.room.id, { temp: holdBelow(cur, waitT, bandOf(rp.room)),
+      targets.set(rp.room.id, { temp: holdBelow(cur, waitT, bandOf(rp.room)), zwingend: true,
         why: `${floorName} erreicht (${cur.toFixed(1)} ≥ ${zielT.toFixed(1)} + ${stopMargin} °C) → Thermostat aus (würde sonst bis ${(zielT + bandOf(rp.room)).toFixed(1)} °C heizen)` });
+    } else if (fein && bleibtAus(rp.room, waitT, zielT)) {
+      // A3 (Stufe A, 16.11.2026): nicht wieder auf Min anheben – das war das häufigste Hin und Her („aus → hält Min“)
+      const soll = Number(rp.room.target_temp);
+      targets.set(rp.room.id, { temp: soll,
+        why: `über ${floorName} (${cur.toFixed(1)} ≥ ${zielT.toFixed(1)} °C), Thermostat aus → bleibt bei ${soll} °C, bis der Raum Richtung ${floorName} fällt` });
     } else {
       const nach = nachlauf.has(rp.room.id) ? ' (heizt noch nach, zählt mit)' : '';
       targets.set(rp.room.id, { temp: waitT, why: (dayMode === 'battery_gate'
@@ -503,8 +590,12 @@ function allocateDayTargets(
       if (cur <= 0) continue;
       if (fein && rp.room.is_heating === true && cur >= ecoT + stopMargin) {
         // Eco erreicht, Thermostat läuft noch: abschalten wie in Pass 1 – sonst heizt es bis Eco + Band (10.11.2026, A)
-        targets.set(rp.room.id, { temp: holdBelow(cur, ecoT, bandOf(rp.room)),
+        targets.set(rp.room.id, { temp: holdBelow(cur, ecoT, bandOf(rp.room)), zwingend: true,
           why: `${modeText} → Eco erreicht (${cur.toFixed(1)} ≥ ${ecoT} + ${stopMargin} °C) → Thermostat aus (würde sonst bis ${(ecoT + bandOf(rp.room)).toFixed(1)} °C heizen)` });
+      } else if (cur >= ecoT && fein && bleibtAus(rp.room, ecoT, ecoT)) {
+        // A3: warm, Thermostat aus, Sollwert schon darunter → nicht wieder auf Eco anheben
+        const soll = Number(rp.room.target_temp);
+        targets.set(rp.room.id, { temp: soll, why: `${modeText} → Raum warm (${cur.toFixed(1)} ≥ Eco ${ecoT} °C), Thermostat aus → bleibt bei ${soll} °C` });
       } else if (cur >= ecoT) {
         targets.set(rp.room.id, { temp: ecoT, why: `${modeText} → Eco halten (Raum warm)${nachlauf.has(rp.room.id) ? ', heizt noch nach' : ''}` });
       } else if (granted.has(rp.room.id) || laeuftSchon.has(rp.room.id)) {
@@ -1139,6 +1230,35 @@ Deno.serve(async (req) => {
         .limit(1)
         .single();
 
+      // Stufe A (16.11.2026): gelernte Haltezeiten und die letzten Befehle je Raum – einmal je Lauf
+      const haltezeiten = await ladeHaltezeiten(supabase);
+      const letzteBefehle = await ladeLetzteBefehle(supabase);
+      const haltezeitAktiv: Array<{ room_id: string; name: string; bis: string; befehl_wert: number; befehl_um: string; vorschlag: number }> = [];
+      console.log(`[HALTEZEIT] ${haltezeiten.quelle}`);
+      /** Prüft ein neues Ziel gegen die Haltezeit. Rückgabe null = senden; sonst bleibt der bisherige Sollwert. */
+      const halteGate = (room: any, neu: number, zwingend: boolean): { halten: number; bisText: string } | null => {
+        const hist = letzteBefehle.get(room.id);
+        const g = umkehrGesperrt(hist, neu, haltezeiten.halteMin, Date.now());
+        if (!g.gesperrt || !g.letzter || !g.bis) return null;
+        const erlaubt = umkehrErlaubt(room, neu, g.letzter.value, settings, zwingend);
+        if (erlaubt) { console.log(`[HALTEZEIT] ${room.name}: Umkehr ${g.letzter.value}→${neu}°C erlaubt (${erlaubt})`); return null; }
+        const bisText = new Date(g.bis).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' });
+        haltezeitAktiv.push({ room_id: room.id, name: room.name, bis: new Date(g.bis).toISOString(), befehl_wert: g.letzter.value,
+                              befehl_um: new Date(g.letzter.at).toISOString(), vorschlag: neu });
+        console.log(`[HALTEZEIT] ${room.name}: ${neu}°C zurückgehalten – letzter Befehl ${g.letzter.value}°C um ${new Date(g.letzter.at).toISOString()}, Haltezeit ${haltezeiten.halteMin} min bis ${bisText}`);
+        return { halten: g.letzter.value, bisText };
+      };
+      const speichereHaltezeit = async () => {
+        try {
+          await supabase.from('system_settings').upsert({
+            key: 'haltezeit_aktiv',
+            value: { computed_at: new Date().toISOString(), halte_min: haltezeiten.halteMin, pv_halten_min: haltezeiten.pvHaltenMin,
+                     quelle: haltezeiten.quelle, rooms: haltezeitAktiv },
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'key' });
+        } catch (e) { console.log(`[HALTEZEIT] nicht gespeichert: ${e}`); }
+      };
+
       // Anwesenheit (doc/KONZEPT-ANWESENHEIT-2026-10-28.md §9/§10): abwesend → tagsüber Wartetag (Min halten, Netz nur unter Min),
       // PV-Überschuss lädt wie anwesend bis Normal, dann PV-Max (seit 30.10.). Abend/Nacht: Min, anwesend wie abwesend.
       const presence = await getPresence(supabase, settings);
@@ -1430,12 +1550,13 @@ Deno.serve(async (req) => {
 
           const fmtHM = (iso: string) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' });
           const nightStop = Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3));
-          const nightPlan: Array<{ room: any; target: number; why: string }> = ctrlRooms.map((r: any) => {
+          const nightPlan: Array<{ room: any; target: number; why: string; zwingend?: boolean }> = ctrlRooms.map((r: any) => {
             const want = nightTargetOf(r);
             const ziel = nightZielOf(r);
             const cur = Number(r.current_temp) || 0;
             let target = want;
             let why: string;
+            let zwingend = true;   // Stufe A: Min-Vorrang, Deckel und „Min erreicht → aus“ dürfen die Haltezeit brechen
             if (nightCap.granted.has(r.id)) {
               const st = controlMode === 'local'
                 ? startTarget(cur, ziel, bandOf(r), r.is_heating === true, Math.max(ziel, Number(r.comfort_temp) || ziel))
@@ -1458,10 +1579,15 @@ Deno.serve(async (req) => {
               // Ziel erreicht, Thermostat läuft noch: abschalten – sonst heizt es bis Ziel + Band (09.11.2026)
               target = holdBelow(cur, want, bandOf(r));
               why = `Min erreicht (${cur.toFixed(1)} ≥ ${ziel.toFixed(1)} + ${nightStop} °C) → Thermostat aus (würde sonst bis ${(want + bandOf(r)).toFixed(1)} °C heizen)`;
+            } else if (controlMode === 'local' && bleibtAus(r, want, ziel)) {
+              // A3 (Stufe A, 16.11.2026): nicht wieder auf Min anheben („aus → hält Min“)
+              target = Number(r.target_temp); zwingend = false;
+              why = `über Min (${cur.toFixed(1)} ≥ ${ziel.toFixed(1)} °C), Thermostat aus → bleibt bei ${target} °C, bis der Raum Richtung Min fällt`;
             } else {
+              zwingend = false;
               why = `hält Min ${want} °C` + (nightNachlauf.has(r.id) ? ' (heizt noch nach, zählt mit)' : '');
             }
-            return { room: r, target, why };
+            return { room: r, target, why, zwingend };
           });
           console.log(`[NACHT-MIN] ${nightCap.usedW} W (Grenze ${nightCapW}, Deckel ${nightDeckelW}) · abgeschaltet: ${nightCap.cut.size} · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size}`);
 
@@ -1474,12 +1600,20 @@ Deno.serve(async (req) => {
               const e = nachtPlan.map.get(p.room.id);
               if (!e) continue;
               const z = planerImRahmen(p.room, planerSollwert(p.room, e, settings), 'min', pvFreiNacht, settings);
-              p.target = z.temp; p.why = z.why; n++;
+              p.target = z.temp; p.why = z.why; p.zwingend = z.zwingend === true; n++;
             }
             console.log(`[PLANER-STEUERT] Nacht, ${nachtPlan.grund}: ${n} Räume nach Plan`);
           } else if ((settings?.planer_modus ?? 'schatten') === 'steuern') {
             console.log(`[PLANER-STEUERT] Nacht: ${nachtPlan.grund}`);
           }
+
+          // Stufe A: Haltezeit – ein Befehl wird nicht innerhalb der Haltezeit umgekehrt (außer zwingend)
+          for (const p of nightPlan) {
+            if (Math.abs((Number(p.room.target_temp) || 0) - p.target) < 0.25) continue;
+            const h = halteGate(p.room, p.target, p.zwingend === true);
+            if (h) { p.why = `${p.why} – Haltezeit bis ${h.bisText}, bleibt bei ${h.halten} °C`; p.target = h.halten; }
+          }
+          await speichereHaltezeit();
 
           // Für die App: Begründung je Raum auch nachts (Übersicht › Raumkarte „Automatik: …“)
           try {
@@ -3208,6 +3342,59 @@ Deno.serve(async (req) => {
         }
       }
 
+      // ============= STUFE A2: PV-ZUSAGE HALTEN (16.11.2026, doc/FIX-HIN-UND-HER-STUFE-A-2026-11-16.md) =============
+      // Phase 1/2 rechnen nur mit der Einspeisung dieses Augenblicks. Bricht sie kurz ein (Wolke, Warmwasser), verlor
+      // ein Raum sein Budget nach wenigen Minuten und bekam es danach wieder (28× in 7 Tagen). Jetzt behält ein Raum
+      // eine echte PV-Zusage über einen Einbruch hinweg – höchstens pv_halten_min (gelernt) seit der letzten echten
+      // Zusage, nur bei Sonne (PV > 500 W, vor Sonnenuntergang, kein Batterie-Schutz) und wenn die Prognose für diese
+      // oder die nächste Stunde Grundlast + Raumleistung deckt.
+      {
+        const nowIsoG = new Date().toISOString();
+        const nowMsG = Date.now();
+        let prevGrant: Record<string, { seit: string; zuletzt_echt: string; level: 'eco' | 'comfort' }> = {};
+        try {
+          const { data } = await supabase.from('system_settings').select('value').eq('key', 'pv_grant_state').maybeSingle();
+          prevGrant = (data?.value as any)?.rooms || {};
+        } catch { /* leer */ }
+        const nextHourW = (hourlyWatts[`${today} ${((currentWienHour + 1) % 24).toString().padStart(2, '0')}:00:00`] || 0) * forecastAccuracy;
+        const prognoseW = Math.max(currentHourForecastCorrected, nextHourW);
+        const sonne = !socGateBlocked && !afterSunset && pvPower > 500;
+        const haltbar = (reason: string | undefined) => !reason || reason.startsWith('Hysterese') || reason.startsWith('Eco kein Budget')
+          || reason.startsWith('Eco halten (kein Komfort-Budget') || reason.startsWith('Phase 2 wartet');
+        const nextGrant: typeof prevGrant = {};
+        const gehalten: string[] = [];
+        for (const rp of roomsWithPriority) {
+          const st = roomBudgetStatus.get(rp.room.id);
+          const prev = prevGrant[rp.room.id];
+          if (st?.budgeted && (st.targetLevel === 'eco' || st.targetLevel === 'comfort')) {
+            nextGrant[rp.room.id] = { seit: prev?.seit ?? nowIsoG, zuletzt_echt: nowIsoG, level: st.targetLevel };
+            continue;
+          }
+          if (!prev || !sonne || !haltbar(st?.reason)) continue;
+          const alterMin = (nowMsG - new Date(prev.zuletzt_echt).getTime()) / 60000;
+          if (!(alterMin >= 0 && alterMin <= haltezeiten.pvHaltenMin)) continue;
+          const cur = rp.room.current_temp || 0;
+          const levelT = prev.level === 'comfort'
+            ? (rp.room.comfort_temp || settings?.comfort_temp || 21)
+            : (rp.room.eco_temp || settings?.eco_temp || 19);
+          if (cur <= 0 || cur >= levelT - 0.3) continue;   // braucht die Zusage nicht mehr
+          if (prognoseW < baseLoad + rp.heatingPower) continue;
+          roomBudgetStatus.set(rp.room.id, {
+            allowedToHeat: true,
+            reason: `PV-Zusage gehalten (Einspeisung kurz eingebrochen, ${Math.round(alterMin)}/${haltezeiten.pvHaltenMin} min, Prognose ${Math.round(prognoseW)} W)`,
+            shouldRotate: false,
+            targetLevel: prev.level,
+            budgeted: true,
+          });
+          nextGrant[rp.room.id] = prev;   // zuletzt_echt bleibt – die Haltezeit läuft weiter ab
+          gehalten.push(rp.room.name);
+        }
+        if (gehalten.length) console.log(`[PV-HALTEN] ${gehalten.join(', ')}: Zusage gehalten (PV ${pvPower} W, Prognose ${Math.round(prognoseW)} W, max ${haltezeiten.pvHaltenMin} min)`);
+        try {
+          await supabase.from('system_settings').upsert({ key: 'pv_grant_state', value: { rooms: nextGrant, updated_at: nowIsoG }, updated_at: nowIsoG }, { onConflict: 'key' });
+        } catch (e) { console.log(`[PV-HALTEN] Zustand nicht gespeichert: ${e}`); }
+      }
+
       // Räume die in keiner Phase verarbeitet wurden (z.B. bereits >= eco, Budget reicht nicht für komfort)
       for (const rp of roomsWithPriority) {
         if (!roomBudgetStatus.has(rp.room.id)) {
@@ -3292,7 +3479,7 @@ Deno.serve(async (req) => {
           const e = planStand.map.get(rp.room.id);
           if (!e) continue;
           const z = planerImRahmen(rp.room, planerSollwert(rp.room, e, settings), grenzeTag, pvFreiTag, settings);
-          dayFallback.set(rp.room.id, { temp: z.temp, why: z.why });
+          dayFallback.set(rp.room.id, { temp: z.temp, why: z.why, zwingend: z.zwingend === true });
           roomBudgetStatus.delete(rp.room.id);
           planerRaeume.add(rp.room.id);
           if (z.heizt) heizW += rp.heatingPower;
@@ -3824,9 +4011,11 @@ Deno.serve(async (req) => {
         // Ersetzt für Räume ohne echtes Budget das bisherige „Tag → eco_temp halten“ (Budget-Stopp,
         // Rotation, Phase-2-wartet, Standard). Raum-Ziel kommt aus dem Tagesmodus (siehe oben).
         let dayModeApplied = false;
+        let zielZwingend = false;   // Stufe A: Ziel darf die Haltezeit brechen
         const dayFb = dayFallback.get(room.id);
         if (!isNight && (powerBudgetEnabled || planerRaeume.has(room.id)) && dayFb && !roomBudgetStatus.get(room.id)?.budgeted) {
           dayModeApplied = true;
+          zielZwingend = dayFb.zwingend === true;
           targetTemp = dayFb.temp;
           solarLimitTemp = null;
           if (dayFb.temp < currentTargetTemp - 0.05) action = 'deactivate';
@@ -3960,6 +4149,29 @@ Deno.serve(async (req) => {
             skippedApiCall: true
           });
           continue;
+        }
+
+        // ============= STUFE A: HALTEZEIT (16.11.2026, doc/FIX-HIN-UND-HER-STUFE-A-2026-11-16.md) =============
+        // Ein Befehl wird nicht innerhalb der gelernten Haltezeit umgekehrt – außer das Ziel ist zwingend
+        // (Min-Vorrang, Deckel, Ziel erreicht → aus, Sicherheit, Regel-Stopp) oder der Raum liegt unter Min / über PV-Max.
+        {
+          // Komfort erreicht → zurück auf Eco ist wie „Ziel erreicht → aus“ (zwingend)
+          const saettigung = (roomBudgetStatus.get(room.id)?.reason || '').startsWith('Komfort-Sättigung');
+          const h = halteGate(room, newTargetTemp, zielZwingend || saettigung);
+          if (h) {
+            if (Math.abs(currentTargetTemp - h.halten) >= 0.5) {
+              await supabase.from('rooms').update({ target_temp: h.halten }).eq('id', room.id);
+            }
+            results.push({
+              roomId: room.id,
+              roomName: room.name,
+              action: 'haltezeit',
+              message: `Haltezeit bis ${h.bisText}: ${newTargetTemp}°C zurückgehalten, bleibt bei ${h.halten}°C (${reasoning || ''})`.slice(0, 300),
+              mlBased: false,
+              skippedApiCall: true
+            });
+            continue;
+          }
         }
         
         if (needsHeatingStop) {
@@ -4277,6 +4489,7 @@ Deno.serve(async (req) => {
       }
 
       // ML-Exploration-Throttle persistieren
+      await speichereHaltezeit();   // Stufe A: zurückgehaltene Befehle für die App
       if (typeof mlExplorationUpdates !== 'undefined' && Object.keys(mlExplorationUpdates).length > 0) {
         try {
           const merged: Record<string, string> = { ...(mlExplorationMap || {}), ...mlExplorationUpdates };
