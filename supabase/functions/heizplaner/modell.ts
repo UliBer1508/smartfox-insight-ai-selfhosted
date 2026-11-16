@@ -334,7 +334,10 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
     // Am Sonnentag lädt die Sonne zuerst die Batterie bis heating_min_battery_soc.
     if (an === 1 && g.regeln) {
       const rr = raeume[r];
-      for (let i = i0; i < i1; i++) {
+      // Ab dem Block bis Planende: Ein früheres Heizen hebt auch die Temperatur in schon geplanten späteren Blöcken –
+      // die müssen danach ebenfalls in der Regel bleiben.
+      for (let i = i0; i < N; i++) {
+        if (hn[i] !== 1 || rr.fest[i] != null) continue;
         let frei = slots[i].pv - slots[i].base - (hw[i] - rr.p);
         const eVor = i > 0 ? en.e[i - 1] : bat.eKwh;
         if (slots[i].sonnentag && bat.heizMinKwh != null && eVor < bat.heizMinKwh) {
