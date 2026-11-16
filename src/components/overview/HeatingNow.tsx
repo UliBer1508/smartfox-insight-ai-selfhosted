@@ -16,14 +16,13 @@ import { supabase } from '@/integrations/supabase/client';
 import { EnergyReading } from '@/types/energy';
 import { Room } from '@/types/room';
 import { HeatingSettings } from '@/types/heating';
-import { TZ, roomPowerW, fmtKW, fmtTime, fmtC, grundFuer, sparHinweise, DayModeRoom, Befehl, TState, Prognose } from '@/lib/heizungJetzt';
+import { TZ, roomPowerW, fmtKW, fmtTime, fmtC, grundFuer, sparHinweise, erklaereAbweichung, DayModeRoom, Befehl, TState, Prognose } from '@/lib/heizungJetzt';
 import { AlertTriangle, Flame, CheckCircle2, Lightbulb } from 'lucide-react';
 
 export { roomPowerW };
 export type { DayModeRoom };
 const db = supabase as any; // neue Tabellen/Funktionen (SQL 24) noch nicht in types.ts
 const GRUNDLAST_STANDARD_W = 240;
-const ABWEICHUNG_HINWEIS_W = 500;
 
 const fmtKWh = (k: number) => `${k.toLocaleString('de-DE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kWh`;
 
@@ -147,7 +146,6 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
   const autoW = reading?.auto_w == null ? null : Math.max(0, Number(reading.auto_w));
   const battW = reading?.battery_power == null ? null : Number(reading.battery_power);   // negativ = lädt
   const gemessen = verbrauch == null ? null : Math.max(0, Math.round(verbrauch - base - (autoW ?? 0)));
-  const diff = gemessen == null ? 0 : gemessen - lautThermostat;
   const mitPv = (reading?.pv_power ?? 0) > 30;
   const nebenbei: string[] = [];
   if (autoW != null && autoW > 100) nebenbei.push(`Auto lädt ${fmtKW(autoW)} (Wallbox, schon abgezogen)`);
@@ -159,18 +157,12 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
   const netzW = Math.max(0, Number(reading?.power_io) || 0);   // Fronius: positiv = Bezug
   const tipps = sparHinweise({ heizend, gruende, netzW, night, settings, prognose, befund });
 
-  let hinweis: { ok: boolean; text: string };
-  if (gemessen == null) hinweis = { ok: true, text: 'Keine aktuellen Fronius-Daten.' };
-  else if (diff > ABWEICHUNG_HINWEIS_W) hinweis = { ok: false, text:
-      `${fmtKW(diff)} mehr, als die heizenden Räume erklären. ${autoText}. `
-      + (mitPv
-        ? 'Wahrscheinlich Warmwasser: Der Smartfox gibt Überschuss an den Heizstab (keine Schnittstelle, daher nicht messbar). '
-        : 'Ohne Sonne: Warmwasser oder ein Gerät im Haus (Herd, Espressomaschine)? ')
-      + 'Sonst heizt ein Thermostat, ohne es zu melden.' };
-  else if (diff < -ABWEICHUNG_HINWEIS_W) hinweis = { ok: false, text:
-      `${fmtKW(-diff)} weniger, als die heizenden Räume brauchen müssten. Ist die Leistung eines Raums zu hoch eingestellt, `
-      + 'oder ist die Meldung „heizt“ gerade erst gekommen bzw. veraltet?' };
-  else hinweis = { ok: true, text: 'Messung und Thermostate passen zusammen.' };
+  // 16.11.2026: Abweichung wird erklärt statt erfragt (erklaereAbweichung in src/lib/heizungJetzt.ts)
+  const mitZeit = (r: Room) => ({ ...r, heizt_seit: heute.get(r.id)?.heizt_seit ?? null });
+  const hinweis = erklaereAbweichung({
+    gemessenW: gemessen, messungAt: reading?.timestamp, heizend: heizend.map(mitZeit),
+    alleRaeume: rooms.filter(r => r.tuya_device_id).map(mitZeit), mitPv, autoText,
+  });
 
   return (
     <Card>

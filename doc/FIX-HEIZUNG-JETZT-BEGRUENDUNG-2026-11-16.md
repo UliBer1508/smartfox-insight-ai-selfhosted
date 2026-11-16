@@ -44,6 +44,23 @@ Kein Hinweis „Vorlauf senken“: nachgerechnet am 16.11.2026 – Räume kühle
 0,2 °C startete schon jeder zweite Heizvorgang unter Min. Ohne Vorlauf fielen Räume unter Min
 (siehe `doc/FIX-BATTERIE-SCHUTZ-PINGPONG-2026-11-16.md`).
 
+### Abweichung „gemessen ↔ laut Thermostaten“ wird erklärt statt erfragt (`erklaereAbweichung`)
+
+Uli (16.11.2026, 09:30): „Es ist ein Fragezeichen hinter der Meldung. Ich kann hier nicht antworten und weiß die Antwort
+nicht, das sollte doch die KI wissen.“ Bisher: „Ist die Leistung eines Raums zu hoch eingestellt, oder ist die Meldung
+„heizt“ gerade erst gekommen bzw. veraltet?“ Jetzt prüft die Karte selbst:
+
+1. **Messzeitpunkt:** Fronius liefert nur alle 5 min einen Wert. Räume, die nach der Messung eingeschaltet haben, zählen
+   nicht; Räume, die seit der Messung aufgehört haben (`last_heating_end`), zählen mit. Messung älter als 7 min → kein
+   Vergleich, Hinweis auf den Fronius-Collector.
+2. **Zu wenig:** Die Karte sucht die Kombination der heizenden Räume, die am besten zur Messung passt (≤ 300 W Fehler), und nennt
+   die übrigen: „Thermostat meldet heizt, zieht aber (noch) keinen Strom“.
+3. **Zu viel:** mit Sonne wahrscheinlich Warmwasser (Heizstab, Smartfox), ohne Sonne ein Gerät im Haus.
+
+Nachgerechnet: Beide Meldungen vom 16.11. (08:22 „1,4 kW weniger“, 09:22 „2,3 kW weniger“) waren der Messzeitpunkt –
+Zimmer Luis heizte erst seit 08:25, Wirtschaftsraum (2,1 kW) erst seit 09:25. Die Karte meldet jetzt „passen zusammen“ mit
+dieser Erklärung. Messung 09:27 (4,6 kW gegen 3,5 kW) → „1,1 kW mehr … wahrscheinlich Warmwasser“.
+
 ## Nebenwirkungen geprüft (Regel 08.11.2026)
 
 1. **Wer liest/schreibt dieselben Daten:** Die Karte liest nur (`system_settings`, `thermostat_commands`, `thermostat_state`,

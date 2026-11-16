@@ -105,3 +105,68 @@ export function sparHinweise(o: {
   return out;
 }
 
+
+// ---------------------------------------------------------------- Abweichung gemessen ↔ laut Thermostaten
+// 16.11.2026: Uli – „ich kann hier nicht antworten und weiß die Antwort nicht, das sollte doch die KI wissen“.
+// Statt einer Frage erklärt die Karte die Abweichung selbst, soweit die Daten es hergeben:
+//   1. Fronius misst nur alle 5 min: Räume, die nach der Messung eingeschaltet haben, zählen für den Vergleich nicht.
+//      Räume, die seit der Messung ausgeschaltet haben (last_heating_end > Messzeit), zählen mit.
+//   2. Messung älter als 7 min → kein Vergleich.
+//   3. Bleiben „zu wenig“: Welche Kombination der heizenden Räume passt am besten zur Messung? Die übrigen Räume heizen
+//      wahrscheinlich gerade nicht, obwohl das Thermostat „heizt“ meldet.
+//   4. Bleibt „zu viel“: mit Sonne wahrscheinlich Warmwasser (Heizstab, Smartfox, nicht messbar), ohne Sonne ein Gerät im Haus.
+export const ABWEICHUNG_HINWEIS_W = 500;
+export type RaumMitZeit = Room & { heizt_seit?: string | null; last_heating_end?: string | null };
+
+export function erklaereAbweichung(o: {
+  gemessenW: number | null; messungAt: string | null | undefined; heizend: RaumMitZeit[]; alleRaeume: RaumMitZeit[];
+  mitPv: boolean; autoText: string; nowMs?: number;
+}): { ok: boolean; text: string } {
+  const now = o.nowMs ?? Date.now();
+  if (o.gemessenW == null || !o.messungAt) return { ok: true, text: 'Keine aktuellen Fronius-Daten.' };
+  const messMs = new Date(o.messungAt).getTime();
+  const alterMin = Math.round((now - messMs) / 60_000);
+  if (alterMin > 7) return { ok: false, text: `Die letzte Fronius-Messung ist ${alterMin} min alt – kein Vergleich möglich. Läuft der Fronius-Collector?` };
+
+  // 1) Stand zur Messzeit
+  const spaeter = o.heizend.filter(r => r.heizt_seit && new Date(r.heizt_seit).getTime() > messMs);
+  const vorher = o.heizend.filter(r => !spaeter.includes(r));
+  const seitAus = o.alleRaeume.filter(r => !r.is_heating && r.last_heating_end && new Date(r.last_heating_end).getTime() > messMs);
+  const zurMessung = [...vorher, ...seitAus];
+  const soll = zurMessung.reduce((s, r) => s + roomPowerW(r), 0);
+  const diff = o.gemessenW - soll;
+  const zeitText = (spaeter.length || seitAus.length)
+    ? ` Fronius misst nur alle 5 min (letzte Messung ${fmtTime(o.messungAt)}):`
+      + (spaeter.length ? ` ${spaeter.map(r => `${r.name} heizt erst seit ${fmtTime(r.heizt_seit)}`).join(', ')}` : '')
+      + (spaeter.length && seitAus.length ? ';' : '')
+      + (seitAus.length ? ` ${seitAus.map(r => `${r.name} hat um ${fmtTime(r.last_heating_end)} aufgehört`).join(', ')}` : '')
+      + ' – zählt für den Vergleich noch so, wie es zur Messung war.'
+    : '';
+
+  if (Math.abs(diff) <= ABWEICHUNG_HINWEIS_W)
+    return { ok: true, text: `Messung und Thermostate passen zusammen.${zeitText}` };
+
+  if (diff < 0) {
+    // 3) Beste Kombination der heizenden Räume zur Messung (höchstens 12 Räume → 4096 Kombinationen)
+    const kand = zurMessung.slice(0, 12);
+    let best = { mask: (1 << kand.length) - 1, fehler: Math.abs(diff) };
+    for (let m = 0; m < (1 << kand.length); m++) {
+      let w = 0;
+      for (let i = 0; i < kand.length; i++) if (m & (1 << i)) w += roomPowerW(kand[i]);
+      const f = Math.abs(o.gemessenW - w);
+      if (f < best.fehler - 1) best = { mask: m, fehler: f };
+    }
+    const aus = kand.filter((_, i) => !(best.mask & (1 << i)));
+    if (aus.length > 0 && best.fehler <= 300) {
+      return { ok: false, text: `${fmtKW(-diff)} weniger als gemeldet.${zeitText} Die Messung passt, wenn ${aus.map(r => r.name).join(', ')} gerade nicht `
+        + `${aus.length === 1 ? 'heizt' : 'heizen'}: Das Thermostat meldet „heizt“, zieht aber (noch) keinen Strom. `
+        + 'Bleibt das über mehrere Messungen so, stimmt die Raumleistung nicht (Einstellungen › Räume).' };
+    }
+    return { ok: false, text: `${fmtKW(-diff)} weniger als gemeldet.${zeitText} Keine Kombination der heizenden Räume passt – vermutlich stimmen mehrere Raumleistungen nicht (Einstellungen › Räume).` };
+  }
+  // 4) zu viel
+  return { ok: false, text: `${fmtKW(diff)} mehr, als die heizenden Räume erklären.${zeitText} ${o.autoText}. `
+    + (o.mitPv
+      ? 'Wahrscheinlich Warmwasser: Der Smartfox gibt Überschuss an den Heizstab (keine Schnittstelle, daher nicht messbar).'
+      : 'Ohne Sonne wahrscheinlich ein Gerät im Haus (Herd, Espressomaschine) oder Warmwasser.') };
+}
