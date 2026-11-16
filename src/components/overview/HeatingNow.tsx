@@ -162,6 +162,7 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
   const hinweis = erklaereAbweichung({
     gemessenW: gemessen, messungAt: reading?.timestamp, heizend: heizend.map(mitZeit),
     alleRaeume: rooms.filter(r => r.tuya_device_id).map(mitZeit), mitPv, autoText,
+    abschaltIds: new Set(heizend.filter(r => gruende.get(r.id)?.art === 'abschalten').map(r => r.id)),
   });
 
   return (

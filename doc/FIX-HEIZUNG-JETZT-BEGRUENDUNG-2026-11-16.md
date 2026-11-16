@@ -61,6 +61,18 @@ Nachgerechnet: Beide Meldungen vom 16.11. (08:22 „1,4 kW weniger“, 09:22 „
 Zimmer Luis heizte erst seit 08:25, Wirtschaftsraum (2,1 kW) erst seit 09:25. Die Karte meldet jetzt „passen zusammen“ mit
 dieser Erklärung. Messung 09:27 (4,6 kW gegen 3,5 kW) → „1,1 kW mehr … wahrscheinlich Warmwasser“.
 
+### „Heizt über Soll“ erst nach 15 min als Störung (11:19)
+
+Uli (16.11.2026, 11:19): „Was soll ich hier machen?“ – Bad Uli und Waschraum standen als „Thermostat heizt über Soll – folgt
+dem Befehl nicht“ in der Karte. Tatsächlich: Ausschaltbefehl 20 °C um 11:12, beim Auslesen 11:15 meldete DP 5 noch „heizt“,
+die Messung 11:17 (0,7 kW) zeigt, dass beide keinen Strom mehr zogen. `thermostat_state.befund` ist eine Momentaufnahme.
+
+- Kam der Befehl, der das Soll gesenkt hat, vor weniger als 15 min (`ABSCHALT_VERZOEGERUNG_MIN`): Art `abschalten`,
+  Text „Ausschaltbefehl um … – Thermostat meldet beim letzten Auslesen noch „heizt“, das ist normal“, kein Warnhinweis.
+- Erst danach Art `gestoert` mit konkretem Schritt (Wirkungsprüfung markiert „nicht steuerbar“; sonst Thermostat am Gerät
+  aus- und einschalten). „Sonne auf dem Fühler“ zählt nicht mehr als Störung.
+- Der Vergleich gemessen ↔ Thermostate nimmt Räume mit frischem Ausschaltbefehl zuerst heraus → 11:17: „passen zusammen“.
+
 ## Nebenwirkungen geprüft (Regel 08.11.2026)
 
 1. **Wer liest/schreibt dieselben Daten:** Die Karte liest nur (`system_settings`, `thermostat_commands`, `thermostat_state`,
@@ -81,3 +93,5 @@ dieser Erklärung. Messung 09:27 (4,6 kW gegen 3,5 kW) → „1,1 kW mehr … wa
   Büro, Haustür, Toilette Eingang, Wirtschaftsraum alle 2–5 min. Doppelte Logik → eine der beiden sollte die andere ablösen.
 - **Vorlauf aussetzen, wenn PV kommt** – nachgerechnet, nicht sinnvoll (siehe oben).
 - Kinder Bad: Temperatur-Korrektur DP 19 steht noch auf −1,0 (alle anderen 0).
+- Gerätekonfiguration (16.11. 11:15): Bad Uli und Toilette Eingang haben Fühlerwahl DP 110 = „3“ (alle anderen „1“ = Raumfühler),
+  Bad Uli zusätzlich max. Sollwert DP 15 = 30 (andere 60). Klären, ob das gewollt ist (Bodenfühler?).

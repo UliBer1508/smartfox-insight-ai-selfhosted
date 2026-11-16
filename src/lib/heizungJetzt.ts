@@ -31,7 +31,9 @@ export function klartext(why: string): string {
     .replace(/(\d+\.\d)\d+/g, '$1');
 }
 
-export type Grund = { text: string; art: 'manuell' | 'gestoert' | 'nachlauf' | 'automatik' | 'unbekannt' };
+export type Grund = { text: string; art: 'manuell' | 'gestoert' | 'sonne' | 'abschalten' | 'nachlauf' | 'automatik' | 'unbekannt' };
+/** So lange nach einem Ausschaltbefehl gilt „heizt über Soll“ noch als normale Verzögerung (min). */
+export const ABSCHALT_VERZOEGERUNG_MIN = 15;
 
 /** Warum heizt dieser Raum? Reihenfolge: manuell → nicht steuerbar/Sonne → Nachlauf → Begründung der Automatik. */
 export function grundFuer(r: Room, modus: DayModeRoom | undefined, befehle: Befehl[], t: TState | undefined): Grund {
@@ -44,9 +46,16 @@ export function grundFuer(r: Room, modus: DayModeRoom | undefined, befehle: Befe
   if (r.nicht_steuerbar_seit)
     return { art: 'gestoert', text: `Nicht steuerbar seit ${fmtTime(r.nicht_steuerbar_seit)}${r.nicht_steuerbar_grund ? ` (${r.nicht_steuerbar_grund})` : ''} – heizt, wie das Thermostat will` };
   if (r.fuehler_sonne_seit)
-    return { art: 'gestoert', text: `Sonne auf dem Fühler seit ${fmtTime(r.fuehler_sonne_seit)} – Automatik rechnet mit gehaltenem Wert${befundText}` };
-  if (t?.befund && /über soll/i.test(t.befund))
-    return { art: 'gestoert', text: `Thermostat heizt über Soll (Soll ${fmtC(soll)}, Ist ${fmtC(cur)}) – folgt dem Befehl nicht` };
+    return { art: 'sonne', text: `Sonne auf dem Fühler seit ${fmtTime(r.fuehler_sonne_seit)} – Automatik rechnet mit gehaltenem Wert${befundText}` };
+  if (t?.befund && /über soll/i.test(t.befund)) {
+    // 16.11.2026: „heizt über Soll“ ist eine Momentaufnahme beim Auslesen (alle 5 min). Kam der Befehl, der das Soll gesenkt
+    // hat, vor weniger als 15 min, meldet das Thermostat nur verzögert – kein Fehler (Bad Uli/Waschraum 11:12 → 11:15).
+    const senk = befehle.find(b => b.value != null && Number(b.value) <= soll + 0.05);
+    const minSeit = senk ? (Date.now() - new Date(senk.created_at).getTime()) / 60_000 : Infinity;
+    if (minSeit < ABSCHALT_VERZOEGERUNG_MIN)
+      return { art: 'abschalten', text: `Ausschaltbefehl um ${fmtTime(senk!.created_at)} (Soll ${fmtC(soll)}) – Thermostat meldet beim letzten Auslesen noch „heizt“, das ist normal` };
+    return { art: 'gestoert', text: `Thermostat heizt seit ${senk ? fmtTime(senk.created_at) : 'über 3 h'} trotz Soll ${fmtC(soll)} (Ist ${fmtC(cur)}) – folgt dem Befehl nicht` };
+  }
   if (ueberSoll) {
     // Anstoß: in der letzten Stunde ein Sollwert deutlich über dem heutigen Soll → Thermostat läuft bis Anstoß-Schaltpunkt nach
     const stoss = befehle.find(b => Number(b.value) >= soll + 0.5 && Date.now() - new Date(b.created_at).getTime() < 3600_000);
@@ -100,8 +109,10 @@ export function sparHinweise(o: {
       + 'Ursache ist das Schaltband des Thermostats bzw. der Anstoß-Sollwert.');
   // 4) Thermostate, die nicht folgen
   const gestoert = o.heizend.filter(r => o.gruende.get(r.id)?.art === 'gestoert');
+  // Nur echte Störungen (länger als 15 min über Soll oder als nicht steuerbar markiert), mit konkretem Schritt
   if (gestoert.length > 0)
-    out.push(`${gestoert.map(r => r.name).join(', ')}: Thermostat folgt der Automatik nicht – prüfen (Protokoll › Thermostate).`);
+    out.push(`${gestoert.map(r => r.name).join(', ')}: Thermostat folgt der Automatik seit über ${ABSCHALT_VERZOEGERUNG_MIN} min nicht. `
+      + 'Die Wirkungsprüfung testet es und markiert es als „nicht steuerbar“. Hilft das nicht: Thermostat am Gerät aus- und wieder einschalten.');
   return out;
 }
 
@@ -121,6 +132,8 @@ export type RaumMitZeit = Room & { heizt_seit?: string | null; last_heating_end?
 export function erklaereAbweichung(o: {
   gemessenW: number | null; messungAt: string | null | undefined; heizend: RaumMitZeit[]; alleRaeume: RaumMitZeit[];
   mitPv: boolean; autoText: string; nowMs?: number;
+  /** Räume mit Ausschaltbefehl vor < 15 min, die noch „heizt“ melden (grundFuer art 'abschalten'). */
+  abschaltIds?: Set<string>;
 }): { ok: boolean; text: string } {
   const now = o.nowMs ?? Date.now();
   if (o.gemessenW == null || !o.messungAt) return { ok: true, text: 'Keine aktuellen Fronius-Daten.' };
@@ -147,6 +160,15 @@ export function erklaereAbweichung(o: {
     return { ok: true, text: `Messung und Thermostate passen zusammen.${zeitText}` };
 
   if (diff < 0) {
+    // 2b) Räume mit frischem Ausschaltbefehl zuerst herausnehmen – sie melden „heizt“ nur verzögert
+    const abs = zurMessung.filter(r => o.abschaltIds?.has(r.id));
+    if (abs.length > 0) {
+      const ohne = soll - abs.reduce((s, r) => s + roomPowerW(r), 0);
+      if (Math.abs(o.gemessenW - ohne) <= ABWEICHUNG_HINWEIS_W)
+        return { ok: true, text: `Messung und Thermostate passen zusammen: ${abs.map(r => r.name).join(', ')} `
+          + `${abs.length === 1 ? 'hat' : 'haben'} gerade den Ausschaltbefehl bekommen und ziehen keinen Strom mehr – `
+          + `das Thermostat meldet „heizt“ nur verzögert.${zeitText}` };
+    }
     // 3) Beste Kombination der heizenden Räume zur Messung (höchstens 12 Räume → 4096 Kombinationen)
     const kand = zurMessung.slice(0, 12);
     let best = { mask: (1 << kand.length) - 1, fehler: Math.abs(diff) };
