@@ -20,7 +20,7 @@ import { EnergyFlowDiagram } from '@/components/energy/EnergyFlowDiagram';
 import { RoomStatusTable } from '@/components/heating/RoomStatusTable';
 import { useKiPending } from '@/hooks/useKiPending';
 import { PresenceQuick } from '@/components/presence/Presence';
-import { HeatingNowCard, useHeizungHeute, roomPowerW, RaumHeute } from './HeatingNow';
+import { HeatingNowCard, useHeizungHeute, useDayModeRooms, DayModeRoom, roomPowerW, RaumHeute } from './HeatingNow';
 
 const TZ = 'Europe/Vienna';
 
@@ -452,26 +452,7 @@ function Forecast({ kwp }: { kwp: number }) {
 }
 
 // ---------------------------------------------------------------- Raumkarte
-// Begründung der Automatik je Raum aus dem Tagesmodus (system_settings.heating_day_mode.rooms[].why, 05.11.2026),
-// nachts aus heating_night_mode (Leistungsgrenze auch nachts, 06.11.2026).
-// Nur frische Werte (< 20 min); bei PV-Boost/Manuell gilt die Begründung nicht.
-type DayModeRoom = { room_id: string; target: number | null; why: string | null };
-function useDayModeRooms(night: boolean) {
-  const [rooms, setRooms] = useState<Map<string, DayModeRoom>>(new Map());
-  useEffect(() => {
-    let alive = true;
-    const load = async () => {
-      const { data } = await supabase.from('system_settings').select('value').eq('key', night ? 'heating_night_mode' : 'heating_day_mode').maybeSingle();
-      const v = data?.value as { computed_at?: string; rooms?: DayModeRoom[] } | undefined;
-      const fresh = v?.computed_at && Date.now() - new Date(v.computed_at).getTime() < 20 * 60_000;
-      if (alive) setRooms(new Map(fresh ? (v?.rooms ?? []).map(r => [r.room_id, r]) : []));
-    };
-    load();
-    const id = setInterval(load, 60_000);
-    return () => { alive = false; clearInterval(id); };
-  }, [night]);
-  return rooms;
-}
+// Begründung der Automatik je Raum: useDayModeRooms (seit 16.11.2026 in HeatingNow.tsx, auch für „Heizung jetzt“).
 
 function RoomCard({ room, night, dayRoom, heute, onChanged }: { room: Room; night: boolean; dayRoom?: DayModeRoom; heute?: RaumHeute; onChanged: (id: string, patch: Partial<Room>) => void }) {
   const { setTemperature } = useTuyaControl();
@@ -675,7 +656,7 @@ export function HouseOverview({ currentReading, isConnected, rooms, settings, up
         <EnergyTiles r={currentReading} surplus={surplus} />
       </div>
       {/* Heizung jetzt: gemessen vs. laut Thermostaten, Grenze, kWh heute (06.11.2026) */}
-      <HeatingNowCard rooms={rooms} reading={currentReading} night={night} heute={heute} grundlast={grundlast} />
+      <HeatingNowCard rooms={rooms} reading={currentReading} night={night} heute={heute} grundlast={grundlast} settings={settings} dayRooms={dayRooms} />
       <Fold title="Energiefluss jetzt">
         <EnergyFlowDiagram
           pvPower={currentReading?.pv_power ?? null}
