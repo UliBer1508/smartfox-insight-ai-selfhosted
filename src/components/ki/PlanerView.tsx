@@ -135,7 +135,7 @@ export function PlanerView({ rooms = [] }: { rooms?: Room[] }) {
             <div className="text-sm">
               {/* 13.11.2026: Etikett nach dem Modus, mit dem der Plan gerechnet wurde (vorher fest „Schattenbetrieb“) */}
               <span className={`px-2 py-0.5 rounded-full border text-xs font-medium mr-2 ${plan.modus === 'steuern' ? 'border-primary text-primary' : ''}`}>
-                {plan.modus === 'steuern' ? 'Steuert' : plan.modus === 'aus' ? 'Aus' : 'Schatten · steuert nicht'}
+                {plan.modus === 'steuern' ? 'KI steuert' : plan.modus === 'aus' ? 'Planer (Regeln)' : 'KI rechnet mit · steuert nicht'}
               </span>
               {auffaellig > 0 && <span className="text-warning font-medium mr-2">{auffaellig} {auffaellig === 1 ? 'Raum' : 'Räume'} auffällig → Regel-Steuerung ·</span>}
               Plan von {hm(new Date(plan.erstellt_at).getTime())}{alt && <span className="text-warning font-medium"> · veraltet</span>}

@@ -20,6 +20,8 @@
 // dass die Räume kaum nach draußen verlieren und einfach den anderen folgen (k an der Untergrenze) – im Plan wäre das Haus
 // dann nie ausgekühlt.
 
+import { netzHeizenErlaubt, type Netzgrenze } from '../_shared/heizregeln.ts';
+
 export const DT_H = 0.25;            // 15 Minuten
 export const SLOTS = 96;             // 24 h
 export const BLOCK = 2;              // Entscheidung je 30 min (2 Slots)
@@ -223,13 +225,22 @@ export interface PlanRaum {
   gewicht: number;                                // Faktor aus Priorität
   fest: (0 | 1 | null)[];                         // je Slot festgelegt (manuell, nicht steuerbar) oder frei
 }
-export interface PlanSlot { pv: number; base: number; tout: number; pvkw: number; capW: number }
-export interface Batterie { eKwh: number; capKwh: number; minKwh: number; maxLadenW: number; maxEntladenW: number; eta: number }
+export interface PlanSlot {
+  pv: number; base: number; tout: number; pvkw: number; capW: number;
+  // 16.11.2026 (Regeln als Rahmen, _shared/heizregeln.ts): bis wohin Netz/Batterie heizen darf und ob Sonnentag ist
+  netz?: Netzgrenze; sonnentag?: boolean;
+}
+export interface Batterie {
+  eKwh: number; capKwh: number; minKwh: number; maxLadenW: number; maxEntladenW: number; eta: number;
+  heizMinKwh?: number;   // 16.11.2026: Sonnentag – unter diesem Stand lädt die Sonne zuerst die Batterie (heating_min_battery_soc)
+}
 export interface Gewichte {
   ziel: number; unter: number; sicher: number; ueber: number; einspeiseFaktor: number; batterieRest: number;
   waermeRest: number;   // Wert je kWh, die am Planende WENIGER im Haus gespeichert ist (Estrich leeren wird bestraft)
   waermeMehr: number;   // Wert je kWh, die am Planende MEHR gespeichert ist (13.11.2026 abends: nur so viel wie PV-Strom,
                         // den man sonst einspeisen würde – sonst ist Heizen aus dem Netz in den Estrich fast gratis)
+  regeln?: boolean;     // 16.11.2026: feste Regeln als Rahmen (Netz/Batterie nur bis Netzgrenze). false = alter Planer (Vergleich)
+  vorlauf?: number;     // Min + Vorlauf (min_vorlauf_c) wie in der Steuerung
 }
 
 /** Wert der Wärme am Planende (asymmetrisch, doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
@@ -312,6 +323,26 @@ export function plane(raeume: PlanRaum[], slots: PlanSlot[], bat: Batterie, g: G
     for (let i = i0; i < i1; i++) {
       hw[i] += (an - h[r][i]) * raeume[r].p;
       if (an === 1 && hw[i] > slots[i].capW + 1) return null;
+    }
+    // 16.11.2026: Feste Regeln sind der Rahmen (Uli: „die KI ergänzt die Regeln, schaltet sie nicht aus“).
+    // Heizen ohne PV-Überschuss nur, wo die Regel es erlaubt: Min immer; Normal nur am Tag ohne genug Sonne.
+    // An Sonnentagen und nachts wartet der Raum über Min auf die Sonne – auch wenn die Rechnung früheres Heizen
+    // „billiger“ fände. Am Sonnentag lädt die Sonne zuerst die Batterie bis heating_min_battery_soc.
+    if (an === 1 && g.regeln) {
+      const rr = raeume[r];
+      let pvDeckt = true;
+      for (let i = i0; i < i1; i++) {
+        let frei = slots[i].pv - slots[i].base - (hw[i] - rr.p);
+        const eVor = i > 0 ? en.e[i - 1] : bat.eKwh;
+        if (slots[i].sonnentag && bat.heizMinKwh != null && eVor < bat.heizMinKwh) {
+          frei -= Math.min(bat.maxLadenW, Math.max(0, slots[i].pv - slots[i].base));
+        }
+        if (frei < 0.5 * rr.p) { pvDeckt = false; break; }
+      }
+      if (!pvDeckt) {
+        const T = i0 > 0 ? rs[r].T[i0 - 1] : rr.T0;
+        if (!netzHeizenErlaubt(slots[i0].netz ?? 'normal', T, rr.unter[i0], rr.ziel[i0], g.vorlauf ?? 0.2)) return null;
+      }
     }
     const start = i0 > 0 ? { T: rs[r].T[i0 - 1], S: rs[r].S[i0 - 1] } : undefined;
     const nr = simRaum(raeume[r], hn, slots, g, i0, start);

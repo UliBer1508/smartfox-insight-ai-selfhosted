@@ -3,9 +3,10 @@
 // (doc/FIX-PLANER-MODELL-2026-11-13.md).
 import {
   BLOCK, SLOTS, STANDARD_PARAM, aufheizen, bewerte, estrichStart, istV2, lernePv, lerneRaum, nachfuehrFaktor, plane,
-  prognoseFehler, pvVorhersage,
+  prognoseFehler, pvVorhersage, waermeKwh, DT_H,
   type Batterie, type Fenster, type Gewichte, type PlanRaum, type PlanSlot, type PvModell, type RaumParam,
 } from './modell.ts';
+import { netzGrenze, sonnenuntergangMin, tagesart } from '../_shared/heizregeln.ts';
 import { neuerStand, pruefePlan, type Messwert, type PruefStand, type RaumPruefung } from './pruefung.ts';
 
 export const PLAN_AUFBEWAHREN_TAGE = 3;
@@ -33,6 +34,7 @@ export interface Daten {
   pv_h: [string, number][];
   messwerte?: Record<string, Messwert> | null;      // raum_messwerte (SQL 38)
   pruefung?: { stand?: PruefStand } | null;          // letzter Stand der Plan-Prüfung (system_settings planer_pruefung)
+  sonnenuntergang?: Record<string, string> | null;   // pv_forecasts.sunset je Tag „HH:MM:SS“ (SQL 45), sonst astronomisch
 }
 export function aufbereiten(d: Daten) {
   const wet = new Map<string, { dir: number; dif: number; t: number }>((d.wetter ?? []).map(w => [w[0], { dir: Number(w[1]) || 0, dif: Number(w[2]) || 0, t: Number(w[3]) }]));
@@ -75,13 +77,15 @@ export function gewichte(s: any): Gewichte {
            // 13.11.2026 abends: MEHR Wärme am Planende zählt nur wie PV-Strom, der sonst eingespeist würde (+ kleiner
            // Aufschlag). Mit 0,9 kostete Heizen aus dem Netz in den Estrich rechnerisch nur 10 % – der Plan heizte den
            // Wirtschaftsraum 23 h und das Wohnzimmer aus dem Netz über das Ziel (doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
-           waermeMehr: Math.min(0.9, Math.min(1, feed / buy) + 0.05) };
+           waermeMehr: Math.min(0.9, Math.min(1, feed / buy) + 0.05),
+           // 16.11.2026: feste Regeln als Rahmen (doc/FIX-REGELN-RAHMEN-FUER-PLANER-2026-11-16.md)
+           regeln: true, vorlauf: Math.max(0, Number(s?.min_vorlauf_c ?? 0.2)) };
 }
 
 /** Räume und Slots für einen Plan ab `start` aufbauen. pvVon(ep) liefert die PV je Slot (W). */
 export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: number) => number,
               T0: (r: any) => number | null, festVon?: (r: any, ep: number, i: number) => 0 | 1 | null,
-              abwesend?: (ep: number) => boolean) {
+              abwesend?: (ep: number) => boolean, socStart?: number) {
   const s = d.settings ?? {};
   const ns = minuten(s.night_start_time, '22:00'), ne = minuten(s.night_end_time, '08:00');
   const base = Number(d.grundlast) || 240;
@@ -118,12 +122,51 @@ export function baue(d: Daten, a: Aufb, start: number, pvVon: (ep: number, i: nu
       fest: eps.map((ep, i) => (festVon ? festVon(r, ep, i) : null)),
     });
   }
-  return { slots, raeume, eps, nacht };
+
+  // 16.11.2026 – feste Regeln als Rahmen (_shared/heizregeln.ts, dieselbe Regel wie die Steuerung):
+  // Sonnentag, wenn die Rest-PV des Tages nach Grundlast und Batterie-Laden reicht, um alle Räume auf Normal zu bringen.
+  // Der Bedarf kommt aus dem gelernten Raummodell (Estrich + Luft) statt aus der groben Schätzung der Steuerung.
+  // Je Kalendertag im Plan (24 h reichen in den Folgetag): heute mit dem jetzigen Batteriestand, Folgetag mit der
+  // Annahme 20 % am Morgen (vorsichtig: eher „kein Sonnentag“ → Normal aus dem Netz erlaubt). Neu gerechnet alle 15 min.
+  const untergang = new Map<string, number>();
+  const sunsetVon = (tag: string) => {
+    if (!untergang.has(tag)) {
+      const f = d.sonnenuntergang?.[tag];
+      const m = f ? Number(String(f).slice(0, 2)) * 60 + Number(String(f).slice(3, 5)) : NaN;
+      untergang.set(tag, Number.isFinite(m) ? m : sonnenuntergangMin(tag, Number(s.latitude) || 47.25, Number(s.longitude) || 12.25));
+    }
+    return untergang.get(tag)!;
+  };
+  const minOf = (ep: number) => { const w = wall(ep); return Number(w.slice(11, 13)) * 60 + Number(w.slice(14, 16)); };
+  const tagOf = (ep: number) => wall(ep).slice(0, 10);
+  const abend = eps.map((ep, i) => !nacht[i] && minOf(ep) >= sunsetVon(tagOf(ep)));
+  const cap0 = Number(s.battery_capacity_kwh) || 13.8;
+  const tag0 = tagOf(start);
+  const normalBedarfWh = raeume.reduce((sum, r) => {
+    const eco = Number(d.raeume.find((x: any) => x.id === r.id)?.eco ?? s.eco_temp ?? 21);
+    return sum + Math.max(0, waermeKwh(r.param, r.p, Math.max(0, eco - r.T0), Math.max(0, eco - r.S0))) * 1000;
+  }, 0);
+  const tagesarten: Record<string, ReturnType<typeof tagesart> & { pvRestWh: number; batterieBedarfWh: number; normalBedarfWh: number }> = {};
+  for (const tag of [...new Set(eps.map(tagOf))]) {
+    const pvRestWh = eps.reduce((sum, ep, i) => sum + ((tagOf(ep) === tag && !nacht[i] && !abend[i]) ? Math.max(0, slots[i].pv - base) * DT_H : 0), 0);
+    const soc = tag === tag0 ? (socStart ?? 50) : 20;
+    const batterieBedarfWh = cap0 * Math.max(0, 1 - soc / 100) * 1000;
+    const ta = tagesart(pvRestWh, batterieBedarfWh, normalBedarfWh, false);
+    tagesarten[tag] = { ...ta, pvRestWh: Math.round(pvRestWh), batterieBedarfWh: Math.round(batterieBedarfWh), normalBedarfWh: Math.round(normalBedarfWh) };
+  }
+  eps.forEach((ep, i) => {
+    const ta = tagesarten[tagOf(ep)];
+    slots[i].sonnentag = ta.sonnentag;
+    slots[i].netz = netzGrenze({ nacht: nacht[i], abend: abend[i], sonnentag: ta.sonnentag, abwesend: abwesend?.(ep) });
+  });
+  return { slots, raeume, eps, nacht, tagesart: tagesarten };
 }
 
 export function batterieVon(d: Daten, socProzent: number): Batterie {
   const cap = Number(d.settings?.battery_capacity_kwh) || 13.8;
-  return { eKwh: cap * socProzent / 100, capKwh: cap, minKwh: cap * 0.05, maxLadenW: 5500, maxEntladenW: 5700, eta: 0.95 };
+  const heizMin = Number(d.settings?.heating_min_battery_soc);
+  return { eKwh: cap * socProzent / 100, capKwh: cap, minKwh: cap * 0.05, maxLadenW: 5500, maxEntladenW: 5700, eta: 0.95,
+           heizMinKwh: Number.isFinite(heizMin) ? cap * heizMin / 100 : cap * 0.75 };
 }
 export const letzterSoc = (a: Aufb, bis: number) => { let best = -1, soc = 50; for (const [k, v] of a.e15) if (k <= bis && k > best) { best = k; soc = v[3]; } return soc; };
 export const r1 = (x: number) => Math.round(x * 10) / 10;
@@ -131,7 +174,7 @@ export const r1 = (x: number) => Math.round(x * 10) / 10;
 /** Plan rechnen ohne Schreiben (auch für die Prüfung). */
 /** Abwesenheiten (presence_periods) als Zeiträume [von, bis − Vorlauf] in Epoch-Sekunden. */
 export type Abwesenheit = [number, number][];
-export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit = []) {
+export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit = [], opt: { regeln?: boolean } = {}) {
   const a = aufbereiten(d);
   const start = Math.floor(d.jetzt / 900) * 900;
   const pvm: PvModell = d.pv_modell?.coef ?? lernePv(a.pvIst, a.wet);
@@ -160,9 +203,9 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
     return null;
   };
   const abwesend = (ep: number) => abw.some(([v, b]) => ep >= v && ep < b);
-  const { slots, raeume, eps } = baue(d, a, start, pvVon, r => (r.t == null ? null : Number(r.t)), fest, abwesend);
+  const { slots, raeume, eps, tagesart: ta } = baue(d, a, start, pvVon, r => (r.t == null ? null : Number(r.t)), fest, abwesend, letzterSoc(a, d.jetzt));
   const bat = batterieVon(d, letzterSoc(a, d.jetzt));
-  const g = gewichte(d.settings);
+  const g = { ...gewichte(d.settings), regeln: opt.regeln ?? true };
   const erg = plane(raeume, slots, bat, g);
   // Plan-Prüfung je Raum gegen die Messwerte (13.11.2026): auffällige Räume steuert die Regel-Steuerung
   const pruefung: Record<string, RaumPruefung> = d.messwerte
@@ -198,6 +241,8 @@ export function planAus(d: Daten, nichtSteuerbar: Set<string>, abw: Abwesenheit 
       // Plan-Prüfung (13.11.2026): false → pv-automation steuert diesen Raum nach dem Regelwerk, nicht nach dem Plan
       pruefung_ok: pruefung[r.id]?.ok ?? true })),
     gewichte: g, batterie_start: r1(bat.eKwh), schritte: erg.schritte, waerme_kwh: r1(erg.waermeKwh),
+    // 16.11.2026: Regel-Rahmen, nach dem dieser Plan gerechnet ist (Sonnentag, Netzgrenze je Slot)
+    regeln: { ...ta, netz: slots.map(x => x.netz === 'min' ? 'm' : 'n').join('') },
   };
   const pvKwh = slots.reduce((s, x) => s + x.pv, 0) / 4000;
   const zeile = {
@@ -245,17 +290,17 @@ export function lerneAus(d: Daten, raumId: string, tage: number, priorVon?: Reco
 }
 
 /** Gegenrechnung eines Tages ohne Schreiben. */
-export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>): any {
+export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>, opt: { regeln?: boolean } = {}): any {
   const a = aufbereiten(d);
   const g0 = mitternacht(tag);
   const pvEcht = (ep: number) => a.e15.get(ep)?.[2] ?? 0;
   const T0 = (r: any) => a.smp.get(r.id)?.get(g0)?.t ?? null;
   // Räume, die keine Befehle annehmen: auch im Plan so, wie sie wirklich geheizt haben
   const fest = (r: any, ep: number) => (nichtSteuerbar.has(r.id) ? ((a.smp.get(r.id)?.get(ep)?.h ?? 0) >= 0.5 ? 1 : 0) : null);
-  const b = baue(d, a, g0, pvEcht, T0, fest);
+  const b = baue(d, a, g0, pvEcht, T0, fest, undefined, letzterSoc(a, g0));
   if (b.raeume.length === 0) return { ok: false, grund: 'keine Temperaturen um Mitternacht' };
   const bat = batterieVon(d, letzterSoc(a, g0));
-  const g = gewichte(d.settings);
+  const g = { ...gewichte(d.settings), regeln: opt.regeln ?? true };
   const heizIst = b.raeume.map(r => b.eps.map(ep => a.smp.get(r.id)?.get(ep)?.h ?? 0));
   const eIst = bewerte(b.raeume, b.slots, bat, g, heizIst);
   const ePlan = plane(b.raeume, b.slots, bat, g);

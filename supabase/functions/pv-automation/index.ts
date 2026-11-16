@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { SONNENTAG_SCHWELLE, netzGrenze, netzHeizenErlaubt, tagesart, type Netzgrenze } from '../_shared/heizregeln.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -362,6 +363,28 @@ function planerSollwert(room: any, e: PlanEintrag, settings: any): { temp: numbe
   }
   const aus = holdBelow(cur, 99, band);
   return { temp: aus, heizt: false, why: `Planer: nicht heizen → ${aus} °C (Thermostat aus)` };
+}
+
+/** 16.11.2026 – Steuerung prüft den Plan gegen die festen Regeln (_shared/heizregeln.ts,
+ *  doc/FIX-REGELN-RAHMEN-FUER-PLANER-2026-11-16.md). Uli: „Die KI ergänzt die Regeln, sie schaltet sie nicht aus.“
+ *  Der Planer darf innerhalb der Regeln entscheiden. Will er heizen, gilt:
+ *    – PV-Überschuss frei (nach Priorität verteilt) → heizen
+ *    – sonst nur, wo die Regel Netz/Batterie erlaubt: unter Min + Vorlauf immer, bis Normal nur am Tag ohne genug Sonne
+ *  Sonst bleibt das Thermostat aus und der Raum wartet auf die Sonne. pvFrei wird beim Verteilen verringert. */
+function planerImRahmen(room: any, z: { temp: number; why: string; heizt: boolean }, grenze: Netzgrenze,
+                        pvFrei: { w: number }, settings: any): { temp: number; why: string; heizt: boolean } {
+  if (!z.heizt) return z;
+  const p = Number(room.heating_power_w || room.calculated_power_w) || 800;
+  if (pvFrei.w >= 0.5 * p) { pvFrei.w -= p; return { ...z, why: `${z.why} – mit PV-Überschuss` }; }
+  const cur = Number(room.current_temp) || 0;
+  const min = getWaitMinTemp(room, settings);
+  const normal = Number(room.eco_temp) || Number(settings?.eco_temp) || 21;
+  const vorlauf = Math.max(0, Number(settings?.min_vorlauf_c ?? 0.2));
+  if (netzHeizenErlaubt(grenze, cur, min, normal, vorlauf)) return z;
+  const temp = holdBelow(cur, min, bandOf(room));
+  const regel = grenze === 'min' ? `ohne PV-Überschuss nur bis Min ${min} °C` : `aus dem Netz nur bis Normal ${normal} °C`;
+  return { temp, heizt: false,
+    why: `Regel: ${regel} – Planer wollte aus Netz/Batterie heizen (Ist ${cur.toFixed(1)} °C) → wartet auf PV, Thermostat aus (${temp} °C)` };
 }
 
 // Tagesmodus-Zuteilung (Konzept 27.10.2026 §2/§3). Reine Funktion, testbar.
@@ -1444,10 +1467,11 @@ Deno.serve(async (req) => {
           const nachtPlan = await ladePlanerPlan(supabase, settings);
           if (nachtPlan.map) {
             let n = 0;
+            const pvFreiNacht = { w: 0 };   // nachts kein PV-Überschuss: Netz/Batterie nur bis Min (16.11.2026)
             for (const p of nightPlan) {
               const e = nachtPlan.map.get(p.room.id);
               if (!e) continue;
-              const z = planerSollwert(p.room, e, settings);
+              const z = planerImRahmen(p.room, planerSollwert(p.room, e, settings), 'min', pvFreiNacht, settings);
               p.target = z.temp; p.why = z.why; n++;
             }
             console.log(`[PLANER-STEUERT] Nacht, ${nachtPlan.grund}: ${n} Räume nach Plan`);
@@ -2352,19 +2376,15 @@ Deno.serve(async (req) => {
       // UND danach Überschuss für die Räume bleibt (Sonnentag). Sonst: Eco aus jeder Quelle, nach Priorität.
       // Überschuss = Rest-Prognose (korrigiert) − Grundlast − was die Batterie bis voll noch aufnimmt.
       const batteryNeedWhForDay = Math.max(0, batteryNeedKwh * 1000);
-      const surplusAfterBatteryWh = Math.max(0, remainingPvForHeatingWh - batteryNeedWhForDay);
-      let dayRatio: number | null = null;
-      const dayThreshold = 1.0;
+      // 16.11.2026: Regel an EINER Stelle (_shared/heizregeln.ts) – der Heizplaner benutzt dieselbe Funktion.
+      // 12.11.2026 (Bereinigung Stufe 2): feste Schwelle 1,0, keine KI-Verschiebung. doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md §4.3
+      const tagesArt = tagesart(remainingPvForHeatingWh, batteryNeedWhForDay, totalEcoEnergyNeededWh, afterSunset);
+      const surplusAfterBatteryWh = tagesArt.ueberschussWh;
+      const dayRatio: number | null = tagesArt.ratio;
+      const dayThreshold = SONNENTAG_SCHWELLE;
       const kiAdjust = 0;
       const kiInfo = 'aus (seit 12.11.2026)';
-      if (!afterSunset) {
-        dayRatio = totalEcoEnergyNeededWh > 0
-          ? surplusAfterBatteryWh / totalEcoEnergyNeededWh
-          : (surplusAfterBatteryWh > 0 ? 99 : 0);
-        // 12.11.2026 (Bereinigung Stufe 2, Mustergedächtnis): keine Verschiebung der Schwelle mehr durch
-        // best_match_today – feste Schwelle 1,0. doc/BEREINIGUNG-DOPPELTE-TEILE-2026-11-12.md §4.3
-      }
-      const sunnyDay = dayRatio !== null && dayRatio >= dayThreshold;
+      const sunnyDay = tagesArt.sonnentag;
       console.log(`[TAGESART] ${sunnyDay ? 'Sonnentag' : (afterSunset ? 'nach Sonnenuntergang' : 'schlechter Tag')} | PV-Rest ${(remainingPvForHeatingWh / 1000).toFixed(1)} kWh − Batterie ${(batteryNeedWhForDay / 1000).toFixed(1)} kWh = ${(surplusAfterBatteryWh / 1000).toFixed(1)} kWh für Räume, Eco-Bedarf ${(totalEcoEnergyNeededWh / 1000).toFixed(1)} kWh, Ratio ${dayRatio === null ? '–' : dayRatio.toFixed(2)} / Schwelle ${dayThreshold} | KI: ${kiInfo}`);
 
       // ============= SOC-GATE ENFORCEMENT (gehärtet) =============
@@ -3255,10 +3275,14 @@ Deno.serve(async (req) => {
         const ohneOverride = roomsWithPriority.filter(rp => !(rp.room.manual_override_until && new Date(rp.room.manual_override_until).getTime() > nowMsDay));
         await attachBands(supabase, ohneOverride.map((rp: any) => rp.room));
         let heizW = 0;
+        // 16.11.2026: Regel-Rahmen – dieselbe Netzgrenze wie der Tagesmodus (Abend/Sonnentag/abwesend → nur bis Min)
+        const grenzeTag = netzGrenze({ nacht: false, abend: afterSunset, sonnentag: sunnyDay, abwesend: isAway });
+        const pvFreiTag = { w: socGateBlocked ? Math.max(0, gridExport) + currentlyHeatingPower : Math.max(0, pvPower - baseLoad) };
+        console.log(`[PLANER-RAHMEN] Netzgrenze ${grenzeTag} · PV frei ${Math.round(pvFreiTag.w)} W${socGateBlocked ? ' (Batterie zuerst)' : ''}`);
         for (const rp of ohneOverride) {
           const e = planStand.map.get(rp.room.id);
           if (!e) continue;
-          const z = planerSollwert(rp.room, e, settings);
+          const z = planerImRahmen(rp.room, planerSollwert(rp.room, e, settings), grenzeTag, pvFreiTag, settings);
           dayFallback.set(rp.room.id, { temp: z.temp, why: z.why });
           roomBudgetStatus.delete(rp.room.id);
           planerRaeume.add(rp.room.id);

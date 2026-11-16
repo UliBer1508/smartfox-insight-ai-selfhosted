@@ -60,7 +60,7 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
     if (!ok || m === 'aus') return;
     const { error } = await supabase.functions.invoke('heizplaner', { body: { aktion: 'planen' } });
     if (error) toast.error('Neuer Plan konnte nicht sofort gerechnet werden – kommt mit dem nächsten 15-Minuten-Lauf.');
-    else toast.success(m === 'steuern' ? 'Neuer Plan gerechnet – der Planer steuert ab dem nächsten Lauf (≤ 5 min).' : 'Neuer Plan gerechnet – Schattenbetrieb.');
+    else toast.success(m === 'steuern' ? 'Neuer Plan gerechnet – die KI steuert ab dem nächsten Lauf (≤ 5 min), innerhalb der Regeln.' : 'Neuer Plan gerechnet – KI rechnet nur mit.');
   };
 
   const regler = [
@@ -81,7 +81,8 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
             <div className="text-xs text-muted-foreground">Wer setzt die Sollwerte der Thermostate?</div>
           </div>
           <div role="group" aria-label="Modus der Auto-Steuerung" className="flex bg-muted rounded-lg p-1 gap-0.5">
-            {([['aus', 'Aus'], ['schatten', 'Schatten'], ['steuern', 'Steuern']] as [Modus, string][]).map(([m, l]) => (
+            {/* 16.11.2026 (Uli): Namen nach seinem Bild – Planer = feste Regeln, KI liegt obendrauf */}
+            {([['aus', 'Planer (Regeln)'], ['schatten', 'KI rechnet mit'], ['steuern', 'KI steuert']] as [Modus, string][]).map(([m, l]) => (
               <button key={m} type="button"
                 onClick={() => modusSetzen(m)}
                 className={`px-4 py-2 rounded-md text-sm disabled:opacity-50 ${modus === m ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground'}`}>{l}</button>
@@ -89,9 +90,9 @@ function Steuerung({ rooms, onNavigate }: { rooms: Room[]; onNavigate: (tab: 'ov
           </div>
         </div>
         <div className={`rounded-lg px-3 py-2 text-sm ${modus === 'aus' ? 'bg-muted' : 'bg-primary/10'}`}>
-          {modus === 'aus' && 'Planer aus – die Regeln der heutigen Steuerung entscheiden allein.'}
-          {modus === 'schatten' && 'Schattenbetrieb – der Planer rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Thermostaten ändert er nichts. Die heutige Regel-Steuerung (pv-automation) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob der Plan besser wäre, bevor er steuern darf.'}
-          {modus === 'steuern' && 'Der Planer setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min). Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Min (der Planer heizt rechtzeitig vorher, fällt ein Raum trotzdem darunter, heizt er sofort), keiner wird über PV-Max geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Jeder Plan wird je Raum gegen die Messwerte geprüft: Heizt er länger als nötig, aus dem Netz über das Ziel, oder übersteuerst du den Raum oft, steuert die Regel-Steuerung diesen Raum (mindestens 2 h) – der Modus bleibt. Zurück jederzeit mit „Schatten“.'}
+          {modus === 'aus' && 'Planer (Regeln) – die festen Regeln entscheiden allein: Min halten, an Sonnentagen auf PV warten, mit PV-Überschuss erst Normal, dann PV-Überschuss nach Priorität, ohne Sonne Normal aus dem Netz, nachts Min.'}
+          {modus === 'schatten' && 'KI rechnet mit – die KI rechnet alle 15 min einen Plan und schreibt auf, was er anders gemacht hätte; an den Thermostaten ändert er nichts. Der Planer (feste Regeln) setzt weiter die Sollwerte. So sehen wir im Vergleich, ob die KI besser wäre, bevor sie steuern darf.'}
+          {modus === 'steuern' && 'Die KI setzt die Sollwerte (alle 15 min ein neuer Plan, umgesetzt alle 5 min) – immer innerhalb der festen Regeln: ohne PV-Überschuss heizt sie nur so weit, wie die Regeln es erlauben (an Sonnentagen, abends und nachts nur bis Min, an Tagen ohne Sonne bis Normal). Hält sie eine Regel für falsch, kommt ein Vorschlag unter „Zu entscheiden“. Sicherheit gilt weiter: manuell übersteuerte Räume, Automatik aus, Fühler in der Sonne und Thermostate ohne Befehlsannahme bleiben unberührt; kein Raum fällt unter Min (der Planer heizt rechtzeitig vorher, fällt ein Raum trotzdem darunter, heizt er sofort), keiner wird über PV-Max geheizt. Ist der Plan älter als 30 min, übernimmt die bisherige Regel-Steuerung. Jeder Plan wird je Raum gegen die Messwerte geprüft: Heizt er länger als nötig, aus dem Netz über das Ziel, oder übersteuerst du den Raum oft, steuert die Regel-Steuerung diesen Raum (mindestens 2 h) – der Modus bleibt. Zurück jederzeit mit „Planer (Regeln)“ oder „KI rechnet mit“.'}
         </div>
 
         <div>
