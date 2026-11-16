@@ -81,16 +81,10 @@ export function sparHinweise(o: {
   const bald = pvBald(o.prognose);
   const pvKommt = !!bald && bald.w >= 2000;
   const ausNetz = o.netzW > 200;
-  const vorlauf = Number(o.settings.min_vorlauf_c ?? 0.2);
 
-  // 1) Räume über Min, die nur wegen des Vorlaufs heizen, obwohl PV bald kommt
-  const nurVorlauf = o.heizend.filter(r => o.gruende.get(r.id)?.art === 'automatik' && minOf(r) > 0 && (Number(r.current_temp) || 0) >= minOf(r));
-  if (ausNetz && pvKommt && vorlauf > 0 && nurVorlauf.length > 0) {
-    const w = nurVorlauf.reduce((s, r) => s + roomPowerW(r), 0);
-    out.push(`${nurVorlauf.map(r => r.name).join(', ')} ${nurVorlauf.length === 1 ? 'liegt' : 'liegen'} über Min und ${nurVorlauf.length === 1 ? 'heizt' : 'heizen'} nur wegen des Vorlaufs (+${fmtC(vorlauf)}) – ${fmtKW(w)}. `
-      + `PV laut Prognose um ${bald!.um} Uhr ${fmtKW(bald!.w)}. Vorschlag: „Vorlauf vor Min“ (Einstellungen › Haus) senken.`);
-  }
-  // 2) Nachtbetrieb lange nach Sonnenaufgang – bis Nachtende prüft die Steuerung keine PV-Prognose
+  // Kein Hinweis „Vorlauf senken“ (16.11.2026 nachgerechnet, doc/FIX-BATTERIE-SCHUTZ-PINGPONG-2026-11-16.md):
+  // Räume kühlen nahe Min mit 0,3–0,9 °C/h ab, schon mit Vorlauf 0,2 °C startete jeder zweite Heizvorgang unter Min.
+  // Ohne Vorlauf fielen Räume unter Min; Warten verschiebt das Heizen nur, statt Netzstrom zu sparen.
   // pv_forecasts.sunrise ist eine Uhrzeit („08:00:00“, Ortszeit) – Vergleich in Minuten seit Mitternacht (Wien).
   if (o.night && o.prognose?.sunrise && o.settings.night_end_time) {
     const [h, m] = o.prognose.sunrise.split(':').map(Number);

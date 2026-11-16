@@ -36,10 +36,13 @@ keine Änderung an `pv-automation` nötig, die Angaben stehen bereits in `rooms`
 
 | Hinweis | Bedingung |
 |---|---|
-| Vorlauf | Netzbezug > 200 W, PV-Prognose der nächsten 3 h ≥ 2 kW, Räume heizen per Automatik, liegen aber schon auf/über Min → kW, die ohne Vorlauf nicht laufen würden; Vorschlag „Vorlauf vor Min“ (Einstellungen › Haus) senken |
 | Nachtende | Nachtbetrieb, Sonnenaufgang (`pv_forecasts.sunrise`) > 60 min vorbei, Netzbezug oder PV bald → Vorschlag Nachtende näher an den Sonnenaufgang |
 | Nachlauf | Netzbezug, Räume heizen über ihr Ziel hinaus → Ursache Schaltband/Anstoß |
 | Thermostat folgt nicht | heizender Raum mit Befund „über Soll“, nicht steuerbar oder Sonne auf dem Fühler |
+
+Kein Hinweis „Vorlauf senken“: nachgerechnet am 16.11.2026 – Räume kühlen nahe Min mit 0,3–0,9 °C/h ab, mit Vorlauf
+0,2 °C startete schon jeder zweite Heizvorgang unter Min. Ohne Vorlauf fielen Räume unter Min
+(siehe `doc/FIX-BATTERIE-SCHUTZ-PINGPONG-2026-11-16.md`).
 
 ## Nebenwirkungen geprüft (Regel 08.11.2026)
 
@@ -49,15 +52,15 @@ keine Änderung an `pv-automation` nötig, die Angaben stehen bereits in `rooms`
 2. **Verhalten über Zeit:** Abfrage einmal pro Minute (max. 300 Befehle der letzten 3 h). Liegt ein Raum genau am Soll, kann
    der Text zwischen „Nachlauf“ und „Automatik“ wechseln – reine Anzeige. Abgelaufene Übersteuerung zählt nicht mehr als manuell.
    Veraltete Tages-/Nachtbegründung (> 20 min) wird nicht gezeigt, dann gilt der letzte Schaltbefehl mit Uhrzeit.
-3. **Gegen echte Daten nachgerechnet (16.11.2026, 09:15):** Büro, Haustür, Wirtschaftsraum heizen per „Batterie-Schutz:
-   knapp über Min … Vorlauf“ → Hinweis „heizen nur wegen des Vorlaufs – 3,4 kW, PV um 10 Uhr 5,2 kW“. Kinder Bad →
+3. **Gegen echte Daten nachgerechnet (16.11.2026, 09:15):** Büro, Haustür, Wirtschaftsraum → „Batterie-Schutz: knapp über
+   Min (21.0 < 21 + 0.2 °C Vorlauf) → heizt bis 21.2 °C … (Befehl 09:17)“. Kinder Bad →
    „Manuell bis … (20,2 °C), Thermostat heizt noch nach“. Mit Nachtende 10:00 zusätzlich der Nachtende-Hinweis.
 
 ## Offen (nicht Teil dieser Änderung, Entscheidung Uli)
 
-- **Pingpong Batterie-Schutz ↔ Min-Vorrang:** Im selben `pv-automation`-Lauf setzt der SOC-Gate-Notfall-Stop
+- **Pingpong Batterie-Schutz ↔ Min-Vorrang** – behoben in PR #68: Im selben `pv-automation`-Lauf setzt der SOC-Gate-Notfall-Stop
   (`[SOC-GATE-STOP]`, Grund „Batterie-Schutz (SOC …) → Min − Abstand = 21°C“) Räume auf Min, danach setzt die Raumschleife
   (Tagesmodus `battery_gate`, Min-Vorrang) dieselben Räume wieder auf 21,2 °C bzw. Anstoß 22,5 °C. Am 16.11. 09:02–09:18 bei
   Büro, Haustür, Toilette Eingang, Wirtschaftsraum alle 2–5 min. Doppelte Logik → eine der beiden sollte die andere ablösen.
-- **Vorlauf aussetzen, wenn PV kommt** (Vorschlag vom 16.11.) – noch nicht entschieden.
+- **Vorlauf aussetzen, wenn PV kommt** – nachgerechnet, nicht sinnvoll (siehe oben).
 - Kinder Bad: Temperatur-Korrektur DP 19 steht noch auf −1,0 (alle anderen 0).
