@@ -36,11 +36,17 @@ export function netzGrenze(z: { nacht: boolean; abend: boolean; sonnentag: boole
   return (z.nacht || z.abend || z.sonnentag || z.abwesend) ? 'min' : 'normal';
 }
 
-/** Darf ein Raum JETZT aus Netz/Batterie heizen? (PV-Überschuss wird vorher geprüft.) */
-export function netzHeizenErlaubt(grenze: Netzgrenze, ist: number, min: number, normal: number, vorlauf: number): boolean {
+/** Bis zu welcher Raumtemperatur darf ohne PV-Überschuss geheizt werden? Min immer, Normal nur am Tag ohne genug Sonne. */
+export function netzGrenzTemp(grenze: Netzgrenze, min: number, normal: number): number {
+  return grenze === 'normal' ? Math.max(min, normal) : min;
+}
+
+/** Darf ein Raum JETZT aus Netz/Batterie heizen? (PV-Überschuss wird vorher geprüft.)
+ *  spielraum: wie weit über der Grenztemperatur noch geheizt werden darf (Schaltband, ziel_abschalt_ueber_c 0,3 °C).
+ *  16.11.2026: ohne Vorlauf – der Planer heizt laut Raummodell rechtzeitig vor Min (Entscheidung 14.11., Variante A). */
+export function netzHeizenErlaubt(grenze: Netzgrenze, ist: number, min: number, normal: number, spielraum: number): boolean {
   if (!(ist > 0)) return false;
-  if (ist < min + vorlauf) return true;                 // Min hat immer Vorrang
-  return grenze === 'normal' && ist < normal;           // Tag ohne Sonne: bis Normal
+  return ist < netzGrenzTemp(grenze, min, normal) + spielraum;
 }
 
 /** Sonnenuntergang (Wiener Ortszeit, Minuten nach Mitternacht) – astronomisch, ohne Bergschatten. */

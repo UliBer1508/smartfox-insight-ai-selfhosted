@@ -79,7 +79,7 @@ export function gewichte(s: any): Gewichte {
            // Wirtschaftsraum 23 h und das Wohnzimmer aus dem Netz über das Ziel (doc/FIX-PLANER-PRUEFUNG-2026-11-13.md).
            waermeMehr: Math.min(0.9, Math.min(1, feed / buy) + 0.05),
            // 16.11.2026: feste Regeln als Rahmen (doc/FIX-REGELN-RAHMEN-FUER-PLANER-2026-11-16.md)
-           regeln: true, vorlauf: Math.max(0, Number(s?.min_vorlauf_c ?? 0.2)) };
+           regeln: true, spielraum: Math.max(0, Number(s?.ziel_abschalt_ueber_c ?? 0.3)) };
 }
 
 /** Räume und Slots für einen Plan ab `start` aufbauen. pvVon(ep) liefert die PV je Slot (W). */
@@ -317,12 +317,15 @@ export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>,
   // entfällt: Mit dem Wert der Restwärme leerte sie den Estrich und war nicht mehr vergleichbar.
   // 16.11.2026 (Uli: Gegenrechnung jeden Morgen in „Wo stehen wir?“): Regel-Rahmen, Tagesart und ob der Plan an einem
   // Sonnentag/nachts ohne PV über Min geheizt hätte (soll mit Regel-Rahmen 0 sein).
-  const vorlauf = Number(g.vorlauf ?? 0.2);
+  // gezählt: Viertelstunden, in denen der Plan ohne PV-Überschuss heizt und der Raum dabei über Min + Spielraum kommt
+  const spiel = Number(g.spielraum ?? 0.3);
   let netzUeberMin = 0;
+  // Gleiche Rechnung wie die Prüfung im Planer: PV, die nach den anderen heizenden Räumen frei bleibt; feste Räume
+  // (nehmen keine Befehle an) zählen nicht, die steuert der Plan nicht.
   b.raeume.forEach((r, i) => b.slots.forEach((sl, j) => {
-    if (ePlan.heizen[i][j] !== 1 || sl.netz !== 'min' || sl.pv - sl.base >= 0.5 * r.p) return;
-    const T = j > 0 ? ePlan.temp[i][j - 1] : r.T0;
-    if (T >= r.unter[j] + vorlauf) netzUeberMin += 0.25;
+    if (ePlan.heizen[i][j] !== 1 || r.fest[j] != null || sl.netz !== 'min') return;
+    if (sl.pv - sl.base - (ePlan.heizW[j] - r.p) >= 0.5 * r.p) return;
+    if (ePlan.temp[i][j] > r.unter[j] + spiel + 1e-6) netzUeberMin += 0.25;
   }));
   const ta = b.tagesart?.[tag];
   const planer = { ...kurz(ePlan), netz_bereinigt_kwh: r1(ePlan.netzKwh - (ePlan.waermeKwh - eIst.waermeKwh)),

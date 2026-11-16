@@ -101,3 +101,20 @@ auf Ulis Wunsch 1,5 → 0,6 (war seit 14.11. 06:35 über den Regler „Sparsamer
 - Die Karte „Wer steuert gerade?“ benutzt die neuen Modus-Namen.
 - „Tatsächlich“ ist, was an dem Tag wirklich gesteuert hat – bis 16.11. früh war das die KI (Modus „steuern“), ab
   16.11. 07:24 die Regeln.
+
+## Nachtrag 2 (16.11.2026): Regel je Viertelstunde, kein Vorlauf für die KI
+- **Fehler:** Der Planer prüfte die Regel nur am Anfang eines Halbstundenblocks. Lag der Raum dort knapp unter
+  Min + 0,2 °C, durfte er den ganzen Block aus dem Netz heizen und stieg darüber (15.11.: Bad Uli, 0,5 h).
+- **Neu:** Geprüft wird jede Viertelstunde mit der simulierten Temperatur *nach* dem Heizen: Ohne PV-Überschuss darf der
+  Raum höchstens Grenztemperatur + Spielraum erreichen (Min bzw. Normal + `ziel_abschalt_ueber_c`, 0,3 °C).
+- **Vorlauf (Ulis Frage „wollen wir schon bei +0,2 heizen?“):**
+  - *KI:* nein. Entscheidung 14.11. (Variante A, `FIX-PLANER-MIN-HART-2026-11-14.md`): Der Planer heizt laut Raummodell
+    rechtzeitig vor Min; ein Vorlauf kostete in der Nachrechnung 5,4 kWh Netz am Tag ohne bessere Temperatur.
+    Der Regel-Rahmen vom Morgen hatte den Vorlauf versehentlich wieder in die KI gebracht – entfernt.
+  - *Regeln (pv-automation):* ja, bleibt 0,2 °C. Gemessen 13.–16.11.: 161 Starts mit Vorlauf (Start im Mittel bei
+    Min + 0,13 °C) – danach fiel der Raum im Mittel noch auf Min + 0,03 °C, in 56 Fällen (35 %) kurz unter Min
+    (schlimmster −0,6 °C). 52 Starts erst unter Min: im Mittel −0,25 °C, 38 von 52 lagen danach weiter unter Min.
+    Der Estrich reagiert zu träge, ohne Vorlauf läge der Raum fast immer unter Min.
+- Die Steuerung prüft den Plan mit demselben Spielraum (Min bzw. Normal + 0,3 °C).
+- Zähler `netz_ueber_min_h` in der Gegenrechnung rechnet wie die Prüfung (freie PV nach den anderen Räumen, feste Räume
+  ausgenommen).
