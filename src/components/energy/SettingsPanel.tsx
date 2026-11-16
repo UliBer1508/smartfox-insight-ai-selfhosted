@@ -23,6 +23,7 @@ import { useRooms } from '@/hooks/useRooms';
 import { TuyaSubscriptionAlert } from '@/components/settings/TuyaSubscriptionAlert';
 import { TuyaConnectionTest } from '@/components/settings/TuyaConnectionTest';
 import { useControlMode } from '@/hooks/useControlMode';
+import { useSubscriptionStatus } from '@/hooks/useSubscriptionStatus';
 import { BackupSettingsSection } from '@/components/settings/BackupSettingsSection';
 import { HouseSettingsCard } from '@/components/settings/HouseSettingsCard';
 import { HaltezeitenCard } from '@/components/settings/HaltezeitenCard';
@@ -63,6 +64,18 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
   const { rooms, saveRoom, updateRoomFields, deleteRoom, loadRooms, isLoading: isRoomsLoading } = useRooms();
   const { mode, setMode, isLoading: isModeLoading } = useControlMode();
   const [confirmCloud, setConfirmCloud] = useState(false);
+  // Tuya-IoT-Lizenz: echtes Ablaufdatum aus system_settings.tuya_subscription (16.11.2026,
+  // ersetzt den festen Text "Die Lizenzen sind derzeit nicht verlängert.")
+  const { status: licStatus, formattedExpiry, daysRemaining, isLoading: isLicLoading } = useSubscriptionStatus();
+  const licenseText = isLicLoading
+    ? 'Lizenzstatus wird geladen …'
+    : !formattedExpiry
+      ? 'Kein Ablaufdatum der Tuya-Lizenz hinterlegt.'
+      : licStatus === 'expired'
+        ? `Tuya-Lizenz abgelaufen am ${formattedExpiry} – auf iot.tuya.com verlängern.`
+        : licStatus === 'warning'
+          ? `Tuya-Lizenz gültig bis ${formattedExpiry} – läuft in ${daysRemaining} Tagen ab.`
+          : `Tuya-Lizenz gültig bis ${formattedExpiry} (noch ${daysRemaining} Tage).`;
 
   const minutesSinceUpdate = lastUpdate ? Math.floor((Date.now() - new Date(lastUpdate).getTime()) / 60000) : null;
 
@@ -89,7 +102,7 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
             onClick={() => mode !== 'cloud' && !isModeLoading && setConfirmCloud(true)}
             icon={<Cloud className="w-4 h-4" />}
             title="Tuya Cloud"
-            text="Nur mit gültigem Tuya-IoT-Abo. Die Lizenzen sind derzeit nicht verlängert."
+            text={`Befehle gehen über die Tuya-Cloud. ${licenseText}`}
           />
         </div>
         <ThermostatMaintenance mode={mode} onDone={loadRooms} />
@@ -100,6 +113,7 @@ export function SettingsPanel({ isConnected, lastUpdate, systemInfo }: SettingsP
               <AlertDialogDescription>
                 Ohne gültige Tuya-Cloud-Zugangsdaten erreicht danach <strong>kein Befehl</strong> mehr die
                 Thermostate – die Automatik steuert dann ins Leere. Nur umschalten, wenn das Cloud-Abo aktiv ist.
+                <span className={`block mt-2 font-medium ${licStatus === 'expired' ? 'text-destructive' : ''}`}>{licenseText}</span>
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
