@@ -31,7 +31,9 @@ export function klartext(why: string): string {
     .replace(/(\d+\.\d)\d+/g, '$1');
 }
 
-export type Grund = { text: string; art: 'manuell' | 'gestoert' | 'nachlauf' | 'automatik' | 'unbekannt' };
+export type Grund = { text: string; art: 'manuell' | 'gestoert' | 'sonne' | 'abschalten' | 'nachlauf' | 'automatik' | 'unbekannt' };
+/** So lange nach einem Ausschaltbefehl gilt „heizt über Soll“ noch als normale Verzögerung (min). */
+export const ABSCHALT_VERZOEGERUNG_MIN = 15;
 
 /** Warum heizt dieser Raum? Reihenfolge: manuell → nicht steuerbar/Sonne → Nachlauf → Begründung der Automatik. */
 export function grundFuer(r: Room, modus: DayModeRoom | undefined, befehle: Befehl[], t: TState | undefined): Grund {
@@ -44,9 +46,16 @@ export function grundFuer(r: Room, modus: DayModeRoom | undefined, befehle: Befe
   if (r.nicht_steuerbar_seit)
     return { art: 'gestoert', text: `Nicht steuerbar seit ${fmtTime(r.nicht_steuerbar_seit)}${r.nicht_steuerbar_grund ? ` (${r.nicht_steuerbar_grund})` : ''} – heizt, wie das Thermostat will` };
   if (r.fuehler_sonne_seit)
-    return { art: 'gestoert', text: `Sonne auf dem Fühler seit ${fmtTime(r.fuehler_sonne_seit)} – Automatik rechnet mit gehaltenem Wert${befundText}` };
-  if (t?.befund && /über soll/i.test(t.befund))
-    return { art: 'gestoert', text: `Thermostat heizt über Soll (Soll ${fmtC(soll)}, Ist ${fmtC(cur)}) – folgt dem Befehl nicht` };
+    return { art: 'sonne', text: `Sonne auf dem Fühler seit ${fmtTime(r.fuehler_sonne_seit)} – Automatik rechnet mit gehaltenem Wert${befundText}` };
+  if (t?.befund && /über soll/i.test(t.befund)) {
+    // 16.11.2026: „heizt über Soll“ ist eine Momentaufnahme beim Auslesen (alle 5 min). Kam der Befehl, der das Soll gesenkt
+    // hat, vor weniger als 15 min, meldet das Thermostat nur verzögert – kein Fehler (Bad Uli/Waschraum 11:12 → 11:15).
+    const senk = befehle.find(b => b.value != null && Number(b.value) <= soll + 0.05);
+    const minSeit = senk ? (Date.now() - new Date(senk.created_at).getTime()) / 60_000 : Infinity;
+    if (minSeit < ABSCHALT_VERZOEGERUNG_MIN)
+      return { art: 'abschalten', text: `Ausschaltbefehl um ${fmtTime(senk!.created_at)} (Soll ${fmtC(soll)}) – Thermostat meldet beim letzten Auslesen noch „heizt“, das ist normal` };
+    return { art: 'gestoert', text: `Thermostat heizt seit ${senk ? fmtTime(senk.created_at) : 'über 3 h'} trotz Soll ${fmtC(soll)} (Ist ${fmtC(cur)}) – folgt dem Befehl nicht` };
+  }
   if (ueberSoll) {
     // Anstoß: in der letzten Stunde ein Sollwert deutlich über dem heutigen Soll → Thermostat läuft bis Anstoß-Schaltpunkt nach
     const stoss = befehle.find(b => Number(b.value) >= soll + 0.5 && Date.now() - new Date(b.created_at).getTime() < 3600_000);
@@ -81,16 +90,10 @@ export function sparHinweise(o: {
   const bald = pvBald(o.prognose);
   const pvKommt = !!bald && bald.w >= 2000;
   const ausNetz = o.netzW > 200;
-  const vorlauf = Number(o.settings.min_vorlauf_c ?? 0.2);
 
-  // 1) Räume über Min, die nur wegen des Vorlaufs heizen, obwohl PV bald kommt
-  const nurVorlauf = o.heizend.filter(r => o.gruende.get(r.id)?.art === 'automatik' && minOf(r) > 0 && (Number(r.current_temp) || 0) >= minOf(r));
-  if (ausNetz && pvKommt && vorlauf > 0 && nurVorlauf.length > 0) {
-    const w = nurVorlauf.reduce((s, r) => s + roomPowerW(r), 0);
-    out.push(`${nurVorlauf.map(r => r.name).join(', ')} ${nurVorlauf.length === 1 ? 'liegt' : 'liegen'} über Min und ${nurVorlauf.length === 1 ? 'heizt' : 'heizen'} nur wegen des Vorlaufs (+${fmtC(vorlauf)}) – ${fmtKW(w)}. `
-      + `PV laut Prognose um ${bald!.um} Uhr ${fmtKW(bald!.w)}. Vorschlag: „Vorlauf vor Min“ (Einstellungen › Haus) senken.`);
-  }
-  // 2) Nachtbetrieb lange nach Sonnenaufgang – bis Nachtende prüft die Steuerung keine PV-Prognose
+  // Kein Hinweis „Vorlauf senken“ (16.11.2026 nachgerechnet, doc/FIX-BATTERIE-SCHUTZ-PINGPONG-2026-11-16.md):
+  // Räume kühlen nahe Min mit 0,3–0,9 °C/h ab, schon mit Vorlauf 0,2 °C startete jeder zweite Heizvorgang unter Min.
+  // Ohne Vorlauf fielen Räume unter Min; Warten verschiebt das Heizen nur, statt Netzstrom zu sparen.
   // pv_forecasts.sunrise ist eine Uhrzeit („08:00:00“, Ortszeit) – Vergleich in Minuten seit Mitternacht (Wien).
   if (o.night && o.prognose?.sunrise && o.settings.night_end_time) {
     const [h, m] = o.prognose.sunrise.split(':').map(Number);
@@ -106,8 +109,86 @@ export function sparHinweise(o: {
       + 'Ursache ist das Schaltband des Thermostats bzw. der Anstoß-Sollwert.');
   // 4) Thermostate, die nicht folgen
   const gestoert = o.heizend.filter(r => o.gruende.get(r.id)?.art === 'gestoert');
+  // Nur echte Störungen (länger als 15 min über Soll oder als nicht steuerbar markiert), mit konkretem Schritt
   if (gestoert.length > 0)
-    out.push(`${gestoert.map(r => r.name).join(', ')}: Thermostat folgt der Automatik nicht – prüfen (Protokoll › Thermostate).`);
+    out.push(`${gestoert.map(r => r.name).join(', ')}: Thermostat folgt der Automatik seit über ${ABSCHALT_VERZOEGERUNG_MIN} min nicht. `
+      + 'Die Wirkungsprüfung testet es und markiert es als „nicht steuerbar“. Hilft das nicht: Thermostat am Gerät aus- und wieder einschalten.');
   return out;
 }
 
+
+// ---------------------------------------------------------------- Abweichung gemessen ↔ laut Thermostaten
+// 16.11.2026: Uli – „ich kann hier nicht antworten und weiß die Antwort nicht, das sollte doch die KI wissen“.
+// Statt einer Frage erklärt die Karte die Abweichung selbst, soweit die Daten es hergeben:
+//   1. Fronius misst nur alle 5 min: Räume, die nach der Messung eingeschaltet haben, zählen für den Vergleich nicht.
+//      Räume, die seit der Messung ausgeschaltet haben (last_heating_end > Messzeit), zählen mit.
+//   2. Messung älter als 7 min → kein Vergleich.
+//   3. Bleiben „zu wenig“: Welche Kombination der heizenden Räume passt am besten zur Messung? Die übrigen Räume heizen
+//      wahrscheinlich gerade nicht, obwohl das Thermostat „heizt“ meldet.
+//   4. Bleibt „zu viel“: mit Sonne wahrscheinlich Warmwasser (Heizstab, Smartfox, nicht messbar), ohne Sonne ein Gerät im Haus.
+export const ABWEICHUNG_HINWEIS_W = 500;
+export type RaumMitZeit = Room & { heizt_seit?: string | null; last_heating_end?: string | null };
+
+export function erklaereAbweichung(o: {
+  gemessenW: number | null; messungAt: string | null | undefined; heizend: RaumMitZeit[]; alleRaeume: RaumMitZeit[];
+  mitPv: boolean; autoText: string; nowMs?: number;
+  /** Räume mit Ausschaltbefehl vor < 15 min, die noch „heizt“ melden (grundFuer art 'abschalten'). */
+  abschaltIds?: Set<string>;
+}): { ok: boolean; text: string } {
+  const now = o.nowMs ?? Date.now();
+  if (o.gemessenW == null || !o.messungAt) return { ok: true, text: 'Keine aktuellen Fronius-Daten.' };
+  const messMs = new Date(o.messungAt).getTime();
+  const alterMin = Math.round((now - messMs) / 60_000);
+  if (alterMin > 7) return { ok: false, text: `Die letzte Fronius-Messung ist ${alterMin} min alt – kein Vergleich möglich. Läuft der Fronius-Collector?` };
+
+  // 1) Stand zur Messzeit
+  const spaeter = o.heizend.filter(r => r.heizt_seit && new Date(r.heizt_seit).getTime() > messMs);
+  const vorher = o.heizend.filter(r => !spaeter.includes(r));
+  const seitAus = o.alleRaeume.filter(r => !r.is_heating && r.last_heating_end && new Date(r.last_heating_end).getTime() > messMs);
+  const zurMessung = [...vorher, ...seitAus];
+  const soll = zurMessung.reduce((s, r) => s + roomPowerW(r), 0);
+  const diff = o.gemessenW - soll;
+  const zeitText = (spaeter.length || seitAus.length)
+    ? ` Fronius misst nur alle 5 min (letzte Messung ${fmtTime(o.messungAt)}):`
+      + (spaeter.length ? ` ${spaeter.map(r => `${r.name} heizt erst seit ${fmtTime(r.heizt_seit)}`).join(', ')}` : '')
+      + (spaeter.length && seitAus.length ? ';' : '')
+      + (seitAus.length ? ` ${seitAus.map(r => `${r.name} hat um ${fmtTime(r.last_heating_end)} aufgehört`).join(', ')}` : '')
+      + ' – zählt für den Vergleich noch so, wie es zur Messung war.'
+    : '';
+
+  if (Math.abs(diff) <= ABWEICHUNG_HINWEIS_W)
+    return { ok: true, text: `Messung und Thermostate passen zusammen.${zeitText}` };
+
+  if (diff < 0) {
+    // 2b) Räume mit frischem Ausschaltbefehl zuerst herausnehmen – sie melden „heizt“ nur verzögert
+    const abs = zurMessung.filter(r => o.abschaltIds?.has(r.id));
+    if (abs.length > 0) {
+      const ohne = soll - abs.reduce((s, r) => s + roomPowerW(r), 0);
+      if (Math.abs(o.gemessenW - ohne) <= ABWEICHUNG_HINWEIS_W)
+        return { ok: true, text: `Messung und Thermostate passen zusammen: ${abs.map(r => r.name).join(', ')} `
+          + `${abs.length === 1 ? 'hat' : 'haben'} gerade den Ausschaltbefehl bekommen und ziehen keinen Strom mehr – `
+          + `das Thermostat meldet „heizt“ nur verzögert.${zeitText}` };
+    }
+    // 3) Beste Kombination der heizenden Räume zur Messung (höchstens 12 Räume → 4096 Kombinationen)
+    const kand = zurMessung.slice(0, 12);
+    let best = { mask: (1 << kand.length) - 1, fehler: Math.abs(diff) };
+    for (let m = 0; m < (1 << kand.length); m++) {
+      let w = 0;
+      for (let i = 0; i < kand.length; i++) if (m & (1 << i)) w += roomPowerW(kand[i]);
+      const f = Math.abs(o.gemessenW - w);
+      if (f < best.fehler - 1) best = { mask: m, fehler: f };
+    }
+    const aus = kand.filter((_, i) => !(best.mask & (1 << i)));
+    if (aus.length > 0 && best.fehler <= 300) {
+      return { ok: false, text: `${fmtKW(-diff)} weniger als gemeldet.${zeitText} Die Messung passt, wenn ${aus.map(r => r.name).join(', ')} gerade nicht `
+        + `${aus.length === 1 ? 'heizt' : 'heizen'}: Das Thermostat meldet „heizt“, zieht aber (noch) keinen Strom. `
+        + 'Bleibt das über mehrere Messungen so, stimmt die Raumleistung nicht (Einstellungen › Räume).' };
+    }
+    return { ok: false, text: `${fmtKW(-diff)} weniger als gemeldet.${zeitText} Keine Kombination der heizenden Räume passt – vermutlich stimmen mehrere Raumleistungen nicht (Einstellungen › Räume).` };
+  }
+  // 4) zu viel
+  return { ok: false, text: `${fmtKW(diff)} mehr, als die heizenden Räume erklären.${zeitText} ${o.autoText}. `
+    + (o.mitPv
+      ? 'Wahrscheinlich Warmwasser: Der Smartfox gibt Überschuss an den Heizstab (keine Schnittstelle, daher nicht messbar).'
+      : 'Ohne Sonne wahrscheinlich ein Gerät im Haus (Herd, Espressomaschine) oder Warmwasser.') };
+}
