@@ -27,7 +27,12 @@
 > 5. Ergebnis als Abschnitt **„Nebenwirkungen geprüft“** in die FIX-/Konzept-Doku. Was bewusst nicht geändert
 >    wird, steht mit Grund dort und im TODO.
 >
-> **Letzte Aktualisierung:** 2026-11-13 · **Version:** 3.8 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
+> ## 💶 SPAR-GRUNDSATZ (Uli, 17.11.2026) – jede Regeländerung wird dagegen geprüft
+> **Nachts nur Min halten, nie den Estrich laden. Den Estrich laden wir nur tagsüber mit PV-Überschuss, bis PV-Max.**
+> Nachts darf kein Raum über Min hinaus geheizt werden (früh abschalten mit gemessenem Überlauf); die KI prüft das
+> jede Stunde über die ganze Nacht und kontrolliert, ob Änderungen wirken. Details `doc/FIX-NACHT-NUR-MIN-2026-11-17.md`.
+>
+> **Letzte Aktualisierung:** 2026-11-17 · **Version:** 3.9 · **Projekt:** pflnniklvqbwjwrjswaz (vorher Lovable `tvqmhdpcixkfsudxughs`)
 
 ---
 
@@ -704,6 +709,13 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ### 2026-11-13 — Datensicherung: beide PCs sichtbar
 - Uli: „es ist doch wichtig, dass ich beide PCs sehe und weiß, wer was gemacht hat.“ Die Karte zeigte nur die neueste Sicherung (heute die Test-Sicherung von PC Österreich) und sprach vom „PN40“.
 - Neu: Stand je PC, Ersatz-Lebenszeichen `backup_standby`, Rechner im Verlauf, gelbe Warnungen. Logik `bewerteSicherung()` in `lib/backupStatus.ts`, gleiche Regeln wie München. Version 2.28.0.
+
+### 2026-11-17 — Nachts nur Min: früh abschalten, Nacht-Prüfung, Erfolgskontrolle
+- Spar-Grundsatz oben in dieser Doku. Befund: Abschaltbefehl kommt bei Ziel + 0,3 °C, Raum steigt danach noch 0,3–0,7 °C (Befehl ~3 min, Messung 5 min) → Schlafzimmer nachts ~1,1 °C über Min.
+- SQL 47: `nacht_raum_kennzahlen` (je Raum und Nacht), `raum_ueberlauf`, `ki_nacht_pruefen()` stündlich (pg_cron, reines SQL), `heating_settings.nacht_frueh_aus` / `nacht_spitze_ueber_ziel_c` / `nacht_frueh_aus_seit`.
+- `pv-automation` Nacht: aus, wenn Ist + gemessener Überlauf ≥ Ziel + 0,1 °C (nie unter Min), 20 min Schutz gegen erneuten Anstoß.
+- `ki-tagesanalyse`: Regel 5 (Nacht – Min − 0,5 °C vorschlagen), Regel 1 nur noch Hinweis, Erfolgskontrolle „früh aus“ und Nacht-Vergleich bei genehmigtem Min, Nachtzeile im Rückblick.
+- Details `doc/FIX-NACHT-NUR-MIN-2026-11-17.md`.
 
 ### 2026-11-09 — Vorrang behalten, Schaltband der Thermostate
 - Befund: Wohnzimmer verlor „heizt allein“ nach einem Lauf (sechsmal am 09.11.); Thermostate schalten bei Soll ± 1,0 °C – „wartet → Ist − 0,5“ stoppte nichts (5,5 kW über der Grenze), zugeteilte Räume im Band heizten nicht, belegten aber die Grenze.

@@ -380,6 +380,39 @@ async function attachBands(supabase: any, rooms: any[]): Promise<void> {
   } catch (e) { console.log(`[SCHALTBAND] thermostat_state nicht lesbar → Band 1,0 °C: ${e}`); }
 }
 
+// ============= NACHTS NUR MIN – FRÜH ABSCHALTEN (17.11.2026, doc/FIX-NACHT-NUR-MIN-2026-11-17.md) =============
+// Uli 17.11.2026: „Nachts nur Min halten, nie den Estrich laden – das ist einer unserer Schlüssel zum Sparen.“
+// Gemessen (7 Nächte): Der Abschaltbefehl kommt richtig bei Ziel + 0,3 °C, der Raum steigt danach aber noch
+// 0,3–0,8 °C (Befehl braucht ~3 min bis zum Thermostat, Messung alle 5 min, Estrich heizt kurz nach).
+// Deshalb nachts: aus, sobald Ist + gemessener Überlauf (raum_ueberlauf, SQL 47) ≥ Ziel + nacht_spitze_ueber_ziel_c.
+// Nie unter Min abschalten. Danach FRUEH_SCHUTZ_MIN kein neuer Anstoß, solange der Raum über Min bleibt –
+// sonst würde der noch unter „Min + Vorlauf“ liegende Raum sofort wieder angestoßen (Hin und Her).
+const FRUEH_SCHUTZ_MIN = 20;
+
+async function ladeUeberlauf(supabase: any): Promise<Map<string, number>> {
+  try {
+    const { data, error } = await supabase.from('raum_ueberlauf').select('room_id, ueberlauf');
+    if (error) throw error;
+    return new Map(((data ?? []) as any[]).filter((x) => x.ueberlauf != null).map((x) => [x.room_id, Number(x.ueberlauf)]));
+  } catch (e) {
+    console.log(`[NACHT-FRUEH] raum_ueberlauf nicht lesbar (SQL 47 ausgeführt?) → wie bisher: ${e}`);
+    return new Map();
+  }
+}
+
+async function ladeFruehAus(supabase: any): Promise<Record<string, string>> {
+  try {
+    const { data } = await supabase.from('system_settings').select('value').eq('key', 'nacht_frueh_aus_state').maybeSingle();
+    return (data?.value?.rooms ?? {}) as Record<string, string>;
+  } catch { return {}; }
+}
+
+async function speichereFruehAus(supabase: any, rooms: Record<string, string>) {
+  try {
+    await supabase.from('system_settings').upsert({ key: 'nacht_frueh_aus_state', value: { rooms }, updated_at: new Date().toISOString() }, { onConflict: 'key' });
+  } catch (e) { console.log(`[NACHT-FRUEH] Zustand nicht gespeichert: ${e}`); }
+}
+
 // ============= HEIZPLANER STEUERT (13.11.2026, doc/FIX-PLANER-MODELL-2026-11-13.md) =============
 // Modus „steuern“ (heating_settings.planer_modus): Der Heizplaner (alle 15 min) entscheidet je Raum und halbe Stunde,
 // ob geheizt wird. Diese Funktion setzt das in Sollwerte um. Das Regelwerk (Tagesmodus, Budgets, Nacht-Verteilung)
@@ -1526,18 +1559,48 @@ Deno.serve(async (req) => {
           const nightVorlauf = Math.max(0, Number(settings?.min_vorlauf_c ?? 0.2));
           const nightZielOf = (r: any) => nightTargetOf(r) + nightVorlauf;
           const nightIsCand = (r: any) => { const c = Number(r.current_temp) || 0; return c > 0 && c < nightZielOf(r); };
+          // Früh abschalten (17.11.2026): gemessener Überlauf je Raum, Zustand der letzten Abschaltungen
+          const nightStop = Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3));
+          const fruehAktiv = controlMode === 'local' && settings?.nacht_frueh_aus !== false;
+          const spitzeUeberZiel = Math.max(0, Number(settings?.nacht_spitze_ueber_ziel_c ?? 0.1));
+          const ueberlaufMap = fruehAktiv ? await ladeUeberlauf(supabase) : new Map<string, number>();
+          const fruehAlt = fruehAktiv ? await ladeFruehAus(supabase) : {};
+          const fruehJetzt = new Map<string, { u: number; schwelle: number }>();
+          for (const r of autoRooms) {
+            if (!fruehAktiv || isOverridden(r) || r.is_heating !== true) continue;
+            const u = ueberlaufMap.get(r.id);
+            if (u == null) continue;                                   // zu wenige Messungen → wie bisher
+            const cur = Number(r.current_temp) || 0;
+            const want = nightTargetOf(r), ziel = nightZielOf(r);
+            const schwelle = Math.max(want, ziel + spitzeUeberZiel - u);   // nie unter Min abschalten
+            if (cur > 0 && cur >= schwelle && cur < ziel + nightStop) fruehJetzt.set(r.id, { u, schwelle });
+          }
+          const fruehSeit = (r: any): number | null => {
+            const t = fruehAlt[r.id];
+            if (!t) return null;
+            const ms = new Date(t).getTime();
+            return Number.isFinite(ms) && nowMsNight - ms < FRUEH_SCHUTZ_MIN * 60_000 ? ms : null;
+          };
+          // Schutz: kurz nach dem Früh-Abschalten kein neuer Anstoß, solange der Raum nicht unter Min fällt
+          const inFruehSchutz = (r: any): boolean => {
+            if (fruehJetzt.has(r.id) || fruehSeit(r) == null) return false;
+            const cur = Number(r.current_temp) || 0;
+            return r.is_heating === true || cur >= nightTargetOf(r);
+          };
           let nightStartUsed = 0;
           const nightNachlauf = new Set<string>();
           const nightAbschaltbar: Array<{ id: string; power: number }> = [];
           for (const r of autoRooms) {
             if (r.is_heating !== true) continue;
             if (isOverridden(r)) { nightStartUsed += roomPowerW(r); nightNachlauf.add(r.id); continue; }
+            // früh abgeschaltet, Thermostat läuft noch bis der Befehl ankommt → zählt mit, bekommt keine Leistung
+            if (fruehJetzt.has(r.id) || inFruehSchutz(r)) { nightStartUsed += roomPowerW(r); nightNachlauf.add(r.id); continue; }
             if (nightIsCand(r)) continue;
             nightAbschaltbar.push({ id: r.id, power: roomPowerW(r) });
             nightNachlauf.add(r.id);
           }
           const nightCands = ctrlRooms
-            .filter(nightIsCand)
+            .filter((r: any) => nightIsCand(r) && !fruehJetzt.has(r.id) && !inFruehSchutz(r))
             .map((r: any) => ({ id: r.id, name: r.name, power: roomPowerW(r), prio: Number(r.priority) || 99, heating: r.is_heating === true,
                                 cur: Number(r.current_temp) || 0, min: nightTargetOf(r) }));
           const nightState = await loadWaitState(supabase);
@@ -1549,7 +1612,15 @@ Deno.serve(async (req) => {
             nextGrantState(nightState.granted, nightCap.granted, nowIsoNight), 'nacht');
 
           const fmtHM = (iso: string) => new Date(iso).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Vienna' });
-          const nightStop = Math.max(0, Number(settings?.ziel_abschalt_ueber_c ?? 0.3));
+          // Zustand Früh-Abschalten: neue Abschaltungen mit Zeit, abgelaufene fallen heraus
+          if (fruehAktiv) {
+            const fruehNeu: Record<string, string> = {};
+            for (const [id, t] of Object.entries(fruehAlt)) {
+              if (nowMsNight - new Date(t).getTime() < FRUEH_SCHUTZ_MIN * 60_000) fruehNeu[id] = t;
+            }
+            for (const id of fruehJetzt.keys()) if (!fruehNeu[id]) fruehNeu[id] = new Date(nowMsNight).toISOString();
+            await speichereFruehAus(supabase, fruehNeu);
+          }
           const nightPlan: Array<{ room: any; target: number; why: string; zwingend?: boolean }> = ctrlRooms.map((r: any) => {
             const want = nightTargetOf(r);
             const ziel = nightZielOf(r);
@@ -1557,7 +1628,21 @@ Deno.serve(async (req) => {
             let target = want;
             let why: string;
             let zwingend = true;   // Stufe A: Min-Vorrang, Deckel und „Min erreicht → aus“ dürfen die Haltezeit brechen
-            if (nightCap.granted.has(r.id)) {
+            const frueh = fruehJetzt.get(r.id);
+            if (frueh) {
+              // 17.11.2026: früh aus – der gemessene Überlauf bringt den Raum trotzdem auf ~Ziel + nacht_spitze_ueber_ziel_c
+              target = holdBelow(cur, want, bandOf(r));
+              why = `Min gehalten: ${cur.toFixed(1)} °C + gemessener Überlauf ${frueh.u.toFixed(1)} °C erreicht ${(ziel + spitzeUeberZiel).toFixed(1)} °C → Thermostat früh aus (nachts nur Min, Estrich nicht laden)`;
+            } else if (inFruehSchutz(r)) {
+              const seit = fruehSeit(r)!;
+              const bis = new Date(seit + FRUEH_SCHUTZ_MIN * 60_000).toISOString();
+              if (r.is_heating === true) {
+                target = holdBelow(cur, want, bandOf(r));
+              } else {
+                target = Number(r.target_temp) || holdBelow(cur, want, bandOf(r)); zwingend = false;
+              }
+              why = `früh abgeschaltet um ${fmtHM(new Date(seit).toISOString())} (${cur.toFixed(1)} °C) – wartet den Überlauf ab, heizt wieder ab ${fmtHM(bis)} oder sofort unter Min ${want} °C`;
+            } else if (nightCap.granted.has(r.id)) {
               const st = controlMode === 'local'
                 ? startTarget(cur, ziel, bandOf(r), r.is_heating === true, Math.max(ziel, Number(r.comfort_temp) || ziel))
                 : { temp: ziel, anstoss: false };
@@ -1589,7 +1674,7 @@ Deno.serve(async (req) => {
             }
             return { room: r, target, why, zwingend };
           });
-          console.log(`[NACHT-MIN] ${nightCap.usedW} W (Grenze ${nightCapW}, Deckel ${nightDeckelW}) · abgeschaltet: ${nightCap.cut.size} · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size}`);
+          console.log(`[NACHT-MIN] ${nightCap.usedW} W (Grenze ${nightCapW}, Deckel ${nightDeckelW}) · abgeschaltet: ${nightCap.cut.size} · heizt: ${[...nightCap.granted].length} · wartet: ${[...nightCap.waiting].length} · Nachlauf: ${nightNachlauf.size} · früh aus: ${fruehJetzt.size} (Überlauf für ${ueberlaufMap.size} Räume)`);
 
           // Planer steuert (13.11.2026): auch nachts entscheidet der Plan; die Nacht-Verteilung oben bleibt Rückfall.
           const nachtPlan = await ladePlanerPlan(supabase, settings);

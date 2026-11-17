@@ -1,4 +1,6 @@
-// ki-tagesanalyse (04.11.2026; Regel 3 „Estrich laden bis“ entfernt 07.11.2026)
+// ki-tagesanalyse (04.11.2026; Regel 3 „Estrich laden bis“ entfernt 07.11.2026;
+// 17.11.2026 Nacht-Prüfung über nacht_raum_kennzahlen (SQL 47), Regel 5, Erfolgskontrolle „früh aus“ –
+// doc/FIX-NACHT-NUR-MIN-2026-11-17.md)
 // Konzept doc/KONZEPT-KI-VORSCHLAEGE-2026-11-02.md §9 – „KI › Zu entscheiden“, freigegeben 04.11.2026.
 //
 // Läuft täglich 10:00 Wiener Zeit (analysis-scheduler), nach der Tagesnote (09:55). Schaut auf die letzten
@@ -96,11 +98,19 @@ Deno.serve(async (req) => {
       sb.from('tages_bewertung').select('tag, note, pv_kwh, einspeisung_kwh, nacht_min_unter, hinweis, aussen_avg')
         .gte('tag', addDays(gestern, -30)).lte('tag', gestern),
       sb.from('ai_parameter_whitelist').select('parameter_key, scope, min_value, max_value, autonomy_level').eq('enabled', true),
-      sb.from('heating_settings').select('max_grid_heating_power_w').limit(1).maybeSingle(),
+      sb.from('heating_settings').select('max_grid_heating_power_w, nacht_frueh_aus, nacht_frueh_aus_seit').limit(1).maybeSingle(),
       sb.from('rooms').select('id, name, eco_temp, comfort_temp, wait_min_temp, automation_enabled'),
       sb.from('ki_vorschlaege').select('*').gte('created_at', new Date(Date.now() - 60 * 86400000).toISOString()),
       sb.from('energie_tag').select('tag, heizung_kwh, stunden').gte('tag', addDays(gestern, -60)).lte('tag', gestern),
     ]);
+    // Nacht-Kennzahlen je Raum (SQL 47, stündlich) – fehlt die Tabelle noch, läuft alles andere wie bisher
+    const { data: nkRows, error: nkErr } = await sb.from('nacht_raum_kennzahlen')
+      .select('tag, room_id, min_temp, heiz_kwh, zyklen, spitze_ueber_min, ueberlauf, abkuehl_c_h, t_morgen, t_tief, aussen, vollstaendig')
+      .gte('tag', addDays(gestern, -30)).lte('tag', gestern);
+    if (nkErr) console.log(`[ki-tagesanalyse] nacht_raum_kennzahlen nicht lesbar (SQL 47?): ${nkErr.message}`);
+    const naechte = ((nkRows ?? []) as any[]).filter((x) => x.vollstaendig);
+    const nachtVon = (roomId: string) => naechte.filter((x) => x.room_id === roomId).sort((a, b) => String(a.tag).localeCompare(String(b.tag)));
+    const hgtNacht = (x: any) => (x.aussen != null ? Math.max(1, 18 - Number(x.aussen)) : null);
     const tb = new Map<string, any>(((tbRows ?? []) as any[]).map((r) => [String(r.tag), r]));
     const wl = new Map<string, any>(((wlRows ?? []) as any[]).filter((w) => w.autonomy_level === 'suggest').map((w) => [w.parameter_key, w]));
     const raumById = new Map<string, any>(((rooms ?? []) as any[]).map((r) => [r.id, r]));
@@ -138,7 +148,8 @@ Deno.serve(async (req) => {
     const infos: Neu[] = [];
 
     // ---- Regel 1: Untergrenze je Raum ----------------------------------------------------------------
-    // Raum hat morgens seine Untergrenze gehalten (± 0,3 °C), lag danach aber > 2 h unter Eco → Untergrenze + 0,5 °C.
+    // Raum hat morgens seine Untergrenze gehalten (± 0,3 °C), lag danach aber > 2 h unter Eco → seit 17.11.2026 nur Hinweis
+    // (vorher Vorschlag Untergrenze + 0,5 °C, siehe unten).
     // 04.11.: Liegt der Raum morgens schon deutlich UNTER der Untergrenze, hilft ein höherer Wert nichts – dann
     // wird die Untergrenze gar nicht gehalten (Nacht auf Frostschutz, Heizleistung zu klein …) → nur Hinweis.
     const wlU = wl.get('wait_min_temp');
@@ -161,21 +172,13 @@ Deno.serve(async (req) => {
         const neu = Math.min(eco, alt + 0.5, Number(wlU.max_value ?? 99));
         const morgen = mittel(treffer.map(({ x }) => Number(x!.t_morgen)));
         const unterH = mittel(treffer.map(({ x }) => x!.min_unter_eco));
-        if (treffer.length >= MIN_TAGE && neu > alt && !sperre('wait_min_temp', r.id)) {
-          kandidaten.push({
-            quelle: 'tagesanalyse', art: 'vorschlag', gewicht: treffer.length,
-            titel: `${r.name}: morgens etwas wärmer halten?`,
-            was: `${r.name} soll morgens nicht unter ${zahl(neu)} °C fallen statt bisher ${zahl(alt)} °C.`,
-            warum: `An ${treffer.length} der letzten ${n} Tage war ${r.name} morgens nur bei ${zahl(morgen)} °C und lag danach im Schnitt ${stunden(unterH)} Stunden unter ${zahl(eco)} °C (Eco).`,
-            wirkung_text: `${r.name} kommt schneller auf Eco. Dafür heizt er morgens etwas früher – ohne Sonne aus Batterie oder Netz.`,
-            parameter_key: 'wait_min_temp', scope: 'room', room_id: r.id, alt_wert: alt, neu_wert: neu,
-            min_wert: Math.max(eco - 2, Number(wlU.min_value ?? 0)), max_wert: Math.min(eco, Number(wlU.max_value ?? 99)), einheit: '°C',
-            tage_basis: treffer.length, belege: treffer.map(({ t, x }) => ({ tag: t.tag, morgens: x!.t_morgen, min_unter_eco: x!.min_unter_eco })),
-          });
-        } else if (treffer.length < MIN_TAGE && treffer.some(({ t }) => t.tag === gestern)) {
-          infos.push({ quelle: 'tagesanalyse', art: 'info', gewicht: treffer.length,
-            titel: `${r.name} war gestern morgens kühl (${zahl(Number(treffer[treffer.length - 1].x!.t_morgen))} °C) und danach ${stunden(treffer[treffer.length - 1].x!.min_unter_eco)} Stunden unter Eco – erst an ${treffer.length} Tag${treffer.length === 1 ? '' : 'en'}, noch kein Vorschlag.`,
-            room_id: r.id });
+        // 17.11.2026 (Uli: nachts nur Min, Estrich nur mit PV): Lag der Raum morgens auf Min und tagsüber unter Normal,
+        // ist nicht Min die Ursache, sondern die Leistung am Tag (Grenze, Regel 2) – ein höheres Min hieße nachts mehr
+        // Netzstrom. Deshalb nur noch ein Hinweis, kein Vorschlag „wärmer“.
+        if (treffer.length >= MIN_TAGE && neu > alt) {
+          infos.push({ quelle: 'tagesanalyse', art: 'info', gewicht: treffer.length, room_id: r.id,
+            titel: `${r.name}: hält morgens Min (${zahl(morgen)} °C), liegt tagsüber aber im Schnitt ${stunden(unterH)} h unter Normal – `
+              + `an ${treffer.length} der letzten ${n} Tage. Ein höheres Min würde nachts mehr heizen; Ursache ist die Leistung am Tag (Grenze ohne Sonne).` });
         }
       }
     }
@@ -204,6 +207,44 @@ Deno.serve(async (req) => {
         });
         // Die Hausgrenze ist die Ursache – Untergrenzen je Raum erst wieder, wenn das geklärt ist
         for (let i = kandidaten.length - 1; i >= 0; i--) if (kandidaten[i].parameter_key === 'wait_min_temp') kandidaten.splice(i, 1);
+      }
+    }
+
+    // ---- Regel 5: Nacht – Min halten kostet Netzstrom (17.11.2026) ------------------------------------
+    // Grundsatz: nachts nur Min, Estrich nur mit PV. Hat ein Raum in ≥ 3 der letzten 7 Nächte geheizt, um Min zu halten,
+    // und lag er zum Nachtende trotzdem auf Min, schlagen wir Min − 0,5 °C vor (nicht unter Normal − 2, Whitelist).
+    // Grundlage sind die gemessenen Nächte (heiz_kwh, Abkühlen je Stunde) – nicht die Tagesstunden.
+    if (wlU) {
+      for (const r of (rooms ?? []) as any[]) {
+        if (r.automation_enabled === false || r.eco_temp == null || r.wait_min_temp == null) continue;
+        if (kandidaten.some((k) => k.parameter_key === 'wait_min_temp' && k.room_id === r.id)) continue;
+        const eco = Number(r.eco_temp), alt = Number(r.wait_min_temp);
+        const neu = Math.max(alt - 0.5, eco - 2, Number(wlU.min_value ?? 0));
+        if (neu >= alt || sperre('wait_min_temp', r.id)) continue;
+        const ab = seit('wait_min_temp', r.id);
+        const letzte7 = nachtVon(r.id).filter((x) => String(x.tag) > ab && String(x.tag) >= addDays(gestern, -6));
+        const treffer = letzte7.filter((x) => Number(x.heiz_kwh) >= 0.3 && x.t_morgen != null && Number(x.t_morgen) >= alt - 0.1);
+        if (treffer.length < MIN_TAGE) continue;
+        const kwh = mittel(treffer.map((x) => Number(x.heiz_kwh)));
+        const abk = mittel(treffer.filter((x) => x.abkuehl_c_h != null && Number(x.abkuehl_c_h) > 0.02).map((x) => Number(x.abkuehl_c_h)));
+        const spitze = mittel(treffer.filter((x) => x.spitze_ueber_min != null).map((x) => Number(x.spitze_ueber_min)));
+        const laenger = Number.isFinite(abk) ? (alt - neu) / abk : NaN;
+        kandidaten.push({
+          quelle: 'tagesanalyse', art: 'vorschlag', gewicht: treffer.length + 1,
+          titel: `${r.name}: Min auf ${zahl(neu)} °C senken – nachts weniger heizen?`,
+          was: `${r.name} darf nachts bis ${zahl(neu)} °C abkühlen statt bis ${zahl(alt)} °C. Normal bleibt ${zahl(eco)} °C (Ziel ab Nachtende).`,
+          warum: `${r.name} hat in ${treffer.length} der letzten ${letzte7.length} Nächte geheizt, um Min zu halten – im Schnitt ${zahl(kwh)} kWh je Nacht aus Batterie/Netz`
+            + (Number.isFinite(spitze) ? `, und ist dabei im Schnitt auf Min + ${zahl(spitze)} °C gestiegen` : '')
+            + `. Zum Nachtende lag er trotzdem auf Min. Grundsatz: nachts nur Min, Estrich nur mit PV.`,
+          wirkung_text: (Number.isFinite(laenger)
+              ? `Der Raum kühlt nachts gemessen um ${zahl(abk, 2)} °C je Stunde ab – mit ${zahl(neu)} °C kommt er etwa ${zahl(laenger, 1)} Stunden länger ohne Heizen aus. `
+              : '')
+            + `Was nachts nicht geheizt wird, holt an Sonnentagen die PV nach. Nach ${WIRKUNG_TAGE} Nächten prüfe ich Heiz-kWh je Nacht und ob ${zahl(neu)} °C gehalten wurde.`,
+          parameter_key: 'wait_min_temp', scope: 'room', room_id: r.id, alt_wert: alt, neu_wert: neu,
+          min_wert: Math.max(eco - 2, Number(wlU.min_value ?? 0)), max_wert: Math.min(eco, Number(wlU.max_value ?? 99)), einheit: '°C',
+          tage_basis: treffer.length,
+          belege: treffer.map((x) => ({ nacht: x.tag, heiz_kwh: x.heiz_kwh, t_morgen: x.t_morgen, spitze_ueber_min: x.spitze_ueber_min, abkuehl_c_h: x.abkuehl_c_h })),
+        });
       }
     }
 
@@ -240,6 +281,47 @@ Deno.serve(async (req) => {
           tage_basis: treffer.length,
           belege: treffer.map(({ t, x }) => ({ tag: t.tag, morgens: x!.t_morgen, min_unter_eco: x!.min_unter_eco })),
         });
+      }
+    }
+
+    // ---- Erfolgskontrolle „nachts früh aus“ (pv-automation, 17.11.2026) -------------------------------
+    // Vergleich der Nächte vor und seit dem Einschalten: Spitze über Min und Heiz-kWh je Heizgradtag (alle Räume).
+    const nachtSumme = (rows: any[]) => {
+      const proNacht = new Map<string, { kwh: number; hgt: number | null; sp: number[] }>();
+      for (const x of rows) {
+        const k = String(x.tag);
+        const e = proNacht.get(k) ?? { kwh: 0, hgt: hgtNacht(x), sp: [] };
+        e.kwh += Number(x.heiz_kwh) || 0;
+        if (x.spitze_ueber_min != null && Number(x.zyklen) > 0) e.sp.push(Number(x.spitze_ueber_min));
+        proNacht.set(k, e);
+      }
+      const ns = [...proNacht.values()];
+      const mitHgt = ns.filter((e) => e.hgt != null);
+      return {
+        naechte: ns.length,
+        kwh: mittel(ns.map((e) => e.kwh)),
+        kwhHgt: mitHgt.length >= 2 ? mitHgt.reduce((a, e) => a + e.kwh, 0) / mitHgt.reduce((a, e) => a + (e.hgt as number), 0) : NaN,
+        spitze: mittel(ns.flatMap((e) => e.sp)),
+      };
+    };
+    if (hs?.nacht_frueh_aus !== false && hs?.nacht_frueh_aus_seit) {
+      const ab = viennaDate(new Date(hs.nacht_frueh_aus_seit));
+      const vorher = nachtSumme(naechte.filter((x) => String(x.tag) < ab && String(x.tag) >= addDays(ab, -7)));
+      const nachher = nachtSumme(naechte.filter((x) => String(x.tag) >= ab));
+      if (nachher.naechte === 0) {
+        // noch keine volle Nacht
+      } else if (nachher.naechte < WIRKUNG_TAGE || !Number.isFinite(vorher.spitze)) {
+        infos.push({ quelle: 'rueckblick', art: 'info', gewicht: 40,
+          titel: `Nachts früh abschalten (seit ${dm(ab)}): ${nachher.naechte} von ${WIRKUNG_TAGE} Nächten gemessen – Räume im Schnitt Min + ${zahl(nachher.spitze)} °C `
+            + `(vorher Min + ${zahl(vorher.spitze)} °C), ${zahl(nachher.kwh)} kWh je Nacht (vorher ${zahl(vorher.kwh)} kWh). Urteil nach ${WIRKUNG_TAGE} Nächten.` });
+      } else {
+        const dSp = nachher.spitze - vorher.spitze;
+        const rel = Number.isFinite(vorher.kwhHgt) && Number.isFinite(nachher.kwhHgt) && vorher.kwhHgt > 0 ? (nachher.kwhHgt - vorher.kwhHgt) / vorher.kwhHgt : NaN;
+        const urteil = dSp <= -0.15 && !(rel >= 0.05) ? 'wirkt' : dSp >= 0.05 || rel >= 0.05 ? 'schlechter' : 'keine klare Wirkung';
+        infos.push({ quelle: 'rueckblick', art: 'info', gewicht: urteil === 'schlechter' ? 90 : 40,
+          titel: `Nachts früh abschalten (seit ${dm(ab)}, ${nachher.naechte} Nächte): ${urteil}. Spitze über Min ${zahl(vorher.spitze)} → ${zahl(nachher.spitze)} °C, `
+            + (Number.isFinite(rel) ? `Heizstrom je Heizgradtag ${zahl(vorher.kwhHgt, 2)} → ${zahl(nachher.kwhHgt, 2)} kWh (${rel <= 0 ? '' : '+'}${Math.round(rel * 100)} %).` : `Heizstrom je Nacht ${zahl(vorher.kwh)} → ${zahl(nachher.kwh)} kWh.`)
+            + (urteil === 'schlechter' ? ' Abschalten in Einstellungen › Haus › Verteilung („Nachts früh abschalten“) prüfen.' : '') });
       }
     }
 
@@ -288,8 +370,22 @@ Deno.serve(async (req) => {
         const sg = xs.reduce((s, x) => s + x.g, 0);
         return xs.length >= 2 && sg > 0 ? xs.reduce((s, x) => s + x.h, 0) / sg : null;
       };
-      const khVor = kh([1, 2, 3].map((i) => addDays(d, -i))), khNach = kh([1, 2, 3].map((i) => addDays(d, i)));
+      let khVor = kh([1, 2, 3].map((i) => addDays(d, -i))), khNach = kh([1, 2, 3].map((i) => addDays(d, i)));
       const spar = v.alt_wert != null && wert < Number(v.alt_wert);
+      // 17.11.2026: Min je Raum → die Nächte dieses Raums vergleichen (Heiz-kWh je Heizgradtag, Min gehalten?)
+      let nachtText = '';
+      if (spar && v.parameter_key === 'wait_min_temp' && v.room_id) {
+        const rn = nachtVon(v.room_id);
+        const vor = rn.filter((x) => String(x.tag) < d && String(x.tag) >= addDays(d, -3));
+        const nach = rn.filter((x) => String(x.tag) >= d && String(x.tag) <= addDays(d, 2));
+        const proHgt = (xs: any[]) => { const m = xs.filter((x) => hgtNacht(x) != null); return m.length >= 2 ? m.reduce((a, x) => a + Number(x.heiz_kwh), 0) / m.reduce((a, x) => a + (hgtNacht(x) as number), 0) : null; };
+        const a2 = proHgt(vor), b2 = proHgt(nach);
+        if (a2 != null && b2 != null && a2 > 0) {
+          khVor = a2; khNach = b2;
+          const gehalten = nach.filter((x) => x.t_morgen != null && Number(x.t_morgen) >= wert - 0.2).length;
+          nachtText = ` Nächte dieses Raums: ${zahl(a2, 2)} → ${zahl(b2, 2)} kWh je Heizgradtag, neues Min zum Nachtende in ${gehalten} von ${nach.length} Nächten gehalten.`;
+        }
+      }
       let urteil = diff >= 5 ? 'besser' : diff <= -5 ? 'schlechter' : 'gleich';
       if (spar && khVor != null && khNach != null) {
         const rel = (khNach - khVor) / khVor;
@@ -303,7 +399,7 @@ Deno.serve(async (req) => {
           titel: `Rückblick: ${raum}${label} vom ${dm(d)} zurücknehmen?`,
           was: `${raum}${label} wieder auf ${mitEinheit(Number(v.alt_wert), einheit)} statt ${mitEinheit(wert, einheit)}.`,
           warum: spar && khVor != null && khNach != null
-            ? `Am ${dm(d)} hast du ${mitEinheit(Number(v.alt_wert), einheit)} → ${mitEinheit(wert, einheit)} genehmigt, um zu sparen. Danach: ${zahl(khNach, 2)} statt ${zahl(khVor, 2)} kWh je Heizgradtag, Tagesnote ${Math.round(b)} statt ${Math.round(a)}. Gespart wurde nicht genug – oder es wurde zu kalt.`
+            ? `Am ${dm(d)} hast du ${mitEinheit(Number(v.alt_wert), einheit)} → ${mitEinheit(wert, einheit)} genehmigt, um zu sparen. Danach: ${zahl(khNach, 2)} statt ${zahl(khVor, 2)} kWh je Heizgradtag, Tagesnote ${Math.round(b)} statt ${Math.round(a)}. Gespart wurde nicht genug – oder es wurde zu kalt.${nachtText}`
             : `Am ${dm(d)} hast du ${mitEinheit(Number(v.alt_wert), einheit)} → ${mitEinheit(wert, einheit)} genehmigt. In den 3 Tagen danach lag die Tagesnote im Schnitt bei ${Math.round(b)}, vorher bei ${Math.round(a)}. Die Änderung hat nicht geholfen.`,
           wirkung_text: 'Es gilt wieder der alte Wert. Beachte: auch das Wetter verändert die Tagesnote – der Vergleich ist grob.',
           parameter_key: v.parameter_key, scope: v.scope, room_id: v.room_id, alt_wert: wert, neu_wert: Number(v.alt_wert),
@@ -314,8 +410,8 @@ Deno.serve(async (req) => {
         infos.push({ quelle: 'rueckblick', art: 'info', gewicht: 10, bezug_id: v.id,
           titel: spar && khVor != null && khNach != null
             ? (urteil === 'besser'
-              ? `${raum}${label} vom ${dm(d)} hat gespart: ${zahl(khNach, 2)} statt ${zahl(khVor, 2)} kWh je Heizgradtag, Tagesnote ${Math.round(b)} statt ${Math.round(a)}.`
-              : `${raum}${label} vom ${dm(d)}: keine klare Ersparnis (${zahl(khVor, 2)} → ${zahl(khNach, 2)} kWh je Heizgradtag). Bleibt so.`)
+              ? `${raum}${label} vom ${dm(d)} hat gespart: ${zahl(khNach, 2)} statt ${zahl(khVor, 2)} kWh je Heizgradtag, Tagesnote ${Math.round(b)} statt ${Math.round(a)}.${nachtText}`
+              : `${raum}${label} vom ${dm(d)}: keine klare Ersparnis (${zahl(khVor, 2)} → ${zahl(khNach, 2)} kWh je Heizgradtag). Bleibt so.${nachtText}`)
             : urteil === 'besser'
             ? `${raum}${label} vom ${dm(d)} hat geholfen: Tagesnote danach im Schnitt ${Math.round(b)} statt ${Math.round(a)}.`
             : `${raum}${label} vom ${dm(d)}: keine klare Wirkung (Tagesnote ${Math.round(a)} → ${Math.round(b)}). Bleibt so.` });
@@ -352,6 +448,14 @@ Deno.serve(async (req) => {
       const nachtMin = Number(b.nacht_min_unter ?? 0);
       teile.push(nachtMin <= 0 ? 'Die Nacht war gut, alle Räume blieben über Min.'
         : `In der Nacht lagen Räume zusammen ${stunden(nachtMin)} Stunden unter Min.`);
+      const nGestern = naechte.filter((x) => String(x.tag) === gestern);
+      if (nGestern.length) {
+        const s1 = nachtSumme(nGestern);
+        const hoch = nGestern.filter((x) => x.spitze_ueber_min != null && Number(x.spitze_ueber_min) >= 0.6)
+          .sort((x, y) => Number(y.spitze_ueber_min) - Number(x.spitze_ueber_min));
+        teile.push(`Nachts geheizt: ${zahl(s1.kwh)} kWh, um Min zu halten`
+          + (hoch.length ? ` – über Min hinaus gelaufen: ${hoch.slice(0, 3).map((x) => `${raumById.get(x.room_id)?.name ?? 'Raum'} +${zahl(Number(x.spitze_ueber_min))} °C`).join(', ')}.` : '.'));
+      }
       const kalt = g.raeume.filter((x) => x.min_unter_eco >= 60).sort((x, y) => y.min_unter_eco - x.min_unter_eco);
       teile.push(kalt.length === 0 ? 'Tagsüber waren alle Räume auf Eco.'
         : `Länger unter Eco: ${kalt.slice(0, 4).map((x) => `${x.raum} (${stunden(x.min_unter_eco)} h)`).join(', ')}${kalt.length > 4 ? ` und ${kalt.length - 4} weitere` : ''}.`);
