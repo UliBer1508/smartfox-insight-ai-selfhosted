@@ -755,6 +755,9 @@ export type Database = {
           cap_wait_boost_min: number
           cap_keep_max_min: number
           ziel_abschalt_ueber_c: number
+          nacht_frueh_aus: boolean
+          nacht_frueh_aus_seit: string | null
+          nacht_spitze_ueber_ziel_c: number
           fuehler_ende_abstand_c: number
           fuehler_max_stunden: number
           fuehler_pruefung_aktiv: boolean
@@ -843,6 +846,9 @@ export type Database = {
           cap_wait_boost_min?: number
           cap_keep_max_min?: number
           ziel_abschalt_ueber_c?: number
+          nacht_frueh_aus?: boolean
+          nacht_frueh_aus_seit?: string | null
+          nacht_spitze_ueber_ziel_c?: number
           fuehler_ende_abstand_c?: number
           fuehler_max_stunden?: number
           fuehler_pruefung_aktiv?: boolean
@@ -931,6 +937,9 @@ export type Database = {
           cap_wait_boost_min?: number
           cap_keep_max_min?: number
           ziel_abschalt_ueber_c?: number
+          nacht_frueh_aus?: boolean
+          nacht_frueh_aus_seit?: string | null
+          nacht_spitze_ueber_ziel_c?: number
           fuehler_ende_abstand_c?: number
           fuehler_max_stunden?: number
           fuehler_pruefung_aktiv?: boolean

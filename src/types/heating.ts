@@ -67,6 +67,10 @@ export interface HeatingSettings {
   // Vorrang behalten / Abschalten am Ziel (09.11.2026, SQL 29)
   cap_keep_max_min?: number;
   ziel_abschalt_ueber_c?: number;
+  // Nachts nur Min – früh abschalten mit gemessenem Überlauf (17.11.2026, SQL 47)
+  nacht_frueh_aus?: boolean;
+  nacht_spitze_ueber_ziel_c?: number;
+  nacht_frueh_aus_seit?: string | null;
   // Fühler-Prüfung (09.11.2026, SQL 28): Sonnenspitzen am Thermostat erkennen und den Wert halten
   fuehler_pruefung_aktiv?: boolean;
   fuehler_sprung_c?: number;

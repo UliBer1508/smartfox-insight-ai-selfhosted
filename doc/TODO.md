@@ -1,10 +1,18 @@
 # TODO - Offene Aufgaben
 
-Stand: 2026-11-13
+Stand: 2026-11-17
 
 ---
 
 ## 🔴 Hohe Priorität
+
+### Nachts nur Min (17.11., `FIX-NACHT-NUR-MIN-2026-11-17.md`)
+- [ ] SQL `47_nacht_pruefung.sql` ausführen, PR mergen (GitHub-Aktion deployt `pv-automation`, `ki-tagesanalyse`)
+- [ ] `select * from raum_ueberlauf;` – Werte für die Räume da? Nachts Raumkarten „früh aus“
+- [ ] 18.11. 10:00: Tagespaket mit Nachtzeile, Vorschläge Regel 5 (erwartet: Bad Uli, Zimmer Uli, Zimmer Luis)
+- [ ] 20.11.: Erfolgskontrolle „früh abschalten“ (3 Nächte) im Tagespaket lesen
+- [ ] Danach: DP 101 = 0,5 °C an allen Räumen entscheiden (offen seit 10.11.) – mit Spitze über Min je Raum
+- [ ] Nächster Schritt: Heizplaner rechnet Varianten Min − 0,5 / − 1 je Raum über 24 h durch (eigener PR)
 
 ### Wartung: Tuya-Lizenz (15.11., `TUYA-LIZENZ-ERNEUERUNG-2026-11-15.md`)
 - [x] Lizenz erneuert 15.11.2026 – Thermostate haben wieder die richtige Uhrzeit
