@@ -13,7 +13,7 @@ Einbau als **erster, einklappbarer Abschnitt** in Auto-Steuerung.
 | Teil | Inhalt | Quelle |
 |---|---|---|
 | Fazit | ein Satz aus den Ampeln unten | berechnet |
-| 1 Wo stehen wir? | Kosten ohne PV · PV-Ersparnis · Netzkosten · davon Heizung (geschätzt) + Balken; vier Ampeln: Sonnenstrom genutzt, Heizstrom je Heizgradtag, Min gehalten, Planer | `optimierung_woche()` |
+| 1 Wo stehen wir? | Kosten ohne PV · PV-Ersparnis · Netzkosten · davon Heizung (gemessen, seit 22.11.) + Balken; vier Ampeln: Sonnenstrom genutzt, Heizstrom je Heizgradtag, Min gehalten, Planer | `optimierung_woche()` |
 | 2 Wohin wollen wir? | Ziele „jetzt → Ziel“: kWh je Heizgradtag (Ziel änderbar), Sonnenstrom 100 %, 0 Stunden unter Min | `optimierung_woche()`, `system_settings.optimierung_ziel` |
 | 3 Wie kommen wir dahin? | offene KI-Vorschläge mit Übernehmen/Ablehnen, „Haben frühere Vorschläge geholfen?“, So optimiert die Steuerung, Was du drehen kannst | `ki_vorschlaege` (useKiVorschlaege) |
 | Verlauf | kWh je Heizgradtag je 7 Tage mit Ziel-Linie (8 Zeiträume) | `optimierung_woche()` |
@@ -26,7 +26,9 @@ Zeitraum: die letzten 7 **vollen** Tage bis gestern (Tage mit < 20 Stunden Daten
   jede Änderung gemessen wird. Außentemperatur aus `tages_bewertung.aussen_avg`.
 - **Kosten ohne PV** = Σ Verbrauch × Bezugspreis. **PV-Ersparnis** = ohne PV − Netzkosten + Einspeiseerlös
   (enthält die Batterie).
-- **davon Heizung** = Netzkosten × Heizung ÷ Verbrauch – **geschätzt nach Anteil**, nicht gemessen.
+- **davon Heizung** = Heizstrom aus dem Netz × Bezugspreis – **gemessen** (seit 22.11.2026, SQL 50): Thermostat „heizt“ ×
+  gemessene Raumleistung, je Stunde nach PV/Batterie/Netz aufgeteilt (`protokoll_energie_raeume`, Tageswerte in
+  `tages_bewertung.heiz_*_kwh`). Rest Netz = Warmwasser, Auto, Sauna, Haus. Vorher: Netzkosten × Heizung ÷ Verbrauch (geschätzt).
 - **Raum-Stunden unter Min** = `energie_tag.raum_h_nacht_unter`; **unter Normal** = `raum_h_unter_eco` (08–22 Uhr).
 
 Ampeln: Sonne ≥ 95 % gut, ≥ 80 % mittel · Heizstrom ≤ Ziel gut, ≤ Ziel + 15 % mittel · Min ≤ 0,5 h je Nacht gut, ≤ 5 h mittel.
