@@ -13,6 +13,12 @@ $einst = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (N
 # Reicht für die Brücke: sie braucht nur C:\EMHASS und Internet (keine Netzlaufwerke). 22.11.2026: Kennwort nicht zur Hand.
 $benutzer = "$env:USERDOMAIN\$env:USERNAME"
 $wer = New-ScheduledTaskPrincipal -UserId $benutzer -LogonType S4U -RunLevel Highest
-Register-ScheduledTask -TaskName "EMHASS Vergleich" -Action $aktion -Trigger $zeit -Settings $einst -Principal $wer -Force | Out-Null
+try {
+  Register-ScheduledTask -TaskName "EMHASS Vergleich" -Action $aktion -Trigger $zeit -Settings $einst -Principal $wer -Force -ErrorAction Stop | Out-Null
+} catch {
+  Write-Host "Nicht eingerichtet: $($_.Exception.Message)" -ForegroundColor Red
+  Write-Host "PowerShell als Administrator öffnen (Rechtsklick › Als Administrator ausführen) und erneut starten." -ForegroundColor Red
+  exit 1
+}
 Write-Host "Aufgabe 'EMHASS Vergleich' eingerichtet: täglich 03:45" -ForegroundColor Green
 Write-Host "Protokoll: $ordner\bruecke.log"
