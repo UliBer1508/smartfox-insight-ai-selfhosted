@@ -146,6 +146,13 @@ def main():
     tage = [args.tag] if args.tag else [(heute - datetime.timedelta(days=i)).isoformat() for i in range(args.tage, 0, -1)]
     fehler = 0
     for tag in tage:
+        # 22.11.2026: Gegenrechnung (tatsächlich + Planer gierig) zuerst neu rechnen, damit alle Spalten mit demselben,
+        # gerade gelernten Raummodell gerechnet sind – das Modell lernt jede Nacht neu (19.11.: gierig mit Modell vom 20.11.,
+        # HiGHS mit Modell vom 22.11. → Toilette Eingang 0,8 gegen 18,7 °C·h unter Min, unfairer Vergleich).
+        try:
+            heizplaner(einst, {"aktion": "vergleich", "tag": tag})
+        except Exception as ex:
+            melde(f"{tag}: Gegenrechnung nicht neu gerechnet – {ex}")
         for schritt in (ein_tag, highs_tag):                       # EMHASS und HiGHS unabhängig voneinander
             try:
                 schritt(einst, tag)
