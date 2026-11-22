@@ -49,10 +49,16 @@ export function KiGegenRegeln() {
   const [zeilen, setZeilen] = useState<Zeile[] | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   useEffect(() => {
-    db.from('heizplan_vergleich').select('tag, netz_gemessen_kwh, steuerung, planer').order('tag', { ascending: false }).limit(7)
+    const laden = () => db.from('heizplan_vergleich').select('tag, netz_gemessen_kwh, steuerung, planer').order('tag', { ascending: false }).limit(7)
       .then(({ data, error }: { data: Zeile[] | null; error: { message: string } | null }) => {
-        if (error) setFehler(error.message); else setZeilen(data ?? []);
+        if (error) setFehler(error.message); else { setFehler(null); setZeilen(data ?? []); }
       });
+    laden();
+    // 22.11.2026: Gegenrechnung kommt ~03:00 – auch bei offen gelassener Seite nachladen
+    const t = setInterval(() => { if (document.visibilityState === 'visible') laden(); }, 10 * 60_000);
+    const sichtbar = () => { if (document.visibilityState === 'visible') laden(); };
+    document.addEventListener('visibilitychange', sichtbar);
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', sichtbar); };
   }, []);
 
   if (fehler) return <div className="text-sm text-red-600">Gegenrechnung nicht ladbar: {fehler}</div>;
@@ -66,7 +72,10 @@ export function KiGegenRegeln() {
   const satz = b.bereit
     ? `Bereit: ${b.folge} Tage in Folge war die KI besser als die tatsächliche Steuerung, mit Sonnentag. Du kannst auf „KI steuert“ schalten.`
     : b.folge > 0
-      ? `Noch nicht bereit: ${b.folge} von ${TAGE_IN_FOLGE} Tagen in Folge erfüllt${b.sonnentag ? '' : ', es fehlt noch ein Sonnentag'}.`
+      // 22.11.2026: vorher „5 von 3 Tagen“ – bei genug Tagen fehlt nur noch der Sonnentag
+      ? b.folge >= TAGE_IN_FOLGE
+        ? `Noch nicht bereit: ${b.folge} Tage in Folge war die KI mindestens gleich gut – es fehlt noch ein Sonnentag, an dem sie sich beweist.`
+        : `Noch nicht bereit: ${b.folge} von ${TAGE_IN_FOLGE} Tagen in Folge erfüllt${b.sonnentag ? '' : ', und es fehlt noch ein Sonnentag'}.`
       : pg.zaehlt
         ? 'Noch nicht bereit: Gestern war die KI nicht besser als die tatsächliche Steuerung.'
         : 'Noch nicht bereit: Die Tage sind noch ohne Regel-Rahmen gerechnet.';
