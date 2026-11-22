@@ -92,7 +92,7 @@ def einstellungen():
     for kandidat in (collector, pathlib.Path(r"C:\Users\ulibe\smartfox-collector\config.json")):
         if kandidat.exists():
             sb = json.loads(kandidat.read_text(encoding="utf-8-sig"))["supabase"]
-            return {"supabase_url": sb["url"], "supabase_key": sb["anon_key"]}
+            return {"supabase_url": sb["url"], "supabase_key": sb.get("service_role_key") or sb["anon_key"]}
     raise RuntimeError("Weder bruecke.json noch smartfox-collector\\config.json gefunden")
 
 
@@ -111,6 +111,10 @@ def main():
         except Exception as ex:                                   # ein Tag darf die anderen nicht aufhalten
             fehler += 1
             melde(f"{tag}: FEHLER {ex}")
+            if "401" in str(ex):
+                melde("Der Heizplaner lehnt den Schlüssel ab – in bruecke.json den service_role-Schlüssel eintragen "
+                      "(Supabase › Project Settings › API Keys), siehe doc/EMHASS-VERGLEICH-2026-11-22.md")
+                break
     sys.exit(1 if fehler else 0)
 
 
