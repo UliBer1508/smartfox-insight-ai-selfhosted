@@ -21,7 +21,7 @@
 - `optimierung_woche`: Außentemperatur notfalls direkt aus `weather_data` (Vortag vor 09:55), liefert `tage_min`,
   `tage_normal` (Tage mit Raumwerten), `stand` (letzte Berechnung) und `bewertet_bis`.
 
-**SQL 49** (`optimierung_woche` am 22.11. ausgeführt; Rest siehe „Offen“)
+**SQL 49** (am 22.11.2026 vollständig ausgeführt)
 - `optimierung_woche`: Zeitraum bis 400 Tage (Jahr), Grundgebühr als `grund_eur`. `wochen` bleibt nur für die alte Anzeige.
 - `optimierung_verlauf(einheit, bis, anzahl)`: Kennzahlen je Woche (Mo–So) oder Kalendermonat.
 - Tabelle `stromrechnung` (Monatswerte Salzburg AG, RLS: lesen für angemeldete Nutzer) + `stromrechnung_abgleich()`.
@@ -54,7 +54,5 @@
 
 ## Offen / Prüfen
 
-- Teil 2 von SQL 49 (`optimierung_verlauf`, `stromrechnung`, `stromrechnung_abgleich`) – Ausführung am 22.11. wurde vom
-  Supabase-Connector mit einer Rückfrage angehalten; prüfen mit `select stromrechnung_abgleich();`.
 - Neue Monatsinfos der Salzburg AG eintragen (`insert into stromrechnung …`), sobald sie kommen.
 - Nach November (01.12.): App-Netz-kWh gegen Rechnung; Abweichung > 5 % → Messung prüfen.
