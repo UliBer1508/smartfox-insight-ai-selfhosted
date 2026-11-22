@@ -73,6 +73,17 @@ Proben 22.11.2026 (Beispieldaten, hier im Container mit derselben Version): Lös
 
 Protokoll: `C:\EMHASS\bruecke.log`, je Tag `C:\EMHASS\laeufe\<tag>\` (Konfiguration, Eingaben, EMHASS-Ausgabe).
 
+Schlüssel: Der Planer nimmt den Anon-Schlüssel nicht an (401). Die Brücke nutzt deshalb den **service_role**-Schlüssel
+(Legacy, `eyJ…`) aus `C:\EMHASS\bruecke.json` – nur auf dem PC, nie ins Repo. Supabase schaltet die Legacy-Schlüssel
+Anfang 2027 ab → **offen, hoch:** alle Teile (Brücke, Cron-Jobs, Dienste, Prüfung im Planer) auf die neuen Schlüssel
+umstellen, danach Legacy-Schlüssel abschalten (der service_role-Schlüssel stand am 22.11.2026 im Chat).
+
+**Überwachung (SQL 52):** Die Brücke ist kein NSSM-Dienst (läuft einmal am Tag über die Aufgabenplanung), der
+Dienste-Wächter sieht sie nicht. `system_problems()` meldet deshalb ab 06:00 „EMHASS-Vergleich für gestern fehlt“ –
+Symbol in der App und Mail wie bei den anderen Diensten. Uli: „Ich kann nicht jeden Tag am PC etwas prüfen.“
+
+Erste Nachrechnung 15.–21.11.2026: 5 Tage gelöst, 18.11. keine Lösung, 19.11. nur vereinfacht (offen).
+
 ## Dateien
 
 - `supabase/functions/heizplaner/emhass.ts` – Eingaben bauen, Plan bewerten
