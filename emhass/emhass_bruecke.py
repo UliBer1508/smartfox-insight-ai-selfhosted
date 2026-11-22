@@ -143,6 +143,16 @@ def main():
     args = ap.parse_args()
     einst = einstellungen()
     heute = datetime.date.today()
+    # Einmaliger Nachtrag ohne Hand am PC (22.11.2026): steht in nachrechnen.txt eine Zahl, rechnet der nächste
+    # geplante Lauf so viele Tage und löscht die Datei danach.
+    marke = ORDNER / "nachrechnen.txt"
+    if not args.tag and args.tage == 1 and marke.exists():
+        try:
+            args.tage = max(1, min(14, int(marke.read_text(encoding="utf-8").strip() or "1")))
+            melde(f"Nachtrag laut nachrechnen.txt: {args.tage} Tage")
+        except ValueError:
+            pass
+        marke.unlink(missing_ok=True)
     tage = [args.tag] if args.tag else [(heute - datetime.timedelta(days=i)).isoformat() for i in range(args.tage, 0, -1)]
     fehler = 0
     for tag in tage:

@@ -146,10 +146,8 @@ async function pvLernen(sb: any, tage: number) {
 }
 
 async function vergleich(sb: any, tag: string) {
-  const { data: d, error } = await sb.rpc('heizplaner_daten', { p_tage: 3 });
-  if (error) throw new Error(`heizplaner_daten: ${error.message}`);
-  const { data: zusatz } = await sb.from('rooms').select('id, nicht_steuerbar_seit');
-  const nichtSteuerbar = new Set(((zusatz ?? []) as any[]).filter(x => x.nicht_steuerbar_seit).map(x => x.id));
+  // 22.11.2026: so viele Tage laden, wie der Tag zurückliegt (vorher fest 3 → ältere Tage ließen sich nicht neu rechnen)
+  const { d, nichtSteuerbar } = await datenFuerTag(sb, tag);
   const zeile = vergleichAus(d, tag, nichtSteuerbar);
   if (!zeile.ok) return zeile;
   const { ok: _ok, ...daten } = zeile;
