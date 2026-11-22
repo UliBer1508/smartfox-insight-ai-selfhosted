@@ -9,10 +9,10 @@ if (-not (Test-Path $python)) { Write-Host "venv fehlt: zuerst EMHASS installier
 $aktion = New-ScheduledTaskAction -Execute $python -Argument "`"$bruecke`"" -WorkingDirectory $ordner
 $zeit = New-ScheduledTaskTrigger -Daily -At 03:45
 $einst = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 30) -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 10)
-# als angemeldeter Benutzer (ulibe), auch wenn niemand angemeldet ist – Kennwort wird einmal abgefragt
+# Als angemeldeter Benutzer, auch wenn niemand angemeldet ist – OHNE gespeichertes Kennwort (Anmeldeart S4U).
+# Reicht für die Brücke: sie braucht nur C:\EMHASS und Internet (keine Netzlaufwerke). 22.11.2026: Kennwort nicht zur Hand.
 $benutzer = "$env:USERDOMAIN\$env:USERNAME"
-$kennwort = Read-Host "Windows-Kennwort für $benutzer (für die Aufgabe, wird nur an Windows übergeben)" -AsSecureString
-$klar = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($kennwort))
-Register-ScheduledTask -TaskName "EMHASS Vergleich" -Action $aktion -Trigger $zeit -Settings $einst -User $benutzer -Password $klar -RunLevel Highest -Force | Out-Null
+$wer = New-ScheduledTaskPrincipal -UserId $benutzer -LogonType S4U -RunLevel Highest
+Register-ScheduledTask -TaskName "EMHASS Vergleich" -Action $aktion -Trigger $zeit -Settings $einst -Principal $wer -Force | Out-Null
 Write-Host "Aufgabe 'EMHASS Vergleich' eingerichtet: täglich 03:45" -ForegroundColor Green
 Write-Host "Protokoll: $ordner\bruecke.log"
