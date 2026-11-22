@@ -24,7 +24,7 @@ interface Summe {
   pv_ersparnis_eur: number; heizung_netz_eur: number | null; heizung_anteil_pct: number | null;
   kwh_je_hgt: number | null; h_unter_min: number | null; h_unter_normal: number | null;
 }
-interface Tag { tag: string; kwh_je_hgt: number | null; aussen: number | null; h_unter_min: number | null }
+interface Tag { tag: string; kwh_je_hgt: number | null; aussen: number | null; h_unter_min: number | null; heizung?: number | null }
 interface Abschnitt { von: string; bis: string; tage: number; kwh_je_hgt: number | null; netz_eur: number; netz_eur_je_tag: number | null; h_min_je_nacht: number | null }
 interface Abgleich { monat: string; tage_monat: number; rechnung_kwh: number; rechnung_eur: number | null; rechnung_ct_kwh: number | null;
   app_tage: number; app_kwh: number | null; app_eur: number | null; app_ct_kwh: number | null; quelle: string | null }
@@ -56,10 +56,11 @@ const MON = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Ok
 const tageZwischen = (von: string, bis: string) => Math.round((Date.parse(bis) - Date.parse(von)) / 86400000) + 1;
 
 /** Vergleich mit der Vorperiode. jeTag: Summen je Tag vergleichen (Zeiträume verschieden lang). Weniger = besser. */
-function Vgl({ jetzt, vor, tageJetzt, tageVor, name, jeTag, format, mehrBesser }: {
+function Vgl({ jetzt, vor, tageJetzt, tageVor, name, jeTag, format, mehrBesser, nicht }: {
   jetzt: number | null | undefined; vor: number | null | undefined; tageJetzt: number; tageVor: number; name: string;
-  jeTag?: boolean; format: (v: number) => string; mehrBesser?: boolean;
+  jeTag?: boolean; format: (v: number) => string; mehrBesser?: boolean; nicht?: string | null;
 }) {
+  if (nicht) return <div className="text-xs text-muted-foreground">{name}: {nicht}</div>;
   if (vor == null || jetzt == null || !tageVor) return <div className="text-xs text-muted-foreground">{name}: –</div>;
   const a = jeTag ? Number(jetzt) / Math.max(1, tageJetzt) : Number(jetzt);
   const b = jeTag ? Number(vor) / Math.max(1, tageVor) : Number(vor);
@@ -69,7 +70,7 @@ function Vgl({ jetzt, vor, tageJetzt, tageVor, name, jeTag, format, mehrBesser }
     <div className="text-xs text-muted-foreground">
       {name} {format(Number(vor))}
       {pct != null && <span className={gut == null ? '' : gut ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>
-        {' · '}{pct > 0 ? '+' : pct < 0 ? '−' : '±'}{Math.abs(pct)} %{jeTag ? ' je Tag' : ''}</span>}
+        {' · '}{pct >= 200 ? `×${n(a / b, a / b < 10 ? 1 : 0)}` : `${pct > 0 ? '+' : pct < 0 ? '−' : '±'}${Math.abs(pct)} %`}{jeTag ? ' je Tag' : ''}</span>}
     </div>
   );
 }
@@ -240,6 +241,14 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
   const vs = v?.summe, vTage = Number(v?.tage ?? 0), vName = VOR[periode];
   const vMin = vs?.h_unter_min != null && Number(v?.tage_min ?? 0) > 0 ? Number(vs.h_unter_min) / Number(v?.tage_min) : null;
   const eurF = (x: number) => eur(x), kwhF = (x: number) => n(x, 1), pctF = (x: number) => `${n(x)} %`;
+  // 22.11.2026: Vorperiode nur vergleichen, wenn sie Daten hat. Heizstrom wird erst ab 29.10.2026 gemessen (Raumdaten vorher
+  // gelöscht, doc/VERLAUF-UND-WIRKUNG) – Tage ohne Heizwert zählen als 0 und ergäben Scheinsprünge (+6878 %).
+  const vSoll = tageZwischen(vb.von, plusTage(vb.bis, -1));
+  const vHeizTage = (v?.tage_liste ?? []).filter(t => Number(t.heizung ?? 0) > 0).length;
+  const keinVgl = !vTage ? 'keine Daten' : null;
+  const keinHeizVgl = keinVgl ?? (vHeizTage < 0.8 * vTage ? `Heizung erst an ${vHeizTage} von ${vTage} Tagen gemessen – kein Vergleich` : null);
+  const keinRaumVgl = keinVgl ?? (Number(v?.tage_min ?? 0) < 0.8 * vTage ? 'zu wenige Nächte – kein Vergleich' : null);
+  const vAbdeckung = v && vTage && vTage < vSoll ? `${vName}: nur ${vTage} von ${vSoll} Tagen (${dm(v.von)}–${dm(v.bis)})` : null;
   const hoehe = (v: number) => Math.round(150 * v / skala);
   const zielHoehe = hoehe(ziel);
 
@@ -257,7 +266,7 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
     <div className="space-y-8">
       <div className="space-y-1">
         {zeitraumLeiste}
-        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">{b.titel} · {d.tage} {d.tage === 1 ? 'Tag' : 'Tage'} ({dm(d.von)}–{dm(d.bis)}){unvollstaendig && ' · läuft noch'}{stand && <span className="normal-case font-normal tracking-normal"> · Stand {stand} Uhr</span>}</div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground pt-2">{b.titel} · {d.tage} {d.tage === 1 ? 'Tag' : 'Tage'} ({dm(d.von)}–{dm(d.bis)}){unvollstaendig && ' · läuft noch'}{stand && <span className="normal-case font-normal tracking-normal"> · Stand {stand} Uhr</span>}{vAbdeckung && <span className="normal-case font-normal tracking-normal"> · {vAbdeckung}</span>}</div>
         <p className="text-lg md:text-xl font-semibold leading-snug">{fazit.join(' ')}</p>
       </div>
 
@@ -267,10 +276,10 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
         <div className="rounded-xl border bg-card p-4 space-y-4">
           <div className="font-semibold">Was kostet uns der Strom – und was spart die PV?</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div><div className="text-xs text-muted-foreground">Ohne PV hätten wir gezahlt</div><div className="text-2xl font-bold text-muted-foreground">{eur(s.ohne_pv_eur)}</div><div className="text-xs text-muted-foreground">{n(s.verbrauch_kwh)} kWh Verbrauch</div><Vgl jetzt={s.ohne_pv_eur} vor={vs?.ohne_pv_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} /></div>
-            <div><div className="text-xs text-muted-foreground">PV hat gespart</div><div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">− {eur(s.pv_ersparnis_eur)}</div><div className="text-xs text-muted-foreground">{n(Number(s.pv_kwh) - Number(s.einspeisung_kwh))} kWh selbst genutzt</div><Vgl jetzt={s.pv_ersparnis_eur} vor={vs?.pv_ersparnis_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={eurF} /></div>
-            <div><div className="text-xs text-muted-foreground">Netzstrom gezahlt</div><div className="text-2xl font-bold text-blue-700 dark:text-blue-400">{eur(s.netz_eur)}</div><div className="text-xs text-muted-foreground">{n(s.netz_kwh)} kWh aus dem Netz</div><Vgl jetzt={s.netz_eur} vor={vs?.netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} /></div>
-            <div><div className="text-xs text-muted-foreground">davon für die Heizung</div><div className="text-2xl font-bold text-amber-700 dark:text-amber-400">ca. {eur(s.heizung_netz_eur)}</div><div className="text-xs text-muted-foreground">geschätzt nach Anteil ({n(s.heizung_anteil_pct)} %)</div><Vgl jetzt={s.heizung_netz_eur} vor={vs?.heizung_netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} /></div>
+            <div><div className="text-xs text-muted-foreground">Ohne PV hätten wir gezahlt</div><div className="text-2xl font-bold text-muted-foreground">{eur(s.ohne_pv_eur)}</div><div className="text-xs text-muted-foreground">{n(s.verbrauch_kwh)} kWh Verbrauch</div><Vgl jetzt={s.ohne_pv_eur} vor={vs?.ohne_pv_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinVgl} /></div>
+            <div><div className="text-xs text-muted-foreground">PV hat gespart</div><div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">− {eur(s.pv_ersparnis_eur)}</div><div className="text-xs text-muted-foreground">{n(Number(s.pv_kwh) - Number(s.einspeisung_kwh))} kWh selbst genutzt</div><Vgl jetzt={s.pv_ersparnis_eur} vor={vs?.pv_ersparnis_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={eurF} nicht={keinVgl} /></div>
+            <div><div className="text-xs text-muted-foreground">Netzstrom gezahlt</div><div className="text-2xl font-bold text-blue-700 dark:text-blue-400">{eur(s.netz_eur)}</div><div className="text-xs text-muted-foreground">{n(s.netz_kwh)} kWh aus dem Netz</div><Vgl jetzt={s.netz_eur} vor={vs?.netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinVgl} /></div>
+            <div><div className="text-xs text-muted-foreground">davon für die Heizung</div><div className="text-2xl font-bold text-amber-700 dark:text-amber-400">ca. {eur(s.heizung_netz_eur)}</div><div className="text-xs text-muted-foreground">geschätzt nach Anteil ({n(s.heizung_anteil_pct)} %)</div><Vgl jetzt={s.heizung_netz_eur} vor={vs?.heizung_netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinHeizVgl} /></div>
           </div>
           <div className="flex h-4 rounded overflow-hidden" role="img" aria-label={`Von ${eur(s.ohne_pv_eur)} ohne PV: ${eur(s.pv_ersparnis_eur)} durch PV gespart, ${eur(restEur)} Netz für Haus, Warmwasser und Auto, ${eur(heizEur)} Netz für Heizung`}>
             <div className="bg-emerald-600" style={{ width: pct(Number(s.pv_ersparnis_eur)) }} />
@@ -287,16 +296,16 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
         <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3">
           <AmpelKarte ampel={sonne} label={sonne === 'gut' ? 'Gut' : 'Noch Potenzial'} frage="Nutzen wir den Sonnenstrom ganz?">
             {n(s.eigen_pct)} % des Sonnenstroms bleiben im Haus, {n(s.einspeisung_kwh, 1)} kWh gingen ins Netz.
-            <Vgl jetzt={s.eigen_pct} vor={vs?.eigen_pct} tageJetzt={d.tage} tageVor={vTage} name={vName} mehrBesser format={pctF} />
+            <Vgl jetzt={s.eigen_pct} vor={vs?.eigen_pct} tageJetzt={d.tage} tageVor={vTage} name={vName} mehrBesser format={pctF} nicht={keinVgl} />
           </AmpelKarte>
           <AmpelKarte ampel={heiz} label={heiz === 'gut' ? 'Im Ziel' : 'Hier liegt das Potenzial'} frage="Wie viel Strom braucht die Heizung?">
             <b className="text-foreground">{n(kwh, 1)} kWh je Heizgradtag</b> – unser Maß, unabhängig vom Wetter. Ziel {n(ziel, 1)}.
-            <Vgl jetzt={kwh} vor={vs?.kwh_je_hgt} tageJetzt={d.tage} tageVor={vTage} name={vName} format={kwhF} />
+            <Vgl jetzt={kwh} vor={vs?.kwh_je_hgt} tageJetzt={d.tage} tageVor={vTage} name={vName} format={kwhF} nicht={keinHeizVgl} />
           </AmpelKarte>
           <AmpelKarte ampel={min} label={min === 'gut' ? 'Gehalten' : min === 'mittel' ? 'Fast gehalten' : 'Nicht gehalten'} frage="Bleiben alle Räume über Min?">
             {n(s.h_unter_min)} Raum-Stunden unter Min (Ø {n(minJeNacht, 1)} je Nacht), tagsüber {n(normalJeTag)} Raum-Stunden je Tag unter Normal.
             {raumOffen && <span className="block text-xs mt-1">Raumwerte für {dm(raumOffen)} folgen nach 10 Uhr.</span>}
-            <Vgl jetzt={minJeNacht} vor={vMin} tageJetzt={d.tage} tageVor={vTage} name={`${vName} Ø je Nacht`} format={kwhF} />
+            <Vgl jetzt={minJeNacht} vor={vMin} tageJetzt={d.tage} tageVor={vTage} name={`${vName} Ø je Nacht`} format={kwhF} nicht={keinRaumVgl} />
           </AmpelKarte>
           <AmpelKarte ampel={planer} label={d.planer_modus === 'steuern' ? 'KI steuert' : d.planer_modus === 'aus' ? 'Planer (Regeln)' : 'KI rechnet mit'} frage="Wer steuert gerade?">
             {d.planer_modus === 'steuern'

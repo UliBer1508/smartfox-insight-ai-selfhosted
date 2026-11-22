@@ -58,3 +58,12 @@
   Supabase-Connector mit einer Rückfrage angehalten; prüfen mit `select stromrechnung_abgleich();`.
 - Neue Monatsinfos der Salzburg AG eintragen (`insert into stromrechnung …`), sobald sie kommen.
 - Nach November (01.12.): App-Netz-kWh gegen Rechnung; Abweichung > 5 % → Messung prüfen.
+
+## Nachtrag 22.11.2026 – Vergleich nur, wenn die Vorperiode Daten hat
+
+Nach dem Einspielen zeigte „Monat“ gegen Oktober Scheinsprünge (Heizung +6878 %, kWh je Heizgradtag +567 %): Der
+Oktober hat erst ab 13.10. Daten, Heizstrom erst ab 29.10. – Tage ohne Heizwert zählen als 0.
+- Heizwerte (davon Heizung, kWh je Heizgradtag) werden nur verglichen, wenn die Vorperiode an ≥ 80 % ihrer Tage Heizstrom
+  hat; sonst „Heizung erst an x von y Tagen gemessen – kein Vergleich“. Ebenso Min je Nacht (≥ 80 % der Nächte).
+- Kopfzeile: „Vormonat: nur 18 von 31 Tagen (13.10.–31.10.)“.
+- Ab dem Doppelten zeigt die Anzeige „×9“ statt „+772 %“. Diese Sprünge sind echt (Oktober kaum geheizt).
