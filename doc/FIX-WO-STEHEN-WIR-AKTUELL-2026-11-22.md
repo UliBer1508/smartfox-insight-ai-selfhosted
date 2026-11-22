@@ -67,3 +67,13 @@ Oktober hat erst ab 13.10. Daten, Heizstrom erst ab 29.10. – Tage ohne Heizwer
   hat; sonst „Heizung erst an x von y Tagen gemessen – kein Vergleich“. Ebenso Min je Nacht (≥ 80 % der Nächte).
 - Kopfzeile: „Vormonat: nur 18 von 31 Tagen (13.10.–31.10.)“.
 - Ab dem Doppelten zeigt die Anzeige „×9“ statt „+772 %“. Diese Sprünge sind echt (Oktober kaum geheizt).
+
+## Nachtrag 22.11.2026 – Heizstrom gemessen statt geschätzt (SQL 50, ausgeführt)
+
+Uli: „Da wir von den Thermostaten Heizzeit und Heizstrom wissen, wissen wir doch, wie viel Strom für die Heizung gebraucht
+wird. Aller zusätzliche Strom geht in Warmwasser, eventuell Auto, eventuell Sauna.“
+- „davon für die Heizung“ = gemessener Heizstrom aus dem Netz × Preis (vorher geschätzt nach Anteil am Verbrauch).
+- Kachel Heizung zeigt Heizstrom nach Quelle: Netz · Sonne · Batterie.
+- Balken/Legende: Rest des Netzstroms = Warmwasser, Auto, Sauna, Haus (mit kWh).
+- Beispiel KW 47 (16.–21.11.): Heizung 226 kWh = Netz 183 + Sonne 19,5 + Batterie 23,3; Netz gesamt 247 kWh → 64 kWh
+  Warmwasser/Auto/Sauna/Haus.

@@ -22,6 +22,7 @@ interface Summe {
   pv_kwh: number; verbrauch_kwh: number; heizung_kwh: number; netz_kwh: number; einspeisung_kwh: number;
   netz_leer_kwh: number; eigen_pct: number | null; netz_eur: number; einspeise_eur: number; ohne_pv_eur: number; grund_eur?: number;
   pv_ersparnis_eur: number; heizung_netz_eur: number | null; heizung_anteil_pct: number | null;
+  heizung_netz_kwh?: number; heizung_pv_kwh?: number; heizung_batt_kwh?: number; rest_netz_kwh?: number; // SQL 50: gemessen
   kwh_je_hgt: number | null; h_unter_min: number | null; h_unter_normal: number | null;
 }
 interface Tag { tag: string; kwh_je_hgt: number | null; aussen: number | null; h_unter_min: number | null; heizung?: number | null }
@@ -279,16 +280,16 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
             <div><div className="text-xs text-muted-foreground">Ohne PV hätten wir gezahlt</div><div className="text-2xl font-bold text-muted-foreground">{eur(s.ohne_pv_eur)}</div><div className="text-xs text-muted-foreground">{n(s.verbrauch_kwh)} kWh Verbrauch</div><Vgl jetzt={s.ohne_pv_eur} vor={vs?.ohne_pv_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinVgl} /></div>
             <div><div className="text-xs text-muted-foreground">PV hat gespart</div><div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">− {eur(s.pv_ersparnis_eur)}</div><div className="text-xs text-muted-foreground">{n(Number(s.pv_kwh) - Number(s.einspeisung_kwh))} kWh selbst genutzt</div><Vgl jetzt={s.pv_ersparnis_eur} vor={vs?.pv_ersparnis_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag mehrBesser format={eurF} nicht={keinVgl} /></div>
             <div><div className="text-xs text-muted-foreground">Netzstrom gezahlt</div><div className="text-2xl font-bold text-blue-700 dark:text-blue-400">{eur(s.netz_eur)}</div><div className="text-xs text-muted-foreground">{n(s.netz_kwh)} kWh aus dem Netz</div><Vgl jetzt={s.netz_eur} vor={vs?.netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinVgl} /></div>
-            <div><div className="text-xs text-muted-foreground">davon für die Heizung</div><div className="text-2xl font-bold text-amber-700 dark:text-amber-400">ca. {eur(s.heizung_netz_eur)}</div><div className="text-xs text-muted-foreground">geschätzt nach Anteil ({n(s.heizung_anteil_pct)} %)</div><Vgl jetzt={s.heizung_netz_eur} vor={vs?.heizung_netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinHeizVgl} /></div>
+            <div><div className="text-xs text-muted-foreground">davon für die Heizung</div><div className="text-2xl font-bold text-amber-700 dark:text-amber-400">{eur(s.heizung_netz_eur)}</div><div className="text-xs text-muted-foreground">{n(s.heizung_netz_kwh)} kWh Heizstrom aus dem Netz (gemessen)</div><Vgl jetzt={s.heizung_netz_eur} vor={vs?.heizung_netz_eur} tageJetzt={d.tage} tageVor={vTage} name={vName} jeTag format={eurF} nicht={keinHeizVgl} /></div>
           </div>
-          <div className="flex h-4 rounded overflow-hidden" role="img" aria-label={`Von ${eur(s.ohne_pv_eur)} ohne PV: ${eur(s.pv_ersparnis_eur)} durch PV gespart, ${eur(restEur)} Netz für Haus, Warmwasser und Auto, ${eur(heizEur)} Netz für Heizung`}>
+          <div className="flex h-4 rounded overflow-hidden" role="img" aria-label={`Von ${eur(s.ohne_pv_eur)} ohne PV: ${eur(s.pv_ersparnis_eur)} durch PV gespart, ${eur(restEur)} Netz für Warmwasser, Auto, Sauna und Haus, ${eur(heizEur)} Netz für Heizung`}>
             <div className="bg-emerald-600" style={{ width: pct(Number(s.pv_ersparnis_eur)) }} />
             <div className="bg-blue-300" style={{ width: pct(restEur) }} />
             <div className="bg-amber-500" style={{ width: pct(heizEur) }} />
           </div>
           <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-emerald-600" aria-hidden="true" />durch PV gespart</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-300" aria-hidden="true" />Netz: Haus, Warmwasser, Auto</span>
+            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-300" aria-hidden="true" />Netz: Warmwasser, Auto, Sauna, Haus{s.rest_netz_kwh != null && ` (${n(s.rest_netz_kwh)} kWh)`}</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-amber-500" aria-hidden="true" />Netz: Heizung – hier setzt die Steuerung an</span>
           </div>
         </div>
@@ -300,6 +301,7 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
           </AmpelKarte>
           <AmpelKarte ampel={heiz} label={heiz === 'gut' ? 'Im Ziel' : 'Hier liegt das Potenzial'} frage="Wie viel Strom braucht die Heizung?">
             <b className="text-foreground">{n(kwh, 1)} kWh je Heizgradtag</b> – unser Maß, unabhängig vom Wetter. Ziel {n(ziel, 1)}.
+            <span className="block mt-1">Heizstrom {n(s.heizung_kwh)} kWh: Netz {n(s.heizung_netz_kwh)} · Sonne {n(s.heizung_pv_kwh)} · Batterie {n(s.heizung_batt_kwh)} (gemessen).</span>
             <Vgl jetzt={kwh} vor={vs?.kwh_je_hgt} tageJetzt={d.tage} tageVor={vTage} name={vName} format={kwhF} nicht={keinHeizVgl} />
           </AmpelKarte>
           <AmpelKarte ampel={min} label={min === 'gut' ? 'Gehalten' : min === 'mittel' ? 'Fast gehalten' : 'Nicht gehalten'} frage="Bleiben alle Räume über Min?">
