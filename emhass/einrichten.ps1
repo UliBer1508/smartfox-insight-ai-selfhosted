@@ -1,4 +1,4 @@
-# EMHASS-Vergleich einrichten (22.11.2026) – doc/EMHASS-VERGLEICH-2026-11-22.md
+﻿# EMHASS-Vergleich einrichten (22.11.2026) – doc/EMHASS-VERGLEICH-2026-11-22.md
 # Als Administrator in PowerShell ausführen:  powershell -ExecutionPolicy Bypass -File C:\EMHASS\einrichten.ps1
 # Legt die Aufgabe „EMHASS Vergleich“ an: jeden Tag 03:45 rechnet EMHASS den Vortag, der Heizplaner bewertet ihn.
 $ordner = "C:\EMHASS"
