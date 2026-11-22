@@ -17,10 +17,14 @@
 //   vergleich tag=…   – Gegenrechnung eines Tages (Standard: gestern)
 //   emhass_eingabe tag=…           – Eingaben für EMHASS (Österreich-PC) zur Gegenrechnung des Tages (22.11.2026)
 //   emhass_bewerten tag=… plan=…   – EMHASS-Plan mit unserem Maßstab bewerten → heizplan_vergleich.emhass
+//   highs_eingabe tag=…            – Planungsproblem des Tages als LP für HiGHS (Österreich-PC) (22.11.2026)
+//   highs_bewerten tag=… werte=…   – HiGHS-Lösung bewerten → heizplan_vergleich.planer_highs
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
-import { PLAN_AUFBEWAHREN_TAGE, lerneAus, planAus, pvLernenAus, vergleichAus, type Abwesenheit } from './rechnen.ts';
+import { PLAN_AUFBEWAHREN_TAGE, kurzErgebnis, lerneAus, planAus, pvLernenAus, r1, vergleichAus, vergleichBasis, type Abwesenheit } from './rechnen.ts';
 import type { PruefStand, RaumPruefung } from './pruefung.ts';
 import { emhassBewerten, emhassEingabe } from './emhass.ts';
+import { baueLp, heizenAusLoesung } from './highs.ts';
+import { bewerte } from './modell.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -198,6 +202,31 @@ async function emhassBewertenAktion(sb: any, tag: string, plan: any) {
   return erg;
 }
 
+// ---------------------------------------------------------------- HiGHS-Prüfstein (22.11.2026, doc/FIX-PLANER-HIGHS-2026-11-22.md)
+async function highsEingabeAktion(sb: any, tag: string) {
+  const { d, nichtSteuerbar } = await datenFuerTag(sb, tag);
+  const { b, bat, g } = vergleichBasis(d, tag, nichtSteuerbar);
+  if (b.raeume.length === 0) return { ok: false, grund: 'keine Temperaturen um Mitternacht' };
+  return { ok: true, tag, slots: b.slots.length, raeume: b.raeume.map(r => ({ id: r.id, name: r.name })), lp: baueLp(b.raeume, b.slots, bat, g) };
+}
+
+async function highsBewertenAktion(sb: any, tag: string, body: any) {
+  const werte: Record<string, number> = body?.werte ?? {};
+  const { data: da } = await sb.from('heizplan_vergleich').select('tag').eq('tag', tag).maybeSingle();
+  if (!da) await vergleich(sb, tag);
+  const { d, nichtSteuerbar } = await datenFuerTag(sb, tag);
+  const { b, bat, g, eIst } = vergleichBasis(d, tag, nichtSteuerbar);
+  if (!eIst) return { ok: false, grund: 'keine Temperaturen um Mitternacht' };
+  const heizen = heizenAusLoesung(b.raeume, b.slots.length, n => Number(werte[n] ?? 0));
+  const e = bewerte(b.raeume, b.slots, bat, g, heizen);
+  const planer_highs = { ...kurzErgebnis(e), netz_bereinigt_kwh: r1(e.netzKwh - (e.waermeKwh - eIst.waermeKwh)),
+    kosten: Math.round(e.kosten * 100) / 100, status: body?.status ?? null, luecke: body?.luecke ?? null,
+    rechenzeit_s: body?.rechenzeit_s ?? null, bewertet_at: new Date().toISOString() };
+  const { error } = await sb.from('heizplan_vergleich').update({ planer_highs }).eq('tag', tag);
+  if (error) throw new Error(`heizplan_vergleich.planer_highs: ${error.message} (SQL 53 ausgeführt?)`);
+  return { ok: true, tag, planer_highs };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (!await authorize(req)) return json({ error: 'Unauthorized' }, 401);
@@ -215,6 +244,8 @@ Deno.serve(async (req) => {
     else if (aktion === 'vergleich') res = await vergleich(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
     else if (aktion === 'emhass_eingabe') res = await emhassEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
     else if (aktion === 'emhass_bewerten') res = await emhassBewertenAktion(sb, body.tag ?? gestern, body.plan);
+    else if (aktion === 'highs_eingabe') res = await highsEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
+    else if (aktion === 'highs_bewerten') res = await highsBewertenAktion(sb, body.tag ?? gestern, body);
     else return json({ error: `unbekannte aktion ${aktion}` }, 400);
     console.log(`[HEIZPLANER] ${aktion}: ${JSON.stringify(res).slice(0, 400)}`);
     return json(res);
