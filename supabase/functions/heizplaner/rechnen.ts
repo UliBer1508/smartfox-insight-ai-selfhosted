@@ -290,7 +290,9 @@ export function lerneAus(d: Daten, raumId: string, tage: number, priorVon?: Reco
 }
 
 /** Gegenrechnung eines Tages ohne Schreiben. */
-export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>, opt: { regeln?: boolean } = {}): any {
+/** Grundlage der Gegenrechnung eines Tages: Räume und Slots ab Mitternacht mit echter PV, Batterie, tatsächliches
+ *  Heizen und dessen Bewertung. 22.11.2026 ausgelagert, damit EMHASS (emhass.ts) mit genau denselben Daten rechnet. */
+export function vergleichBasis(d: Daten, tag: string, nichtSteuerbar: Set<string>, opt: { regeln?: boolean } = {}) {
   const a = aufbereiten(d);
   const g0 = mitternacht(tag);
   const pvEcht = (ep: number) => a.e15.get(ep)?.[2] ?? 0;
@@ -298,11 +300,21 @@ export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>,
   // Räume, die keine Befehle annehmen: auch im Plan so, wie sie wirklich geheizt haben
   const fest = (r: any, ep: number) => (nichtSteuerbar.has(r.id) ? ((a.smp.get(r.id)?.get(ep)?.h ?? 0) >= 0.5 ? 1 : 0) : null);
   const b = baue(d, a, g0, pvEcht, T0, fest, undefined, letzterSoc(a, g0));
-  if (b.raeume.length === 0) return { ok: false, grund: 'keine Temperaturen um Mitternacht' };
   const bat = batterieVon(d, letzterSoc(a, g0));
   const g = { ...gewichte(d.settings), regeln: opt.regeln ?? true };
   const heizIst = b.raeume.map(r => b.eps.map(ep => a.smp.get(r.id)?.get(ep)?.h ?? 0));
-  const eIst = bewerte(b.raeume, b.slots, bat, g, heizIst);
+  const eIst = b.raeume.length ? bewerte(b.raeume, b.slots, bat, g, heizIst) : null;
+  return { a, g0, b, bat, g, heizIst, eIst, socStart: letzterSoc(a, g0) };
+}
+
+/** Kurzform eines bewerteten Plans für heizplan_vergleich. */
+export const kurzErgebnis = (e: any) => ({ heiz_kwh: r1(e.heizKwh), netz_kwh: r1(e.netzKwh), einspeis_kwh: r1(e.einspeisKwh),
+  unter_ziel_gradstd: r1(e.komfortGradStd), unter_grenze_gradstd: r1(e.unterGradStd), waerme_kwh: r1(e.waermeKwh) });
+
+export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>, opt: { regeln?: boolean } = {}): any {
+  const { a, b, bat, g, eIst: eIstOderNull } = vergleichBasis(d, tag, nichtSteuerbar, opt);
+  if (b.raeume.length === 0 || !eIstOderNull) return { ok: false, grund: 'keine Temperaturen um Mitternacht' };
+  const eIst = eIstOderNull;
   const ePlan = plane(b.raeume, b.slots, bat, g);
   // Modellprüfung: Simulation mit echter Heizung gegen gemessene Temperaturen
   let abw = 0, n = 0;
@@ -310,8 +322,7 @@ export function vergleichAus(d: Daten, tag: string, nichtSteuerbar: Set<string>,
   const netzGem = b.eps.reduce((s, ep) => s + Math.max(0, a.e15.get(ep)?.[4] ?? 0), 0) / 4000;
   // waerme_kwh: gespeicherte Wärme am Tagesende gegenüber Mitternacht (Estrich + Luft). Ein Plan, der weniger heizt,
   // aber den Speicher leert, ist nicht besser – deshalb steht die Wärme dabei (13.11.2026).
-  const kurz = (e: any) => ({ heiz_kwh: r1(e.heizKwh), netz_kwh: r1(e.netzKwh), einspeis_kwh: r1(e.einspeisKwh),
-    unter_ziel_gradstd: r1(e.komfortGradStd), unter_grenze_gradstd: r1(e.unterGradStd), waerme_kwh: r1(e.waermeKwh) });
+  const kurz = kurzErgebnis;
   // Fairer Vergleich (13.11.2026): Netz des Planers, bereinigt um die Wärme, die er am Tagesende mehr (oder weniger) im
   // Haus gespeichert hat als die Steuerung. Die frühere Spalte „Planer bei gleichem Komfort“ (Komfort-Gewicht skaliert)
   // entfällt: Mit dem Wert der Restwärme leerte sie den Estrich und war nicht mehr vergleichbar.

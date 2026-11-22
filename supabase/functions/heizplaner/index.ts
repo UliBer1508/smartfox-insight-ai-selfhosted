@@ -15,9 +15,12 @@
 //   lernen  raum=<id> – Raummodell eines Raums lernen (03:00, je Raum ein Aufruf wegen der Rechenzeit-Grenze)
 //   pv_lernen         – PV-Vorhersage je Stunde lernen (03:00)
 //   vergleich tag=…   – Gegenrechnung eines Tages (Standard: gestern)
+//   emhass_eingabe tag=…           – Eingaben für EMHASS (Österreich-PC) zur Gegenrechnung des Tages (22.11.2026)
+//   emhass_bewerten tag=… plan=…   – EMHASS-Plan mit unserem Maßstab bewerten → heizplan_vergleich.emhass
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
 import { PLAN_AUFBEWAHREN_TAGE, lerneAus, planAus, pvLernenAus, vergleichAus, type Abwesenheit } from './rechnen.ts';
 import type { PruefStand, RaumPruefung } from './pruefung.ts';
+import { emhassBewerten, emhassEingabe } from './emhass.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -166,6 +169,35 @@ async function vergleich(sb: any, tag: string) {
   return zeile;
 }
 
+// ---------------------------------------------------------------- EMHASS (22.11.2026, doc/EMHASS-VERGLEICH-2026-11-22.md)
+async function datenFuerTag(sb: any, tag: string) {
+  // so viele Tage laden, dass der Tag samt Vorlauf (Estrich-Start: 12 h) drin ist; Raumdaten gibt es 14 Tage
+  const heute = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+  const tage = Math.min(14, Math.max(3, Math.round((Date.parse(heute) - Date.parse(tag)) / 86400000) + 2));
+  const { data: d, error } = await sb.rpc('heizplaner_daten', { p_tage: tage });
+  if (error) throw new Error(`heizplaner_daten: ${error.message}`);
+  const { data: zusatz } = await sb.from('rooms').select('id, nicht_steuerbar_seit');
+  const nichtSteuerbar = new Set(((zusatz ?? []) as any[]).filter(x => x.nicht_steuerbar_seit).map(x => x.id));
+  return { d, nichtSteuerbar };
+}
+
+async function emhassEingabeAktion(sb: any, tag: string) {
+  const { d, nichtSteuerbar } = await datenFuerTag(sb, tag);
+  return emhassEingabe(d, tag, nichtSteuerbar);
+}
+
+async function emhassBewertenAktion(sb: any, tag: string, plan: any) {
+  if (!plan?.raeume || !plan?.leistung_w) throw new Error('plan.raeume und plan.leistung_w fehlen');
+  const { data: da } = await sb.from('heizplan_vergleich').select('tag').eq('tag', tag).maybeSingle();
+  if (!da) await vergleich(sb, tag);                                   // Gegenrechnung des Tages zuerst
+  const { d, nichtSteuerbar } = await datenFuerTag(sb, tag);
+  const erg = emhassBewerten(d, tag, nichtSteuerbar, plan);
+  if (!erg.ok) return erg;
+  const { error } = await sb.from('heizplan_vergleich').update({ emhass: erg.emhass }).eq('tag', tag);
+  if (error) throw new Error(`heizplan_vergleich.emhass: ${error.message} (SQL 51 ausgeführt?)`);
+  return erg;
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
   if (!await authorize(req)) return json({ error: 'Unauthorized' }, 401);
@@ -181,6 +213,8 @@ Deno.serve(async (req) => {
     else if (aktion === 'lernen') res = await lernen(sb, body.raum ?? url.searchParams.get('raum'), Number(body.tage ?? url.searchParams.get('tage')) || 30);
     else if (aktion === 'pv_lernen') res = await pvLernen(sb, Number(body.tage ?? url.searchParams.get('tage')) || 30);
     else if (aktion === 'vergleich') res = await vergleich(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
+    else if (aktion === 'emhass_eingabe') res = await emhassEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
+    else if (aktion === 'emhass_bewerten') res = await emhassBewertenAktion(sb, body.tag ?? gestern, body.plan);
     else return json({ error: `unbekannte aktion ${aktion}` }, 400);
     console.log(`[HEIZPLANER] ${aktion}: ${JSON.stringify(res).slice(0, 400)}`);
     return json(res);

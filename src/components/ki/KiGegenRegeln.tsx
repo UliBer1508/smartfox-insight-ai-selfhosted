@@ -14,7 +14,8 @@ const db = supabase as any;
 
 interface Werte { netz_kwh?: number; netz_bereinigt_kwh?: number; unter_grenze_gradstd?: number; unter_ziel_gradstd?: number;
   heiz_kwh?: number; waerme_kwh?: number; regeln?: boolean; sonnentag?: boolean | null; sonnen_ratio?: number | null; netz_ueber_min_h?: number }
-interface Zeile { tag: string; netz_gemessen_kwh: number | null; steuerung: Werte | null; planer: Werte | null }
+// 22.11.2026: emhass – Plan von EMHASS (Österreich-PC), mit demselben Raummodell bewertet (doc/EMHASS-VERGLEICH-2026-11-22.md)
+interface Zeile { tag: string; netz_gemessen_kwh: number | null; steuerung: Werte | null; planer: Werte | null; emhass?: (Werte & { status?: string }) | null }
 
 export const UNTER_MIN_TOLERANZ = 0.5;   // °C·h – Rundung/Modellrauschen
 export const TAGE_IN_FOLGE = 3;
@@ -49,7 +50,7 @@ export function KiGegenRegeln() {
   const [zeilen, setZeilen] = useState<Zeile[] | null>(null);
   const [fehler, setFehler] = useState<string | null>(null);
   useEffect(() => {
-    const laden = () => db.from('heizplan_vergleich').select('tag, netz_gemessen_kwh, steuerung, planer').order('tag', { ascending: false }).limit(7)
+    const laden = () => db.from('heizplan_vergleich').select('tag, netz_gemessen_kwh, steuerung, planer, emhass').order('tag', { ascending: false }).limit(7)
       .then(({ data, error }: { data: Zeile[] | null; error: { message: string } | null }) => {
         if (error) setFehler(error.message); else { setFehler(null); setZeilen(data ?? []); }
       });
@@ -85,7 +86,7 @@ export function KiGegenRegeln() {
       <div className="flex items-start gap-3">
         <span className={`mt-1.5 w-3 h-3 rounded-full shrink-0 ${ampel}`} aria-hidden="true" />
         <div className="space-y-1">
-          <div className="font-semibold">KI gegen tatsächliche Steuerung – darf die KI steuern?</div>
+          <div className="font-semibold">KI und EMHASS gegen tatsächliche Steuerung – darf die KI steuern?</div>
           <div className="text-sm">{satz}</div>
           <div className="text-xs text-muted-foreground">
             Gegenrechnung vom {dm(gestern.tag)}: tatsächlich {n(pg.netzIst)} kWh Netz, KI {n(pg.netzKi)} kWh
@@ -96,14 +97,15 @@ export function KiGegenRegeln() {
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[560px]">
-          <caption className="sr-only">Gegenrechnung der letzten Tage: Netzstrom und Min, tatsächlich gegen KI</caption>
+          <caption className="sr-only">Gegenrechnung der letzten Tage: Netzstrom und Min, tatsächlich gegen KI und EMHASS</caption>
           <thead className="text-xs text-muted-foreground">
             <tr className="text-left">
               <th className="py-1 pr-2 font-medium">Tag</th>
               <th className="py-1 pr-2 font-medium">Sonne</th>
               <th className="py-1 pr-2 font-medium text-right">Netz tatsächlich</th>
               <th className="py-1 pr-2 font-medium text-right">Netz KI</th>
-              <th className="py-1 pr-2 font-medium text-right">unter Min tats. / KI</th>
+              <th className="py-1 pr-2 font-medium text-right">Netz EMHASS</th>
+              <th className="py-1 pr-2 font-medium text-right">unter Min tats. / KI / EMHASS</th>
               <th className="py-1 font-medium text-center">besser?</th>
             </tr>
           </thead>
@@ -114,7 +116,8 @@ export function KiGegenRegeln() {
                 <td className="py-1.5 pr-2">{z.planer?.sonnentag == null ? '–' : z.planer.sonnentag ? 'Sonnentag' : 'wenig'}</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{n(p.netzIst)} kWh</td>
                 <td className="py-1.5 pr-2 text-right tabular-nums">{n(p.netzKi)} kWh</td>
-                <td className="py-1.5 pr-2 text-right tabular-nums">{n(z.steuerung?.unter_grenze_gradstd)} / {n(z.planer?.unter_grenze_gradstd)} °C·h</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums">{z.emhass ? `${n(z.emhass.netz_bereinigt_kwh ?? z.emhass.netz_kwh)} kWh` : <span className="text-xs text-muted-foreground">–</span>}</td>
+                <td className="py-1.5 pr-2 text-right tabular-nums">{n(z.steuerung?.unter_grenze_gradstd)} / {n(z.planer?.unter_grenze_gradstd)} / {n(z.emhass?.unter_grenze_gradstd)} °C·h</td>
                 <td className="py-1.5 text-center">{p.zaehlt ? <Haken ok={p.ok} label={`${z.tag} besser`} /> : <span className="text-xs text-muted-foreground">ohne Regeln</span>}</td>
               </tr>); })}
           </tbody>
@@ -123,7 +126,8 @@ export function KiGegenRegeln() {
       <div className="text-xs text-muted-foreground">
         Gerechnet jede Nacht für den Vortag mit der echten PV. „Netz KI“ ist bereinigt um die Wärme, die die KI am Tagesende
         mehr oder weniger im Estrich gespeichert hätte. „Tatsächlich“ ist, was die Steuerung an dem Tag wirklich gemacht hat
-        (im Modus „KI rechnet mit“ die Regeln). Den Modus schaltest nur du.
+        (im Modus „KI rechnet mit“ die Regeln). „EMHASS“ ist der Plan des Open-Source-Optimierers EMHASS (läuft auf dem
+        Österreich-PC), bewertet mit demselben Raummodell und ebenfalls bereinigt – er steuert nicht. Den Modus schaltest nur du.
       </div>
     </div>
   );
