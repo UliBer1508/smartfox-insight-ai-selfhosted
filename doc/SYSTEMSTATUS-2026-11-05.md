@@ -154,3 +154,21 @@ zusätzlich den München-Collector (meldet sich nicht > 10 min, FENECON oder Lox
 - Weitere Webseiten aufnehmen (Hausverwaltung, Portale), wenn gewünscht.
 - Der Wallbox Manager hat sein eigenes Dienste-Fenster; beide dürfen nebeneinander bestehen.
 - Schwellen (10 / 3 / 15 min) sind feste Werte in `system_problems()`; bei Bedarf einstellbar machen.
+
+## 9. Systemstatus in der Hausverwaltung (23.11.2026)
+
+Uli: „im Systemstatus in der Hausverwaltung sollen auch alle Prozesse angezeigt werden, die auf den PCs laufen.“
+Die Hausverwaltung hat ein eigenes Supabase-Projekt (`usblrulkcgucxtkhugck`). Die Daten bleiben hier. Sie fragt über
+eine Brücke an:
+
+```
+ Hausverwaltung (App)  →  HV-Function system-status (prüft Admin der HV)
+                       →  hier: system-bridge (x-bridge-token = Secret BRIDGE_TOKEN, gleicher Wert in beiden Projekten)
+                       →  system_problems(), system_hosts/services, service_commands, system_cloud_status()
+```
+
+- Steuern (Start/Stop/Neustart) aus der Hausverwaltung prüft `service_command_allowed()` hier in `system-bridge`,
+  bevor der Befehl angelegt wird (`requested_by` leer). Danach führt der Dienste-Wächter ihn wie gewohnt aus.
+- „Jetzt ausführen“ (Heizungsautomatik) gibt es nur in dieser App.
+- Gemeinsamer Code: `supabase/functions/_shared/bridge.ts` (gleiche Datei im HV-Repo).
+- Einrichtung: `BRIDGE_TOKEN` in **beiden** Projekten setzen (siehe HV `docs/Systemstatus.md`).
