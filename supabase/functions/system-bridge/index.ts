@@ -1,7 +1,8 @@
 // system-bridge – Systemstatus für die HAUSVERWALTUNG (23.11.2026, doc/SYSTEMSTATUS-2026-11-05.md §9)
 // Die Hausverwaltung (eigenes Supabase-Projekt) zeigt im Systemstatus dieselben PCs, Dienste und
 // Cloud-Zeilen wie diese App. Ihre Edge Function system-status prüft dort den Admin und ruft hier an.
-//   POST { action: "status" }  → problems, hosts, services, commands (24 h), cloud
+//   POST { action: "status" }  → problems, hosts, services, commands (24 h), cloud,
+//                                backups (Sicherung dieser Datenbank: backup_runs 14 Tage, backup_standby, backup_settings)
 //   POST { action: "command", host, service, action_name }  → Start/Stop/Neustart
 // Anmeldung: Kopfzeile x-bridge-token = Secret BRIDGE_TOKEN (gleicher Wert in beiden Projekten).
 // verify_jwt = false (supabase/config.toml), weil die Gegenseite kein JWT dieses Projekts hat.
@@ -29,17 +30,24 @@ Deno.serve(async (req) => {
   try {
     if (body.action === 'status') {
       const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-      const [prob, h, s, c, cl] = await Promise.all([
+      const since14 = new Date(Date.now() - 14 * 864e5).toISOString();
+      const [prob, h, s, c, cl, br, bs] = await Promise.all([
         db.rpc('system_problems'),
         db.from('system_hosts').select('*').order('host'),
         db.from('system_services').select('*').order('label'),
         db.from('service_commands').select('id, host, service_name, action, status, result, created_at, executed_at')
           .gte('created_at', since).order('created_at', { ascending: false }).limit(50),
         db.rpc('system_cloud_status'),
+        db.from('backup_runs').select('*').gte('finished_at', since14).order('finished_at', { ascending: false }).limit(60),
+        db.from('system_settings').select('key, value').in('key', ['backup_settings', 'backup_standby']),
       ]);
       const err = prob.error ?? h.error ?? s.error ?? c.error ?? cl.error;
       if (err) { console.error('[system-bridge] status', err); return json({ error: 'Status nicht lesbar' }, 500); }
-      return json({ problems: prob.data ?? [], hosts: h.data ?? [], services: s.data ?? [], commands: c.data ?? [], cloud: cl.data ?? null });
+      const wert = (k: string) => (bs.data ?? []).find((r: { key: string }) => r.key === k)?.value ?? null;
+      return json({
+        problems: prob.data ?? [], hosts: h.data ?? [], services: s.data ?? [], commands: c.data ?? [], cloud: cl.data ?? null,
+        backups: br.error ? null : { runs: br.data ?? [], standby: wert('backup_standby'), settings: wert('backup_settings') },
+      });
     }
 
     if (body.action === 'command') {
