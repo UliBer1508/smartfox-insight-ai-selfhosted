@@ -1,7 +1,15 @@
 // Systemstatus – Symbol in der Kopfleiste + Fenster (05.11.2026, Mockup freigegeben, doc/SYSTEMSTATUS-2026-11-05.md)
 // Zeigt, ob alle Prozesse laufen: Österreich-PC, München-PC (gemeldet vom Dienste-Wächter) und Cloud.
 // Start/Stop/Neustart nur für Admins; Fernzugriff (Tailscale, Cloudflare) nur starten.
+// Seit 23.11.2026 unter „Alles läuft“ die Karte „Sicherungen“ (Uli) mit der Sicherung DIESER
+// Datenbank (backup_runs + backup_standby, sicherungKurz() in lib/backupStatus.ts). Eine Sicherung
+// ohne gelungenen Lauf in der Warnschwelle zählt im Symbol als Problem. SystemBackupsCard.tsx ist
+// dieselbe Datei wie in der Hausverwaltung.
 import { useState } from 'react';
+import useBackupRuns, { useBackupStandby } from '@/hooks/useBackupRuns';
+import { useBackupSettings, DEFAULT_BACKUP_SETTINGS } from '@/hooks/useBackupSettings';
+import { sicherungKurz, type SicherungKurz } from '@/lib/backupStatus';
+import { SystemBackupsCard } from './SystemBackupsCard';
 import { Server, Cloud, Monitor, RefreshCw, ExternalLink, Loader2, CheckCircle2, AlertTriangle, Play, Square, RotateCw, Lock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -31,13 +39,27 @@ const DOT: Record<Tone, string> = {
 };
 const Dot = ({ tone }: { tone: Tone }) => <span className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', DOT[tone])} />;
 
+/** Sicherung der Heizungs-Datenbank als Kurzfassung (Karte „Sicherungen“). */
+function useBackupItems(): SicherungKurz[] {
+  const { data: runs, isError } = useBackupRuns(60, 14);
+  const { data: standby } = useBackupStandby();
+  const { data: settings } = useBackupSettings();
+  return [
+    sicherungKurz('Heizung', isError ? null : runs ?? null, standby ?? null,
+      settings?.warn_after_hours ?? DEFAULT_BACKUP_SETTINGS.warn_after_hours,
+      settings?.enabled ?? DEFAULT_BACKUP_SETTINGS.enabled),
+  ];
+}
+
 // --- Symbol in der Kopfleiste -------------------------------------------------------------------------------
 export function SystemStatusButton({ compact }: { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const status = useSystemStatus(open);
+  const backups = useBackupItems();
   if (!status.ready) return null; // vor SQL 22: Symbol ausblenden
 
-  const n = status.problems.length;
+  const backupProblems = backups.filter((b) => b.problem).map((b) => b.problem as string);
+  const n = status.problems.length + backupProblems.length;
   const label = n === 0 ? 'Alles läuft' : n === 1 ? '1 Problem' : `${n} Probleme`;
   return (
     <>
@@ -57,14 +79,15 @@ export function SystemStatusButton({ compact }: { compact?: boolean }) {
         <Server className="w-3.5 h-3.5" />
         {n === 0 ? <Dot tone="ok" /> : <span>{compact ? n : label}</span>}
       </button>
-      <SystemStatusDialog open={open} onOpenChange={setOpen} status={status} />
+      <SystemStatusDialog open={open} onOpenChange={setOpen} status={status} backups={backups} backupProblems={backupProblems} />
     </>
   );
 }
 
 // --- Fenster --------------------------------------------------------------------------------------------
-export function SystemStatusDialog({ open, onOpenChange, status }: {
+export function SystemStatusDialog({ open, onOpenChange, status, backups, backupProblems }: {
   open: boolean; onOpenChange: (o: boolean) => void; status: ReturnType<typeof useSystemStatus>;
+  backups: SicherungKurz[]; backupProblems: string[];
 }) {
   const { problems, hosts, services, commands, cloud, isAdmin, loadedAt, reload, sendCommand, runPvAutomation } = status;
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +108,7 @@ export function SystemStatusDialog({ open, onOpenChange, status }: {
           <DialogDescription>Laufen alle Prozesse – auf den PCs und in der Cloud?</DialogDescription>
         </DialogHeader>
 
-        {problems.length === 0 ? (
+        {problems.length === 0 && backupProblems.length === 0 ? (
           <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/30 dark:border-green-800 px-3 py-2 text-sm text-green-800 dark:text-green-300">
             <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> Alles läuft.
           </div>
@@ -94,8 +117,14 @@ export function SystemStatusDialog({ open, onOpenChange, status }: {
             {problems.map((p) => (
               <div key={p.key} className="flex gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span><b>{p.area}:</b> {p.text}</span></div>
             ))}
+            {backupProblems.map((t) => (
+              <div key={t} className="flex gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span><b>Sicherung:</b> {t}</span></div>
+            ))}
           </div>
         )}
+
+        {/* Karte „Sicherungen“ direkt unter „Alles läuft“ (Uli, 23.11.2026) */}
+        <SystemBackupsCard items={backups} />
         {error && <div className="text-sm text-red-600">{error}</div>}
 
         {pcs.length === 0 && (

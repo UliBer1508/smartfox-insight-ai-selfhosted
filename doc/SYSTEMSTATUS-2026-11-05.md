@@ -51,6 +51,12 @@ Ist ein PC ganz aus oder ohne Internet, kann man aus der Ferne nichts tun. Die A
 
 Alle Regeln stehen an **einer** Stelle: `system_problems()` (SQL 22). App und Mail benutzen dieselbe Liste.
 
+**Sicherungen (23.11.2026):** Unter „Alles läuft“ zeigt die Karte **„Sicherungen“** die nächtliche Sicherung
+dieser Datenbank: wann zuletzt gesichert wurde, von welchem PC, mit welcher Größe und ob der Ersatz-PC übersprungen hat
+(`backup_runs`, `system_settings.backup_standby`, `sicherungKurz()` in `src/lib/backupStatus.ts`,
+`src/components/layout/SystemBackupsCard.tsx`). Gibt es in der Warnschwelle keine gelungene Sicherung, zählt das
+im Symbol als Problem. Es kommt aber keine Mail, weil die Regel nicht in `system_problems()` steht.
+
 Webseiten ändern: `system_settings.system_status_websites` (JSON-Liste `name`, `label`, `url`). Voreingestellt
 sind die Heizungs-App und die Wallbox-Gästeseite – Letztere prüft Cloudflare-Tunnel und Wallbox-Backend gleich mit.
 
