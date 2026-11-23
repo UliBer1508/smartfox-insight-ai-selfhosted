@@ -1,8 +1,11 @@
-// Reine Helfer fuer die Anzeige der naechtlichen Datensicherung
-// (Einstellungen -> "Datensicherung", BackupSettingsSection.tsx).
-// Datenquelle: Tabelle backup_runs (supabase/SQL/01_datensicherung.sql),
-// geschrieben vom Skript Backup-Supabase.ps1 auf PC München und PC Österreich (Ersatz).
-// Gleiche Datei wie in der Hausverwaltung (src/lib/backupStatus.ts).
+// Reine Helfer fuer die Anzeige der naechtlichen Datensicherung.
+// GLEICHE Datei in Hausverwaltung (hausmanagement-selfhosted) und Heizung
+// (smartfox-insight-ai-selfhosted), jeweils src/lib/backupStatus.ts - Änderungen in beiden
+// Repos gleich halten. Verwendet von: Einstellungen -> Datensicherung
+// (HV BackupSettingsCard.tsx, Heizung BackupSettingsSection.tsx) und Systemstatus-Fenster
+// (Karte "Sicherungen", SystemBackupsCard.tsx).
+// Datenquelle: Tabelle backup_runs der jeweiligen Datenbank, geschrieben vom Skript
+// Backup-Supabase.ps1 auf PC München und PC Österreich (Ersatz).
 
 export type BackupRunStatus = 'erfolgreich' | 'warnungen' | 'fehlgeschlagen' | 'pausiert';
 
@@ -180,4 +183,50 @@ export function ersatzUebersprungen(r: RechnerStand): boolean {
     r.beat?.result === 'uebersprungen' &&
     (!r.letzter || new Date(r.beat.checked_at).getTime() > new Date(r.letzter.finished_at).getTime())
   );
+}
+
+// ------------------------------------------------------------------
+// Kurzfassung je Datenbank für das Systemstatus-Fenster (23.11.2026):
+// Karte „Sicherungen“ unter „Alles läuft“ – Hausverwaltung und Heizung.
+// Rot (keine gelungene Sicherung in der Warnschwelle) zählt als Problem im
+// Symbol der Kopfleiste, Gelb nur als Hinweis.
+// ------------------------------------------------------------------
+
+export interface SicherungKurz {
+  label: string;
+  tone: 'ok' | 'warn' | 'bad' | 'off';
+  text: string;
+  /** Text für die Problemliste (nur bei Rot) */
+  problem: string | null;
+}
+
+export function sicherungKurz(
+  label: string,
+  runs: BackupRun[] | null,
+  standby: BackupStandby | null,
+  warnStunden: number,
+  aktiv = true,
+  jetzt: number = Date.now(),
+): SicherungKurz {
+  if (!runs) return { label, tone: 'off', text: 'Stand nicht abrufbar', problem: null };
+  if (!aktiv) return { label, tone: 'off', text: 'pausiert (Einstellungen › Datensicherung)', problem: null };
+  const { neueste, rot, gelb, ersatz } = bewerteSicherung(runs, standby, warnStunden, jetzt);
+  const teile: string[] = [];
+  if (neueste) {
+    const std = Math.round((jetzt - new Date(neueste.finished_at).getTime()) / 36e5);
+    const wann = std < 1 ? 'vor weniger als 1 h' : std < 48 ? `vor ${std} h` : `vor ${Math.round(std / 24)} Tagen`;
+    teile.push(`zuletzt ${wann} · ${rechnerName(neueste.host)} · ${formatBytes(neueste.db_bytes)}`);
+  } else {
+    teile.push('keine gelungene Sicherung in 14 Tagen');
+  }
+  if (ersatz && ersatzUebersprungen(ersatz)) teile.push(`${rechnerName(ersatz.host)} übersprungen`);
+  if (gelb.length) teile.push(gelb[0]);
+  return {
+    label,
+    tone: rot ? 'bad' : gelb.length ? 'warn' : 'ok',
+    text: teile.join(' · '),
+    problem: rot
+      ? `${label}: ${neueste ? `letzte gelungene Sicherung vor mehr als ${warnStunden} h` : 'keine gelungene Sicherung'} – Sicherungs-PCs prüfen.`
+      : null,
+  };
 }
