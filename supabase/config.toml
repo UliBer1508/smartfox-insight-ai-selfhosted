@@ -36,3 +36,7 @@ verify_jwt = false
 # system-alert: prüft die Rolle im JWT selbst (anon/service_role), wie auto-resolve-api-errors
 [functions.system-alert]
 verify_jwt = false
+
+# system-bridge: Hausverwaltung fragt den Systemstatus mit x-bridge-token an (_shared/bridge.ts), kein JWT
+[functions.system-bridge]
+verify_jwt = false
