@@ -70,3 +70,18 @@ Frontend: neues Feld in `HouseSettingsCard.tsx`, Typen/Standardwert ergänzt.
 ## Offen
 - Abwesenheit 24.11. 13:22 – 27.11. 14:00 per Schnellschalter eingetragen – prüfen, ob gewollt.
 - Warum zwei pv-automation-Läufe je 5 min mit unterschiedlichem Puffer (300 / 1 500 W) im Log stehen – nicht Teil dieses Fixes.
+
+## Nachtrag 24.11.2026 14:10 – Zählerwert-Zeitpunkt
+**Befund nach dem Einspielen:** Ab 14:02 entlud die Batterie 1,6–1,8 kW (Verbrauch 7,4 kW bei 5,9 kW PV).
+Der Zählerwert (`energy_readings`) kommt alle 5 min (:x2:10 / :x7:10), pv-automation läuft etwa alle 2,5 min. Der Lauf
+dazwischen rechnet mit dem alten Zählerwert. Räume, die nach dem Zählerwert eingeschaltet hatten (Wirtschaftsraum, Büro,
+Toilette Eingang heizt an 13:57:25, Zählerwert 13:57:10), meldeten schon „heizt“ und kosteten nach Änderung 1 nichts –
+obwohl ihre Leistung noch nicht in der Einspeisung steckte. Derselbe Überschuss wurde zweimal verteilt.
+
+**Korrektur:** Ein laufender Raum kostet nur dann kein Komfort-Budget, wenn sein letztes „heizt an“
+(`room_heating_logs`, `heating_start`) mindestens 30 s vor dem Zählerwert liegt. Sonst zählt er voll, bis ein neuer
+Zählerwert da ist. Kein „heizt an“ in 24 h oder Abfrage-Fehler → zählt voll (sicher).
+
+**Nachgerechnet:** Lauf 13:55 (Zählerwert 13:52:10): Kinder Bad/Waschraum heizten ab 13:52:21–23 → neu 750 W verbraucht,
+Rest 666 W statt 1 416 W. Lauf 14:00 (Zählerwert 13:57:10): Wirtschaftsraum/Büro/Toilette ab 13:57:25 → zählen voll, keine
+zweite Verteilung.

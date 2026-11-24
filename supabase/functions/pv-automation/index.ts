@@ -3274,7 +3274,34 @@ Deno.serve(async (req) => {
         && (Number(reading.power_io) || 0) <= 50
         && batteryPower >= -50     // batteryPower hier: positiv = lädt, negativ = entlädt
         && (batteryPower <= 100 || batterySoc >= 95);
-      const komfortKosten = (rp: typeof roomsWithPriority[0]) => (laufendAusSonne && rp.isCurrentlyHeating) ? 0 : rp.heatingPower;
+      // 24.11.2026 abends (Nachtrag, doc/FIX-KOMFORT-BUDGET-DOPPELABZUG-2026-11-24.md §Nachtrag): Der Zählerwert kommt
+      // alle 5 min, pv-automation läuft öfter. Ein Raum, der NACH dem Zählerwert eingeschaltet hat, steckt noch nicht in
+      // der Einspeisung – ihn kostenlos zu rechnen verteilte denselben Überschuss zweimal (24.11. 14:02: Batterie entlud
+      // 1,8 kW). Kostenlos nur, wenn sein letztes „heizt an“ (room_heating_logs) mindestens 30 s vor dem Zählerwert liegt.
+      const zaehlerMs = new Date(reading.timestamp ?? reading.created_at ?? 0).getTime();
+      const heiztSeitMs = new Map<string, number>();
+      if (laufendAusSonne && zaehlerMs > 0) {
+        try {
+          const heizendIds = roomsWithPriority.filter((rp) => rp.isCurrentlyHeating).map((rp) => rp.room.id);
+          if (heizendIds.length) {
+            const { data: starts } = await supabase.from('room_heating_logs')
+              .select('room_id, timestamp')
+              .eq('event_type', 'heating_start')
+              .in('room_id', heizendIds)
+              .gte('timestamp', new Date(Date.now() - 24 * 3600 * 1000).toISOString())
+              .order('timestamp', { ascending: false })
+              .limit(200);
+            for (const s of (starts ?? []) as any[]) {
+              if (!heiztSeitMs.has(s.room_id)) heiztSeitMs.set(s.room_id, new Date(s.timestamp).getTime());
+            }
+          }
+        } catch (e) { console.log(`[KOMFORT-KOSTEN] heizt-an-Zeiten nicht lesbar → laufende Räume zählen voll: ${e}`); }
+      }
+      const imZaehler = (rp: typeof roomsWithPriority[0]) => {
+        const seit = heiztSeitMs.get(rp.room.id);
+        return seit !== undefined && seit <= zaehlerMs - 30_000;
+      };
+      const komfortKosten = (rp: typeof roomsWithPriority[0]) => (laufendAusSonne && rp.isCurrentlyHeating && imZaehler(rp)) ? 0 : rp.heatingPower;
       let usedComfortBudget = roomsWithPriority.reduce((s, rp) => {
         const st = roomBudgetStatus.get(rp.room.id);
         return st?.budgeted && st.allowedToHeat && st.targetLevel === 'eco' ? s + komfortKosten(rp) : s;
