@@ -122,7 +122,8 @@ Stand: 2026-11-17
 
 ### Anwesenheit umgedreht einspielen (01.11.)
 - [ ] SQL `09_abwesenheit_umdrehen.sql` ausführen, direkt danach `pv-automation` deployen, App-Update abwarten
-- [ ] Alexa-Function `alexa-heizung` (Repo `heizung-muenchen`) umstellen: „ich bin weg bis …“ / „ich bin zurück“ – bis dahin Alexa-Anwesenheit in Venediger nicht benutzen
+- [x] Alexa-Function `alexa-heizung` (Repo `heizung-muenchen`) umgestellt (24.11.2026): „ich bin weg bis …“ / „ich bin da“
+- [ ] Alexa+-Add-on bei Amazon einrichten (`heizung-muenchen/doc/ALEXA-PLUS.md`)
 - [ ] Nächster Sonnentag: Komfort-Runde im Log (`=== PHASE 2: KOMFORT-RUNDE ===`), auch während einer Abwesenheit
 - [ ] Bei der ersten längeren Abwesenheit beobachten: `heating_day_mode.away`, Netzbezug, Raumtemperaturen bei Rückkehr (Vorlauf 6 h reicht?)
 - [ ] Abwesenheitstage im Mustergedächtnis und in der Analyse kennzeichnen/ausklammern (Konzept Anwesenheit §6)
