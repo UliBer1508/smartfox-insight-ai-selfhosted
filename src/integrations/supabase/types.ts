@@ -755,6 +755,7 @@ export type Database = {
           cap_wait_boost_min: number
           cap_keep_max_min: number
           ziel_abschalt_ueber_c: number
+          komfort_puffer_batterie_voll_w: number
           nacht_frueh_aus: boolean
           nacht_frueh_aus_seit: string | null
           nacht_spitze_ueber_ziel_c: number
@@ -846,6 +847,7 @@ export type Database = {
           cap_wait_boost_min?: number
           cap_keep_max_min?: number
           ziel_abschalt_ueber_c?: number
+          komfort_puffer_batterie_voll_w?: number
           nacht_frueh_aus?: boolean
           nacht_frueh_aus_seit?: string | null
           nacht_spitze_ueber_ziel_c?: number
@@ -937,6 +939,7 @@ export type Database = {
           cap_wait_boost_min?: number
           cap_keep_max_min?: number
           ziel_abschalt_ueber_c?: number
+          komfort_puffer_batterie_voll_w?: number
           nacht_frueh_aus?: boolean
           nacht_frueh_aus_seit?: string | null
           nacht_spitze_ueber_ziel_c?: number

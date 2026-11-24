@@ -67,6 +67,8 @@ export interface HeatingSettings {
   // Vorrang behalten / Abschalten am Ziel (09.11.2026, SQL 29)
   cap_keep_max_min?: number;
   ziel_abschalt_ueber_c?: number;
+  // Komfort-Budget: Puffer bei voller Batterie (24.11.2026, SQL 56)
+  komfort_puffer_batterie_voll_w?: number;
   // Nachts nur Min – früh abschalten mit gemessenem Überlauf (17.11.2026, SQL 47)
   nacht_frueh_aus?: boolean;
   nacht_spitze_ueber_ziel_c?: number;
