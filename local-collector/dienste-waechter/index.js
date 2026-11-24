@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 /**
- * Dienste-Wächter v1.0 (05.11.2026) – läuft als eigener NSSM-Dienst auf jedem PC (Österreich, München)
+ * Dienste-Wächter v1.1 (24.11.2026) – läuft als eigener NSSM-Dienst auf jedem PC (Österreich, München)
+ * v1.1: Befehl „backup_time“ – Uhrzeit der Sicherung (geplante Aufgabe „Supabase-Sicherung Heizung“) aus der App
+ *       ändern (SQL 55, doc/DATENSICHERUNG.md „Uhrzeit ändern“)
  * Doku: doc/SYSTEMSTATUS-2026-11-05.md
  *
  * Alle 30 s:
@@ -27,7 +29,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 const IS_WINDOWS = process.platform === 'win32';
 const VALID_NAME = /^[A-Za-z0-9_.-]{1,80}$/;
 const REMOTE_ACCESS = /tailscale|cloudflare|cloudflared/i; // nie aus der Ferne stoppen
@@ -57,6 +59,11 @@ const DISCOVERY_MS = Math.max(60, Number(config.discovery_seconds) || 300) * 100
 const overrides = config.services && typeof config.services === 'object' ? config.services : {};
 const extras = (Array.isArray(config.extraServices) ? config.extraServices : [])
   .filter((e) => e && VALID_NAME.test(String(e.name)));
+
+// Geplante Aufgabe der Sicherung (Setup-SupabaseBackup.ps1 -Profil Heizung); in config.json änderbar
+const BACKUP_TASK = String(config.backup_task || 'Supabase-Sicherung Heizung');
+const TIME_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
+const TASK_RE = /^[A-Za-z0-9 _.()-]{1,80}$/;
 
 const log = (...a) => console.log(new Date().toLocaleString('de-AT'), ...a);
 
@@ -156,8 +163,41 @@ async function collect() {
   return rows;
 }
 
+// --- Uhrzeit der Sicherung ändern (v1.1) ------------------------------------------------------------------
+// Uhrzeit und Aufgabenname sind geprüft (nur Ziffern/Doppelpunkt bzw. einfache Zeichen) – nichts Ungeprüftes in PowerShell.
+// Neuer Auslöser: täglich HH:MM Ortszeit (ohne UTC-Bindung – vorher lief die München-Aufgabe nach der Zeitumstellung 1 h früher).
+async function setBackupTime(cmd) {
+  const t = String(cmd.param || '');
+  if (!TIME_RE.test(t)) return { ok: false, message: 'Uhrzeit ungültig' };
+  if (!TASK_RE.test(BACKUP_TASK)) return { ok: false, message: 'Aufgabenname in config.json ungültig' };
+  if (!IS_WINDOWS) return { ok: false, message: 'nur unter Windows' };
+  const ps = [
+    "$ErrorActionPreference = 'Stop'",
+    `$n = '${BACKUP_TASK}'`,
+    '$t = Get-ScheduledTask -TaskName $n',
+    `Set-ScheduledTask -TaskName $n -TaskPath $t.TaskPath -Trigger (New-ScheduledTaskTrigger -Daily -At '${t}') | Out-Null`,
+    '$i = Get-ScheduledTaskInfo -TaskName $n -TaskPath $t.TaskPath',
+    "'NEXT=' + $i.NextRunTime.ToString('dd.MM. HH:mm')",
+  ].join('; ');
+  log(`[Befehl] Sicherung auf ${t} Uhr`);
+  const r = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', ps], 60000);
+  const m = r.out.match(/NEXT=([0-9. :]+)/);
+  if (r.ok && m) {
+    log(`[Befehl] Sicherung: OK, nächster Lauf ${m[1].trim()}`);
+    return { ok: true, message: `täglich ${t} – nächster Lauf ${m[1].trim()}` };
+  }
+  const err = (r.err || r.out).trim().replace(/\s+/g, ' ');
+  let msg = err.slice(0, 300) || 'unbekannter Fehler';
+  if (/nicht gefunden|cannot find|No MSFT_ScheduledTask|not found/i.test(err)) msg = `Aufgabe „${BACKUP_TASK}“ auf diesem PC nicht gefunden`;
+  else if (/kennwort|password|benutzername|user name|0x8007052E/i.test(err)) msg = 'Die Aufgabe ist mit Kennwort gespeichert – Uhrzeit bitte einmal in der Aufgabenplanung ändern (Trigger bearbeiten)';
+  else if (/zugriff|access is denied|0x80070005/i.test(err)) msg = 'Kein Zugriff auf die Aufgabe – Dienste-Wächter läuft ohne Administratorrechte';
+  log(`[Befehl] Sicherung: FEHLER (${msg})`);
+  return { ok: false, message: msg };
+}
+
 // --- Befehle ausführen -------------------------------------------------------------------------------------
 async function execute(cmd, rows) {
+  if (cmd.action === 'backup_time') return setBackupTime(cmd);
   const svc = rows.find((r) => r.name === cmd.service_name);
   const action = cmd.action;
   if (!svc) return { ok: false, message: 'Dienst auf diesem PC nicht gefunden' };

@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import useBackupRuns, { isMissingTableError, useBackupStandby } from '@/hooks/useBackupRuns';
 import { useBackupSettings, DEFAULT_BACKUP_SETTINGS } from '@/hooks/useBackupSettings';
+import { BackupUhrzeit } from './BackupUhrzeit';
 import {
   BACKUP_STATUS_LABELS,
   bewerteSicherung,
@@ -32,8 +33,8 @@ import {
  * Das Skript Backup-Supabase.ps1 liest diese Einstellungen zu Beginn jedes
  * Laufs - Aenderungen wirken also ab der naechsten Sicherung.
  *
- * Die Uhrzeit ist hier NUR Anzeige: Sie steckt in der Windows-Aufgabenplanung
- * des jeweiligen PCs und wird dort mit Setup-SupabaseBackup.ps1 geaendert.
+ * Die Uhrzeit steckt in der Windows-Aufgabenplanung des jeweiligen PCs. Seit 24.11.2026 (SQL 55)
+ * laesst sie sich je Karte aendern: BackupUhrzeit schickt einen Befehl an den Dienste-Wächter (v1.1).
  *
  * Seit 13.11.2026 zwei PCs (wie Heizung München, Datensicherung.jsx):
  * PC München sichert jede Nacht, PC Österreich ist Ersatz und meldet sich
@@ -246,6 +247,7 @@ export function BackupSettingsSection() {
                         <dt className="text-muted-foreground">Ordner</dt>
                         <dd className="break-all">{r.gelungen?.backup_folder ?? '–'}</dd>
                       </div>
+                      <BackupUhrzeit backupHost={r.host} aktuell={r.letzter?.schedule_time ?? null} />
                     </dl>
                   </div>
                 );
@@ -344,7 +346,7 @@ export function BackupSettingsSection() {
 
           <p className="text-xs text-muted-foreground">
             Gilt für beide PCs und auch für die München-App. Änderungen wirken ab der nächsten Sicherung.
-            Die Uhrzeit wird auf dem jeweiligen PC mit „Setup-SupabaseBackup.ps1“ geändert.
+            Die Uhrzeit änderst du oben in der Karte des jeweiligen PCs (PC Österreich sollte nach PC München laufen).
           </p>
 
           <Button onClick={handleSave} disabled={isSaving} className="w-full">
