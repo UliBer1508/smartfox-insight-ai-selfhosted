@@ -12,6 +12,9 @@ Alle 30 Sekunden:
    Zusatzdienste aus `config.json` (Tailscale),
 2. meldet ihren Zustand an Supabase (Edge Function `system-agent`),
 3. führt Start/Stop/Neustart aus, die in der App angeklickt wurden.
+4. ab v1.1: stellt die Uhrzeit der Sicherung um (Aufgabe „Supabase-Sicherung Heizung“), wenn sie in der App
+   unter Einstellungen › Datensicherung geändert wurde (SQL 55, `doc/DATENSICHERUNG.md` „Uhrzeit ändern“).
+   Anderer Aufgabenname: in `config.json` `"backup_task": "…"`.
 
 Die Verbindung geht **vom PC nach außen** (HTTPS). Tailscale und Cloudflare werden dafür nicht gebraucht –
 läuft Tailscale nicht, kann man es trotzdem aus der App starten.

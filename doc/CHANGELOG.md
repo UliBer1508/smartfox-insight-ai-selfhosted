@@ -7,6 +7,10 @@ und das Projekt verwendet [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Neu (`doc/DATENSICHERUNG.md` „Uhrzeit ändern“, SQL 55)
+- Einstellungen › Datensicherung: Uhrzeit der Sicherung je PC in der Karte ändern (Button „Uhrzeit ändern“).
+  Der Dienste-Wächter (v1.1) stellt die geplante Aufgabe um und meldet den nächsten Lauf zurück. Gleich in Heizung München.
+
 ### Docs (`doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §10)
 - Anwesenheit: Code gegen Doku geprüft (pv-automation, heizplaner) – stimmt. Doku auf Stand 15.11. gebracht
   (Nacht = Min statt Frostschutz, Begriffe Min/Normal/PV-Max), veralteter Kommentar in `pv-automation` berichtigt. Keine Logikänderung.
