@@ -52,6 +52,7 @@ const defaultSettings: HeatingSettings = {
   min_vorlauf_c: 0.2,
   cap_keep_max_min: 120,
   ziel_abschalt_ueber_c: 0.3,
+  komfort_puffer_batterie_voll_w: 300,
   nacht_frueh_aus: true,
   nacht_spitze_ueber_ziel_c: 0.1,
   fuehler_pruefung_aktiv: true,

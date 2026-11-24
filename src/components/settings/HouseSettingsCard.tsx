@@ -99,6 +99,7 @@ const GROUPS: Group[] = [
       { k: 'nacht_spitze_ueber_ziel_c', l: 'Nachts höchstens Ziel +', kind: 'number', def: 0.1, unit: '°C', step: 0.1, min: 0, max: 1, hint: 'So hoch darf ein Raum nachts nach dem Abschalten noch steigen (Ziel = Min + Vorlauf).', showIf: (v) => v.nacht_frueh_aus !== false },
       // 14.11.2026: „Planer: zusätzlich unter Untergrenze“ entfällt – Min hält der Planer hart. Planer-Modus, Sparsamer ↔ wärmer,
       // Höchstleistung ohne Sonne: Tab Auto-Steuerung (seit 12.11.2026 nur dort).
+      { k: 'komfort_puffer_batterie_voll_w', l: 'Puffer bei voller Batterie', kind: 'number', def: 300, unit: 'W', step: 50, min: 0, max: 1500, hint: 'Batterie ≥ 95 %: so viel wird höchstens von der Einspeisung abgezogen, bevor sie für Komfort/PV-Max verteilt wird. Die volle Batterie fängt kurze Lastspitzen ab. Sonst gilt der Puffer aus der Schwankung des Verbrauchs (200–1500 W).', showIf: (v) => v.power_budget_enabled !== false },
       { k: 'power_budget_tolerance_w', l: 'Toleranz', kind: 'number', def: 200, unit: 'W', step: 50, min: 0, max: 2000, hint: 'erlaubter kurzer Netzbezug', showIf: (v) => v.power_budget_enabled !== false },
       { k: 'micro_budget_enabled', l: 'Mikro-Budget', kind: 'switch', def: true, hint: 'Bei kleinem Überschuss heizt reihum ein Raum kurz (Batterie als Puffer).' },
       { k: 'micro_heat_duration_min', l: 'Heizdauer je Runde', kind: 'number', def: 5, unit: 'min', step: 1, min: 3, max: 15, showIf: (v) => v.micro_budget_enabled !== false },

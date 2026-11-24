@@ -2467,6 +2467,15 @@ Deno.serve(async (req) => {
           } catch (e) {
             console.log(`[BASELOAD-BUFFER] Berechnung fehlgeschlagen: ${e}`);
           }
+          // 24.11.2026 (doc/FIX-KOMFORT-BUDGET-DOPPELABZUG-2026-11-24.md): Ist die Batterie voll, fängt sie kurze
+          // Lastspitzen ab, und die Sonne füllt sie gleich wieder. Der Puffer aus der Schwankung des Verbrauchs lag
+          // sonst bis 1500 W – z. B. wenn der Smartfox Warmwasser zu- und abschaltet – und fehlte der Heizung.
+          // Entlädt die Batterie danach, greift im nächsten Lauf die Prüfung in Phase 2 (kein Anrechnen laufender Räume).
+          const pufferBattVollW = Math.max(0, Number(settings?.komfort_puffer_batterie_voll_w ?? 300));
+          if (batterySoc >= 95 && dynamicBaseloadBuffer > pufferBattVollW) {
+            console.log(`[BASELOAD-BUFFER] Batterie voll (${batterySoc}%) → Puffer ${dynamicBaseloadBuffer}W → ${pufferBattVollW}W`);
+            dynamicBaseloadBuffer = pufferBattVollW;
+          }
 
           // ============= PROGNOSE-LOOKAHEAD-BONUS (nur Komfort) =============
           // Wenn die kommende Stunde mind. 90% des aktuellen Werts liefert → Bonus für Komfort,
@@ -3242,6 +3251,10 @@ Deno.serve(async (req) => {
         const curCheck = rp.room.current_temp || 0;
         if (curCheck >= ecoTempCheck - 0.3) return true; // bereits warm
         const status = roomBudgetStatus.get(rp.room.id);
+        // 24.11.2026: Ein Raum unter Eco, der nur wegen der Ein-Schwelle (Einspeisung < pv_surplus_threshold_on) nicht
+        // starten darf, ist nicht fertig. Seit laufende Räume kein Komfort-Budget mehr kosten, würden Komfort-Räume
+        // sonst den ganzen Überschuss behalten und der Raum unter Eco nie starten (Regel: erst alle auf Eco).
+        if (status && !status.allowedToHeat && status.reason.startsWith('Hysterese')) return false;
         if (status && !status.allowedToHeat) return true; // blockiert (Pause/Override/Rotation)
         if (status?.targetLevel === 'eco' && status.allowedToHeat) return true; // in Phase 1 aktiviert
         return false; // Raum will Eco, hat aber kein Budget bekommen → blockiert Phase 2
@@ -3250,8 +3263,23 @@ Deno.serve(async (req) => {
 
       // ============= PHASE 2: KOMFORT-RUNDE (nur wenn Phase 1 fertig) =============
       const effectiveComfortBudget = comfortBudget;
-      let usedComfortBudget = usedBudget;
-      const budgetAfterEco = effectiveComfortBudget - usedBudget;
+      // 24.11.2026 (doc/FIX-KOMFORT-BUDGET-DOPPELABZUG-2026-11-24.md): Das Komfort-Budget ist die echte Einspeisung.
+      // Räume, die schon heizen, haben die Einspeisung bereits um ihre Leistung gesenkt – vorher wurde ihre Leistung
+      // hier noch einmal abgezogen (24.11. 13:27: Einspeisung 2481 W, Rest −593 W, kein Raum bekam Komfort, Haustür
+      // schaltete ab und wieder ein). Jetzt kostet ein laufender Raum kein Komfort-Budget mehr – aber nur, wenn
+      // seine Leistung wirklich aus überschüssiger Sonne kommt: kein Netzbezug und die Batterie steht (voll oder
+      // ruhig). Lädt die Batterie, gehört die Sonne zuerst ihr – ein laufender Komfort-Raum nähme ihr sonst die
+      // Ladung weg; entlädt sie, heizt der Raum aus der Batterie. In beiden Fällen zählt er voll wie bisher.
+      const laufendAusSonne = budgetMode === 'pv_optimized'
+        && (Number(reading.power_io) || 0) <= 50
+        && batteryPower >= -50     // batteryPower hier: positiv = lädt, negativ = entlädt
+        && (batteryPower <= 100 || batterySoc >= 95);
+      const komfortKosten = (rp: typeof roomsWithPriority[0]) => (laufendAusSonne && rp.isCurrentlyHeating) ? 0 : rp.heatingPower;
+      let usedComfortBudget = roomsWithPriority.reduce((s, rp) => {
+        const st = roomBudgetStatus.get(rp.room.id);
+        return st?.budgeted && st.allowedToHeat && st.targetLevel === 'eco' ? s + komfortKosten(rp) : s;
+      }, 0);
+      const budgetAfterEco = effectiveComfortBudget - usedComfortBudget;
 
       // Heutiger Tagesstart in Wien (für Sättigungs-Reset-Check)
       const todayWienStr = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Vienna' }); // YYYY-MM-DD in Wien-Zeit
@@ -3327,7 +3355,7 @@ Deno.serve(async (req) => {
 
       // Abwesend (30.10.2026): Komfort mit echtem PV-Überschuss wie bei Anwesenheit – Überschuss wird im Estrich gespeichert.
       if (phase1Complete) {
-        console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedBudget}W, Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
+        console.log(`[PV-Automation] === PHASE 2: KOMFORT-RUNDE === comfortBudget=${effectiveComfortBudget}W, bereits verwendet=${usedComfortBudget}W (Eco-Räume ${usedBudget}W, laufende ${laufendAusSonne ? 'kosten nichts – steckt schon in der Einspeisung' : 'zählen voll – Netzbezug/Batterie entlädt'}), Rest=${budgetAfterEco}W (nur echter gridExport, kein Prognose-/Trend-/Batterie-Bonus)`);
         for (const rp of roomsWithPriority) {
           // Robustheit 2: Stale Räume (Thermostat offline) bekommen keinen Komfort-Push (Quota schonen)
           if (isRoomStale(rp.room)) {
@@ -3375,8 +3403,8 @@ Deno.serve(async (req) => {
               roomBudgetStatus.get(rp.room.id)!.targetLevel === 'eco';
 
             // Komfort-Budget-Check: NUR echter Überschuss erlaubt
-            if (alreadyBudgeted || usedComfortBudget + rp.heatingPower <= effectiveComfortBudget) {
-              if (!alreadyBudgeted) { usedBudget += rp.heatingPower; usedComfortBudget += rp.heatingPower; }
+            if (alreadyBudgeted || usedComfortBudget + komfortKosten(rp) <= effectiveComfortBudget) {
+              if (!alreadyBudgeted) { usedBudget += rp.heatingPower; usedComfortBudget += komfortKosten(rp); }
               roomBudgetStatus.set(rp.room.id, {
                 allowedToHeat: true,
                 reason: `Komfort-Phase${alreadyBudgeted ? ' (Eco→Komfort Upgrade)' : ''} (${usedComfortBudget}/${effectiveComfortBudget}W)`,
@@ -3539,7 +3567,8 @@ Deno.serve(async (req) => {
         : maxGridHeatingW;
       const dayState = await loadWaitState(supabase);
       const dayWaitPrev = dayState.rooms;
-      await attachBands(supabase, unbudgetedRooms.map((rp: any) => rp.room));
+      // 24.11.2026: Schaltband für alle Räume (auch mit PV-Budget – Anstoß in Phase 1), nicht nur ohne Budget
+      await attachBands(supabase, roomsWithPriority.map((rp: any) => rp.room));
       const { targets: dayFallback, gridUsedW, waiting: dayWaiting, capGranted: dayCapGranted } = allocateDayTargets(
         unbudgetedRooms.map(rp => ({ room: rp.room, heatingPower: rp.heatingPower })),
         { ...settings, _lokal: controlMode === 'local', _extraUsedW: ausserhalbHeizW }, dayMode, dayCapW, modeText, dayWaitPrev, nowMsDay, dayState.granted,
@@ -4058,7 +4087,15 @@ Deno.serve(async (req) => {
                   if (currentRoomTemp < ecoTemp - 0.3 || currentTargetTemp < ecoTemp) {
                     action = 'activate';
                     targetTemp = ecoTemp;
-                    reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C (Raum ${currentRoomTemp.toFixed(1)}°C, Thermostat ${currentTargetTemp}°C, Budget OK: ${budgetStatus.reason})`;
+                    // 24.11.2026 (doc/FIX-KOMFORT-BUDGET-DOPPELABZUG-2026-11-24.md): Liegt der Raum im Schaltband (z. B.
+                    // Kinder Bad 20,5 °C bei Eco 21 °C, Band 1,0 °C), schaltet das Thermostat bei Soll = Eco nie ein – der
+                    // Raum hielt aber Eco-Budget fest, das für Komfort fehlte. Jetzt Anstoß wie im Tagesmodus, höchstens Komfort.
+                    // Nur im Lokal-Modus (zusätzliche Befehle).
+                    const ecoStart = controlMode === 'local'
+                      ? startTarget(currentRoomTemp, ecoTemp, bandOf(room), room.is_heating === true, Math.max(ecoTemp, comfortTemp))
+                      : { temp: ecoTemp, anstoss: false };
+                    targetTemp = ecoStart.temp;
+                    reasoning = `☀️ Phase 1: Eco ${ecoTemp}°C${ecoStart.anstoss ? ` – Anstoß ${ecoStart.temp}°C (im Schaltband ±${bandOf(room)} °C, sonst schaltet das Thermostat nicht ein)` : ''} (Raum ${currentRoomTemp.toFixed(1)}°C, Thermostat ${currentTargetTemp}°C, Budget OK: ${budgetStatus.reason})`;
                   } else {
                     // Eco erreicht, aber kein Budget für Komfort
                     action = 'keep';
