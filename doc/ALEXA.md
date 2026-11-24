@@ -1,6 +1,6 @@
 # Alexa-Sprachsteuerung für Venediger
 
-**Stand:** 29.10.2026 · **Status:** eingerichtet und getestet (Alexa-Simulator)
+**Stand:** 24.11.2026 · **Status:** eingerichtet und getestet (Alexa-Simulator)
 
 Venediger ist an den Alexa-Skill **„Meine Heizung“** angebunden. Skill und Edge Function liegen im Repo
 **`heizung-muenchen`**, weil ein Skill beide Häuser bedient:
@@ -11,11 +11,10 @@ Venediger ist an den Alexa-Skill **„Meine Heizung“** angebunden. Skill und E
 | Sprachmodell | `heizung-muenchen/alexa/interaction-model-de-DE.json` |
 | Vollständige Doku | `heizung-muenchen/doc/ALEXA.md` (Einrichtung, alle Befehle, Fehlersuche) |
 
-> **Achtung (01.11.2026):** In Venediger bedeuten Einträge in `presence_periods` jetzt **Abwesenheit**
-> (`doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §9). Die Befehle „ich bin da bis …“ / „ich bin weg“ unten sind
-> noch der alte Stand und müssen in `alexa-heizung` umgestellt werden (neu: „ich bin weg bis …“ = Eintrag ab
-> jetzt, „ich bin zurück“ = laufende Einträge enden jetzt; App: `usePresence.awayUntil` / `backNow`).
-> Bis dahin nicht benutzen.
+> **24.11.2026:** `alexa-heizung` folgt der Regel vom 01.11. (Kalender = **Abwesenheit**, Grundzustand bewohnt,
+> `doc/KONZEPT-ANWESENHEIT-2026-10-28.md` §9). Jede Antwort beginnt mit dem Haus („Venediger: …“). Die Anwesenheitsbefehle
+> können wieder benutzt werden. Alexa+ (freie Sprache, `heizung-muenchen/doc/ALEXA-PLUS.md`) ist gebaut, aber noch nicht
+> bei Amazon eingerichtet.
 
 ## Was Alexa in Venediger kann
 
@@ -30,9 +29,9 @@ Räume, die es nur hier gibt („Bad Uli“, „Zimmer Luca“, „Kinderbad“)
 | „… Status in Venediger“ | anwesend/leer, Tagesmodus (`system_settings.heating_day_mode`), heizende Räume, manuelle Räume |
 | „… stelle das Zimmer Luca für drei Stunden auf 23 Grad“ | Übersteuerung wie in der App (siehe unten) |
 | „… Zimmer Luca wieder automatisch“ / „… alle Räume in Venediger wieder automatisch“ | `rooms.manual_override_until` = leer |
-| „… ich bin da bis Sonntag“ | Anwesenheit ab jetzt bis zum Datum (`presence_departure_time`, sonst 11:00); ohne Datum bis kommenden Sonntag 18:00 |
-| „… ich bin weg“ | laufende Anwesenheit endet jetzt, künftige Einträge bleiben |
-| „… bis wann sind wir eingetragen?“ | anwesend bis / leer, nächste Ankunft |
+| „… ich bin weg bis Sonntag“ | Abwesenheit ab jetzt bis zum Datum (Rückkehr `presence_arrival_time`, sonst 14:00); ohne Datum eine Woche |
+| „… ich bin da“ (auch „… ich bin da bis …“) | laufende Abwesenheit endet jetzt, künftige Einträge bleiben |
+| „… bis wann sind wir eingetragen?“ | bewohnt bzw. leer bis …, nächste Abwesenheit |
 
 Einen Hauptschalter „Automatik aus“ gibt es für Venediger bewusst nicht.
 
@@ -46,7 +45,7 @@ Die Function benutzt **dieselben Wege wie die App**. Wer diese Stellen ändert, 
 | Temperatur setzen, Cloud-Modus | POST `tuya-control/set-temp` mit `deviceId`, `temperature`, `roomId` (service_role) | `useTuyaControl.setTemperature` |
 | Modus-Auswahl | `system_settings.tuya_control_mode` → `value.mode` (`local` / `cloud`, Standard `cloud`) | `useControlMode` |
 | Übersteuerung | `rooms.manual_override_until` + `target_temp` (Dauer 2–12 h); `pv-automation` lässt den Raum dann in Ruhe | `HouseOverview` |
-| Anwesenheit | `presence_periods` (`source: 'quick'`, `note: 'Alexa'`); gleiche Regel wie `computePresence` / `getPresence` inkl. `presence_lead_hours` | `usePresence.arriveUntil` / `leaveNow` |
+| Anwesenheit | `presence_periods` = Abwesenheiten (`source: 'quick'`, `note: 'Alexa'`); gleiche Regel wie `computePresence` / `getPresence` inkl. `presence_lead_hours` | `usePresence.awayUntil` / `backNow` |
 | Lesen | `rooms`, `energy_readings` (Fronius-Vorzeichen: `power_io` > 0 Bezug, < 0 Einspeisung), `system_settings.heating_day_mode`, `heating_settings` | – |
 
 Grenzen beim Stellen: 5–26 °C; „warm machen“ ohne Temperatur = `comfort_temp` des Raums.
