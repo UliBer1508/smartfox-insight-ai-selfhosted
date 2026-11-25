@@ -696,6 +696,11 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
 
+### 2026-11-25 — Tagesenergie zeitgewichtet (Faktor-10-Fehler)
+- `get_weekly_energy_summary` rechnete mit 120 Messungen/h (30-s-Takt); seit 08.07.2026 kommt `energy_readings` alle 300 s → PV, Netzbezug, Einspeisung in `daily_pattern_scores` um Faktor 10 zu klein (entdeckt über ÖMAG-Gutschrift September).
+- Jetzt zeitgewichtet (Leistung × Abstand, Lücken max. 600 s), SQL 60; Altdaten korrigiert; `compute-daily-score` Netzbezug-Abzug 0,05/kWh (Score gleiche Skala). `ai-parameter-advisor` rechnet „realistische PV“ jetzt richtig.
+- Doku: `doc/FIX-TAGESENERGIE-FAKTOR10-2026-11-25.md`.
+
 ### 2026-11-25 — Stromtarife: Preisfix, ÖMAG-Vertrag, WiNAP vorgemerkt
 - Salzburg AG: Haus 315 (dieses System), 316 Strom + Heizung und Wald Heizung wechseln auf „Strom Preisfix“ (11,88 ct brutto, bis 30.06.2028, kein Nachttarif); Wald Strom bleibt Privat 24 + Deckel. Ersparnis ca. 1.500–1.700 €/Jahr, für 315 ~300 €.
 - 315 behält bewusst keinen eigenen Heizstrom-Zähler (Heizung über die Batterie).
