@@ -57,7 +57,7 @@ export function fensterFuer(a: Aufb, rid: string, alleH: number, laengeH: number
     const T0 = m.get(t0)!.t;
     const hz = Array.from({ length: 48 }, (_, i) => t0 - 900 * (48 - i));
     out.push({
-      T0,
+      t0, T0,
       histT: hz.map(x => m.get(x)?.t ?? T0), histH: hz.map(x => m.get(x)?.h ?? 0),
       h: st.map(x => m.get(x)!.h), tout: st.map(x => a.wet.get(wkey(x))!.t),
       pvkw: st.map(x => a.e15.get(x)![2] / 1000),

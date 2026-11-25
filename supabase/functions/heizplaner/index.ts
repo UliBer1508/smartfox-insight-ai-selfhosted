@@ -26,7 +26,7 @@ import type { PruefStand, RaumPruefung } from './pruefung.ts';
 import { emhassBewerten, emhassEingabe } from './emhass.ts';
 import { baueLp, heizenAusLoesung } from './highs.ts';
 import { bewerte } from './modell.ts';
-import { modellPruefen } from './modellpruefung.ts';
+import { modellPruefen, vortagsGuete } from './modellpruefung.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -131,11 +131,23 @@ async function abwesenheiten(sb: any): Promise<Abwesenheit> {
 async function lernen(sb: any, raumId: string, tage: number) {
   const { data: d, error } = await sb.rpc('heizplaner_daten', { p_tage: tage });
   if (error) throw new Error(`heizplaner_daten: ${error.message}`);
+  // 25.11.2026: zuerst prüfen, wie gut das Modell von gestern die seither gemessenen Stunden vorhergesagt hat –
+  // ein Fehler hier darf das Lernen nicht aufhalten (modellpruefung.ts › vortagsGuete, SQL 58)
+  let guete: unknown = null;
+  try {
+    const g = vortagsGuete(d, raumId);
+    if (g) {
+      const tag = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Vienna' });
+      const raum = d.raeume.find((x: any) => x.id === raumId)?.name ?? null;
+      const { error: gErr } = await sb.from('heizmodell_guete').upsert({ tag, room_id: raumId, raum, ...g }, { onConflict: 'tag,room_id' });
+      guete = gErr ? `nicht gespeichert: ${gErr.message}` : g;
+    }
+  } catch (e) { guete = `Fehler: ${String(e)}`; }
   const erg = lerneAus(d, raumId, tage);
-  if (!erg.ok) return erg;
+  if (!erg.ok) return { ...erg, guete };
   const { error: upErr } = await sb.from('heizmodell').upsert(erg.zeile, { onConflict: 'room_id' });
   if (upErr) throw new Error(`heizmodell: ${upErr.message}`);
-  return { ok: true, ...erg.zeile, fenster: erg.fenster };
+  return { ok: true, ...erg.zeile, fenster: erg.fenster, guete };
 }
 
 // 25.11.2026: Prüfung Estrich-Maßstab – nur lesen, nichts speichern (modellpruefung.ts)
