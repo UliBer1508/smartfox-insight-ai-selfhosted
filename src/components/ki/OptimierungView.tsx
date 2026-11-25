@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useKiVorschlaege, KiVorschlag } from '@/hooks/useKiVorschlaege';
 import { KiGegenRegeln } from './KiGegenRegeln';
+import { ModellGuete } from './ModellGuete';
 import { bereich, heuteWien, plusTage, verschieben } from './verlaufZeit';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -318,6 +319,8 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
 
         {/* 16.11.2026 (Uli): Gegenrechnung jeden Morgen hier anzeigen */}
         <KiGegenRegeln />
+        {/* 25.11.2026 (Uli): sehen, ob die KI über die Zeit besser vorhersagt */}
+        <ModellGuete />
       </section>
 
       {/* 2 Wohin wollen wir? */}
