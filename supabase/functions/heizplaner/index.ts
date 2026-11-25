@@ -139,13 +139,13 @@ async function lernen(sb: any, raumId: string, tage: number) {
 }
 
 // 25.11.2026: Prüfung Estrich-Maßstab – nur lesen, nichts speichern (modellpruefung.ts)
-async function modellPruefenAktion(sb: any, raumId: string, tage: number) {
+async function modellPruefenAktion(sb: any, raumId: string, tage: number, faktor?: number | 'frei') {
   const { data: d, error } = await sb.rpc('heizplaner_daten', { p_tage: tage });
   if (error) throw new Error(`heizplaner_daten: ${error.message}`);
   const { data: rms } = await sb.from('rooms').select('id, floor_area_m2');
   const flaeche = new Map(((rms ?? []) as any[]).map(r => [r.id, r.floor_area_m2 != null ? Number(r.floor_area_m2) : null]));
   const ids = !raumId || raumId === 'alle' ? d.raeume.map((r: any) => r.id) : [raumId];   // ohne raum: alle (~1 s je Raum)
-  return { tage, raeume: ids.map((id: string) => modellPruefen(d, id, flaeche.get(id) ?? null)) };
+  return { tage, faktor: faktor ?? 'alle', raeume: ids.map((id: string) => modellPruefen(d, id, flaeche.get(id) ?? null, faktor)) };
 }
 
 async function pvLernen(sb: any, tage: number) {
@@ -255,7 +255,8 @@ Deno.serve(async (req) => {
     else if (aktion === 'emhass_eingabe') res = await emhassEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
     else if (aktion === 'emhass_bewerten') res = await emhassBewertenAktion(sb, body.tag ?? gestern, body.plan);
     else if (aktion === 'highs_eingabe') res = await highsEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
-    else if (aktion === 'modell_pruefen') res = await modellPruefenAktion(sb, body.raum, Number(body.tage) || 30);
+    else if (aktion === 'modell_pruefen') res = await modellPruefenAktion(sb, body.raum, Number(body.tage) || 30,
+      body.faktor === 'frei' ? 'frei' : body.faktor != null ? Number(body.faktor) : undefined);
     else if (aktion === 'highs_bewerten') res = await highsBewertenAktion(sb, body.tag ?? gestern, body);
     else return json({ error: `unbekannte aktion ${aktion}` }, 400);
     console.log(`[HEIZPLANER] ${aktion}: ${JSON.stringify(res).slice(0, 400)}`);
