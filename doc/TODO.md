@@ -8,8 +8,8 @@ Stand: 2026-11-25
 
 ### Stromtarife (25.11., `STROMTARIFE-UND-EINSPEISUNG-2026-11-25.md`)
 - [ ] Schriftliche Bestätigung Preisfix abwarten, Startdatum notieren
-- [ ] Danach „Tarife & Preisverlauf“: 315 ab Startdatum 11,88 ct/kWh (statt 20,28)
-- [ ] Einspeisung 315 (15,8 kWp) klären → Einspeisetarif eintragen (ÖMAG-Vertrag gilt nur für 316)
+- [ ] Danach „Tarife & Preisverlauf“: 315 ab Startdatum ~21,54 ct/kWh inkl. Netz (statt 29,94), Grundgebühr ~197,30 €
+- [ ] ÖMAG: Referenzen 163506 / 190079 den Häusern 315/316 zuordnen (Gutschrift), Einspeisetarif (6,772 ct) nachführen
 - [ ] Salzburg AG: Netztarif der bisherigen Wärme-Zähler (Wald, 316) nach Wechsel?
 - [ ] **Oktober 2027: WiNAP** (Netztarif Okt–März 23–5 Uhr) in Planer/Batterie-Nachtladung einbauen
 - [ ] Vor 30.06.2028: Anschluss-Tarif nach Preisfix prüfen
