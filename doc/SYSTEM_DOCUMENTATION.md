@@ -704,7 +704,7 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ### 2026-11-25 — Stromtarife: Preisfix, ÖMAG-Vertrag, WiNAP vorgemerkt
 - Salzburg AG: Haus 315 (dieses System), 316 Strom + Heizung und Wald Heizung wechseln auf „Strom Preisfix“ (11,88 ct brutto, bis 30.06.2028, kein Nachttarif); Wald Strom bleibt Privat 24 + Deckel. Ersparnis ca. 1.500–1.700 €/Jahr, für 315 ~300 €.
 - 315 behält bewusst keinen eigenen Heizstrom-Zähler (Heizung über die Batterie).
-- ÖMAG: Vertrag für 316 (4,2 kWp) dokumentiert; zwei ÖMAG-Zahlungen am 30.10.2026 zeigen, dass auch 315 über die ÖMAG einspeist (Zuordnung offen).
+- ÖMAG: Vertrag für 316 (4,2 kWp) dokumentiert; auch 315 speist über die ÖMAG ein (monatliche Gutschrift; höhere Zahlung = 315, niedrigere = 316). Befund: `daily_pattern_scores.feed_in_kwh` ist um Faktor 10 zu klein.
 - Noch keine Code- oder Datenänderung: Strompreis in „Tarife & Preisverlauf“ erst nach der schriftlichen Bestätigung umstellen. Ab 10/2027 WiNAP (Netztarif 23–5 Uhr im Winter) in Planer/Batterie einbauen.
 - Doku: `doc/STROMTARIFE-UND-EINSPEISUNG-2026-11-25.md`.
 

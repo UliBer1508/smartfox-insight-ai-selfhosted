@@ -75,9 +75,13 @@ Der Vertrag liegt als PDF bei Uli. Er enthält Bankverbindung und Geburtsdatum u
 | 30.10.2026 | 163506: 9359463 | 99,49 € |
 | 30.10.2026 | 190079: 9359614 | 38,02 € |
 
-Zwei Referenzen am selben Tag bedeuten **zwei ÖMAG-Verträge**. Neben 316 speist also auch **315** über die ÖMAG ein (in der App steht dazu „ÖMAG PV Richtwert“). Welche Referenz zu welchem Haus gehört, steht auf der ÖMAG-Gutschrift (Portal oder Post). In Gmail gibt es keine ÖMAG-Mails.
+Zwei Referenzen am selben Tag bedeuten **zwei ÖMAG-Verträge**. Laut Uli (25.11.2026) gilt immer: **die höhere Zahlung ist Haus 315, die niedrigere Haus 316** (hier 99,49 € = 315, 38,02 € = 316).
 
-Plausibilitätscheck mit den App-Daten (315, `daily_pattern_scores.feed_in_kwh`): Juli 221,6 kWh, August 102,7 kWh, September 98,5 kWh. Mit den Monats-Marktpreisen laut Forum energiesparhaus.at (Juli 6,146, August 8,997, September 10,168 ct/kWh) ergibt das **~33 €** für Q3. Das passt am ehesten zu **38,02 € = 315** und **99,49 € = 316**. Das ist nur eine Annahme, bitte mit der Gutschrift prüfen.
+Die ÖMAG zahlt **monatlich**. Die Zahlung vom 30.10.2026 ist die Gutschrift für **September 2026** (Marktpreis 10,168 ct/kWh):
+- 315: 99,49 € / 10,168 ct ≈ **980 kWh** eingespeist im September
+- 316: 38,02 € / 10,168 ct ≈ **375 kWh** eingespeist im September
+
+Gegenprobe mit den App-Daten: `energie_tag.einspeisung_kwh` passt zur Größenordnung. **`daily_pattern_scores.feed_in_kwh` ist um Faktor 10 zu klein** (September 98,5 kWh statt ~980; Oktober Tag für Tag genau 1/10 von `energie_tag`). Das betrifft den Eigenverbrauchsanteil in `compute-daily-score`, der dadurch zu hoch ausfällt. Siehe Offene Punkte.
 
 Marktpreise 2026 laut Forum (inoffiziell, offiziell bei E-Control/OeMAG): Jänner 8,842 · März 5,720 · April–Juni 6,772 · Juli 6,146 · August 8,997 · September 10,168 ct/kWh.
 
@@ -116,6 +120,7 @@ Marktpreise 2026 laut Forum (inoffiziell, offiziell bei E-Control/OeMAG): Jänne
 - [ ] Schriftliche Bestätigung Preisfix abwarten, Startdatum je Zähler notieren
 - [ ] Danach in „Tarife & Preisverlauf“ für 315 ab Startdatum ~21,54 ct (inkl. Netz) und Grundgebühr ~197,30 € eintragen
 - [ ] Salzburg AG: Ändert sich bei den bisherigen Wärme-Zählern (Wald, 316) der Netztarif?
-- [ ] ÖMAG-Gutschrift prüfen: welche Referenz (163506 / 190079) ist 315, welche 316; Zeitraum und kWh → `feed_in_price_cent` nachführen
+- [ ] Einspeisetarif `feed_in_price_cent` (6,772 ct) monatlich nachführen oder Jahresmittel verwenden
+- [ ] **Fehler `daily_pattern_scores.feed_in_kwh` Faktor 10 zu klein** (Quelle: Funktion mit `energy_out_kwh`, Migration 20260511050714) – Ursache suchen und korrigieren, eigener PR; betrifft Eigenverbrauchsanteil in `compute-daily-score`
 - [ ] **Oktober 2027: WiNAP umsetzen.** Ab 01.10.2027 gilt der Winter-Nieder-Arbeitspreis (Netztarif Okt–März, 23–5 Uhr). Weil Preisfix keinen Nachttarif hat, ist WiNAP dann der einzige Nachtvorteil. Planer/Batterie: Nachtladung und eventuell Heizlast in dieses Fenster legen, wenn tagsüber keine PV erwartet wird.
 - [ ] Vor dem 30.06.2028: Anschluss-Tarif nach Preisfix prüfen
