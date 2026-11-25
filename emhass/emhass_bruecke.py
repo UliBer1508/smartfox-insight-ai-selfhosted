@@ -110,12 +110,15 @@ def ein_tag(einst, tag):
     if not eingabe.get("ok"):
         melde(f"{tag}: übersprungen – {eingabe.get('grund') or eingabe.get('error')}")
         return False
-    plan = emhass_rechnen(eingabe, tag)
-    if plan["status"] != "Optimal":                               # keine Lösung → nichts bewerten, im Log melden
-        raise RuntimeError(f"EMHASS ohne Lösung (Status {plan['status']}) – siehe laeufe\\{tag}\\emhass.log")
+    # 25.11.2026: Hinweis VOR dem Rechnen, damit er auch an Tagen ohne Lösung im Protokoll steht
     begrenzt = [f"{r['name']} {r['min_begrenzt']} °C" for r in eingabe["raeume"] if r.get("min_begrenzt") is not None]
     if begrenzt:
         melde(f"{tag}: Min laut Modell nicht haltbar, für EMHASS begrenzt: {', '.join(begrenzt)}")
+    plan = emhass_rechnen(eingabe, tag)
+    # „Optimal (Relaxed)“ = EMHASS' eigene Ausweichlösung (Ein/Aus der Räume als stufenlos gerechnet); EMHASS selbst
+    # wertet sie als Erfolg. Unsere Bewertung schaltet einen Raum ab halber Leistung ein – also mitbewerten, Status bleibt sichtbar.
+    if plan["status"] not in ("Optimal", "Optimal (Relaxed)"):    # keine Lösung → nichts bewerten, im Log melden
+        raise RuntimeError(f"EMHASS ohne Lösung (Status {plan['status']}) – siehe laeufe\\{tag}\\emhass.log")
     erg = heizplaner(einst, {"aktion": "emhass_bewerten", "tag": tag, "plan": plan})
     e = erg.get("emhass") or {}
     melde(f"{tag}: EMHASS {plan['status']} in {plan['rechenzeit_s']} s – Netz {e.get('netz_kwh')} kWh "
