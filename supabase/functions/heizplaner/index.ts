@@ -15,6 +15,7 @@
 //   lernen  raum=<id> – Raummodell eines Raums lernen (03:00, je Raum ein Aufruf wegen der Rechenzeit-Grenze)
 //   pv_lernen         – PV-Vorhersage je Stunde lernen (03:00)
 //   vergleich tag=…   – Gegenrechnung eines Tages (Standard: gestern)
+//   modell_pruefen raum=… tage=30 – Prüfung Estrich-Maßstab, nur lesen (25.11.2026)
 //   emhass_eingabe tag=…           – Eingaben für EMHASS (Österreich-PC) zur Gegenrechnung des Tages (22.11.2026)
 //   emhass_bewerten tag=… plan=…   – EMHASS-Plan mit unserem Maßstab bewerten → heizplan_vergleich.emhass
 //   highs_eingabe tag=…            – Planungsproblem des Tages als LP für HiGHS (Österreich-PC) (22.11.2026)
@@ -25,6 +26,7 @@ import type { PruefStand, RaumPruefung } from './pruefung.ts';
 import { emhassBewerten, emhassEingabe } from './emhass.ts';
 import { baueLp, heizenAusLoesung } from './highs.ts';
 import { bewerte } from './modell.ts';
+import { modellPruefen } from './modellpruefung.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -136,6 +138,16 @@ async function lernen(sb: any, raumId: string, tage: number) {
   return { ok: true, ...erg.zeile, fenster: erg.fenster };
 }
 
+// 25.11.2026: Prüfung Estrich-Maßstab – nur lesen, nichts speichern (modellpruefung.ts)
+async function modellPruefenAktion(sb: any, raumId: string, tage: number) {
+  const { data: d, error } = await sb.rpc('heizplaner_daten', { p_tage: tage });
+  if (error) throw new Error(`heizplaner_daten: ${error.message}`);
+  const { data: rms } = await sb.from('rooms').select('id, floor_area_m2');
+  const flaeche = new Map(((rms ?? []) as any[]).map(r => [r.id, r.floor_area_m2 != null ? Number(r.floor_area_m2) : null]));
+  const ids = !raumId || raumId === 'alle' ? d.raeume.map((r: any) => r.id) : [raumId];   // ohne raum: alle (~1 s je Raum)
+  return { tage, raeume: ids.map((id: string) => modellPruefen(d, id, flaeche.get(id) ?? null)) };
+}
+
 async function pvLernen(sb: any, tage: number) {
   const { data: d, error } = await sb.rpc('heizplaner_daten', { p_tage: tage });
   if (error) throw new Error(`heizplaner_daten: ${error.message}`);
@@ -243,6 +255,7 @@ Deno.serve(async (req) => {
     else if (aktion === 'emhass_eingabe') res = await emhassEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
     else if (aktion === 'emhass_bewerten') res = await emhassBewertenAktion(sb, body.tag ?? gestern, body.plan);
     else if (aktion === 'highs_eingabe') res = await highsEingabeAktion(sb, body.tag ?? url.searchParams.get('tag') ?? gestern);
+    else if (aktion === 'modell_pruefen') res = await modellPruefenAktion(sb, body.raum, Number(body.tage) || 30);
     else if (aktion === 'highs_bewerten') res = await highsBewertenAktion(sb, body.tag ?? gestern, body);
     else return json({ error: `unbekannte aktion ${aktion}` }, 400);
     console.log(`[HEIZPLANER] ${aktion}: ${JSON.stringify(res).slice(0, 400)}`);
