@@ -81,7 +81,7 @@ Die ÖMAG zahlt **monatlich**. Die Zahlung vom 30.10.2026 ist die Gutschrift fü
 - 315: 99,49 € / 10,168 ct ≈ **980 kWh** eingespeist im September
 - 316: 38,02 € / 10,168 ct ≈ **375 kWh** eingespeist im September
 
-Gegenprobe mit den App-Daten: `energie_tag.einspeisung_kwh` passt zur Größenordnung. **`daily_pattern_scores.feed_in_kwh` ist um Faktor 10 zu klein** (September 98,5 kWh statt ~980; Oktober Tag für Tag genau 1/10 von `energie_tag`). Das betrifft den Eigenverbrauchsanteil in `compute-daily-score`, der dadurch zu hoch ausfällt. Siehe Offene Punkte.
+Gegenprobe mit den App-Daten: `energie_tag.einspeisung_kwh` passt zur Größenordnung. **`daily_pattern_scores.feed_in_kwh` ist um Faktor 10 zu klein** (September 98,5 kWh statt ~980; Oktober Tag für Tag genau 1/10 von `energie_tag`). Ursache: feste 30-s-Annahme in `get_weekly_energy_summary`, behoben mit SQL 60 (siehe `FIX-TAGESENERGIE-FAKTOR10-2026-11-25.md`).
 
 Marktpreise 2026 laut Forum (inoffiziell, offiziell bei E-Control/OeMAG): Jänner 8,842 · März 5,720 · April–Juni 6,772 · Juli 6,146 · August 8,997 · September 10,168 ct/kWh.
 
@@ -121,6 +121,6 @@ Marktpreise 2026 laut Forum (inoffiziell, offiziell bei E-Control/OeMAG): Jänne
 - [ ] Danach in „Tarife & Preisverlauf“ für 315 ab Startdatum ~21,54 ct (inkl. Netz) und Grundgebühr ~197,30 € eintragen
 - [ ] Salzburg AG: Ändert sich bei den bisherigen Wärme-Zählern (Wald, 316) der Netztarif?
 - [ ] Einspeisetarif `feed_in_price_cent` (6,772 ct) monatlich nachführen oder Jahresmittel verwenden
-- [ ] **Fehler `daily_pattern_scores.feed_in_kwh` Faktor 10 zu klein** (Quelle: Funktion mit `energy_out_kwh`, Migration 20260511050714) – Ursache suchen und korrigieren, eigener PR; betrifft Eigenverbrauchsanteil in `compute-daily-score`
+- [ ] Faktor-10-Fehler: Ursache gefunden und behoben, siehe `FIX-TAGESENERGIE-FAKTOR10-2026-11-25.md` (SQL 60)
 - [ ] **Oktober 2027: WiNAP umsetzen.** Ab 01.10.2027 gilt der Winter-Nieder-Arbeitspreis (Netztarif Okt–März, 23–5 Uhr). Weil Preisfix keinen Nachttarif hat, ist WiNAP dann der einzige Nachtvorteil. Planer/Batterie: Nachtladung und eventuell Heizlast in dieses Fenster legen, wenn tagsüber keine PV erwartet wird.
 - [ ] Vor dem 30.06.2028: Anschluss-Tarif nach Preisfix prüfen

@@ -10,7 +10,7 @@ Stand: 2026-11-25
 - [ ] Schriftliche Bestätigung Preisfix abwarten, Startdatum notieren
 - [ ] Danach „Tarife & Preisverlauf“: 315 ab Startdatum ~21,54 ct/kWh inkl. Netz (statt 29,94), Grundgebühr ~197,30 €
 - [ ] Einspeisetarif (6,772 ct) monatlich nachführen (ÖMAG zahlt monatlich; höhere Zahlung = 315, niedrigere = 316)
-- [ ] **Bug: `daily_pattern_scores.feed_in_kwh` Faktor 10 zu klein** (vs. `energie_tag`), verfälscht Eigenverbrauchsanteil in `compute-daily-score` – eigener PR
+- [ ] Faktor-10-Fehler Tagesenergie (`FIX-TAGESENERGIE-FAKTOR10-2026-11-25.md`): PR mergen, danach SQL `60_tagesenergie_zeitgewichtet.sql` ausführen, Kontrolle ≈ 1,0
 - [ ] Salzburg AG: Netztarif der bisherigen Wärme-Zähler (Wald, 316) nach Wechsel?
 - [ ] **Oktober 2027: WiNAP** (Netztarif Okt–März 23–5 Uhr) in Planer/Batterie-Nachtladung einbauen
 - [ ] Vor 30.06.2028: Anschluss-Tarif nach Preisfix prüfen
