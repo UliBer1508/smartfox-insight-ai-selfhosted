@@ -73,6 +73,7 @@
 | **Fronius Wechselrichter** | 192.168.188.64 | `/solar_api/v1/GetPowerFlowRealtimeData.fcgi` |
 | **Tuya Thermostate** | 12 × TGP508 (MAC 3C:0B:59), **per LAN (Kabel) angebunden, nicht WLAN** | Tuya Cloud (Cloud-Modus) ODER Port 6668 (Lokal-Modus) |
 | **Standort** | 47.24983°N, 12.25415°E (Österreich), Europe/Vienna | — |
+| **Stromtarif / Einspeisung** | Salzburg AG „Strom Preisfix“ 11,88 ct brutto/kWh (genehmigt 25.11.2026, garantiert bis 30.06.2028, kein Nachttarif) | `doc/STROMTARIFE-UND-EINSPEISUNG-2026-11-25.md`; Preise in „Tarife & Preisverlauf“ |
 
 ### Wer steuert was (Grundsatz, Uli 01.11.2026)
 
@@ -694,6 +695,13 @@ Trigger `protect_rooms_sensitive_columns`: anon kann NICHT `tuya_device_id` / `l
 ## 20. Changelog
 
 > **REGEL:** Bei JEDER Änderung hier dokumentieren — Datum, was, warum.
+
+### 2026-11-25 — Stromtarife: Preisfix, ÖMAG-Vertrag, WiNAP vorgemerkt
+- Salzburg AG: Haus 315 (dieses System), 316 Strom + Heizung und Wald Heizung wechseln auf „Strom Preisfix“ (11,88 ct brutto, bis 30.06.2028, kein Nachttarif); Wald Strom bleibt Privat 24 + Deckel. Ersparnis ca. 1.500–1.700 €/Jahr, für 315 ~300 €.
+- 315 behält bewusst keinen eigenen Heizstrom-Zähler (Heizung über die Batterie).
+- ÖMAG-Vertrag (Marktpreis) dokumentiert – gilt für die 4,2-kWp-Anlage in 316; Einspeisung 315 noch offen.
+- Noch keine Code- oder Datenänderung: Strompreis in „Tarife & Preisverlauf“ erst nach der schriftlichen Bestätigung umstellen. Ab 10/2027 WiNAP (Netztarif 23–5 Uhr im Winter) in Planer/Batterie einbauen.
+- Doku: `doc/STROMTARIFE-UND-EINSPEISUNG-2026-11-25.md`.
 
 ### 2026-11-13 — Planer steuert, neues Raummodell, Sprach-KI entfernt
 - Befund: altes Raummodell rechnete mit ~8 kW „innerer Wärme“ (verzögerte Estrich-Wärme) und ohne Wert für die Wärme am Planende – der Planer hätte das Haus auskühlen lassen (Gegenrechnung 12.11.: 12,8 statt 40,9 kWh bei wärmeren Räumen).
