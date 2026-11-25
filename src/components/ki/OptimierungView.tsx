@@ -90,8 +90,22 @@ function AmpelKarte({ ampel, label, frage, children }: { ampel: Ampel; label: st
   );
 }
 
-function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label }: {
+// 25.11.2026 (Uli: „Dann muss man die Kennzahlen auch erklären – in beiden Systemen.“): „Was heißt das?“ je Ziel,
+// mit den Zahlen des gewählten Zeitraums. Gleicher Text wie München (WoStehenWir.jsx).
+function Erklaerung({ children }: { children: React.ReactNode }) {
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1 [&::-webkit-details-marker]:hidden">
+        <span aria-hidden="true">ⓘ</span> Was heißt das?
+      </summary>
+      <div className="mt-1.5 rounded-lg bg-muted/60 p-3 text-xs text-muted-foreground leading-relaxed">{children}</div>
+    </details>
+  );
+}
+
+function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label, erklaerung }: {
   titel: string; jetzt: string; ziel: string; breite: number; marke?: number; farbe: string; hinweis?: React.ReactNode; label: string;
+  erklaerung?: React.ReactNode;
 }) {
   return (
     <div className="space-y-2">
@@ -104,6 +118,7 @@ function ZielZeile({ titel, jetzt, ziel, breite, marke, farbe, hinweis, label }:
         {marke != null && <div className="absolute -top-1 -bottom-1 w-[3px] rounded bg-foreground" style={{ left: `${marke}%` }} />}
       </div>
       {hinweis && <div className="text-xs text-muted-foreground">{hinweis}</div>}
+      {erklaerung && <Erklaerung>{erklaerung}</Erklaerung>}
     </div>
   );
 }
@@ -262,6 +277,10 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
     toast.success('Ziel gespeichert'); setZielEdit(null); laden();
   };
 
+  // Für die Erklärungen (25.11.2026): Heizgradtage im Zeitraum (Heizstrom ÷ Kennzahl), selbst genutzter Sonnenstrom
+  const hgtSumme = kwh ? Number(s.heizung_kwh) / kwh : null;
+  const pvGenutzt = Math.max(0, Number(s.pv_kwh) - Number(s.einspeisung_kwh));
+
   const offen = ki.offen.filter(v => v.art !== 'info');
 
   return (
@@ -342,16 +361,37 @@ export function OptimierungView({ onNavigate }: { onNavigate: (tab: 'overview' |
                     <Button size="sm" className="h-8" onClick={zielSpeichern}>Speichern</Button>
                     <Button size="sm" variant="ghost" className="h-8" onClick={() => setZielEdit(null)}>Abbrechen</Button>
                   </span>}
-            </span>} />
+            </span>}
+            erklaerung={<>
+              Ein <b>Heizgradtag</b> misst, wie kalt ein Tag war: 18 °C minus mittlere Außentemperatur (Tage über 18 °C zählen nicht).
+              Bei 0 °C draußen sind das 18 Heizgradtage, bei 10 °C nur 8. Die Kennzahl ist der Heizstrom geteilt durch die Heizgradtage –
+              so lassen sich warme und kalte Wochen vergleichen.
+              {kwh != null && hgtSumme != null && <> In diesem Zeitraum: {n(s.heizung_kwh)} kWh Heizstrom ÷ {n(hgtSumme, 1)} Heizgradtage = <b>{n(kwh, 1)}</b>.</>}
+              {' '}Ziel {n(ziel, 1)} heißt: bei 0 °C draußen rund {n(ziel * 18)} kWh Heizstrom am Tag, bei 10 °C rund {n(ziel * 8)} kWh.
+              {' '}Der Heizstrom ist gemessen (Heizmatten).
+              Achtung: Ein guter Wert zusammen mit vielen Raum-Stunden unter Min heißt meist, dass zu wenig geheizt wurde – nicht, dass gespart wurde.
+            </>} />
           <ZielZeile titel="Sonnenstrom im Haus nutzen" jetzt={`${n(s.eigen_pct)} %`} ziel="100 %"
             breite={Number(s.eigen_pct ?? 0)} farbe={sonne === 'gut' ? 'bg-emerald-600' : 'bg-amber-500'}
             label={`Sonnenstrom genutzt: ${n(s.eigen_pct)} Prozent, Ziel 100 Prozent`}
-            hinweis={sonne === 'gut' ? 'Erreicht.' : undefined} />
+            hinweis={sonne === 'gut' ? 'Erreicht.' : undefined}
+            erklaerung={<>
+              Anteil des Sonnenstroms, der im Haus bleibt – verbraucht oder in die Batterie geladen – statt ins Netz zu gehen.
+              {Number(s.pv_kwh) > 0 && <> In diesem Zeitraum: {n(s.pv_kwh, 1)} kWh erzeugt, {n(s.einspeisung_kwh, 1)} kWh ins Netz,
+                also {n(pvGenutzt, 1)} kWh im Haus = {n(s.eigen_pct)} %.</>}
+              {' '}Was ins Netz geht, bringt nur die Einspeisevergütung; im Estrich gespeichert ersetzt es teuren Netzstrom.
+            </>} />
           <ZielZeile titel="Kein Raum unter Min" jetzt={`${n(s.h_unter_min)} Raum-Stunden`} ziel="0"
             breite={minJeNacht != null ? Math.min(100, 100 * minJeNacht / 12) : 0}
             farbe={min === 'gut' ? 'bg-emerald-600' : min === 'mittel' ? 'bg-amber-500' : 'bg-red-600'}
             label={`Raum-Stunden unter Min: ${n(s.h_unter_min)} in ${tageMin} Nächten, Ziel 0`}
-            hinweis="Die Grenze, die nie unterschritten werden darf – Sparen darf nicht auf Kosten von Min gehen." />
+            hinweis="Die Grenze, die nie unterschritten werden darf – Sparen darf nicht auf Kosten von Min gehen."
+            erklaerung={<>
+              Raum-Stunden = Stunden, in denen ein Raum nachts unter seinem Min lag, über alle Räume zusammengezählt
+              (zwei Räume je 1 Stunde = 2 Raum-Stunden).
+              {minJeNacht != null && <> In diesem Zeitraum: {n(s.h_unter_min)} Raum-Stunden in {tageMin} {tageMin === 1 ? 'Nacht' : 'Nächten'} = Ø {n(minJeNacht, 1)} je Nacht.</>}
+              {' '}Typische Ursachen: Leistungsgrenze belegt (Raum musste warten), Min zu nah an Normal, Thermostat offline.
+            </>} />
         </div>
       </section>
 
