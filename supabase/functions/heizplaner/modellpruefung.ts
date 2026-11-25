@@ -35,7 +35,9 @@ function auswerten(p: RaumParam, leistungW: number, lern: Fenster[], pruef: Fens
   };
 }
 
-export function modellPruefen(d: Daten, raumId: string, flaecheM2: number | null) {
+// 25.11.2026: Supabase begrenzt die Rechenzeit je Aufruf (WORKER_RESOURCE_LIMIT bei allen Räumen und Varianten auf
+// einmal) – deshalb mit `faktor` je Aufruf nur EINE Variante: 'frei' oder ein Vielfaches der Physik.
+export function modellPruefen(d: Daten, raumId: string, flaecheM2: number | null, faktor?: number | 'frei') {
   const a = aufbereiten(d);
   const raum = d.raeume.find((x: any) => x.id === raumId);
   if (!raum) throw new Error(`Raum ${raumId} unbekannt`);
@@ -46,17 +48,18 @@ export function modellPruefen(d: Daten, raumId: string, flaecheM2: number | null
   const pruef = w12.slice(Math.ceil(w12.length * ANTEIL_LERNEN));
   const pruefHeiz = pruef.filter(w => w.h.slice(0, 48).some(h => h >= 0.5));
   const heizStd = lern.reduce((s, w) => s + w.h.reduce((x, h) => x + h, 0), 0) / 4 / 4;   // grob, Fenster überlappen 4-fach
-  const frei = lerneRaum(lern, null, 0);
-  const gleich = prognoseFehler(frei, pruef, 47).gleich;                        // Vergleich „Temperatur bleibt gleich“
+  const phys = flaecheM2 && flaecheM2 > 0 ? flaecheM2 * WH_JE_M2_GRAD / 1000 : null;   // kWh je °C
   const ergebnis: any = {
     ok: true, raum: raum.name, leistung_w: leistungW, flaeche_m2: flaecheM2, heiz_std_lernen: rund(heizStd, 1),
-    fenster_lernen: lern.length, fenster_pruefen: pruef.length, fehler_12h_gleich: rund(gleich, 3),
-    frei: auswerten(frei, leistungW, lern, pruef, pruefHeiz),
+    fenster_lernen: lern.length, fenster_pruefen: pruef.length, physik_kwh_je_grad: phys != null ? rund(phys, 2) : null,
   };
-  if (flaecheM2 && flaecheM2 > 0) {
-    const phys = flaecheM2 * WH_JE_M2_GRAD / 1000;                                   // kWh je °C
-    ergebnis.physik_kwh_je_grad = rund(phys, 2);
-    ergebnis.fest = FAKTOREN.map(fk => {
+  if (faktor === 'frei' || faktor === undefined) {
+    const frei = lerneRaum(lern, null, 0);
+    ergebnis.fehler_12h_gleich = rund(prognoseFehler(frei, pruef, 47).gleich, 3);   // Vergleich „Temperatur bleibt gleich“
+    ergebnis.frei = auswerten(frei, leistungW, lern, pruef, pruefHeiz);
+  }
+  if (phys != null && faktor !== 'frei') {
+    ergebnis.fest = (faktor === undefined ? FAKTOREN : [faktor]).map(fk => {
       const g = leistungW / (1000 * phys * fk);                                     // °C/h bei voller Leistung
       return { faktor: fk, ...auswerten(lerneRaum(lern, null, 0, 400, { g }), leistungW, lern, pruef, pruefHeiz) };
     });
