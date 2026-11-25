@@ -142,7 +142,9 @@ async function scoreOneDay(dateStr: string): Promise<{ ok: boolean; reason?: str
 
   // 8) Score: 60% Eigenverbrauch + 40% PV-Heizungsanteil; Penalty wenn viel Netzbezug
   const baseScore = (kpi_self_consumption_ratio * 60) + (kpi_pv_heating_coverage * 40);
-  const importPenalty = Math.min(20, kpi_grid_import_kwh * 0.5); // 0.5 Punkte pro kWh, max 20
+  // 25.11.2026: 0,5 → 0,05 Punkte pro kWh (max 20). Netzbezug kommt jetzt richtig (zeitgewichtet, SQL 60);
+  //   vorher war er um Faktor 10 zu klein. 0,05 hält den Score auf derselben Skala wie bisher.
+  const importPenalty = Math.min(20, kpi_grid_import_kwh * 0.05);
   const score = Math.max(0, Math.min(100, baseScore - importPenalty));
 
   // 9) Upsert

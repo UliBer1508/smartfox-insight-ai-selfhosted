@@ -68,15 +68,30 @@ Nicht mehr aktiv:
 
 Der Vertrag liegt als PDF bei Uli. Er enthält Bankverbindung und Geburtsdatum und wird **bewusst nicht** ins Repo gelegt.
 
-**Offen:** Der ÖMAG-Vertrag betrifft nur die 4,2-kWp-Anlage in **316**. Wie und an wen die 15,8-kWp-Anlage in **315** (dieses System) einspeist und zu welchem Preis, ist hier noch nicht dokumentiert.
+### ÖMAG-Zahlungen (Kontoauszug)
+
+| Datum | Referenz | Betrag |
+|---|---|---|
+| 30.10.2026 | 163506: 9359463 | 99,49 € |
+| 30.10.2026 | 190079: 9359614 | 38,02 € |
+
+Zwei Referenzen am selben Tag bedeuten **zwei ÖMAG-Verträge**. Laut Uli (25.11.2026) gilt immer: **die höhere Zahlung ist Haus 315, die niedrigere Haus 316** (hier 99,49 € = 315, 38,02 € = 316).
+
+Die ÖMAG zahlt **monatlich**. Die Zahlung vom 30.10.2026 ist die Gutschrift für **September 2026** (Marktpreis 10,168 ct/kWh):
+- 315: 99,49 € / 10,168 ct ≈ **980 kWh** eingespeist im September
+- 316: 38,02 € / 10,168 ct ≈ **375 kWh** eingespeist im September
+
+Gegenprobe mit den App-Daten: `energie_tag.einspeisung_kwh` passt zur Größenordnung. **`daily_pattern_scores.feed_in_kwh` ist um Faktor 10 zu klein** (September 98,5 kWh statt ~980; Oktober Tag für Tag genau 1/10 von `energie_tag`). Ursache: feste 30-s-Annahme in `get_weekly_energy_summary`, behoben mit SQL 60 (siehe `FIX-TAGESENERGIE-FAKTOR10-2026-11-25.md`).
+
+Marktpreise 2026 laut Forum (inoffiziell, offiziell bei E-Control/OeMAG): Jänner 8,842 · März 5,720 · April–Juni 6,772 · Juli 6,146 · August 8,997 · September 10,168 ct/kWh.
 
 ---
 
 ## 5. Folgen für die Steuerung (Haus 315)
 
-- **Strompreis in „Tarife & Preisverlauf“** (`TariffHistoryPanel`, Quelle der Wahrheit für `electricity_price_cent`): Ab dem Startdatum von Preisfix **11,88 ct/kWh** eintragen statt 20,28 ct. Der bisherige Wert 20,28 ct ist ebenfalls der reine Energiepreis von Privat 24, also bleibt die Rechnung vergleichbar. Noch nicht geändert, erst nach der schriftlichen Bestätigung.
-- **Einspeisetarif** (`feed_in_price_cent`, derzeit Standard 8,0 ct): an den tatsächlichen Wert für 315 anpassen, sobald geklärt ist (siehe 4.).
-- **Wert einer kWh Eigenverbrauch** sinkt von ~27–28 ct auf ~21–22 ct brutto (inkl. Netz) minus Einspeisevergütung. Eigenverbrauch und Estrich als Speicher bleiben klar wirtschaftlich. An der Logik ändert sich nichts, nur der Euro-Wert in Auswertungen.
+- **Strompreis in „Tarife & Preisverlauf“** (`energy_price_history`, Quelle der Wahrheit): Aktueller Eintrag seit 01.01.2026 ist **29,9351 ct/kWh** inkl. Netz/Abgaben und Messentgelt (laut Jahresabrechnung 15.10.2026), Grundgebühr **161,30 €/Jahr**, Einspeisung **6,772 ct**. Mit Preisfix sinkt nur der Energieanteil um 20,28 − 11,88 = **8,40 ct**, also neuer Eintrag ab Startdatum ca. **21,54 ct/kWh** und Grundgebühr ca. **197,30 €/Jahr** (+36 €). Noch nicht geändert, erst nach der schriftlichen Bestätigung.
+- **Einspeisetarif** (`feed_in_price_cent` = 6,772 ct, Stand Mai/Juni): Seit Juli schwankt der ÖMAG-Marktpreis stark (6,1–10,2 ct). Monatlich nachführen oder einen Jahresmittelwert verwenden.
+- **Wert einer kWh Eigenverbrauch** sinkt von ~30 ct auf ~21,5 ct brutto (inkl. Netz) minus Einspeisevergütung, bei 10 ct Marktpreis also ~11,5 ct. Eigenverbrauch und Estrich als Speicher bleiben klar wirtschaftlich. An der Logik ändert sich nichts, nur der Euro-Wert in Auswertungen.
 - **Kein Nachttarif mehr:** Batterie nachts aus dem Netz zu laden oder Heizlast ohne PV in die Nacht zu schieben bringt bis Oktober 2027 nichts.
 - Der Hinweis in `OptimierungView` („enthält Strompreisdeckel und Frei-Tage“) gilt für 315 ab Preisfix nicht mehr (kein Deckel) – bei Gelegenheit anpassen.
 
@@ -103,8 +118,9 @@ Der Vertrag liegt als PDF bei Uli. Er enthält Bankverbindung und Geburtsdatum u
 ## 7. Offene Punkte
 
 - [ ] Schriftliche Bestätigung Preisfix abwarten, Startdatum je Zähler notieren
-- [ ] Danach in „Tarife & Preisverlauf“ für 315 ab Startdatum 11,88 ct eintragen
+- [ ] Danach in „Tarife & Preisverlauf“ für 315 ab Startdatum ~21,54 ct (inkl. Netz) und Grundgebühr ~197,30 € eintragen
 - [ ] Salzburg AG: Ändert sich bei den bisherigen Wärme-Zählern (Wald, 316) der Netztarif?
-- [ ] Einspeisung 315 (15,8 kWp) klären: Abnehmer, Vertrag, Vergütung → `feed_in_price_cent`
+- [ ] Einspeisetarif `feed_in_price_cent` (6,772 ct) monatlich nachführen oder Jahresmittel verwenden
+- [ ] Faktor-10-Fehler: Ursache gefunden und behoben, siehe `FIX-TAGESENERGIE-FAKTOR10-2026-11-25.md` (SQL 60)
 - [ ] **Oktober 2027: WiNAP umsetzen.** Ab 01.10.2027 gilt der Winter-Nieder-Arbeitspreis (Netztarif Okt–März, 23–5 Uhr). Weil Preisfix keinen Nachttarif hat, ist WiNAP dann der einzige Nachtvorteil. Planer/Batterie: Nachtladung und eventuell Heizlast in dieses Fenster legen, wenn tagsüber keine PV erwartet wird.
 - [ ] Vor dem 30.06.2028: Anschluss-Tarif nach Preisfix prüfen
