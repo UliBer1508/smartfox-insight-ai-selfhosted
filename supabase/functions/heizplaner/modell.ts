@@ -160,9 +160,10 @@ const vonParam = (p: RaumParam): number[] => SCHLUESSEL.map(s => {
  * Lernt die Raumparameter aus Simulationsfenstern (24 h). Räume mit wenig Heizdaten werden zu
  * `prior` (Median der gut gemessenen Räume) hingezogen – Gewicht `pw`.
  */
-export function lerneRaum(wins: Fenster[], prior: RaumParam | null, pw: number, iters = 400): RaumParam {
+export function lerneRaum(wins: Fenster[], prior: RaumParam | null, pw: number, iters = 400, fest: Partial<RaumParam> = {}): RaumParam {
+  // fest (25.11.2026, Modellprüfung): einzelne Parameter festhalten, z. B. g aus der Estrich-Speichermenge
   const f = (x: number[]) => {
-    const p = zuParam(x);
+    const p = { ...zuParam(x), ...fest };
     let e = simFehler(p, wins);
     if (p.r * p.u > RU_MAX) e += 10 * (p.r * p.u - RU_MAX);
     if (prior && pw > 0) {
@@ -178,7 +179,7 @@ export function lerneRaum(wins: Fenster[], prior: RaumParam | null, pw: number, 
     const r = nelderMead(f, vonParam(s0), new Array(SCHLUESSEL.length).fill(0.8), iters);
     if (!best || r.v < best.v) best = r;
   }
-  return zuParam(best!.x);
+  return { ...zuParam(best!.x), ...fest };
 }
 
 // ---------------------------------------------------------------- 2. PV-Modell
