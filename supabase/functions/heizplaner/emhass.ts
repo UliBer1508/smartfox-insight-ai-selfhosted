@@ -45,6 +45,26 @@ export function emhassRaumwerte(p: RaumParam): { heating_rate: number; cooling_c
 }
 
 const mittel = (xs: number[]) => xs.reduce((s, v) => s + v, 0) / Math.max(1, xs.length);
+const abrunden = (t: number) => Math.floor(t * 100 + 1e-9) / 100;    // Grenzen nie aufrunden (sonst unlösbar)
+
+/** Höchstes Min je Schritt, das EMHASS sicher einhalten kann – im verschobenen System, Schritt 0 = Start.
+ *  Rechnet EMHASS' eigenes Modell (T[t+1] = T[t] + α·Δt·P[t−L]/Pnenn − γ·Δt·(T[t] − außen[t])) mit Dauerheizen ab
+ *  Schritt 0: In den ersten L Schritten (Verzögerung) kommt noch keine Wärme an, danach volle Leistung. Mehr als
+ *  dieser Verlauf geht nicht; 0,05 °C Abstand, damit Rundung und Ein/Aus-Schritte nicht an die Grenze stoßen.
+ *  Liegt das Ziel-Min darunter, bleibt es unverändert. */
+export function erreichbarMin(w: { heating_rate: number; cooling_constant: number; thermal_inertia: number },
+                              start: number, aussen: number[], zielMin: number): number[] {
+  const dt = SCHRITT_MIN / 60, S = aussen.length;
+  const L = Math.max(0, Math.min(Math.floor(w.thermal_inertia / dt + 1e-9), S - 1));
+  const out: number[] = [start];
+  let T = start;
+  for (let t = 0; t < S - 1; t++) {
+    T = T + (t >= L ? w.heating_rate * dt : 0) - w.cooling_constant * dt * (T - aussen[t]);
+    out.push(Math.min(zielMin, T - 0.05));
+  }
+  out[0] = Math.min(zielMin, start);                                  // Schritt 0 ist ohnehin auf den Start festgelegt
+  return out;
+}
 
 /** Eingaben für EMHASS „naive-mpc-optim“ für die Gegenrechnung eines Tages. */
 export function emhassEingabe(d: Daten, tag: string, nichtSteuerbar: Set<string>) {
@@ -72,17 +92,19 @@ export function emhassEingabe(d: Daten, tag: string, nichtSteuerbar: Set<string>
     const wunsch = Array.from({ length: S }, (_, j) => netzGrenzTemp(b.slots[block(j)[0]].netz ?? 'min', min, normal));
     // Obergrenze nie unter der Starttemperatur, sonst hätte EMHASS keine Lösung (der Estrich kühlt langsam aus).
     const oben = Math.max(pvMax, r.T0 + 0.2);
-    const { verschiebung: v, reichweite, ...werte } = emhassRaumwerte(r.param);
-    // Min, das der Raum laut Modell selbst bei Dauerheizen nicht halten kann, würde EMHASS unlösbar machen → auf das
-    // Erreichbare begrenzen (kältester Schritt). Raum schon unter Min: ab Start erreichbar halten.
-    const haltbar = Math.min(...aussen) + v + 0.95 * reichweite;
-    const minEff = Math.min(min, r.T0, haltbar);
+    const { verschiebung: v, reichweite: _reichweite, ...werte } = emhassRaumwerte(r.param);
     const sh = (t: number) => r1(t - v);                              // Temperatur im verschobenen System
+    // 25.11.2026: Min je Schritt auf das begrenzen, was EMHASS mit SEINEM Modell überhaupt erreichen kann (siehe
+    // erreichbarMin). Vorher galt ein fester Wert min(Min, Start, Dauerzustand) – lag der Raum um Mitternacht schon
+    // unter Min (Toilette Eingang 20,9 < 21 °C), kühlte er in der Verzögerungszeit (bis 3 h) unter den Startwert ab,
+    // bevor Heizen wirkt → EMHASS „Infeasible“ (16., 18.–20., 24.11.: genau die Tage mit Toilette Eingang < Min).
+    const minSchritt = erreichbarMin(werte, sh(r.T0), aussen, r1(min - v)).map(t => t + v);
+    const minEff = Math.min(...minSchritt);
     return {
-      id: r.id, name: r.name, p: r.p, min_begrenzt: minEff < Math.min(min, r.T0) ? r1(minEff) : null,
+      id: r.id, name: r.name, p: r.p, min_begrenzt: minEff < min - 0.005 ? r1(minEff) : null,
       thermal_config: {
         ...werte, start_temperature: sh(r.T0), sense: 'heat',
-        min_temperatures: Array(S).fill(sh(minEff)),
+        min_temperatures: minSchritt.map(t => abrunden(t - v)),
         max_temperatures: Array(S).fill(sh(oben)),
         desired_temperatures: wunsch.map(sh), overshoot_temperature: sh(oben),
         // Strafe je °C unter dem Wunsch und Schritt, umgerechnet aus unserem Gewicht (kWh je °C·h) in Euro
