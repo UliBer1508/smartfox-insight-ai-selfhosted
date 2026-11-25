@@ -135,6 +135,40 @@ function useHeizKontext() {
   return { befehle, befund, prognose, halt };
 }
 
+// ---------------------------------------------------------------- Woher kommt der Heizstrom? (25.11.2026)
+// Gleicher Aufbau wie Heizung München (muc_heizstrom_seit): Heute/Woche/Monat/Jahr, aufgeteilt auf Sonne/Akku/Netz.
+// Volle Stunden aus energie_stunde (SQL 59 heizstrom_herkunft, anteilig je Stunde), dazu live der Rest seit der letzten
+// gerechneten Stunde (Heizstrom heute laut raum_heizung_heute minus schon gerechnet), aufgeteilt wie die Quellen jetzt.
+type Zeitraum = 'heute' | 'woche' | 'monat' | 'jahr';
+const ZEITRAEUME: [Zeitraum, string][] = [['heute', 'Heute'], ['woche', 'Woche'], ['monat', 'Monat'], ['jahr', 'Jahr']];
+type Herkunft = { von?: string; tage?: number; heat_kwh: number; heat_pv_kwh: number; heat_bat_kwh: number; heat_grid_kwh: number; heute_kwh?: number };
+function zrBeginn(z: Zeitraum): string {
+  const t = new Date().toLocaleDateString('sv-SE', { timeZone: TZ });
+  if (z === 'heute') return t;
+  if (z === 'monat') return `${t.slice(0, 8)}01`;
+  if (z === 'jahr') return `${t.slice(0, 5)}01-01`;
+  const d = new Date(`${t}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+}
+const dmy = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.`;
+function useHerkunft(z: Zeitraum) {
+  const von = zrBeginn(z);
+  const [k, setK] = useState<Herkunft | null | { fehler: string }>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = async () => {
+      const { data, error } = await db.rpc('heizstrom_herkunft', { p_von: von });
+      if (alive) setK(error ? { fehler: error.message } : (data as Herkunft));
+    };
+    setK(null);
+    load();
+    const id = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 10 * 60_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [von]);
+  return { von, k };
+}
+
 export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settings, dayRooms }: {
   rooms: Room[]; reading: EnergyReading | null; night: boolean; heute: Map<string, RaumHeute>; grundlast: number | null;
   settings: HeatingSettings; dayRooms: Map<string, DayModeRoom>;
@@ -156,6 +190,32 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
   if (battW != null && battW > 100) nebenbei.push(`Batterie gibt ${fmtKW(battW)} ab`);
   const autoText = autoW == null ? 'Auto unbekannt (keine Wallbox-Daten)' : autoW > 100 ? 'Auto lädt, ist schon abgezogen' : 'Auto lädt nicht';
   const kwhHeute = [...heute.values()].reduce((s, r) => s + (r.kwh || 0), 0);
+
+  // Woher kommt der Heizstrom? (25.11.2026, wie München)
+  const [zr, setZr] = useState<Zeitraum>('heute');
+  const { von: zrVon, k: hk } = useHerkunft(zr);
+  const hkFehler = hk && 'fehler' in hk ? hk.fehler : null;
+  const hkDaten = hk && !('fehler' in hk) ? hk : null;
+  // Live-Rest seit der letzten gerechneten Stunde, aufgeteilt wie die Quellen jetzt
+  const verbrauchW = Math.max(0, Number(reading?.consumption) || 0);
+  const fNetz = verbrauchW > 0 ? Math.min(1, Math.max(0, Number(reading?.power_io) || 0) / verbrauchW) : 0;
+  const fAkku = verbrauchW > 0 ? Math.min(1 - fNetz, Math.max(0, Number(reading?.battery_power) || 0) / verbrauchW) : 0;
+  const rest = hkDaten ? Math.max(0, kwhHeute - Number(hkDaten.heute_kwh ?? 0)) : 0;
+  const herkunft = hkDaten ? {
+    gesamt: Number(hkDaten.heat_kwh) + rest,
+    sonne: Number(hkDaten.heat_pv_kwh) + rest * (1 - fNetz - fAkku),
+    akku: Number(hkDaten.heat_bat_kwh) + rest * fAkku,
+    netz: Number(hkDaten.heat_grid_kwh) + rest * fNetz,
+  } : null;
+  const zrName = { heute: 'heute', woche: 'diese Woche', monat: 'diesen Monat', jahr: 'dieses Jahr' }[zr];
+  const zrSeit = zr === 'heute' ? 'seit 0:00'
+    : hkDaten?.von ? `seit ${dmy(hkDaten.von)}${hkDaten.von > zrVon ? ` (Daten erst ab ${dmy(hkDaten.von)})` : ''} · ${hkDaten.tage} ${hkDaten.tage === 1 ? 'Tag' : 'Tage'}`
+      : `seit ${dmy(zrVon)}`;
+  const quellen = herkunft ? [
+    { k: 'sonne', label: 'Sonne', v: herkunft.sonne, farbe: '#f5a623' },
+    { k: 'akku', label: 'Akku', v: herkunft.akku, farbe: 'hsl(var(--energy-export))' },
+    { k: 'netz', label: 'Netz', v: herkunft.netz, farbe: 'hsl(var(--energy-import))' },
+  ] : [];
   const gruende = new Map(heizend.map(r => [r.id, grundFuer(r, dayRooms.get(r.id), befehle.get(r.id) ?? [], befund.get(r.id), halt.get(r.id))]));
   const netzW = Math.max(0, Number(reading?.power_io) || 0);   // Fronius: positiv = Bezug
   const tipps = sparHinweise({ heizend, gruende, netzW, night, settings, prognose, befund });
@@ -199,8 +259,41 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
           <span>{hinweis.text}{nebenbei.length > 0 ? ` ${nebenbei.join(' · ')}.` : ''}</span>
         </div>
 
+        <div className="border-t pt-3 space-y-2">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-muted-foreground">Woher kommt der Heizstrom?</div>
+              <div className="text-xl font-bold tabular-nums">
+                {herkunft ? fmtKWh(herkunft.gesamt) : '–'}{' '}
+                <span className="text-xs font-normal text-muted-foreground">{hkFehler ? 'Bitte supabase/SQL/59_heizstrom_herkunft.sql ausführen.' : `${zrName} · ${zrSeit}`}</span>
+              </div>
+            </div>
+            <div className="inline-flex rounded-full bg-muted p-0.5" role="group" aria-label="Zeitraum Heizstrom">
+              {ZEITRAEUME.map(([k, l]) => (
+                <button key={k} type="button" aria-pressed={zr === k} onClick={() => setZr(k)}
+                  className={`rounded-full px-3 py-1 text-xs ${zr === k ? 'bg-background font-semibold shadow-sm' : 'text-muted-foreground'}`}>{l}</button>
+              ))}
+            </div>
+          </div>
+          {herkunft && herkunft.gesamt > 0 && (
+            <>
+              <div className="flex h-3 overflow-hidden rounded-full" role="img"
+                aria-label={quellen.map(q => `${q.label} ${Math.round((100 * q.v) / herkunft.gesamt)} %`).join(', ')}>
+                {quellen.map(q => q.v > 0 ? <span key={q.k} style={{ width: `${(100 * q.v) / herkunft.gesamt}%`, background: q.farbe }} /> : null)}
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                {quellen.map(q => (
+                  <span key={q.k} className="inline-flex items-center gap-1.5">
+                    <i className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: q.farbe }} />{q.label} <strong className="tabular-nums">{fmtKWh(q.v)}</strong>
+                  </span>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
         {heizend.length > 0 && (
-          <ul className="text-sm space-y-1">
+          <ul className="text-sm space-y-1 border-t pt-3">
             {heizend.map(r => {
               const h = heute.get(r.id);
               const g = gruende.get(r.id);
@@ -231,7 +324,8 @@ export function HeatingNowCard({ rooms, reading, night, heute, grundlast, settin
         )}
 
         <div className="text-xs text-muted-foreground border-t pt-2">
-          Heute bisher {fmtKWh(kwhHeute)} Heizstrom (Heizzeit × Raumleistung)
+          Heute bisher {fmtKWh(kwhHeute)} Heizstrom (Heizzeit × gemessene Raumleistung). Herkunft anteilig je Stunde aus Netzbezug,
+          Batterie-Entladung und Sonne{zr !== 'heute' ? '; volle Stunden aus dem gespeicherten Verlauf, die laufende Stunde live' : ''}.
         </div>
       </CardContent>
     </Card>
