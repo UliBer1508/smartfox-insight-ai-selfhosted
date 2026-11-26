@@ -11,7 +11,7 @@ import { applyParameterValue, loadWhitelist } from '@/lib/aiParameters';
 
 export interface KiVorschlag {
   id: string;
-  quelle: 'tagesanalyse' | 'batterie' | 'rueckblick';
+  quelle: 'tagesanalyse' | 'batterie' | 'rueckblick' | 'haiku';
   art: 'vorschlag' | 'ruecknahme' | 'info';
   titel: string;
   was: string | null;
