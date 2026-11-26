@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toast } from 'sonner';
 import { KiVorschlag, useKiVorschlaege } from '@/hooks/useKiVorschlaege';
+import { HaikuSchalter } from './HaikuSchalter';
 
 const fmt = (v: number | null | undefined, einheit: string) => {
   if (v == null) return '–';
@@ -31,7 +32,10 @@ function VorschlagKarte({ v, nummer, onJa, onNein }: {
   return (
     <Card className={rueck ? 'border-amber-300 bg-amber-50/60 dark:bg-amber-950/20' : undefined}>
       <CardContent className="p-5 sm:p-6 space-y-3">
-        <h3 className="text-lg font-semibold leading-snug">{rueck ? v.titel : `${nummer} · ${v.titel}`}</h3>
+        <h3 className="text-lg font-semibold leading-snug">
+          {rueck ? v.titel : `${nummer} · ${v.titel}`}
+          {v.quelle === 'haiku' && <span className="ml-2 align-middle rounded bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-800 dark:bg-violet-950 dark:text-violet-200">Haiku</span>}
+        </h3>
         {v.was && <p className="text-[15px] leading-relaxed"><strong>Was sich ändert:</strong> {v.was}</p>}
         {v.warum && <p className="text-[15px] leading-relaxed"><strong>Warum:</strong> {v.warum}</p>}
         {v.wirkung_text && <p className="text-[15px] leading-relaxed"><strong>Was es bringt – und kostet:</strong> {v.wirkung_text}</p>}
@@ -128,6 +132,8 @@ export function ZuEntscheiden() {
           </CardContent>
         </Card>
       )}
+
+      <HaikuSchalter />
 
       <p className="text-sm text-muted-foreground">
         Was du früher entschieden hast, steht unter Protokoll › Ereignisse. Ein abgelehnter Vorschlag kommt frühestens nach 7 Tagen wieder.

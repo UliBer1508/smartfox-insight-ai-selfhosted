@@ -14,6 +14,7 @@
 //
 // Aufruf: POST (ohne Body) · Test: POST ?tag=2026-11-03 (wertet diesen Tag als „gestern“ aus)
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.0';
+import { haikuPruefung } from './haiku.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -99,7 +100,7 @@ Deno.serve(async (req) => {
         .gte('tag', addDays(gestern, -30)).lte('tag', gestern),
       sb.from('ai_parameter_whitelist').select('parameter_key, scope, min_value, max_value, autonomy_level').eq('enabled', true),
       sb.from('heating_settings').select('max_grid_heating_power_w, nacht_frueh_aus, nacht_frueh_aus_seit').limit(1).maybeSingle(),
-      sb.from('rooms').select('id, name, eco_temp, comfort_temp, wait_min_temp, automation_enabled'),
+      sb.from('rooms').select('id, name, eco_temp, comfort_temp, wait_min_temp, heating_power_w, automation_enabled'),
       sb.from('ki_vorschlaege').select('*').gte('created_at', new Date(Date.now() - 60 * 86400000).toISOString()),
       sb.from('energie_tag').select('tag, heizung_kwh, stunden').gte('tag', addDays(gestern, -60)).lte('tag', gestern),
     ]);
@@ -435,6 +436,14 @@ Deno.serve(async (req) => {
       if (error) throw new Error(`ki_vorschlaege insert: ${error.message}`);
     }
 
+    // ---- Haiku-Prüfer (26.11.2026, doc/KONZEPT-KI-HAIKU-2026-11-26.md) ------------------------------
+    // Nach den Regeln, nur wenn system_settings.ki_haiku.aktiv = true. Fehler stoppen die Tagesanalyse nicht.
+    const haikuZeile = await haikuPruefung(sb, {
+      gestern, tage: tagInfos, naechte: naechte.filter((x) => String(x.tag) >= addDays(gestern, -6)),
+      rooms: (rooms ?? []) as any[], whitelist: wl, hs, regelVorschlaege: vorschlaege, regelInfos: infoAuswahl,
+      vorhanden, sperre,
+    });
+
     // ---- Rückblick auf gestern ------------------------------------------------------------------------
     const g = tagInfos.find((t) => t.tag === gestern);
     const b = tb.get(gestern);
@@ -464,6 +473,7 @@ Deno.serve(async (req) => {
     }
     teile.push(vorschlaege.length ? `Dazu habe ich ${vorschlaege.length === 1 ? 'einen Vorschlag' : `${vorschlaege.length} Vorschläge`}.`
       : offenGesamt ? 'Neue Vorschläge gibt es heute keine.' : 'Es gibt nichts zu entscheiden.');
+    if (haikuZeile) teile.push(haikuZeile);
     const text = teile.join(' ');
     await sb.from('ki_tagespaket').upsert({
       tag: gestern, text, note: g?.note ?? null, vorschlaege: vorschlaege.length, erstellt_at: new Date().toISOString(),
